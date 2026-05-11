@@ -171,41 +171,20 @@ def cmd_ascend_msprof(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_cuda_nsys(args: argparse.Namespace) -> int:
-    workload = strip_separator(args.workload)
-    if not workload:
-        raise SystemExit("cuda-nsys requires a workload command after --")
-    if shutil.which("nsys") is None and not args.dry_run:
-        raise SystemExit("nsys was not found in PATH. Install or activate Nsight Systems first.")
+def cmd_paper_patch006(args: argparse.Namespace) -> int:
+    from reproduce.paper_patch006 import run_paper_patch006
 
-    run_dir = ensure_dir((args.out_root / args.name).resolve())
-    profile_dir = ensure_dir((args.profile_dir or (run_dir / "nsys")).resolve())
-    output_prefix = profile_dir / "profile"
-    nsys_command = [
-        "nsys",
-        "profile",
-        "-o",
-        str(output_prefix),
-        *args.nsys_arg,
-        *workload,
-    ]
-
-    commands = [run_command(nsys_command, cwd=PROJECT_ROOT, dry_run=args.dry_run)]
-    status = "dry_run" if args.dry_run else "profile_collected_analysis_planned"
-    write_manifest(
-        run_dir,
-        name=args.name,
-        backend="cuda_nsys",
-        status=status,
-        commands=commands,
-        artifacts={
-            "profile_dir": str(profile_dir),
-            "nsys_output_prefix": str(output_prefix),
-            "manifest": str(run_dir / "reproduce_manifest.json"),
-        },
-        notes=["CUDA/Nsight analysis is a target adapter; current end-to-end analysis supports Ascend/CANN msprof."],
+    run_paper_patch006(
+        source_root=args.source_root.resolve(),
+        out_root=args.out_root.resolve(),
+        mode=args.mode,
+        baseline_run_dir=args.baseline_run_dir.resolve() if args.baseline_run_dir else None,
+        patch006_run_dir=args.patch006_run_dir.resolve() if args.patch006_run_dir else None,
+        top_devices_global=args.top_devices_global,
+        max_main_events_per_device=args.max_main_events_per_device,
+        max_macro_defs=args.max_macro_defs,
+        dry_run=args.dry_run,
     )
-    print(f"Nsight artifacts: {profile_dir}")
     return 0
 
 
@@ -234,13 +213,18 @@ def build_parser() -> argparse.ArgumentParser:
     ascend.add_argument("workload", nargs=argparse.REMAINDER, help="Workload command after --")
     ascend.set_defaults(func=cmd_ascend_msprof)
 
-    cuda = subparsers.add_parser("cuda-nsys", help="Run Nsight Systems on a workload and write a reproduction manifest.")
-    cuda.add_argument("--name", default="cuda_reference")
-    cuda.add_argument("--profile-dir", type=Path, default=None)
-    cuda.add_argument("--nsys-arg", action="append", default=[], help="Extra raw argument passed to nsys profile.")
-    cuda.add_argument("--dry-run", action="store_true")
-    cuda.add_argument("workload", nargs=argparse.REMAINDER, help="Workload command after --")
-    cuda.set_defaults(func=cmd_cuda_nsys)
+    paper = subparsers.add_parser("paper-patch006", help="Reproduce the CANN Patch006 paper tables.")
+    paper.add_argument(
+        "--source-root",
+        type=Path,
+        default=PROJECT_ROOT.parent / "template-of-thesis" / "experiments-data" / "run_20260507_npu3456",
+        help="Patch006 experiment bundle root.",
+    )
+    paper.add_argument("--mode", choices=("bundle", "bundle-recomputed", "raw-analysis"), default="bundle")
+    paper.add_argument("--baseline-run-dir", type=Path, default=None)
+    paper.add_argument("--patch006-run-dir", type=Path, default=None)
+    add_common_analyzer_args(paper)
+    paper.set_defaults(func=cmd_paper_patch006)
 
     return parser
 

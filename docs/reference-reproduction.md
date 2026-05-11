@@ -6,12 +6,42 @@ pre-collected profile databases.
 
 ## Requirements
 
-- A multi-card CUDA or Ascend machine, depending on the reproduced experiment.
-- The user's existing CUDA/Nsight or Ascend/CANN software stack.
+- A single-node multi-card Ascend machine for the current Patch006 experiment.
+- The user's existing Ascend/CANN software stack.
 - Python 3.10 or newer for TraceLoom.
 - Workload dependencies installed by the user in their normal environment.
 
 ## Ascend/CANN Recipe
+
+Reproduce the thesis Patch006 evidence tables from the checked experiment
+bundle:
+
+```bash
+python3 reproduce/run_reference.py paper-patch006
+```
+
+The default `bundle` mode emits the paper-facing table stored in the experiment
+bundle. To recompute that bundle with the current TraceLoom taxonomy:
+
+```bash
+python3 reproduce/run_reference.py paper-patch006 --mode bundle-recomputed
+```
+
+If local raw `msprof` DBs are available under `../analyzer/out`, rerun TraceLoom
+on the raw profiles:
+
+```bash
+python3 reproduce/run_reference.py paper-patch006 --mode raw-analysis
+```
+
+For an external Ascend host, fill in the device set and workload paths:
+
+```bash
+cp reproduce/cann_patch006/env.example reproduce/cann_patch006/local.env
+$EDITOR reproduce/cann_patch006/local.env
+bash reproduce/cann_patch006/run_ab_benchmark.sh --env-file reproduce/cann_patch006/local.env
+bash reproduce/cann_patch006/run_profile_pair.sh --env-file reproduce/cann_patch006/local.env
+```
 
 Analyze an existing profile:
 
@@ -34,23 +64,13 @@ Outputs are written under `out/reproduce/<name>/analysis/`. The raw msprof
 profile is written under `out/reproduce/<name>/msprof_raw/` when the script
 collects the profile itself.
 
-## CUDA/Nsight Recipe
-
-CUDA support is part of the target public interface. The intended recipe is:
-
-```bash
-python3 reproduce/run_reference.py cuda-nsys \
-  --name cuda_reference \
-  -- \
-  torchrun --nproc_per_node=2 examples/workloads/pytorch_ddp_matmul/train.py
-```
-
-This currently collects the profile and writes a manifest. Full CUDA/Nsight
-analysis is enabled after the Nsight adapter is implemented.
-
 ## Reproduction Contract
 
 The goal is structural and metric reproduction, not byte-identical profile
 files. Acceptable differences include hardware SKU, driver/runtime version,
 clocking, placement, and workload scale, provided the same loop structure and
 reported bottleneck categories are recovered.
+
+TraceLoom does not ship an Ascend hardware/software stack. The reproduction
+contract assumes the reviewer already has a working Ascend/CANN multi-card host
+and only needs to provide the device set, model path, and vLLM-Ascend checkout.

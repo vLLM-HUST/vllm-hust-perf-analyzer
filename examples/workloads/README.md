@@ -6,3 +6,6 @@ profilers without becoming a runtime framework.
 The open-source repository should keep only source code and commands here.
 Generated profiles belong in ignored `runs/`, `out/`, or external artifact
 storage.
+
+- `vllm_ascend_smoke.py`: parameterized vLLM/vLLM-Ascend decode workload used
+  by the CANN Patch006 reproduction scripts.

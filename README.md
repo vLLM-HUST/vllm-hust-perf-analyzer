@@ -7,8 +7,9 @@ semantic loop and communication structure, then emit tables, reports, and
 Perfetto-compatible augmented timelines.
 
 TraceLoom is intentionally not a runtime platform. It does not ship a Docker
-environment, install accelerator drivers, or own workload launch in production.
-It analyzes profiler output after the workload has run.
+environment, install accelerator drivers, provide an Ascend hardware stack, or
+own workload launch in production. It analyzes profiler output after the
+workload has run.
 
 ## Status
 
@@ -77,14 +78,19 @@ See [docs/output-schema.md](docs/output-schema.md) for the current contract.
 
 The repository should not commit large profile databases. Reviewers reproduce
 paper results by running the documented reference workload and profiler command
-on their own multi-card CUDA or Ascend machine, then running TraceLoom on the
-resulting profile directory.
+on their own multi-card Ascend/CANN machine, then running TraceLoom on the
+resulting profile directory. The user-facing contract is lightweight: fill in
+the device set, model path, and vLLM-Ascend checkout in
+`reproduce/cann_patch006/local.env`.
 
 Generated reproduction outputs are written under ignored `out/reproduce/` by
 default:
 
 ```bash
+python3 reproduce/run_reference.py paper-patch006
 python3 reproduce/run_reference.py analyze-msprof /path/to/msprof_or_run_dir --name reviewer_msprof
+bash reproduce/cann_patch006/run_ab_benchmark.sh --env-file reproduce/cann_patch006/local.env
+bash reproduce/cann_patch006/run_profile_pair.sh --env-file reproduce/cann_patch006/local.env
 ```
 
 After installation, the same entry point is available as `traceloom-reproduce`.

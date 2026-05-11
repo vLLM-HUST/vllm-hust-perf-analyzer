@@ -12,6 +12,47 @@ That directory is ignored by git.
 After `python3 -m pip install -e .`, the same script is available as
 `traceloom-reproduce`.
 
+## Reproduce Thesis Patch006 Tables
+
+The current thesis experiment is CANN-only. To regenerate the paper-facing
+Patch006 macro/micro comparison tables from the checked experiment bundle:
+
+```bash
+python3 reproduce/run_reference.py paper-patch006
+```
+
+Artifacts are written to:
+
+```text
+out/reproduce/paper_patch006/
+```
+
+This deterministic mode consumes the archived experiment bundle under
+`../template-of-thesis/experiments-data/run_20260507_npu3456`. It reproduces the
+paper table values stored with that bundle.
+
+To recompute the checked bundle with the current TraceLoom taxonomy:
+
+```bash
+python3 reproduce/run_reference.py paper-patch006 --mode bundle-recomputed
+```
+
+If local raw `msprof` DBs are available under `../analyzer/out`, rerun the
+TraceLoom analysis first and then regenerate the tables:
+
+```bash
+python3 reproduce/run_reference.py paper-patch006 --mode raw-analysis
+```
+
+For a fresh Ascend host, copy and fill the CANN recipe environment first:
+
+```bash
+cp reproduce/cann_patch006/env.example reproduce/cann_patch006/local.env
+$EDITOR reproduce/cann_patch006/local.env
+bash reproduce/cann_patch006/run_ab_benchmark.sh --env-file reproduce/cann_patch006/local.env
+bash reproduce/cann_patch006/run_profile_pair.sh --env-file reproduce/cann_patch006/local.env
+```
+
 ## Analyze An Existing Ascend/CANN Profile
 
 ```bash
@@ -49,20 +90,6 @@ python3 reproduce/run_reference.py ascend-msprof \
   -- \
   python3 /path/to/workload.py
 ```
-
-## CUDA/Nsight Profile Collection
-
-CUDA/Nsight analysis is still a planned adapter. The script can collect a native
-Nsight profile and write a manifest now:
-
-```bash
-python3 reproduce/run_reference.py cuda-nsys \
-  --name cuda_reference \
-  -- \
-  torchrun --nproc_per_node=2 examples/workloads/pytorch_ddp_matmul/train.py
-```
-
-The generated manifest records that CUDA analysis is not complete yet.
 
 ## Dry Run
 

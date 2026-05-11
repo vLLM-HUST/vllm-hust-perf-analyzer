@@ -1,0 +1,4 @@
+include README.md LICENSE
+recursive-include docs *
+recursive-include examples *
+recursive-include reproduce/cann_patch006 *

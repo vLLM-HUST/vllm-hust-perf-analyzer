@@ -1,0 +1,75 @@
+diff --git a/vllm_ascend/ops/linear_op.py b/vllm_ascend/ops/linear_op.py
+index 7f8982cd..76d9f6a8 100644
+--- a/vllm_ascend/ops/linear_op.py
++++ b/vllm_ascend/ops/linear_op.py
+@@ -219,6 +219,19 @@ class OProjRowParallelOp(CustomRowParallelOp):
+ 
+     def __init__(self, layer):
+         super().__init__(layer)
++        self._a2a_recv_buf: Optional[torch.Tensor] = None
++
++    def _get_a2a_recv_buf(self, numel: int, ref_tensor: torch.Tensor) -> torch.Tensor:
++        # Reuse communication receive buffer across iterations to reduce
++        # per-iteration device allocation overhead on the all-to-all path.
++        buf = self._a2a_recv_buf
++        if (buf is None or buf.numel() < numel or buf.dtype != ref_tensor.dtype
++                or buf.device != ref_tensor.device):
++            buf = torch.empty(numel,
++                              dtype=ref_tensor.dtype,
++                              device=ref_tensor.device)
++            self._a2a_recv_buf = buf
++        return buf[:numel]
+ 
+     @property
+     def comm_group(self):
+@@ -247,10 +260,8 @@ class OProjRowParallelOp(CustomRowParallelOp):
+                                            self.tp_size, chunk_size).transpose(
+                                                0, 1).contiguous().view(-1))
+ 
+-        # Create receive buffer
+-        recv_buf = torch.empty(total_batch_size * chunk_size,
+-                               dtype=input_parallel.dtype,
+-                               device=input_parallel.device)
++        recv_buf = self._get_a2a_recv_buf(total_batch_size * chunk_size,
++                                         input_parallel)
+ 
+         # Perform all-to-all communication
+         dist.all_to_all_single(recv_buf,
+@@ -283,6 +294,7 @@ class Flashcomm2OProjRowParallelOp(CustomRowParallelOp):
+ 
+     def __init__(self, layer):
+         super().__init__(layer)
++        self._otp_recv_buf: Optional[torch.Tensor] = None
+         self.odp_group = get_flashcomm2_odp_group()
+         self.odp_size = self.odp_group.world_size
+         self.reorgnized_batch_ids = get_flashcomm2_reorgnized_batch_ids(
+@@ -306,6 +318,16 @@ class Flashcomm2OProjRowParallelOp(CustomRowParallelOp):
+             return 1
+         return self.comm_group.world_size
+ 
++    def _get_otp_recv_buf(self, numel: int, ref_tensor: torch.Tensor) -> torch.Tensor:
++        buf = self._otp_recv_buf
++        if (buf is None or buf.numel() < numel or buf.dtype != ref_tensor.dtype
++                or buf.device != ref_tensor.device):
++            buf = torch.empty(numel,
++                              dtype=ref_tensor.dtype,
++                              device=ref_tensor.device)
++            self._otp_recv_buf = buf
++        return buf[:numel]
++
+     def apply_impl(
+         self,
+         input_: torch.Tensor,
+@@ -351,10 +373,8 @@ class Flashcomm2OProjRowParallelOp(CustomRowParallelOp):
+             chunk_size = x.size(0) // all2all_tp_size
+             total_intermediate_size = local_intermediate_size * all2all_tp_size
+ 
+-            # Create receive buffer
+-            recv_buf = torch.empty(total_intermediate_size * chunk_size,
+-                                   dtype=x.dtype,
+-                                   device=x.device)
++            recv_buf = self._get_otp_recv_buf(total_intermediate_size * chunk_size,
++                                             x)
+ 
+             # Perform all-to-all communication
+             dist.all_to_all_single(recv_buf,
