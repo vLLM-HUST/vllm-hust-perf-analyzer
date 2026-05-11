@@ -1,0 +1,15 @@
+# Informational recipe. CUDA/Nsight parsing is a target adapter.
+name: cuda_nsys_torchrun
+backend: cuda_nsys
+profile_layout:
+  run_dir: runs/cuda_ddp_matmul
+  raw_profile_dir: runs/cuda_ddp_matmul/nsys
+trace_command:
+  profiler: nsys
+  command: "nsys profile -o runs/cuda_ddp_matmul/nsys/profile torchrun --nproc_per_node=2 examples/workloads/pytorch_ddp_matmul/train.py"
+target_adapter:
+  status: planned
+  normalized_timeline: perfetto_or_chrome_trace
+notes:
+  - Use the user's installed CUDA, NCCL, PyTorch, and Nsight Systems stack.
+  - Do not add Docker as a reproduction requirement.

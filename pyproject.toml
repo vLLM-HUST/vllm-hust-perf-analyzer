@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "traceloom"
+version = "0.1.0"
+description = "Lightweight offline analyzer for accelerator profiler timelines."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+  { name = "TraceLoom contributors" }
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python :: 3",
+  "Topic :: Software Development :: Quality Assurance",
+  "Topic :: System :: Monitoring",
+]
+dependencies = []
+
+[project.scripts]
+traceloom = "traceloom.compute_prelude_timeline:main"
+traceloom-score-view = "traceloom.score_view:main"
+
+[tool.setuptools]
+package-dir = { "" = "." }
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["traceloom*"]
