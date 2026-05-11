@@ -80,7 +80,20 @@ paper results by running the documented reference workload and profiler command
 on their own multi-card CUDA or Ascend machine, then running TraceLoom on the
 resulting profile directory.
 
+Generated reproduction outputs are written under ignored `out/reproduce/` by
+default:
+
+```bash
+python3 reproduce/run_reference.py analyze-msprof /path/to/msprof_or_run_dir --name reviewer_msprof
+```
+
+After installation, the same entry point is available as `traceloom-reproduce`.
+
 See [docs/reference-reproduction.md](docs/reference-reproduction.md).
+
+## License
+
+TraceLoom is released under the MIT License. See [LICENSE](LICENSE).
 
 ## Roadmap
 
@@ -94,7 +107,6 @@ See [docs/augmented-perfetto-timeline.md](docs/augmented-perfetto-timeline.md).
 
 Before publishing this subrepository independently:
 
-- choose and add the final open-source license;
 - add small synthetic fixtures and CLI smoke tests;
 - freeze the output schema version;
 - move large profiles and benchmark logs to external artifact storage;

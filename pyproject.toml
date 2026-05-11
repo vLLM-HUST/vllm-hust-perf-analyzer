@@ -11,10 +11,12 @@ requires-python = ">=3.10"
 authors = [
   { name = "TraceLoom contributors" }
 ]
+license = { file = "LICENSE" }
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
   "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3",
   "Topic :: Software Development :: Quality Assurance",
   "Topic :: System :: Monitoring",
@@ -24,10 +26,11 @@ dependencies = []
 [project.scripts]
 traceloom = "traceloom.compute_prelude_timeline:main"
 traceloom-score-view = "traceloom.score_view:main"
+traceloom-reproduce = "reproduce.run_reference:main"
 
 [tool.setuptools]
 package-dir = { "" = "." }
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["traceloom*"]
+include = ["traceloom*", "reproduce*"]

@@ -13,26 +13,40 @@ pre-collected profile databases.
 
 ## Ascend/CANN Recipe
 
-1. Run the target workload under CANN `msprof`, writing results to an output
-   directory such as `runs/reference_decode/msprof_raw`.
-2. Confirm that the profile contains `PROF_*/msprof_*.db`.
-3. Analyze:
+Analyze an existing profile:
 
 ```bash
-traceloom runs/reference_decode --out-dir out/reference_decode
+python3 reproduce/run_reference.py analyze-msprof \
+  /path/to/run-or-msprof-raw-dir \
+  --name reviewer_msprof
 ```
 
-4. Compare generated tables and readable reports with the paper's expected
-   metrics and loop structure.
+Profile and analyze a workload:
+
+```bash
+python3 reproduce/run_reference.py ascend-msprof \
+  --name ascend_reference \
+  -- \
+  python3 /path/to/workload.py --arg value
+```
+
+Outputs are written under `out/reproduce/<name>/analysis/`. The raw msprof
+profile is written under `out/reproduce/<name>/msprof_raw/` when the script
+collects the profile itself.
 
 ## CUDA/Nsight Recipe
 
 CUDA support is part of the target public interface. The intended recipe is:
 
-1. Launch the reference workload with `torchrun` or the user's native launcher.
-2. Collect a native Nsight Systems profile.
-3. Export the profile to the supported TraceLoom input representation.
-4. Run TraceLoom and compare the generated outputs with the paper tables.
+```bash
+python3 reproduce/run_reference.py cuda-nsys \
+  --name cuda_reference \
+  -- \
+  torchrun --nproc_per_node=2 examples/workloads/pytorch_ddp_matmul/train.py
+```
+
+This currently collects the profile and writes a manifest. Full CUDA/Nsight
+analysis is enabled after the Nsight adapter is implemented.
 
 ## Reproduction Contract
 
