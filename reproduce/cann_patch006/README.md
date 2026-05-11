@@ -17,8 +17,14 @@ At minimum, set:
 - `TRACELOOM_MODEL_PATH`: local model path.
 - `TRACELOOM_VLLM_ASCEND_DIR`: vLLM-Ascend checkout used for the Patch006 A/B test.
 
+If the workload dependencies live in an already-running container, set
+`TRACELOOM_CONTAINER` and `TRACELOOM_CONTAINER_VLLM_ASCEND_DIR` as well. The
+scripts will copy the workload and patch into `/tmp/traceloom_cann_patch006` in
+that container, collect profiles there, then copy generated profiles back to
+`out/reproduce/cann_patch006/` on the host.
+
 Run commands from the `traceloom/` directory after activating the user's normal
-Ascend Python environment.
+Ascend Python environment, or from the host when `TRACELOOM_CONTAINER` is set.
 
 ## Reproduce From Checked Paper Bundle
 

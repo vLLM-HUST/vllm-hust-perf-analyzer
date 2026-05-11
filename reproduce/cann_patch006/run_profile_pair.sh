@@ -27,6 +27,7 @@ source "$SCRIPT_DIR/common.sh"
 tl_load_env "$ENV_FILE"
 tl_configure_ascend_env
 tl_check_host
+tl_prepare_runtime
 tl_build_workload_cmd
 
 OUT_ROOT=$(tl_out_root)
@@ -39,17 +40,48 @@ profile_one() {
   local raw_dir="$run_dir/msprof_raw"
   local report_json="$raw_dir/workload_result.json"
   local log_file="$run_dir/workload.log"
+  local runtime_run_dir="$run_dir"
+  local runtime_raw_dir="$raw_dir"
+  local runtime_report_json="$report_json"
+  local runtime_log_file="$log_file"
+  if tl_in_container; then
+    runtime_run_dir="$(tl_remote_root)/profiles/$tag"
+    runtime_raw_dir="$runtime_run_dir/msprof_raw"
+    runtime_report_json="$runtime_raw_dir/workload_result.json"
+    runtime_log_file="$runtime_run_dir/workload.log"
+  fi
   mkdir -p "$raw_dir"
+  if tl_in_container; then
+    tl_container_exec "rm -rf '$runtime_run_dir' && mkdir -p '$runtime_raw_dir'"
+  fi
 
   tl_apply_patch_state "$state"
-  local workload=("${TL_WORKLOAD_CMD[@]}" --output-json "$report_json")
+  local workload=("${TL_WORKLOAD_CMD[@]}" --output-json "$runtime_report_json")
   local workload_text
-  printf -v workload_text "%q " "${workload[@]}"
+  workload_text="$(tl_runtime_env_prefix) $(tl_shell_join "${workload[@]}")"
 
   read -r -a extra_msprof_args <<< "${TRACELOOM_MSPROF_ARGS:-}"
-  echo "+ msprof --output=$raw_dir --application=$workload_text ${extra_msprof_args[*]:-} > $log_file 2>&1"
+  local application="$workload_text"
+  if tl_in_container; then
+    local wrapper="$runtime_run_dir/profile_workload.sh"
+    tl_container_exec "cat > '$wrapper' <<'EOF'
+#!/usr/bin/env sh
+set -e
+$workload_text
+EOF
+chmod +x '$wrapper'"
+    application="$wrapper"
+  fi
+  echo "+ msprof --output=$runtime_raw_dir --application=$application ${extra_msprof_args[*]:-} > $runtime_log_file 2>&1"
   if ! tl_bool_true "${TRACELOOM_DRY_RUN:-0}"; then
-    msprof "--output=$raw_dir" "--application=$workload_text" "${extra_msprof_args[@]}" >"$log_file" 2>&1
+    if tl_in_container; then
+      tl_container_exec "msprof --output='$runtime_raw_dir' --application='$application' ${TRACELOOM_MSPROF_ARGS:-} > '$runtime_log_file' 2>&1"
+      rm -rf "$run_dir"
+      mkdir -p "$run_dir"
+      docker cp "$TRACELOOM_CONTAINER:$runtime_run_dir/." "$run_dir/"
+    else
+      msprof "--output=$raw_dir" "--application=$workload_text" "${extra_msprof_args[@]}" >"$log_file" 2>&1
+    fi
   fi
 }
 
@@ -61,7 +93,7 @@ paper_args=(
   "$TRACELOOM_PROJECT_ROOT/reproduce/run_reference.py"
   --out-root "$OUT_ROOT"
   paper-patch006
-  --source-root "$OUT_ROOT"
+  --source-root "${TRACELOOM_PATCH006_SOURCE_ROOT:-$TRACELOOM_PROJECT_ROOT/../template-of-thesis/experiments-data/run_20260507_npu3456}"
   --mode raw-analysis
   --baseline-run-dir "$OUT_ROOT/profiles/baseline"
   --patch006-run-dir "$OUT_ROOT/profiles/patch006"

@@ -28,6 +28,22 @@ tl_bool_true() {
   esac
 }
 
+tl_in_container() {
+  [[ -n "${TRACELOOM_CONTAINER:-}" ]]
+}
+
+tl_remote_root() {
+  echo "${TRACELOOM_REMOTE_ROOT:-/tmp/traceloom_cann_patch006}"
+}
+
+tl_container_exec() {
+  docker exec "$TRACELOOM_CONTAINER" sh -lc "$*"
+}
+
+tl_shell_join() {
+  printf "%q " "$@"
+}
+
 tl_run() {
   echo "+ $*"
   if ! tl_bool_true "${TRACELOOM_DRY_RUN:-0}"; then
@@ -60,49 +76,107 @@ tl_check_host() {
   npu-smi info >/dev/null
 }
 
+tl_prepare_runtime() {
+  if ! tl_in_container; then
+    return
+  fi
+  command -v docker >/dev/null 2>&1 || {
+    echo "docker not found but TRACELOOM_CONTAINER is set." >&2
+    exit 2
+  }
+  docker ps --format '{{.Names}}' | grep -Fx "$TRACELOOM_CONTAINER" >/dev/null || {
+    echo "container is not running: $TRACELOOM_CONTAINER" >&2
+    exit 2
+  }
+  local remote_root
+  remote_root=$(tl_remote_root)
+  docker exec "$TRACELOOM_CONTAINER" sh -lc "mkdir -p '$remote_root' '$remote_root/patches' '$remote_root/workloads'"
+  docker cp "$TRACELOOM_PROJECT_ROOT/examples/workloads/vllm_ascend_smoke.py" \
+    "$TRACELOOM_CONTAINER:$remote_root/workloads/vllm_ascend_smoke.py"
+  docker cp "$(tl_patch_file)" "$TRACELOOM_CONTAINER:$remote_root/patches/patch_006.diff"
+}
+
 tl_patch_file() {
   echo "${TRACELOOM_PATCH_FILE:-$TRACELOOM_CANN_SCRIPT_DIR/patch_006.diff}"
 }
 
+tl_runtime_patch_file() {
+  if tl_in_container; then
+    echo "$(tl_remote_root)/patches/patch_006.diff"
+  else
+    tl_patch_file
+  fi
+}
+
+tl_runtime_vllm_ascend_dir() {
+  if tl_in_container; then
+    echo "${TRACELOOM_CONTAINER_VLLM_ASCEND_DIR:-/vllm-workspace/vllm-ascend}"
+  else
+    tl_require TRACELOOM_VLLM_ASCEND_DIR
+    echo "$TRACELOOM_VLLM_ASCEND_DIR"
+  fi
+}
+
 tl_apply_patch_state() {
   local state=$1
-  tl_require TRACELOOM_VLLM_ASCEND_DIR
   local patch_file
-  patch_file=$(tl_patch_file)
+  patch_file=$(tl_runtime_patch_file)
+  local vllm_dir
+  vllm_dir=$(tl_runtime_vllm_ascend_dir)
   if tl_bool_true "${TRACELOOM_DRY_RUN:-0}"; then
-    echo "+ cd $TRACELOOM_VLLM_ASCEND_DIR && apply Patch006 state: $state"
+    echo "+ cd $vllm_dir && apply Patch006 state: $state"
     return
   fi
 
-  cd "$TRACELOOM_VLLM_ASCEND_DIR"
+  local script
   case "$state" in
     baseline)
-      if git apply --reverse --check "$patch_file" >/dev/null 2>&1; then
-        git apply --reverse "$patch_file"
-      fi
+      script="
+        cd '$vllm_dir'
+        if git apply --reverse --check '$patch_file' >/dev/null 2>&1; then
+          git apply --reverse '$patch_file'
+        fi
+        if grep -q '_a2a_recv_buf\\|_otp_recv_buf' vllm_ascend/ops/linear_op.py; then
+          echo 'Patch006 symbols still present after baseline switch' >&2
+          exit 3
+        fi
+      "
       ;;
     patch006)
-      if git apply --check "$patch_file" >/dev/null 2>&1; then
-        git apply "$patch_file"
-      elif git apply --reverse --check "$patch_file" >/dev/null 2>&1; then
-        :
-      else
-        echo "Patch006 cannot be applied or detected in $TRACELOOM_VLLM_ASCEND_DIR" >&2
-        exit 3
-      fi
+      script="
+        cd '$vllm_dir'
+        if git apply --check '$patch_file' >/dev/null 2>&1; then
+          git apply '$patch_file'
+        elif git apply --reverse --check '$patch_file' >/dev/null 2>&1; then
+          :
+        else
+          echo 'Patch006 cannot be applied or detected in $vllm_dir' >&2
+          exit 3
+        fi
+        grep -q '_a2a_recv_buf' vllm_ascend/ops/linear_op.py
+        grep -q '_otp_recv_buf' vllm_ascend/ops/linear_op.py
+      "
       ;;
     *)
       echo "unknown patch state: $state" >&2
       exit 2
       ;;
   esac
-  cd "$TRACELOOM_PROJECT_ROOT"
+  if tl_in_container; then
+    tl_container_exec "$script"
+  else
+    bash -lc "$script"
+  fi
 }
 
 tl_build_workload_cmd() {
   tl_require TRACELOOM_MODEL_PATH
+  local workload_path="$TRACELOOM_PROJECT_ROOT/examples/workloads/vllm_ascend_smoke.py"
+  if tl_in_container; then
+    workload_path="$(tl_remote_root)/workloads/vllm_ascend_smoke.py"
+  fi
   TL_WORKLOAD_CMD=(
-    python3 "$TRACELOOM_PROJECT_ROOT/examples/workloads/vllm_ascend_smoke.py"
+    python3 "$workload_path"
     --model "$TRACELOOM_MODEL_PATH"
     --tp "${TRACELOOM_TP:-4}"
     --pp "${TRACELOOM_PP:-1}"
@@ -120,4 +194,8 @@ tl_build_workload_cmd() {
 
 tl_out_root() {
   echo "${TRACELOOM_OUT_ROOT:-$TRACELOOM_PROJECT_ROOT/out/reproduce/cann_patch006}"
+}
+
+tl_runtime_env_prefix() {
+  echo "ASCEND_RT_VISIBLE_DEVICES=$TRACELOOM_DEVICES ASCEND_VISIBLE_DEVICES=$TRACELOOM_DEVICES NPU_VISIBLE_DEVICES=$TRACELOOM_DEVICES HCCL_OP_EXPANSION_MODE=${HCCL_OP_EXPANSION_MODE:-AIV} VLLM_PLUGINS=ascend"
 }

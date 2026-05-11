@@ -11,6 +11,7 @@ out/
 outputs/
 profiles/
 artifacts/
+reproduce/cann_patch006/local*.env
 *.db
 *.sqlite
 *.sqlite3
