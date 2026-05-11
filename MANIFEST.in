@@ -1,4 +1,4 @@
 include README.md LICENSE
 recursive-include docs *
 recursive-include examples *
-recursive-include reproduce/cann_patch006 *
+recursive-include reproduce/decode_a2a_buffer_reuse *

@@ -8,4 +8,4 @@ Generated profiles belong in ignored `runs/`, `out/`, or external artifact
 storage.
 
 - `vllm_ascend_smoke.py`: parameterized vLLM/vLLM-Ascend decode workload used
-  by the CANN Patch006 reproduction scripts.
+  by the CANN Decode All-to-All Buffer Reuse reproduction scripts.

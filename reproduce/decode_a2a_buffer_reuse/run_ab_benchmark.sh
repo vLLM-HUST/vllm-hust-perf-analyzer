@@ -31,10 +31,10 @@ tl_prepare_runtime
 tl_build_workload_cmd
 
 OUT_ROOT=$(tl_out_root)
-REPORT_DIR="$OUT_ROOT/reports/ab_patch006_aiv"
+REPORT_DIR="$OUT_ROOT/reports/ab_decode_a2a_buffer_reuse_aiv"
 mkdir -p "$REPORT_DIR"
 if tl_in_container; then
-  REMOTE_REPORT_DIR="$(tl_remote_root)/reports/ab_patch006_aiv"
+  REMOTE_REPORT_DIR="$(tl_remote_root)/reports/ab_decode_a2a_buffer_reuse_aiv"
   tl_container_exec "rm -rf '$REMOTE_REPORT_DIR' && mkdir -p '$REMOTE_REPORT_DIR'"
 fi
 
@@ -71,11 +71,11 @@ run_one() {
 }
 
 run_one baseline warmup_baseline
-run_one patch006 warmup_patch006
+run_one optimized warmup_optimized
 
 for pair in $(seq 1 "${TRACELOOM_AB_PAIRS:-5}"); do
   run_one baseline "baseline_pair${pair}"
-  run_one patch006 "patch006_pair${pair}"
+  run_one optimized "optimized_pair${pair}"
 done
 
 tl_apply_patch_state baseline

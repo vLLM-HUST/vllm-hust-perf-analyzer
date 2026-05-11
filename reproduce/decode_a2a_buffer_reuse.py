@@ -1,4 +1,4 @@
-"""Reproduce Patch006 paper-facing CANN experiment tables."""
+"""Reproduce Decode All-to-All Buffer Reuse paper-facing CANN experiment tables."""
 
 from __future__ import annotations
 
@@ -14,8 +14,8 @@ from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUT_ROOT = PROJECT_ROOT / "out" / "reproduce"
-DEFAULT_BASELINE_TAG = "thesis_20260507_npu3467_baseline_no_patch_aiv_profile"
-DEFAULT_PATCH_TAG = "thesis_20260507_npu3467_patch006_aiv_profile"
+DEFAULT_BASELINE_TAG = "thesis_20260507_npu3467_baseline_aiv_profile"
+DEFAULT_OPTIMIZED_TAG = "thesis_20260507_npu3467_optimized_aiv_profile"
 
 
 def read_json(path: Path) -> Any:
@@ -57,10 +57,10 @@ def paper_expected_rows(expected_csv: Path) -> list[dict[str, Any]]:
     for row in read_csv_rows(expected_csv):
         rows.append(
             {
-                "metric": row["metric"].replace("analyzer_new.", "traceloom."),
+                "metric": row["metric"],
                 "unit": row["unit"],
                 "baseline": float(row["baseline"]),
-                "patch006": float(row["patch006"]),
+                "optimized": float(row["optimized"]),
                 "delta_pct": "" if row.get("delta_pct", "") == "" else float(row["delta_pct"]),
             }
         )
@@ -75,13 +75,13 @@ def pct(new: float, old: float) -> float:
     return (new - old) / old * 100.0
 
 
-def metric_pair(name: str, unit: str, baseline: float, patch006: float) -> dict[str, Any]:
+def metric_pair(name: str, unit: str, baseline: float, optimized: float) -> dict[str, Any]:
     return {
         "metric": name,
         "unit": unit,
         "baseline": baseline,
-        "patch006": patch006,
-        "delta_pct": pct(patch006, baseline),
+        "optimized": optimized,
+        "delta_pct": pct(optimized, baseline),
     }
 
 
@@ -122,44 +122,44 @@ def load_ab_runs(reports: Path, prefix: str) -> list[dict[str, Any]]:
 
 def summarize_macro_ab(reports: Path) -> dict[str, Any]:
     baseline = load_ab_runs(reports, "baseline")
-    patch006 = load_ab_runs(reports, "patch006")
-    if not baseline or not patch006:
-        raise FileNotFoundError(f"missing valid baseline/patch006 A/B reports in {reports}")
+    optimized = load_ab_runs(reports, "optimized")
+    if not baseline or not optimized:
+        raise FileNotFoundError(f"missing valid baseline/optimized A/B reports in {reports}")
 
     by_pair: dict[str, dict[str, Any]] = {}
     for row in baseline:
         pair = row["file"].removeprefix("baseline_pair").removesuffix(".json")
         by_pair.setdefault(pair, {})["baseline"] = row
-    for row in patch006:
-        pair = row["file"].removeprefix("patch006_pair").removesuffix(".json")
-        by_pair.setdefault(pair, {})["patch006"] = row
+    for row in optimized:
+        pair = row["file"].removeprefix("optimized_pair").removesuffix(".json")
+        by_pair.setdefault(pair, {})["optimized"] = row
 
     paired: list[dict[str, Any]] = []
     for pair, vals in sorted(by_pair.items(), key=lambda kv: int(kv[0])):
-        if "baseline" not in vals or "patch006" not in vals:
+        if "baseline" not in vals or "optimized" not in vals:
             continue
         b = float(vals["baseline"]["throughput_rps"])
-        p = float(vals["patch006"]["throughput_rps"])
-        paired.append({"pair": int(pair), "baseline": b, "patch006": p, "delta_pct": pct(p, b)})
+        p = float(vals["optimized"]["throughput_rps"])
+        paired.append({"pair": int(pair), "baseline": b, "optimized": p, "delta_pct": pct(p, b)})
 
     b_values = [float(row["throughput_rps"]) for row in baseline]
-    p_values = [float(row["throughput_rps"]) for row in patch006]
+    p_values = [float(row["throughput_rps"]) for row in optimized]
     b_mean = statistics.mean(b_values)
     p_mean = statistics.mean(p_values)
     return {
         "protocol": {
-            "scope": "Patch006 under HCCL_OP_EXPANSION_MODE=AIV",
+            "scope": "Decode All-to-All Buffer Reuse under HCCL_OP_EXPANSION_MODE=AIV",
             "pairs": len(paired),
-            "warmups_discarded": ["warmup_baseline", "warmup_patch006"],
+            "warmups_discarded": ["warmup_baseline", "warmup_optimized"],
         },
         "baseline_runs": baseline,
-        "patch006_runs": patch006,
+        "optimized_runs": optimized,
         "baseline_throughput_rps": stats(b_values),
-        "patch006_throughput_rps": stats(p_values),
+        "optimized_throughput_rps": stats(p_values),
         "paired_delta_pct": stats([row["delta_pct"] for row in paired]),
         "comparison": {
             "baseline_mean_rps": b_mean,
-            "patch006_mean_rps": p_mean,
+            "optimized_mean_rps": p_mean,
             "unpaired_delta_pct": pct(p_mean, b_mean),
         },
         "pairs": paired,
@@ -213,33 +213,33 @@ def workload_throughput(profile_dir: Path) -> float:
     return float(data["request_throughput_rps"])
 
 
-def keypath_metrics(baseline_profile: Path, patch006_profile: Path, macro_ab: dict[str, Any]) -> list[dict[str, Any]]:
+def keypath_metrics(baseline_profile: Path, optimized_profile: Path, macro_ab: dict[str, Any]) -> list[dict[str, Any]]:
     b_summary = select_dev6_rank1(baseline_profile)
-    p_summary = select_dev6_rank1(patch006_profile)
+    p_summary = select_dev6_rank1(optimized_profile)
     b_root = root_node(baseline_profile, b_summary)
-    p_root = root_node(patch006_profile, p_summary)
+    p_root = root_node(optimized_profile, p_summary)
     b_repeat = top_repeat(baseline_profile, b_summary)
-    p_repeat = top_repeat(patch006_profile, p_summary)
+    p_repeat = top_repeat(optimized_profile, p_summary)
 
     return [
         metric_pair(
             "macro.mean_request_throughput",
             "requests/s",
             float(macro_ab["comparison"]["baseline_mean_rps"]),
-            float(macro_ab["comparison"]["patch006_mean_rps"]),
+            float(macro_ab["comparison"]["optimized_mean_rps"]),
         ),
         {
             "metric": "macro.paired_delta_mean",
             "unit": "percent",
             "baseline": 0.0,
-            "patch006": float(macro_ab["paired_delta_pct"]["mean"]),
+            "optimized": float(macro_ab["paired_delta_pct"]["mean"]),
             "delta_pct": "",
         },
         metric_pair(
             "profile.workload_request_throughput",
             "requests/s under msprof",
             workload_throughput(baseline_profile),
-            workload_throughput(patch006_profile),
+            workload_throughput(optimized_profile),
         ),
         metric_pair("traceloom.dev6.anchor_root.total_us", "us", as_float(b_root, "total_us"), as_float(p_root, "total_us")),
         metric_pair("traceloom.dev6.anchor_root.compute_us", "us", as_float(b_root, "compute_us"), as_float(p_root, "compute_us")),
@@ -299,9 +299,9 @@ def keypath_metrics(baseline_profile: Path, patch006_profile: Path, macro_ab: di
 
 def write_markdown_summary(path: Path, rows: list[dict[str, Any]]) -> None:
     lines = [
-        "# Patch006 Key Path Comparison",
+        "# Decode All-to-All Buffer Reuse Key Path Comparison",
         "",
-        "| Metric | Unit | Baseline | Patch006 | Delta % |",
+        "| Metric | Unit | Baseline | Decode All-to-All Buffer Reuse | Delta % |",
         "| --- | --- | ---: | ---: | ---: |",
     ]
     for row in rows:
@@ -309,7 +309,7 @@ def write_markdown_summary(path: Path, rows: list[dict[str, Any]]) -> None:
         delta_text = "" if delta == "" else f"{float(delta):.4f}"
         lines.append(
             f"| `{row['metric']}` | {row['unit']} | {float(row['baseline']):.6g} | "
-            f"{float(row['patch006']):.6g} | {delta_text} |"
+            f"{float(row['optimized']):.6g} | {delta_text} |"
         )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -342,13 +342,13 @@ def run_traceloom_analysis(run_dir: Path, out_dir: Path, *, top_devices_global: 
 def validate_against_expected(rows: list[dict[str, Any]], expected_csv: Path) -> dict[str, Any]:
     if not expected_csv.exists():
         return {"status": "skipped", "reason": f"expected CSV missing: {expected_csv}"}
-    expected = {row["metric"].replace("analyzer_new.", "traceloom."): row for row in read_csv_rows(expected_csv)}
+    expected = {row["metric"]: row for row in read_csv_rows(expected_csv)}
     mismatches = []
     for row in rows:
         exp = expected.get(str(row["metric"]))
         if exp is None:
             continue
-        for field in ("baseline", "patch006"):
+        for field in ("baseline", "optimized"):
             actual = float(row[field])
             wanted = float(exp[field])
             if abs(actual - wanted) > max(1e-6, abs(wanted) * 1e-9):
@@ -356,40 +356,40 @@ def validate_against_expected(rows: list[dict[str, Any]], expected_csv: Path) ->
     return {"status": "ok" if not mismatches else "mismatch", "mismatches": mismatches}
 
 
-def run_paper_patch006(
+def run_decode_a2a_buffer_reuse(
     *,
     source_root: Path,
     out_root: Path = DEFAULT_OUT_ROOT,
     mode: str = "bundle",
     baseline_run_dir: Path | None = None,
-    patch006_run_dir: Path | None = None,
+    optimized_run_dir: Path | None = None,
     top_devices_global: int = 1,
     max_main_events_per_device: int = 0,
     max_macro_defs: int = 0,
     dry_run: bool = False,
 ) -> Path:
-    run_dir = out_root / "paper_patch006"
+    run_dir = out_root / "decode_a2a_buffer_reuse"
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    macro_reports = source_root / "reports" / "ab_patch006_aiv"
+    macro_reports = source_root / "reports" / "ab_decode_a2a_buffer_reuse_aiv"
     macro_ab = summarize_macro_ab(macro_reports)
     write_json(run_dir / "macro_ab_summary.json", macro_ab)
 
-    expected_csv = source_root / "profiles" / "patch006_keypath_comparison.csv"
+    expected_csv = source_root / "profiles" / "decode_a2a_buffer_reuse_keypath_comparison.csv"
     if mode == "bundle":
         rows = paper_expected_rows(expected_csv)
         source_kind = "paper_expected_bundle"
     elif mode == "bundle-recomputed":
-        baseline_profile = source_root / "profiles" / "baseline_no_patch_aiv_npu3467"
-        patch006_profile = source_root / "profiles" / "patch006_aiv_npu3467"
-        rows = keypath_metrics(baseline_profile, patch006_profile, macro_ab)
+        baseline_profile = source_root / "profiles" / "baseline_aiv_npu3467"
+        optimized_profile = source_root / "profiles" / "optimized_aiv_npu3467"
+        rows = keypath_metrics(baseline_profile, optimized_profile, macro_ab)
         source_kind = "bundled_analysis_recomputed"
     elif mode == "raw-analysis":
         default_analyzer_out = PROJECT_ROOT.parent / "analyzer" / "out"
         baseline_run = baseline_run_dir or default_analyzer_out / DEFAULT_BASELINE_TAG
-        patch006_run = patch006_run_dir or default_analyzer_out / DEFAULT_PATCH_TAG
+        optimized_run = optimized_run_dir or default_analyzer_out / DEFAULT_OPTIMIZED_TAG
         baseline_profile = run_dir / "baseline_analysis"
-        patch006_profile = run_dir / "patch006_analysis"
+        optimized_profile = run_dir / "optimized_analysis"
         run_traceloom_analysis(
             baseline_run,
             baseline_profile,
@@ -399,8 +399,8 @@ def run_paper_patch006(
             dry_run=dry_run,
         )
         run_traceloom_analysis(
-            patch006_run,
-            patch006_profile,
+            optimized_run,
+            optimized_profile,
             top_devices_global=top_devices_global,
             max_main_events_per_device=max_main_events_per_device,
             max_macro_defs=max_macro_defs,
@@ -414,19 +414,19 @@ def run_paper_patch006(
                     "mode": mode,
                     "source_root": str(source_root),
                     "baseline_run_dir": str(baseline_run),
-                    "patch006_run_dir": str(patch006_run),
+                    "optimized_run_dir": str(optimized_run),
                     "out_dir": str(run_dir),
                 },
             )
             return run_dir
-        rows = keypath_metrics(baseline_profile, patch006_profile, macro_ab)
+        rows = keypath_metrics(baseline_profile, optimized_profile, macro_ab)
         source_kind = "raw_profiles_reanalyzed"
     else:
         raise ValueError(f"unknown mode: {mode}")
 
-    comparison_csv = run_dir / "patch006_keypath_comparison.csv"
+    comparison_csv = run_dir / "decode_a2a_buffer_reuse_keypath_comparison.csv"
     write_csv(comparison_csv, rows)
-    write_markdown_summary(run_dir / "patch006_keypath_comparison.md", rows)
+    write_markdown_summary(run_dir / "decode_a2a_buffer_reuse_keypath_comparison.md", rows)
 
     validation = validate_against_expected(rows, expected_csv)
     summary = {
@@ -436,24 +436,24 @@ def run_paper_patch006(
         "source_root": str(source_root),
         "out_dir": str(run_dir),
         "macro_ab_summary": "macro_ab_summary.json",
-        "keypath_comparison_csv": "patch006_keypath_comparison.csv",
-        "keypath_comparison_md": "patch006_keypath_comparison.md",
+        "keypath_comparison_csv": "decode_a2a_buffer_reuse_keypath_comparison.csv",
+        "keypath_comparison_md": "decode_a2a_buffer_reuse_keypath_comparison.md",
         "validation": validation,
         "notes": [
-            "bundle mode emits the paper-facing table stored with the experiment bundle.",
-            "bundle-recomputed and raw-analysis rerun the current TraceLoom taxonomy and may differ from the historical paper table.",
+            "bundle mode emits the checked paper-facing table stored with the experiment bundle.",
+            "bundle-recomputed and raw-analysis rerun the current TraceLoom taxonomy before comparing with the checked table.",
         ],
     }
-    write_json(run_dir / "paper_patch006_summary.json", summary)
+    write_json(run_dir / "decode_a2a_buffer_reuse_summary.json", summary)
     write_json(run_dir / "reproduce_manifest.json", summary)
-    print(f"Patch006 paper reproduction artifacts: {run_dir}")
+    print(f"Decode All-to-All Buffer Reuse paper reproduction artifacts: {run_dir}")
     return run_dir
 
 
 def main() -> int:
     import argparse
 
-    parser = argparse.ArgumentParser(description="Reproduce Patch006 CANN paper tables.")
+    parser = argparse.ArgumentParser(description="Reproduce Decode All-to-All Buffer Reuse CANN paper tables.")
     parser.add_argument(
         "--source-root",
         type=Path,
@@ -462,18 +462,18 @@ def main() -> int:
     parser.add_argument("--out-root", type=Path, default=DEFAULT_OUT_ROOT)
     parser.add_argument("--mode", choices=("bundle", "bundle-recomputed", "raw-analysis"), default="bundle")
     parser.add_argument("--baseline-run-dir", type=Path, default=None)
-    parser.add_argument("--patch006-run-dir", type=Path, default=None)
+    parser.add_argument("--optimized-run-dir", type=Path, default=None)
     parser.add_argument("--top-devices-global", type=int, default=1)
     parser.add_argument("--max-main-events-per-device", type=int, default=0)
     parser.add_argument("--max-macro-defs", type=int, default=0)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
-    run_paper_patch006(
+    run_decode_a2a_buffer_reuse(
         source_root=args.source_root.resolve(),
         out_root=args.out_root.resolve(),
         mode=args.mode,
         baseline_run_dir=args.baseline_run_dir.resolve() if args.baseline_run_dir else None,
-        patch006_run_dir=args.patch006_run_dir.resolve() if args.patch006_run_dir else None,
+        optimized_run_dir=args.optimized_run_dir.resolve() if args.optimized_run_dir else None,
         top_devices_global=args.top_devices_global,
         max_main_events_per_device=args.max_main_events_per_device,
         max_macro_defs=args.max_macro_defs,

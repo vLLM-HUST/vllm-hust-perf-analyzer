@@ -171,15 +171,15 @@ def cmd_ascend_msprof(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_paper_patch006(args: argparse.Namespace) -> int:
-    from reproduce.paper_patch006 import run_paper_patch006
+def cmd_decode_a2a_buffer_reuse(args: argparse.Namespace) -> int:
+    from reproduce.decode_a2a_buffer_reuse import run_decode_a2a_buffer_reuse
 
-    run_paper_patch006(
+    run_decode_a2a_buffer_reuse(
         source_root=args.source_root.resolve(),
         out_root=args.out_root.resolve(),
         mode=args.mode,
         baseline_run_dir=args.baseline_run_dir.resolve() if args.baseline_run_dir else None,
-        patch006_run_dir=args.patch006_run_dir.resolve() if args.patch006_run_dir else None,
+        optimized_run_dir=args.optimized_run_dir.resolve() if args.optimized_run_dir else None,
         top_devices_global=args.top_devices_global,
         max_main_events_per_device=args.max_main_events_per_device,
         max_macro_defs=args.max_macro_defs,
@@ -213,18 +213,18 @@ def build_parser() -> argparse.ArgumentParser:
     ascend.add_argument("workload", nargs=argparse.REMAINDER, help="Workload command after --")
     ascend.set_defaults(func=cmd_ascend_msprof)
 
-    paper = subparsers.add_parser("paper-patch006", help="Reproduce the CANN Patch006 paper tables.")
+    paper = subparsers.add_parser("decode-a2a-buffer-reuse", help="Reproduce the CANN Decode All-to-All Buffer Reuse paper tables.")
     paper.add_argument(
         "--source-root",
         type=Path,
         default=PROJECT_ROOT.parent / "template-of-thesis" / "experiments-data" / "run_20260507_npu3456",
-        help="Patch006 experiment bundle root.",
+        help="Decode All-to-All Buffer Reuse experiment bundle root.",
     )
     paper.add_argument("--mode", choices=("bundle", "bundle-recomputed", "raw-analysis"), default="bundle")
     paper.add_argument("--baseline-run-dir", type=Path, default=None)
-    paper.add_argument("--patch006-run-dir", type=Path, default=None)
+    paper.add_argument("--optimized-run-dir", type=Path, default=None)
     add_common_analyzer_args(paper)
-    paper.set_defaults(func=cmd_paper_patch006)
+    paper.set_defaults(func=cmd_decode_a2a_buffer_reuse)
 
     return parser
 

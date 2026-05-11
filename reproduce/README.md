@@ -12,19 +12,19 @@ That directory is ignored by git.
 After `python3 -m pip install -e .`, the same script is available as
 `traceloom-reproduce`.
 
-## Reproduce Thesis Patch006 Tables
+## Reproduce Thesis Decode All-to-All Buffer Reuse Tables
 
 The current thesis experiment is CANN-only. To regenerate the paper-facing
-Patch006 macro/micro comparison tables from the checked experiment bundle:
+Decode All-to-All Buffer Reuse macro/micro comparison tables from the checked experiment bundle:
 
 ```bash
-python3 reproduce/run_reference.py paper-patch006
+python3 reproduce/run_reference.py decode-a2a-buffer-reuse
 ```
 
 Artifacts are written to:
 
 ```text
-out/reproduce/paper_patch006/
+out/reproduce/decode_a2a_buffer_reuse/
 ```
 
 This deterministic mode consumes the archived experiment bundle under
@@ -34,23 +34,23 @@ paper table values stored with that bundle.
 To recompute the checked bundle with the current TraceLoom taxonomy:
 
 ```bash
-python3 reproduce/run_reference.py paper-patch006 --mode bundle-recomputed
+python3 reproduce/run_reference.py decode-a2a-buffer-reuse --mode bundle-recomputed
 ```
 
 If local raw `msprof` DBs are available under `../analyzer/out`, rerun the
 TraceLoom analysis first and then regenerate the tables:
 
 ```bash
-python3 reproduce/run_reference.py paper-patch006 --mode raw-analysis
+python3 reproduce/run_reference.py decode-a2a-buffer-reuse --mode raw-analysis
 ```
 
 For a fresh Ascend host, copy and fill the CANN recipe environment first:
 
 ```bash
-cp reproduce/cann_patch006/env.example reproduce/cann_patch006/local.env
-$EDITOR reproduce/cann_patch006/local.env
-bash reproduce/cann_patch006/run_ab_benchmark.sh --env-file reproduce/cann_patch006/local.env
-bash reproduce/cann_patch006/run_profile_pair.sh --env-file reproduce/cann_patch006/local.env
+cp reproduce/decode_a2a_buffer_reuse/env.example reproduce/decode_a2a_buffer_reuse/local.env
+$EDITOR reproduce/decode_a2a_buffer_reuse/local.env
+bash reproduce/decode_a2a_buffer_reuse/run_ab_benchmark.sh --env-file reproduce/decode_a2a_buffer_reuse/local.env
+bash reproduce/decode_a2a_buffer_reuse/run_profile_pair.sh --env-file reproduce/decode_a2a_buffer_reuse/local.env
 ```
 
 ## Analyze An Existing Ascend/CANN Profile

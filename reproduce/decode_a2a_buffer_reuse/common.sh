@@ -33,7 +33,7 @@ tl_in_container() {
 }
 
 tl_remote_root() {
-  echo "${TRACELOOM_REMOTE_ROOT:-/tmp/traceloom_cann_patch006}"
+  echo "${TRACELOOM_REMOTE_ROOT:-/tmp/traceloom_decode_a2a_buffer_reuse}"
 }
 
 tl_container_exec() {
@@ -93,16 +93,16 @@ tl_prepare_runtime() {
   docker exec "$TRACELOOM_CONTAINER" sh -lc "mkdir -p '$remote_root' '$remote_root/patches' '$remote_root/workloads'"
   docker cp "$TRACELOOM_PROJECT_ROOT/examples/workloads/vllm_ascend_smoke.py" \
     "$TRACELOOM_CONTAINER:$remote_root/workloads/vllm_ascend_smoke.py"
-  docker cp "$(tl_patch_file)" "$TRACELOOM_CONTAINER:$remote_root/patches/patch_006.diff"
+  docker cp "$(tl_patch_file)" "$TRACELOOM_CONTAINER:$remote_root/patches/decode_a2a_buffer_reuse.diff"
 }
 
 tl_patch_file() {
-  echo "${TRACELOOM_PATCH_FILE:-$TRACELOOM_CANN_SCRIPT_DIR/patch_006.diff}"
+  echo "${TRACELOOM_PATCH_FILE:-$TRACELOOM_CANN_SCRIPT_DIR/decode_a2a_buffer_reuse.diff}"
 }
 
 tl_runtime_patch_file() {
   if tl_in_container; then
-    echo "$(tl_remote_root)/patches/patch_006.diff"
+    echo "$(tl_remote_root)/patches/decode_a2a_buffer_reuse.diff"
   else
     tl_patch_file
   fi
@@ -124,7 +124,7 @@ tl_apply_patch_state() {
   local vllm_dir
   vllm_dir=$(tl_runtime_vllm_ascend_dir)
   if tl_bool_true "${TRACELOOM_DRY_RUN:-0}"; then
-    echo "+ cd $vllm_dir && apply Patch006 state: $state"
+    echo "+ cd $vllm_dir && apply Decode All-to-All Buffer Reuse state: $state"
     return
   fi
 
@@ -137,12 +137,12 @@ tl_apply_patch_state() {
           git apply --reverse '$patch_file'
         fi
         if grep -q '_a2a_recv_buf\\|_otp_recv_buf' vllm_ascend/ops/linear_op.py; then
-          echo 'Patch006 symbols still present after baseline switch' >&2
+          echo 'Decode All-to-All Buffer Reuse symbols still present after baseline switch' >&2
           exit 3
         fi
       "
       ;;
-    patch006)
+    optimized)
       script="
         cd '$vllm_dir'
         if git apply --check '$patch_file' >/dev/null 2>&1; then
@@ -150,7 +150,7 @@ tl_apply_patch_state() {
         elif git apply --reverse --check '$patch_file' >/dev/null 2>&1; then
           :
         else
-          echo 'Patch006 cannot be applied or detected in $vllm_dir' >&2
+          echo 'Decode All-to-All Buffer Reuse cannot be applied or detected in $vllm_dir' >&2
           exit 3
         fi
         grep -q '_a2a_recv_buf' vllm_ascend/ops/linear_op.py
@@ -193,7 +193,7 @@ tl_build_workload_cmd() {
 }
 
 tl_out_root() {
-  echo "${TRACELOOM_OUT_ROOT:-$TRACELOOM_PROJECT_ROOT/out/reproduce/cann_patch006}"
+  echo "${TRACELOOM_OUT_ROOT:-$TRACELOOM_PROJECT_ROOT/out/reproduce/decode_a2a_buffer_reuse}"
 }
 
 tl_runtime_env_prefix() {

@@ -86,17 +86,17 @@ chmod +x '$wrapper'"
 }
 
 profile_one baseline baseline
-profile_one patch006 patch006
+profile_one optimized optimized
 tl_apply_patch_state baseline
 
 paper_args=(
   "$TRACELOOM_PROJECT_ROOT/reproduce/run_reference.py"
   --out-root "$OUT_ROOT"
-  paper-patch006
-  --source-root "${TRACELOOM_PATCH006_SOURCE_ROOT:-$TRACELOOM_PROJECT_ROOT/../template-of-thesis/experiments-data/run_20260507_npu3456}"
+  decode-a2a-buffer-reuse
+  --source-root "${TRACELOOM_DECODE_A2A_SOURCE_ROOT:-$TRACELOOM_PROJECT_ROOT/../template-of-thesis/experiments-data/run_20260507_npu3456}"
   --mode raw-analysis
   --baseline-run-dir "$OUT_ROOT/profiles/baseline"
-  --patch006-run-dir "$OUT_ROOT/profiles/patch006"
+  --optimized-run-dir "$OUT_ROOT/profiles/optimized"
 )
 if tl_bool_true "${TRACELOOM_DRY_RUN:-0}"; then
   paper_args+=(--dry-run)
@@ -104,4 +104,4 @@ fi
 tl_run python3 "${paper_args[@]}"
 
 echo "Profile pair: $OUT_ROOT/profiles"
-echo "TraceLoom comparison: $OUT_ROOT/paper_patch006"
+echo "TraceLoom comparison: $OUT_ROOT/decode_a2a_buffer_reuse"

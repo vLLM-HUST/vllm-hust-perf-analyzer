@@ -6,41 +6,41 @@ pre-collected profile databases.
 
 ## Requirements
 
-- A single-node multi-card Ascend machine for the current Patch006 experiment.
+- A single-node multi-card Ascend machine for the current Decode All-to-All Buffer Reuse experiment.
 - The user's existing Ascend/CANN software stack.
 - Python 3.10 or newer for TraceLoom.
 - Workload dependencies installed by the user in their normal environment.
 
 ## Ascend/CANN Recipe
 
-Reproduce the thesis Patch006 evidence tables from the checked experiment
+Reproduce the thesis Decode All-to-All Buffer Reuse evidence tables from the checked experiment
 bundle:
 
 ```bash
-python3 reproduce/run_reference.py paper-patch006
+python3 reproduce/run_reference.py decode-a2a-buffer-reuse
 ```
 
 The default `bundle` mode emits the paper-facing table stored in the experiment
 bundle. To recompute that bundle with the current TraceLoom taxonomy:
 
 ```bash
-python3 reproduce/run_reference.py paper-patch006 --mode bundle-recomputed
+python3 reproduce/run_reference.py decode-a2a-buffer-reuse --mode bundle-recomputed
 ```
 
 If local raw `msprof` DBs are available under `../analyzer/out`, rerun TraceLoom
 on the raw profiles:
 
 ```bash
-python3 reproduce/run_reference.py paper-patch006 --mode raw-analysis
+python3 reproduce/run_reference.py decode-a2a-buffer-reuse --mode raw-analysis
 ```
 
 For an external Ascend host, fill in the device set and workload paths:
 
 ```bash
-cp reproduce/cann_patch006/env.example reproduce/cann_patch006/local.env
-$EDITOR reproduce/cann_patch006/local.env
-bash reproduce/cann_patch006/run_ab_benchmark.sh --env-file reproduce/cann_patch006/local.env
-bash reproduce/cann_patch006/run_profile_pair.sh --env-file reproduce/cann_patch006/local.env
+cp reproduce/decode_a2a_buffer_reuse/env.example reproduce/decode_a2a_buffer_reuse/local.env
+$EDITOR reproduce/decode_a2a_buffer_reuse/local.env
+bash reproduce/decode_a2a_buffer_reuse/run_ab_benchmark.sh --env-file reproduce/decode_a2a_buffer_reuse/local.env
+bash reproduce/decode_a2a_buffer_reuse/run_profile_pair.sh --env-file reproduce/decode_a2a_buffer_reuse/local.env
 ```
 
 Analyze an existing profile:
