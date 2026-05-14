@@ -89,6 +89,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--dtype", default=_env_str("VLLM_SMOKE_DTYPE", default="bfloat16"))
     parser.add_argument("--hf-overrides-json", default=_env_str("VLLM_SMOKE_HF_OVERRIDES_JSON", "SMOKE_HF_OVERRIDES_JSON"))
+    parser.add_argument(
+        "--additional-config-json",
+        default=_env_str("VLLM_SMOKE_ADDITIONAL_CONFIG_JSON", "SMOKE_ADDITIONAL_CONFIG_JSON"),
+        help="JSON object passed to vLLM LLM(..., additional_config=...)",
+    )
     parser.add_argument("--seed", type=int, default=_env_int("VLLM_SMOKE_SEED", default=0))
     parser.add_argument("--output-json", default=_env_str("WORKLOAD_OUTPUT_JSON", "SMOKE_OUTPUT_JSON"))
     parser.add_argument(
@@ -121,10 +126,16 @@ def main() -> int:
     if args.hf_overrides_json:
         hf_overrides = json.loads(args.hf_overrides_json)
 
+    additional_config = None
+    if args.additional_config_json:
+        additional_config = json.loads(args.additional_config_json)
+
     print(f"[workload] model={args.model}")
     print(f"[workload] tp={args.tp} pp={args.pp} dtype={args.dtype}")
     print(f"[workload] rounds={args.rounds} batch_size={args.batch_size} max_tokens={args.max_tokens}")
     print(f"[workload] dispatch_mode={args.dispatch_mode}")
+    if additional_config is not None:
+        print(f"[workload] additional_config={json.dumps(additional_config, sort_keys=True)}")
 
     total_start = time.time()
     init_seconds = 0.0
@@ -142,6 +153,7 @@ def main() -> int:
             max_model_len=args.max_model_len,
             trust_remote_code=args.trust_remote_code,
             hf_overrides=hf_overrides,
+            additional_config=additional_config,
             seed=args.seed,
         )
         init_seconds = time.time() - init_start
@@ -201,6 +213,7 @@ def main() -> int:
             "prompt": args.prompt,
             "trust_remote_code": args.trust_remote_code,
             "hf_overrides": hf_overrides,
+            "additional_config": additional_config,
             "seed": args.seed,
             "total_requests": total_requests,
             "generated_tokens_estimate": generated_tokens_estimate,
@@ -237,6 +250,7 @@ def main() -> int:
             "prompt": args.prompt,
             "trust_remote_code": args.trust_remote_code,
             "hf_overrides": hf_overrides,
+            "additional_config": additional_config,
             "seed": args.seed,
             "error": str(exc),
             "traceback": traceback.format_exc(),
