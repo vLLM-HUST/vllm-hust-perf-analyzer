@@ -80,6 +80,23 @@ def _build_parser() -> argparse.ArgumentParser:
         default=_env_float("VLLM_SMOKE_TEMPERATURE", "SMOKE_TEMPERATURE", default=0.0),
     )
     parser.add_argument(
+        "--min-tokens",
+        type=int,
+        default=_env_int("VLLM_SMOKE_MIN_TOKENS", "SMOKE_MIN_TOKENS", default=0),
+    )
+    parser.add_argument(
+        "--ignore-eos",
+        action="store_true",
+        dest="ignore_eos",
+        help="Continue generation until max_tokens even if EOS is produced.",
+    )
+    parser.add_argument(
+        "--no-ignore-eos",
+        action="store_false",
+        dest="ignore_eos",
+        help="Stop on EOS normally.",
+    )
+    parser.add_argument(
         "--prompt",
         default=_env_str(
             "VLLM_SMOKE_PROMPT",
@@ -109,6 +126,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Disable trust_remote_code for model loading",
     )
     parser.set_defaults(trust_remote_code=_env_bool("VLLM_SMOKE_TRUST_REMOTE_CODE", "SMOKE_TRUST_REMOTE_CODE", default=False))
+    parser.set_defaults(ignore_eos=_env_bool("VLLM_SMOKE_IGNORE_EOS", "SMOKE_IGNORE_EOS", default=False))
     return parser
 
 
@@ -145,20 +163,30 @@ def main() -> int:
         from vllm import LLM, SamplingParams
 
         init_start = time.time()
-        llm = LLM(
-            model=args.model,
-            tensor_parallel_size=args.tp,
-            pipeline_parallel_size=args.pp,
-            dtype=args.dtype,
-            max_model_len=args.max_model_len,
-            trust_remote_code=args.trust_remote_code,
-            hf_overrides=hf_overrides,
-            additional_config=additional_config,
-            seed=args.seed,
-        )
+        llm_kwargs = {
+            "model": args.model,
+            "tensor_parallel_size": args.tp,
+            "pipeline_parallel_size": args.pp,
+            "dtype": args.dtype,
+            "max_model_len": args.max_model_len,
+            "trust_remote_code": args.trust_remote_code,
+            "seed": args.seed,
+        }
+        if hf_overrides is not None:
+            llm_kwargs["hf_overrides"] = hf_overrides
+        if additional_config is not None:
+            llm_kwargs["additional_config"] = additional_config
+
+        llm = LLM(**llm_kwargs)
         init_seconds = time.time() - init_start
 
-        sampling = SamplingParams(max_tokens=args.max_tokens, temperature=args.temperature)
+        sampling = SamplingParams(
+            max_tokens=args.max_tokens,
+            min_tokens=args.min_tokens,
+            temperature=args.temperature,
+            ignore_eos=args.ignore_eos,
+            seed=args.seed,
+        )
 
         round_latencies: list[float] = []
         generated_tokens_estimate = 0
@@ -178,8 +206,9 @@ def main() -> int:
 
             for item in outputs:
                 if item.outputs:
-                    text = item.outputs[0].text or ""
-                    generated_tokens_estimate += len(text.split())
+                    output = item.outputs[0]
+                    token_ids = getattr(output, "token_ids", None)
+                    generated_tokens_estimate += len(token_ids) if token_ids is not None else len((output.text or "").split())
         else:
             for r in range(args.rounds):
                 prompts = [f"{args.prompt}\\n[round={r} request={i}]" for i in range(args.batch_size)]
@@ -192,8 +221,9 @@ def main() -> int:
 
                 for item in outputs:
                     if item.outputs:
-                        text = item.outputs[0].text or ""
-                        generated_tokens_estimate += len(text.split())
+                        output = item.outputs[0]
+                        token_ids = getattr(output, "token_ids", None)
+                        generated_tokens_estimate += len(token_ids) if token_ids is not None else len((output.text or "").split())
 
         generate_seconds = time.time() - gen_start
         total_seconds = time.time() - total_start
@@ -206,6 +236,8 @@ def main() -> int:
             "dtype": args.dtype,
             "max_model_len": args.max_model_len,
             "max_tokens": args.max_tokens,
+            "min_tokens": args.min_tokens,
+            "ignore_eos": args.ignore_eos,
             "batch_size": args.batch_size,
             "rounds": args.rounds,
             "dispatch_mode": args.dispatch_mode,
@@ -243,6 +275,8 @@ def main() -> int:
             "dtype": args.dtype,
             "max_model_len": args.max_model_len,
             "max_tokens": args.max_tokens,
+            "min_tokens": args.min_tokens,
+            "ignore_eos": args.ignore_eos,
             "batch_size": args.batch_size,
             "rounds": args.rounds,
             "dispatch_mode": args.dispatch_mode,

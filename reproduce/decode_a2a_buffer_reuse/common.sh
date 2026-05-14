@@ -182,11 +182,16 @@ tl_build_workload_cmd() {
     --pp "${TRACELOOM_PP:-1}"
     --max-model-len "${TRACELOOM_MAX_MODEL_LEN:-1024}"
     --max-tokens "${TRACELOOM_MAX_TOKENS:-32}"
+    --min-tokens "${TRACELOOM_MIN_TOKENS:-0}"
     --batch-size "${TRACELOOM_BATCH_SIZE:-1}"
     --rounds "${TRACELOOM_ROUNDS:-1}"
     --dispatch-mode "${TRACELOOM_DISPATCH_MODE:-round}"
     --dtype "${TRACELOOM_DTYPE:-bfloat16}"
+    --seed "${TRACELOOM_SEED:-0}"
   )
+  if tl_bool_true "${TRACELOOM_IGNORE_EOS:-0}"; then
+    TL_WORKLOAD_CMD+=(--ignore-eos)
+  fi
   if tl_bool_true "${TRACELOOM_TRUST_REMOTE_CODE:-0}"; then
     TL_WORKLOAD_CMD+=(--trust-remote-code)
   fi
