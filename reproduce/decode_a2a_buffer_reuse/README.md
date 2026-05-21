@@ -55,6 +55,11 @@ Collect one baseline profile and one Decode All-to-All Buffer Reuse profile, the
 bash reproduce/decode_a2a_buffer_reuse/run_profile_pair.sh --env-file reproduce/decode_a2a_buffer_reuse/local.env
 ```
 
+If msprof misses the first visible device after vLLM worker probing, set
+`TRACELOOM_NARROW_WORKER_VISIBLE_DEVICES=1` and
+`TRACELOOM_WORKER_MULTIPROC_METHOD=spawn` in `local.env` before collecting the
+profile pair.
+
 Generated outputs are written under `out/reproduce/decode_a2a_buffer_reuse/`.
 
 ## Dry Run

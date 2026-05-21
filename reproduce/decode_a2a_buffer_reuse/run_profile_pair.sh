@@ -101,7 +101,7 @@ paper_args=(
 if tl_bool_true "${TRACELOOM_DRY_RUN:-0}"; then
   paper_args+=(--dry-run)
 fi
-tl_run python3 "${paper_args[@]}"
+PYTHONPATH="$TRACELOOM_PROJECT_ROOT${PYTHONPATH:+:$PYTHONPATH}" tl_run python3 "${paper_args[@]}"
 
 echo "Profile pair: $OUT_ROOT/profiles"
 echo "TraceLoom comparison: $OUT_ROOT/decode_a2a_buffer_reuse"
