@@ -16,17 +16,16 @@ from typing import Dict, Iterable, List, Sequence, Tuple
 from .io.discover import discover_msprof_dbs
 from .loop_tree import (
     MacroDef,
-    StreamEvent,
     _build_tree_v2,
+    _symbol_name,
+)
+from .msprof_reader import (
+    StreamEvent,
     _canonical_label,
-    _classify_task,
-    _load_comm_connection_ids,
-    _load_global_task_names,
+    _load_device_events,
     _load_string_ids,
     _normalize_task_key,
-    _normalize_task_type,
     _rank_streams_global,
-    _symbol_name,
 )
 
 
@@ -40,6 +39,7 @@ class ComputePreludeConfig:
     top_prelude_labels: int = 8
     readable_macro_mode: str = "inline"
     kernel_role_file: Path | None = None
+    summary_top_loops: int = 12
 
 
 LOOP_PROMOTION_METHODS = [
@@ -575,125 +575,6 @@ def _collect_device_events(events_by_stream: Dict[Tuple[int, int], List[StreamEv
             events.extend(stream_events)
     events.sort(key=lambda e: (e.start_ns, e.end_ns, e.stream_id, e.global_task_id))
     return events
-
-
-def _resolve_label(
-    *,
-    global_task_id: int,
-    task_type: str,
-    category: str,
-    sid_to_value: Dict[int, str],
-    compute_name_ids: Dict[int, str],
-    compute_optype_ids: Dict[int, str],
-    comm_name_ids: Dict[int, str],
-) -> str:
-    label_raw = ""
-    compute_name_id = compute_name_ids.get(global_task_id)
-    if compute_name_id is not None:
-        try:
-            label_raw = sid_to_value.get(int(compute_name_id), "")
-        except ValueError:
-            label_raw = ""
-    if not label_raw:
-        compute_op_type_id = compute_optype_ids.get(global_task_id)
-        if compute_op_type_id is not None:
-            try:
-                label_raw = sid_to_value.get(int(compute_op_type_id), "")
-            except ValueError:
-                label_raw = ""
-    if not label_raw:
-        comm_name_id = comm_name_ids.get(global_task_id)
-        if comm_name_id is not None:
-            try:
-                label_raw = sid_to_value.get(int(comm_name_id), "")
-            except ValueError:
-                label_raw = ""
-    if not label_raw:
-        label_raw = task_type
-    return _canonical_label(label_raw, category=category)
-
-
-def _load_device_events(db_path: Path, device_id: int) -> Tuple[List[StreamEvent], Dict[int, Dict[str, object]]]:
-    events: List[StreamEvent] = []
-    stream_stats: Dict[int, Dict[str, object]] = {}
-
-    with sqlite3.connect(str(db_path)) as conn:
-        sid_to_value = _load_string_ids(conn)
-        compute_name_ids, compute_optype_ids, comm_name_ids = _load_global_task_names(conn)
-        comm_connection_ids = _load_comm_connection_ids(conn)
-
-        query = (
-            "SELECT startNs, endNs, streamId, taskId, globalTaskId, connectionId, taskType "
-            "FROM TASK "
-            "WHERE deviceId = ? AND startNs IS NOT NULL AND endNs IS NOT NULL AND endNs > startNs "
-            "ORDER BY startNs, endNs, streamId, globalTaskId"
-        )
-        for row in conn.execute(query, (device_id,)):
-            start_ns = int(row[0] if row[0] is not None else 0)
-            end_ns = int(row[1] if row[1] is not None else 0)
-            stream_id = int(row[2] if row[2] is not None else -1)
-            task_id = int(row[3] if row[3] is not None else -1)
-            global_task_id = int(row[4] if row[4] is not None else -1)
-            connection_id = int(row[5] if row[5] is not None else -1)
-            task_type_id = int(row[6] if row[6] is not None else -1)
-
-            task_type = sid_to_value.get(task_type_id, str(task_type_id))
-            task_type_norm = _normalize_task_type(task_type)
-            task_key = _normalize_task_key(task_type_norm)
-            if task_key == "CAPTURE_WAIT":
-                continue
-
-            category = _classify_task(task_type_norm)
-            if category == "exec" and connection_id in comm_connection_ids:
-                category = "comm"
-            if category not in {"wait", "comm", "exec"}:
-                continue
-
-            label = _resolve_label(
-                global_task_id=global_task_id,
-                task_type=task_type_norm,
-                category=category,
-                sid_to_value=sid_to_value,
-                compute_name_ids=compute_name_ids,
-                compute_optype_ids=compute_optype_ids,
-                comm_name_ids=comm_name_ids,
-            )
-            ev = StreamEvent(
-                start_ns=start_ns,
-                end_ns=end_ns,
-                device_id=device_id,
-                stream_id=stream_id,
-                task_id=task_id,
-                global_task_id=global_task_id,
-                connection_id=connection_id,
-                task_type=task_type_norm,
-                label=label,
-                category=category,
-            )
-            events.append(ev)
-
-            bucket = stream_stats.setdefault(
-                stream_id,
-                {
-                    "stream_id": stream_id,
-                    "event_count": 0,
-                    "exec_count": 0,
-                    "exec_us": 0.0,
-                    "comm_us": 0.0,
-                    "wait_us": 0.0,
-                },
-            )
-            bucket["event_count"] = int(bucket["event_count"]) + 1
-            dur_us = ev.dur_ns / 1000.0
-            if ev.category == "exec":
-                bucket["exec_count"] = int(bucket["exec_count"]) + 1
-                bucket["exec_us"] = float(bucket["exec_us"]) + dur_us
-            elif ev.category == "comm":
-                bucket["comm_us"] = float(bucket["comm_us"]) + dur_us
-            elif ev.category == "wait":
-                bucket["wait_us"] = float(bucket["wait_us"]) + dur_us
-
-    return events, stream_stats
 
 
 def _load_communication_op_events(
@@ -2659,6 +2540,103 @@ def _render_node_cost_metrics(rows: Sequence[Dict[str, object]]) -> List[str]:
     return lines
 
 
+def _loop_cost_rows(
+    *,
+    selection: DeviceSelection,
+    node_metric_rows: Sequence[Dict[str, object]],
+    anchor_tree_readable_file: str,
+) -> List[Dict[str, object]]:
+    loops = [
+        row
+        for row in node_metric_rows
+        if not row.get("structural_alias")
+        and (
+            str(row.get("kind", "")) == "repeat"
+            or str(row.get("repeat", "")).strip()
+        )
+    ]
+    total_loop_us = sum(float(row.get("total_us", 0.0)) for row in loops)
+    out: List[Dict[str, object]] = []
+    for rank, row in enumerate(
+        sorted(
+            loops,
+            key=lambda r: (
+                float(r.get("total_us", 0.0)),
+                float(r.get("avg_total_us", 0.0)),
+                int(r.get("anchor_count", 0)),
+            ),
+            reverse=True,
+        ),
+        start=1,
+    ):
+        total_us = float(row.get("total_us", 0.0))
+        avg_total_us = float(row.get("avg_total_us", 0.0))
+        out.append(
+            {
+                "loop_rank": rank,
+                "global_rank": selection.global_rank,
+                "db_idx": selection.db_idx,
+                "db": str(selection.db_path),
+                "device_id": selection.device_id,
+                "node_id": row.get("node_id", ""),
+                "path": row.get("path", ""),
+                "depth": row.get("display_depth", row.get("depth", 0)),
+                "label": row.get("label", ""),
+                "repeat": row.get("repeat", ""),
+                "occurrence_count": row.get("occurrence_count", 0),
+                "anchor_count": row.get("anchor_count", 0),
+                "anchors_per_occurrence": row.get("anchors_per_occurrence", 0.0),
+                "total_us": round(total_us, 3),
+                "avg_total_us": round(avg_total_us, 3),
+                "compute_us": row.get("compute_us", 0.0),
+                "comm_us": row.get("comm_us", 0.0),
+                "idle_us": row.get("idle_us", 0.0),
+                "avg_compute_us": row.get("avg_compute_us", 0.0),
+                "avg_comm_us": row.get("avg_comm_us", 0.0),
+                "avg_idle_us": row.get("avg_idle_us", 0.0),
+                "comm_pct": row.get("comm_pct", 0.0),
+                "idle_pct": row.get("idle_pct", 0.0),
+                "aux_events": row.get("aux_events", 0.0),
+                "avg_aux_us": row.get("avg_aux_us", 0.0),
+                "loop_total_pct": round(total_us / total_loop_us, 6) if total_loop_us else 0.0,
+                "anchor_tree_readable_file": anchor_tree_readable_file,
+            }
+        )
+    return out
+
+
+def _render_loop_cost_summary(rows: Sequence[Dict[str, object]], *, limit: int) -> List[str]:
+    lines: List[str] = []
+    lines.append("## Detected Loop Costs")
+    lines.append("")
+    if not rows:
+        lines.append("No repeat nodes were detected in the compressed anchor tree.")
+        return lines
+    lines.append(
+        "| rank | node | depth | repeat | occ | anchors/occ | avg_total_us | total_us | avg_compute_us | avg_comm_us | avg_idle_us | comm% | idle% | label |"
+    )
+    lines.append(
+        "| ---: | --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |"
+    )
+    for row in rows[:limit]:
+        lines.append(
+            (
+                f"| {row.get('loop_rank','')} | {row.get('node_id','')} | {row.get('depth',0)} "
+                f"| {row.get('repeat','')} | {row.get('occurrence_count',0)} "
+                f"| {row.get('anchors_per_occurrence',0.0)} "
+                f"| {row.get('avg_total_us',0.0)} | {row.get('total_us',0.0)} "
+                f"| {row.get('avg_compute_us',0.0)} | {row.get('avg_comm_us',0.0)} "
+                f"| {row.get('avg_idle_us',0.0)} "
+                f"| {round(float(row.get('comm_pct',0.0)) * 100.0, 2)} "
+                f"| {round(float(row.get('idle_pct',0.0)) * 100.0, 2)} "
+                f"| {row.get('label','')} |"
+            )
+        )
+    if len(rows) > limit:
+        lines.append(f"| ... | {len(rows) - limit} more loops |  |  |  |  |  |  |  |  |  |  |  |  |")
+    return lines
+
+
 def _render_macro_loop_chains(rows: Sequence[Dict[str, object]]) -> List[str]:
     lines: List[str] = []
     lines.append("## Macro Loop Chains")
@@ -2691,6 +2669,8 @@ def _render_anchor_readable(
     node_metric_rows: Sequence[Dict[str, object]],
     root_item_metric_rows: Sequence[Dict[str, object]],
     macro_loop_chain_rows: Sequence[Dict[str, object]],
+    loop_cost_rows: Sequence[Dict[str, object]],
+    loop_summary_limit: int,
 ) -> str:
     text = _render_compute_readable(
         tree_readable,
@@ -2701,6 +2681,8 @@ def _render_anchor_readable(
     lines = text.splitlines()
     lines.append("")
     lines.extend(_render_node_cost_metrics(node_metric_rows))
+    lines.append("")
+    lines.extend(_render_loop_cost_summary(loop_cost_rows, limit=loop_summary_limit))
     lines.append("")
     lines.append("## Anchor View Summary")
     lines.append("")
@@ -2804,6 +2786,92 @@ def _device_summary_row(selection: DeviceSelection, step_rows: Sequence[Dict[str
     }
 
 
+def _relpath_or_self(path_text: str, out_dir: Path) -> str:
+    try:
+        return str(Path(path_text).resolve().relative_to(out_dir.resolve()))
+    except (OSError, ValueError):
+        return path_text
+
+
+def _build_run_summary_markdown(
+    *,
+    summary_rows: Sequence[Dict[str, object]],
+    loop_cost_rows: Sequence[Dict[str, object]],
+    out_dir: Path,
+    top_loops: int,
+) -> str:
+    lines: List[str] = []
+    lines.append("# TraceLoom Summary")
+    lines.append("")
+    lines.append(f"- out_dir: `{out_dir}`")
+    lines.append(f"- analyzed_devices: `{len(summary_rows)}`")
+    lines.append("")
+    lines.append("## Devices")
+    lines.append("")
+    if summary_rows:
+        lines.append(
+            "| rank | db | device | anchors | loops_file | tree | used_total_us | prelude_gap_us | prelude_comm_us | prelude_idle_us |"
+        )
+        lines.append("| ---: | --- | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: |")
+        for row in summary_rows:
+            lines.append(
+                (
+                    f"| {row.get('global_rank','')} | db{int(row.get('db_idx',0)):02d} | {row.get('device_id','')} "
+                    f"| {row.get('anchor_event_count',0)} | {row.get('anchor_loop_costs_file','')} "
+                    f"| {row.get('anchor_tree_readable_file','')} | {row.get('used_total_main_us',0.0)} "
+                    f"| {row.get('prelude_gap_us',0.0)} | {row.get('prelude_comm_us',0.0)} "
+                    f"| {row.get('prelude_idle_us',0.0)} |"
+                )
+            )
+    else:
+        lines.append("No devices with executable task timelines were selected.")
+    lines.append("")
+    lines.append("## Top Loop Costs")
+    lines.append("")
+    if loop_cost_rows:
+        lines.append(
+            "| rank | device | node | repeat | occ | anchors/occ | avg_total_us | total_us | avg_compute_us | avg_comm_us | avg_idle_us | tree |"
+        )
+        lines.append("| ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |")
+        for idx, row in enumerate(
+            sorted(loop_cost_rows, key=lambda r: float(r.get("total_us", 0.0)), reverse=True)[:top_loops],
+            start=1,
+        ):
+            lines.append(
+                (
+                    f"| {idx} | {row.get('device_id','')} | {row.get('node_id','')} "
+                    f"| {row.get('repeat','')} | {row.get('occurrence_count',0)} "
+                    f"| {row.get('anchors_per_occurrence',0.0)} | {row.get('avg_total_us',0.0)} "
+                    f"| {row.get('total_us',0.0)} | {row.get('avg_compute_us',0.0)} "
+                    f"| {row.get('avg_comm_us',0.0)} | {row.get('avg_idle_us',0.0)} "
+                    f"| {row.get('anchor_tree_readable_file','')} |"
+                )
+            )
+    else:
+        lines.append("No repeat nodes were detected in the selected anchor timelines.")
+    lines.append("")
+    lines.append("## Main Files")
+    lines.append("")
+    lines.append("- `device_summary.csv`")
+    lines.append("- `compute_anchor_loop_costs.csv`")
+    lines.append("- `compute_anchor_node_metrics.csv`")
+    lines.append("- `compute_anchor_aux_slots.csv`")
+    return "\n".join(lines) + "\n"
+
+
+def _format_console_summary(meta: Dict[str, object]) -> str:
+    out_dir = Path(str(meta.get("summary_file", ""))).parent
+    lines = [
+        "TraceLoom analysis complete",
+        f"out_dir: {out_dir}",
+        f"devices: {meta.get('device_count', 0)} / dbs: {meta.get('db_count', 0)}",
+        f"summary: {_relpath_or_self(str(meta.get('run_summary_file', '')), out_dir)}",
+        f"loop_costs: {_relpath_or_self(str(meta.get('anchor_loop_costs_file', '')), out_dir)}",
+        f"node_metrics: {_relpath_or_self(str(meta.get('anchor_node_metrics_file', '')), out_dir)}",
+    ]
+    return "\n".join(lines)
+
+
 def run_compute_prelude_timeline(
     *,
     run_dir: Path,
@@ -2833,6 +2901,7 @@ def run_compute_prelude_timeline(
     all_anchor_node_metric_rows: List[Dict[str, object]] = []
     all_anchor_node_link_rows: List[Dict[str, object]] = []
     all_anchor_macro_loop_chain_rows: List[Dict[str, object]] = []
+    all_anchor_loop_cost_rows: List[Dict[str, object]] = []
 
     for selection in selections:
         device_events, stream_stats = _load_device_events(selection.db_path, selection.device_id)
@@ -3091,9 +3160,15 @@ def run_compute_prelude_timeline(
         anchor_root_item_metrics_path = out_dir / f"{stem}.anchor.root_item_metrics.csv"
         anchor_node_metrics_path = out_dir / f"{stem}.anchor.node_metrics.csv"
         anchor_node_links_path = out_dir / f"{stem}.anchor.node_anchor_links.csv"
+        anchor_loop_costs_path = out_dir / f"{stem}.anchor.loop_costs.csv"
         anchor_macro_loop_chains_path = out_dir / f"{stem}.anchor.macro_loop_chains.csv"
         anchor_tree_path = out_dir / f"{stem}.anchor.tree.json"
         anchor_readable_path = out_dir / f"{stem}.anchor.tree.readable.md"
+        anchor_loop_cost_rows = _loop_cost_rows(
+            selection=selection,
+            node_metric_rows=anchor_node_metric_rows,
+            anchor_tree_readable_file=str(anchor_readable_path.relative_to(out_dir)),
+        )
         _write_csv(steps_path, step_rows)
         _write_csv(symbols_path, symbol_rows)
         _write_csv(kernel_roles_path, kernel_role_rows)
@@ -3117,6 +3192,7 @@ def run_compute_prelude_timeline(
         _write_csv(anchor_root_item_metrics_path, anchor_root_item_metric_rows)
         _write_csv(anchor_node_metrics_path, anchor_node_metric_rows)
         _write_csv(anchor_node_links_path, anchor_node_link_rows)
+        _write_csv(anchor_loop_costs_path, anchor_loop_cost_rows)
         _write_csv(anchor_macro_loop_chains_path, anchor_macro_loop_chain_rows)
         tree_path.write_text(json.dumps(tree_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         raw_tree_path.write_text(json.dumps(raw_tree_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -3137,6 +3213,8 @@ def run_compute_prelude_timeline(
                 node_metric_rows=anchor_node_metric_rows,
                 root_item_metric_rows=anchor_root_item_metric_rows,
                 macro_loop_chain_rows=anchor_macro_loop_chain_rows,
+                loop_cost_rows=anchor_loop_cost_rows,
+                loop_summary_limit=cfg.summary_top_loops,
             ),
             encoding="utf-8",
         )
@@ -3152,6 +3230,8 @@ def run_compute_prelude_timeline(
                 node_metric_rows=anchor_node_metric_rows,
                 root_item_metric_rows=anchor_root_item_metric_rows,
                 macro_loop_chain_rows=anchor_macro_loop_chain_rows,
+                loop_cost_rows=anchor_loop_cost_rows,
+                loop_summary_limit=cfg.summary_top_loops,
             ),
             encoding="utf-8",
         )
@@ -3266,6 +3346,10 @@ def run_compute_prelude_timeline(
             row["anchor_node_links_file"] = str(anchor_node_links_path.relative_to(out_dir))
             row["anchor_tree_readable_file"] = str(anchor_readable_path.relative_to(out_dir))
             all_anchor_node_link_rows.append(row)
+        for row in anchor_loop_cost_rows:
+            row = dict(row)
+            row["anchor_loop_costs_file"] = str(anchor_loop_costs_path.relative_to(out_dir))
+            all_anchor_loop_cost_rows.append(row)
         for row in anchor_macro_loop_chain_rows:
             row = dict(row)
             row["db_idx"] = selection.db_idx
@@ -3313,6 +3397,7 @@ def run_compute_prelude_timeline(
                 "anchor_root_item_metrics_file": str(anchor_root_item_metrics_path.relative_to(out_dir)),
                 "anchor_node_metrics_file": str(anchor_node_metrics_path.relative_to(out_dir)),
                 "anchor_node_links_file": str(anchor_node_links_path.relative_to(out_dir)),
+                "anchor_loop_costs_file": str(anchor_loop_costs_path.relative_to(out_dir)),
                 "anchor_macro_loop_chains_file": str(anchor_macro_loop_chains_path.relative_to(out_dir)),
                 "anchor_tree_file": str(anchor_tree_path.relative_to(out_dir)),
                 "anchor_tree_readable_file": str(anchor_readable_path.relative_to(out_dir)),
@@ -3332,6 +3417,7 @@ def run_compute_prelude_timeline(
     _write_csv(out_dir / "compute_anchor_root_item_metrics.csv", all_anchor_root_item_metric_rows)
     _write_csv(out_dir / "compute_anchor_node_metrics.csv", all_anchor_node_metric_rows)
     _write_csv(out_dir / "compute_anchor_node_anchor_links.csv", all_anchor_node_link_rows)
+    _write_csv(out_dir / "compute_anchor_loop_costs.csv", all_anchor_loop_cost_rows)
     _write_csv(out_dir / "compute_anchor_macro_loop_chains.csv", all_anchor_macro_loop_chain_rows)
     _write_csv(out_dir / "device_summary.csv", summary_rows)
 
@@ -3352,6 +3438,7 @@ def run_compute_prelude_timeline(
         "semantic_projection": "anchor_compute_collective_only",
         "auxiliary_attribution": "attach_aux_events_to_following_anchor_prelude_slot",
         "kernel_role_file": str(cfg.kernel_role_file.resolve()) if cfg.kernel_role_file is not None else "",
+        "summary_top_loops": cfg.summary_top_loops,
         "elapsed_sec": round(time.time() - started, 3),
         "summary_file": str(out_dir / "device_summary.csv"),
         "steps_file": str(out_dir / "compute_prelude_steps.csv"),
@@ -3366,8 +3453,18 @@ def run_compute_prelude_timeline(
         "anchor_root_item_metrics_file": str(out_dir / "compute_anchor_root_item_metrics.csv"),
         "anchor_node_metrics_file": str(out_dir / "compute_anchor_node_metrics.csv"),
         "anchor_node_links_file": str(out_dir / "compute_anchor_node_anchor_links.csv"),
+        "anchor_loop_costs_file": str(out_dir / "compute_anchor_loop_costs.csv"),
         "anchor_macro_loop_chains_file": str(out_dir / "compute_anchor_macro_loop_chains.csv"),
     }
+    summary_text = _build_run_summary_markdown(
+        summary_rows=summary_rows,
+        loop_cost_rows=all_anchor_loop_cost_rows,
+        out_dir=out_dir,
+        top_loops=cfg.summary_top_loops,
+    )
+    summary_path = out_dir / "summary.md"
+    summary_path.write_text(summary_text, encoding="utf-8")
+    meta["run_summary_file"] = str(summary_path)
     (out_dir / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return meta
 
@@ -3440,6 +3537,17 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "symbol, label, task_type, family, or contains columns. Valid roles: anchor, aux, transparent."
         ),
     )
+    parser.add_argument(
+        "--summary-top-loops",
+        type=int,
+        default=ComputePreludeConfig.summary_top_loops,
+        help="Number of high-cost repeat nodes to show in summary.md and readable reports.",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print full meta.json payload to stdout instead of the concise run summary.",
+    )
     return parser.parse_args(argv)
 
 
@@ -3459,9 +3567,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         min_main_event_us=args.min_main_event_us,
         readable_macro_mode=args.readable_macro_mode,
         kernel_role_file=args.kernel_role_file,
+        summary_top_loops=args.summary_top_loops,
     )
     meta = run_compute_prelude_timeline(run_dir=run_dir, out_dir=out_dir, config=cfg)
-    print(json.dumps(meta, ensure_ascii=False, indent=2))
+    if args.json:
+        print(json.dumps(meta, ensure_ascii=False, indent=2))
+    else:
+        print(_format_console_summary(meta))
     return 0
 
 

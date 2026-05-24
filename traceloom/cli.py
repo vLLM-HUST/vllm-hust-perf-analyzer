@@ -1,0 +1,354 @@
+from __future__ import annotations
+
+import argparse
+import configparser
+import os
+import shlex
+import shutil
+import subprocess
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Sequence
+
+from .compute_prelude_timeline import (
+    ComputePreludeConfig,
+    _format_console_summary,
+    run_compute_prelude_timeline,
+)
+
+
+TEMPLATE = """# TraceLoom profile config.
+# Edit this file, then run:
+#   traceloom run traceloom.profile.ini
+#   traceloom analysis runs/local-msprof/msprof_raw --out-dir runs/local-msprof/analysis
+
+[profile]
+name = local-msprof
+
+[paths]
+# Paths are resolved relative to this config file unless absolute.
+run_dir = runs/local-msprof
+profile_dir = runs/local-msprof/msprof_raw
+analysis_dir = runs/local-msprof/analysis
+log_file = runs/local-msprof/workload.log
+
+[workload]
+cwd = .
+command = python3 examples/workloads/pytorch_ddp_matmul/train.py
+# Optional newline-separated KEY=VALUE entries.
+env =
+
+[profiler]
+backend = ascend_msprof
+executable = msprof
+# Extra args are parsed with shell-like quoting, for example:
+# extra_args = --aic-metrics=PipeUtilization --sys-hardware-mem=on
+extra_args =
+
+[docker]
+# Docker is optional. In local mode, TraceLoom runs msprof directly.
+# Set enabled = true and container = <name> to run "docker exec <container> ...".
+# Or set enabled = true and image = <image> to run "docker run --rm <image> ...".
+enabled = false
+container =
+image =
+workdir =
+volumes =
+env =
+devices =
+network =
+shm_size =
+extra_args =
+"""
+
+
+def _config_dir(path: Path) -> Path:
+    return path.resolve().parent
+
+
+def _load_config(path: Path) -> configparser.ConfigParser:
+    cfg = configparser.ConfigParser(interpolation=None)
+    with path.open("r", encoding="utf-8") as f:
+        cfg.read_file(f)
+    return cfg
+
+
+def _path_value(cfg: configparser.ConfigParser, config_path: Path, section: str, key: str, default: str) -> Path:
+    raw = cfg.get(section, key, fallback=default).strip()
+    path = Path(raw)
+    if path.is_absolute():
+        return path
+    return (_config_dir(config_path) / path).resolve()
+
+
+def _optional_path_value(
+    cfg: configparser.ConfigParser,
+    config_path: Path,
+    section: str,
+    key: str,
+) -> Path | None:
+    raw = cfg.get(section, key, fallback="").strip()
+    if not raw:
+        return None
+    path = Path(raw)
+    if path.is_absolute():
+        return path
+    return (_config_dir(config_path) / path).resolve()
+
+
+def _split_words(value: str) -> List[str]:
+    value = value.strip()
+    return shlex.split(value) if value else []
+
+
+def _list_value(cfg: configparser.ConfigParser, section: str, key: str) -> List[str]:
+    raw = cfg.get(section, key, fallback="")
+    out: List[str] = []
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        out.extend(part.strip() for part in line.split(",") if part.strip())
+    return out
+
+
+def _env_value(cfg: configparser.ConfigParser, section: str, key: str) -> Dict[str, str]:
+    out: Dict[str, str] = {}
+    for item in _list_value(cfg, section, key):
+        if "=" not in item:
+            raise SystemExit(f"[{section}] {key} entry must be KEY=VALUE: {item}")
+        name, value = item.split("=", 1)
+        out[name.strip()] = value.strip()
+    return out
+
+
+def _bool_value(cfg: configparser.ConfigParser, section: str, key: str, default: bool = False) -> bool:
+    if not cfg.has_option(section, key):
+        return default
+    return cfg.getboolean(section, key)
+
+
+def _analysis_config_from_args(args: argparse.Namespace) -> ComputePreludeConfig:
+    return ComputePreludeConfig(
+        top_devices_global=args.top_devices_global,
+        max_main_events_per_device=args.max_main_events_per_device,
+        max_macro_defs=args.max_macro_defs,
+        collective_episode_gap_us=args.collective_episode_gap_us,
+        min_main_event_us=args.min_main_event_us,
+        readable_macro_mode=args.readable_macro_mode,
+        kernel_role_file=args.kernel_role_file,
+        summary_top_loops=args.summary_top_loops,
+    )
+
+
+def cmd_create_config(args: argparse.Namespace) -> int:
+    output = args.output.resolve()
+    if output.exists() and not args.force:
+        raise SystemExit(f"refusing to overwrite existing config: {output} (use --force)")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(TEMPLATE, encoding="utf-8")
+    print(f"created config: {output}")
+    return 0
+
+
+def _msprof_command(cfg: configparser.ConfigParser, profile_dir: Path) -> List[str]:
+    workload_command = cfg.get("workload", "command", fallback="").strip()
+    if not workload_command:
+        raise SystemExit("[workload] command is required")
+    executable = cfg.get("profiler", "executable", fallback="msprof").strip() or "msprof"
+    extra_args = _split_words(cfg.get("profiler", "extra_args", fallback=""))
+    return [
+        executable,
+        f"--output={profile_dir}",
+        f"--application={workload_command}",
+        *extra_args,
+    ]
+
+
+def _docker_command(cfg: configparser.ConfigParser, inner_command: Sequence[str]) -> List[str]:
+    inner_shell = shlex.join([str(part) for part in inner_command])
+    container = cfg.get("docker", "container", fallback="").strip()
+    image = cfg.get("docker", "image", fallback="").strip()
+    workdir = cfg.get("docker", "workdir", fallback="").strip()
+    docker_env = _env_value(cfg, "docker", "env")
+    extra_args = _split_words(cfg.get("docker", "extra_args", fallback=""))
+
+    if container:
+        command = ["docker", "exec"]
+        if workdir:
+            command.extend(["-w", workdir])
+        for name, value in docker_env.items():
+            command.extend(["-e", f"{name}={value}"])
+        command.extend(extra_args)
+        command.extend([container, "sh", "-lc", inner_shell])
+        return command
+
+    if not image:
+        raise SystemExit("[docker] enabled=true requires either container or image")
+
+    command = ["docker", "run", "--rm"]
+    if workdir:
+        command.extend(["-w", workdir])
+    network = cfg.get("docker", "network", fallback="").strip()
+    if network:
+        command.extend(["--network", network])
+    shm_size = cfg.get("docker", "shm_size", fallback="").strip()
+    if shm_size:
+        command.extend(["--shm-size", shm_size])
+    for volume in _list_value(cfg, "docker", "volumes"):
+        command.extend(["-v", volume])
+    for device in _list_value(cfg, "docker", "devices"):
+        command.extend(["--device", device])
+    for name, value in docker_env.items():
+        command.extend(["-e", f"{name}={value}"])
+    command.extend(extra_args)
+    command.extend([image, "sh", "-lc", inner_shell])
+    return command
+
+
+def _run_command(command: Sequence[str], *, cwd: Path, log_file: Path, env: Dict[str, str], dry_run: bool) -> None:
+    command_text = shlex.join([str(part) for part in command])
+    if dry_run:
+        print("[dry-run] " + command_text)
+        return
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    print("+ " + command_text)
+    with log_file.open("w", encoding="utf-8") as log:
+        log.write(f"# started_at={datetime.now().isoformat(timespec='seconds')}\n")
+        log.write(f"# cwd={cwd}\n")
+        log.write(f"# command={command_text}\n\n")
+        log.flush()
+        subprocess.run(
+            [str(part) for part in command],
+            cwd=str(cwd),
+            env={**os.environ, **env},
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            check=True,
+        )
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    config_path = args.config.resolve()
+    cfg = _load_config(config_path)
+    profile_dir = _path_value(cfg, config_path, "paths", "profile_dir", "msprof_raw")
+    log_file = _path_value(cfg, config_path, "paths", "log_file", "workload.log")
+    workload_cwd = _path_value(cfg, config_path, "workload", "cwd", ".")
+    profile_dir.mkdir(parents=True, exist_ok=True)
+
+    command = _msprof_command(cfg, profile_dir)
+    if _bool_value(cfg, "docker", "enabled", False):
+        if shutil.which("docker") is None and not args.dry_run:
+            raise SystemExit("docker was not found in PATH")
+        command = _docker_command(cfg, command)
+    elif shutil.which(command[0]) is None and not args.dry_run:
+        raise SystemExit(f"{command[0]} was not found in PATH. Activate the profiler environment first.")
+
+    _run_command(
+        command,
+        cwd=workload_cwd,
+        log_file=log_file,
+        env=_env_value(cfg, "workload", "env"),
+        dry_run=args.dry_run,
+    )
+    print(f"profile_dir: {profile_dir}")
+    print(f"log_file: {log_file}")
+    analysis_dir = _path_value(cfg, config_path, "paths", "analysis_dir", "analysis")
+    print(f"next: traceloom analysis {profile_dir} --out-dir {analysis_dir}")
+    return 0
+
+
+def cmd_analysis(args: argparse.Namespace) -> int:
+    profile_dir = args.profile_dir.resolve()
+    analysis_dir = args.out_dir.resolve() if args.out_dir is not None else profile_dir.parent / "analysis"
+    meta = run_compute_prelude_timeline(
+        run_dir=profile_dir,
+        out_dir=analysis_dir,
+        config=_analysis_config_from_args(args),
+    )
+    if args.json:
+        import json
+
+        print(json.dumps(meta, ensure_ascii=False, indent=2))
+    else:
+        print(_format_console_summary(meta))
+    return 0
+
+
+def add_analysis_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--top-devices-global", type=int, default=ComputePreludeConfig.top_devices_global)
+    parser.add_argument(
+        "--max-main-events-per-device",
+        type=int,
+        default=0,
+        help="Maximum main compute/data-move events per device; 0 means no truncation.",
+    )
+    parser.add_argument(
+        "--max-macro-defs",
+        type=int,
+        default=0,
+        help="Maximum macro definitions; 0 means keep discovering while gain is positive.",
+    )
+    parser.add_argument(
+        "--collective-episode-gap-us",
+        type=float,
+        default=ComputePreludeConfig.collective_episode_gap_us,
+        help="Fallback merge gap for collective TASK fragments when COMMUNICATION_OP is absent.",
+    )
+    parser.add_argument("--min-main-event-us", type=float, default=ComputePreludeConfig.min_main_event_us)
+    parser.add_argument(
+        "--readable-macro-mode",
+        choices=("inline", "auto"),
+        default=ComputePreludeConfig.readable_macro_mode,
+    )
+    parser.add_argument("--kernel-role-file", type=Path, default=None)
+    parser.add_argument("--summary-top-loops", type=int, default=ComputePreludeConfig.summary_top_loops)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="traceloom", description="TraceLoom profile runner and offline analyzer.")
+    subparsers = parser.add_subparsers(dest="command")
+
+    create = subparsers.add_parser("create", help="Create editable TraceLoom assets.")
+    create_sub = create.add_subparsers(dest="create_command")
+    create_config = create_sub.add_parser("config", help="Create an editable profile config template.")
+    create_config.add_argument("-o", "--output", type=Path, default=Path("traceloom.profile.ini"))
+    create_config.add_argument("--force", action="store_true")
+    create_config.set_defaults(func=cmd_create_config)
+
+    run = subparsers.add_parser("run", help="Run profiler/workload from a profile config.")
+    run.add_argument("config", type=Path)
+    run.add_argument("--dry-run", action="store_true")
+    run.set_defaults(func=cmd_run)
+
+    analysis = subparsers.add_parser("analysis", help="Analyze an existing msprof profile directory.")
+    analysis.add_argument("profile_dir", type=Path, help="Directory containing PROF_*/msprof_*.db, or a run dir with msprof_raw/.")
+    analysis.add_argument("--out-dir", type=Path, default=None)
+    add_analysis_options(analysis)
+    analysis.add_argument("--json", action="store_true")
+    analysis.set_defaults(func=cmd_analysis)
+
+    analyze = subparsers.add_parser("analyze", help="Alias for analysis.")
+    analyze.add_argument("profile_dir", type=Path, help="Directory containing PROF_*/msprof_*.db, or a run dir with msprof_raw/.")
+    analyze.add_argument("--out-dir", type=Path, default=None)
+    add_analysis_options(analyze)
+    analyze.add_argument("--json", action="store_true")
+    analyze.set_defaults(func=cmd_analysis)
+
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args_list = list(sys.argv[1:] if argv is None else argv)
+    parser = build_parser()
+    args = parser.parse_args(args_list)
+    func = getattr(args, "func", None)
+    if func is None:
+        parser.print_help()
+        return 2
+    return int(func(args))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
