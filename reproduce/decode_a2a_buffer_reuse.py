@@ -81,7 +81,7 @@ def metric_pair(name: str, unit: str, baseline: float, optimized: float) -> dict
         "unit": unit,
         "baseline": baseline,
         "optimized": optimized,
-        "delta_pct": pct(optimized, baseline),
+        "delta_pct": "" if baseline == 0 else pct(optimized, baseline),
     }
 
 
@@ -195,16 +195,20 @@ def root_node(profile_dir: Path, summary_row: dict[str, str]) -> dict[str, str]:
     raise RuntimeError(f"no root node row in {profile_dir}")
 
 
-def top_repeat(profile_dir: Path, summary_row: dict[str, str]) -> dict[str, str]:
+def top_repeat(profile_dir: Path, summary_row: dict[str, str]) -> dict[str, str] | None:
     repeats = [
         row
         for row in matching_rows(profile_dir / "compute_anchor_node_metrics.csv", summary_row)
         if row.get("type") == "Repeat" and int(float(row.get("anchor_count", 0))) > 0
     ]
     if not repeats:
-        raise RuntimeError(f"no repeat rows in {profile_dir}")
+        return None
     repeats.sort(key=lambda row: as_float(row, "total_us"), reverse=True)
     return repeats[0]
+
+
+def repeat_cost(row: dict[str, str] | None, key: str) -> float:
+    return as_float(row, key) if row is not None else 0.0
 
 
 def workload_throughput(profile_dir: Path) -> float:
@@ -279,14 +283,20 @@ def keypath_metrics(baseline_profile: Path, optimized_profile: Path, macro_ab: d
         metric_pair(
             "traceloom.dev6.repeat_x35.active_us",
             "us",
-            as_float(b_repeat, "compute_us") + as_float(b_repeat, "comm_us"),
-            as_float(p_repeat, "compute_us") + as_float(p_repeat, "comm_us"),
+            repeat_cost(b_repeat, "compute_us") + repeat_cost(b_repeat, "comm_us"),
+            repeat_cost(p_repeat, "compute_us") + repeat_cost(p_repeat, "comm_us"),
         ),
         metric_pair(
             "traceloom.dev6.repeat_x35.collective_us",
             "us",
-            as_float(b_repeat, "comm_us"),
-            as_float(p_repeat, "comm_us"),
+            repeat_cost(b_repeat, "comm_us"),
+            repeat_cost(p_repeat, "comm_us"),
+        ),
+        metric_pair(
+            "traceloom.dev6.repeat_x35.present",
+            "count",
+            1.0 if b_repeat is not None else 0.0,
+            1.0 if p_repeat is not None else 0.0,
         ),
         metric_pair(
             "traceloom.dev6.anchor_count",
@@ -314,11 +324,21 @@ def write_markdown_summary(path: Path, rows: list[dict[str, Any]]) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def run_traceloom_analysis(run_dir: Path, out_dir: Path, *, top_devices_global: int, max_main_events_per_device: int, max_macro_defs: int, dry_run: bool) -> None:
+def run_traceloom_analysis(
+    run_dir: Path,
+    out_dir: Path,
+    *,
+    top_devices_global: int,
+    devices: str,
+    max_main_events_per_device: int,
+    max_macro_defs: int,
+    dry_run: bool,
+) -> None:
     command = [
         sys.executable,
         "-m",
         "traceloom",
+        "analysis",
         str(run_dir),
         "--out-dir",
         str(out_dir),
@@ -329,6 +349,8 @@ def run_traceloom_analysis(run_dir: Path, out_dir: Path, *, top_devices_global: 
         "--max-macro-defs",
         str(max_macro_defs),
     ]
+    if devices:
+        command.extend(["--devices", devices])
     if dry_run:
         print("[dry-run] " + " ".join(command))
         return
@@ -363,9 +385,12 @@ def run_decode_a2a_buffer_reuse(
     mode: str = "bundle",
     baseline_run_dir: Path | None = None,
     optimized_run_dir: Path | None = None,
-    top_devices_global: int = 1,
-    max_main_events_per_device: int = 0,
-    max_macro_defs: int = 0,
+    baseline_analysis_dir: Path | None = None,
+    optimized_analysis_dir: Path | None = None,
+    top_devices_global: int = 0,
+    devices: str = "",
+    max_main_events_per_device: int = 5000,
+    max_macro_defs: int = 32,
     dry_run: bool = False,
 ) -> Path:
     run_dir = out_root / "decode_a2a_buffer_reuse"
@@ -384,6 +409,11 @@ def run_decode_a2a_buffer_reuse(
         optimized_profile = source_root / "profiles" / "optimized_aiv_npu3467"
         rows = keypath_metrics(baseline_profile, optimized_profile, macro_ab)
         source_kind = "bundled_analysis_recomputed"
+    elif mode == "existing-analysis":
+        if baseline_analysis_dir is None or optimized_analysis_dir is None:
+            raise ValueError("existing-analysis mode requires baseline_analysis_dir and optimized_analysis_dir")
+        rows = keypath_metrics(baseline_analysis_dir, optimized_analysis_dir, macro_ab)
+        source_kind = "existing_traceloom_analysis"
     elif mode == "raw-analysis":
         default_analyzer_out = PROJECT_ROOT.parent / "analyzer" / "out"
         baseline_run = baseline_run_dir or default_analyzer_out / DEFAULT_BASELINE_TAG
@@ -394,6 +424,7 @@ def run_decode_a2a_buffer_reuse(
             baseline_run,
             baseline_profile,
             top_devices_global=top_devices_global,
+            devices=devices,
             max_main_events_per_device=max_main_events_per_device,
             max_macro_defs=max_macro_defs,
             dry_run=dry_run,
@@ -402,6 +433,7 @@ def run_decode_a2a_buffer_reuse(
             optimized_run,
             optimized_profile,
             top_devices_global=top_devices_global,
+            devices=devices,
             max_main_events_per_device=max_main_events_per_device,
             max_macro_defs=max_macro_defs,
             dry_run=dry_run,
@@ -460,12 +492,15 @@ def main() -> int:
         default=PROJECT_ROOT.parent / "template-of-thesis" / "experiments-data" / "run_20260507_npu3456",
     )
     parser.add_argument("--out-root", type=Path, default=DEFAULT_OUT_ROOT)
-    parser.add_argument("--mode", choices=("bundle", "bundle-recomputed", "raw-analysis"), default="bundle")
+    parser.add_argument("--mode", choices=("bundle", "bundle-recomputed", "existing-analysis", "raw-analysis"), default="bundle")
     parser.add_argument("--baseline-run-dir", type=Path, default=None)
     parser.add_argument("--optimized-run-dir", type=Path, default=None)
-    parser.add_argument("--top-devices-global", type=int, default=1)
-    parser.add_argument("--max-main-events-per-device", type=int, default=0)
-    parser.add_argument("--max-macro-defs", type=int, default=0)
+    parser.add_argument("--baseline-analysis-dir", type=Path, default=None)
+    parser.add_argument("--optimized-analysis-dir", type=Path, default=None)
+    parser.add_argument("--top-devices-global", type=int, default=0)
+    parser.add_argument("--devices", default="")
+    parser.add_argument("--max-main-events-per-device", type=int, default=5000)
+    parser.add_argument("--max-macro-defs", type=int, default=32)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     run_decode_a2a_buffer_reuse(
@@ -474,7 +509,10 @@ def main() -> int:
         mode=args.mode,
         baseline_run_dir=args.baseline_run_dir.resolve() if args.baseline_run_dir else None,
         optimized_run_dir=args.optimized_run_dir.resolve() if args.optimized_run_dir else None,
+        baseline_analysis_dir=args.baseline_analysis_dir.resolve() if args.baseline_analysis_dir else None,
+        optimized_analysis_dir=args.optimized_analysis_dir.resolve() if args.optimized_analysis_dir else None,
         top_devices_global=args.top_devices_global,
+        devices=args.devices,
         max_main_events_per_device=args.max_main_events_per_device,
         max_macro_defs=args.max_macro_defs,
         dry_run=args.dry_run,

@@ -46,6 +46,15 @@ executable = msprof
 # extra_args = --aic-metrics=PipeUtilization --sys-hardware-mem=on
 extra_args =
 
+[analysis]
+# 0 means analyze every discovered device. Set to a positive number to keep
+# only the highest-ranked devices, or set devices = 3,4,5,6 to pin physical IDs.
+top_devices_global = 0
+devices =
+max_main_events_per_device = 5000
+max_macro_defs = 32
+summary_top_loops = 12
+
 [docker]
 # Docker is optional. In local mode, TraceLoom runs msprof directly.
 # Set enabled = true and container = <name> to run "docker exec <container> ...".
@@ -129,16 +138,86 @@ def _bool_value(cfg: configparser.ConfigParser, section: str, key: str, default:
     return cfg.getboolean(section, key)
 
 
+def _int_option(
+    cfg: configparser.ConfigParser,
+    section: str,
+    key: str,
+    default: int,
+) -> int:
+    if cfg.has_option(section, key):
+        return cfg.getint(section, key)
+    return default
+
+
+def _float_option(
+    cfg: configparser.ConfigParser,
+    section: str,
+    key: str,
+    default: float,
+) -> float:
+    if cfg.has_option(section, key):
+        return cfg.getfloat(section, key)
+    return default
+
+
+def _str_option(
+    cfg: configparser.ConfigParser,
+    section: str,
+    key: str,
+    default: str,
+) -> str:
+    if cfg.has_option(section, key):
+        return cfg.get(section, key).strip()
+    return default
+
+
+def _parse_device_ids(value: str) -> tuple[int, ...] | None:
+    value = value.strip()
+    if not value:
+        return None
+    return tuple(int(part.strip()) for part in value.split(",") if part.strip())
+
+
 def _analysis_config_from_args(args: argparse.Namespace) -> ComputePreludeConfig:
+    cfg = configparser.ConfigParser(interpolation=None)
+    if args.config is not None:
+        cfg = _load_config(args.config.resolve())
     return ComputePreludeConfig(
-        top_devices_global=args.top_devices_global,
-        max_main_events_per_device=args.max_main_events_per_device,
-        max_macro_defs=args.max_macro_defs,
-        collective_episode_gap_us=args.collective_episode_gap_us,
-        min_main_event_us=args.min_main_event_us,
-        readable_macro_mode=args.readable_macro_mode,
+        top_devices_global=args.top_devices_global
+        if args.top_devices_global is not None
+        else _int_option(cfg, "analysis", "top_devices_global", ComputePreludeConfig.top_devices_global),
+        max_main_events_per_device=args.max_main_events_per_device
+        if args.max_main_events_per_device is not None
+        else _int_option(
+            cfg,
+            "analysis",
+            "max_main_events_per_device",
+            ComputePreludeConfig.max_main_events_per_device,
+        ),
+        max_macro_defs=args.max_macro_defs
+        if args.max_macro_defs is not None
+        else _int_option(cfg, "analysis", "max_macro_defs", ComputePreludeConfig.max_macro_defs),
+        collective_episode_gap_us=args.collective_episode_gap_us
+        if args.collective_episode_gap_us is not None
+        else _float_option(
+            cfg,
+            "analysis",
+            "collective_episode_gap_us",
+            ComputePreludeConfig.collective_episode_gap_us,
+        ),
+        min_main_event_us=args.min_main_event_us
+        if args.min_main_event_us is not None
+        else _float_option(cfg, "analysis", "min_main_event_us", ComputePreludeConfig.min_main_event_us),
+        readable_macro_mode=args.readable_macro_mode
+        if args.readable_macro_mode is not None
+        else _str_option(cfg, "analysis", "readable_macro_mode", ComputePreludeConfig.readable_macro_mode),
         kernel_role_file=args.kernel_role_file,
-        summary_top_loops=args.summary_top_loops,
+        summary_top_loops=args.summary_top_loops
+        if args.summary_top_loops is not None
+        else _int_option(cfg, "analysis", "summary_top_loops", ComputePreludeConfig.summary_top_loops),
+        device_ids=_parse_device_ids(
+            args.devices if args.devices is not None else _str_option(cfg, "analysis", "devices", "")
+        ),
     )
 
 
@@ -235,10 +314,12 @@ def cmd_run(args: argparse.Namespace) -> int:
     profile_dir = _path_value(cfg, config_path, "paths", "profile_dir", "msprof_raw")
     log_file = _path_value(cfg, config_path, "paths", "log_file", "workload.log")
     workload_cwd = _path_value(cfg, config_path, "workload", "cwd", ".")
-    profile_dir.mkdir(parents=True, exist_ok=True)
+    docker_enabled = _bool_value(cfg, "docker", "enabled", False)
+    if not docker_enabled:
+        profile_dir.mkdir(parents=True, exist_ok=True)
 
     command = _msprof_command(cfg, profile_dir)
-    if _bool_value(cfg, "docker", "enabled", False):
+    if docker_enabled:
         if shutil.which("docker") is None and not args.dry_run:
             raise SystemExit("docker was not found in PATH")
         command = _docker_command(cfg, command)
@@ -277,33 +358,39 @@ def cmd_analysis(args: argparse.Namespace) -> int:
 
 
 def add_analysis_options(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--top-devices-global", type=int, default=ComputePreludeConfig.top_devices_global)
+    parser.add_argument("--config", type=Path, default=None, help="Optional profile config; reads [analysis] defaults only.")
+    parser.add_argument("--top-devices-global", type=int, default=None)
+    parser.add_argument(
+        "--devices",
+        default=None,
+        help="Comma-separated physical device IDs to analyze, for example 3,4,5,6. Empty means all ranked devices.",
+    )
     parser.add_argument(
         "--max-main-events-per-device",
         type=int,
-        default=0,
+        default=None,
         help="Maximum main compute/data-move events per device; 0 means no truncation.",
     )
     parser.add_argument(
         "--max-macro-defs",
         type=int,
-        default=0,
+        default=None,
         help="Maximum macro definitions; 0 means keep discovering while gain is positive.",
     )
     parser.add_argument(
         "--collective-episode-gap-us",
         type=float,
-        default=ComputePreludeConfig.collective_episode_gap_us,
+        default=None,
         help="Fallback merge gap for collective TASK fragments when COMMUNICATION_OP is absent.",
     )
-    parser.add_argument("--min-main-event-us", type=float, default=ComputePreludeConfig.min_main_event_us)
+    parser.add_argument("--min-main-event-us", type=float, default=None)
     parser.add_argument(
         "--readable-macro-mode",
         choices=("inline", "auto"),
-        default=ComputePreludeConfig.readable_macro_mode,
+        default=None,
     )
     parser.add_argument("--kernel-role-file", type=Path, default=None)
-    parser.add_argument("--summary-top-loops", type=int, default=ComputePreludeConfig.summary_top_loops)
+    parser.add_argument("--summary-top-loops", type=int, default=None)
 
 
 def build_parser() -> argparse.ArgumentParser:

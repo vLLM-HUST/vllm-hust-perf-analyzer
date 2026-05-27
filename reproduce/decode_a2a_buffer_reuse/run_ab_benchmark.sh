@@ -35,7 +35,11 @@ REPORT_DIR="$OUT_ROOT/reports/ab_decode_a2a_buffer_reuse_aiv"
 mkdir -p "$REPORT_DIR"
 if tl_in_container; then
   REMOTE_REPORT_DIR="$(tl_remote_root)/reports/ab_decode_a2a_buffer_reuse_aiv"
-  tl_container_exec "rm -rf '$REMOTE_REPORT_DIR' && mkdir -p '$REMOTE_REPORT_DIR'"
+  if tl_bool_true "${TRACELOOM_DRY_RUN:-0}"; then
+    echo "+ docker exec $TRACELOOM_CONTAINER sh -lc \"rm -rf '$REMOTE_REPORT_DIR' && mkdir -p '$REMOTE_REPORT_DIR'\""
+  else
+    tl_container_exec "rm -rf '$REMOTE_REPORT_DIR' && mkdir -p '$REMOTE_REPORT_DIR'"
+  fi
 fi
 
 run_one() {
@@ -58,7 +62,11 @@ run_one() {
   command_text=$(tl_shell_join "${command[@]}")
   local runtime_command
   runtime_command="$(tl_runtime_env_prefix) $command_text > '$runtime_log' 2>&1"
-  echo "+ $runtime_command"
+  if tl_in_container; then
+    printf '+ docker exec %s sh -lc %q\n' "$TRACELOOM_CONTAINER" "$runtime_command"
+  else
+    echo "+ $runtime_command"
+  fi
   if ! tl_bool_true "${TRACELOOM_DRY_RUN:-0}"; then
     if tl_in_container; then
       tl_container_exec "$runtime_command"

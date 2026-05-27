@@ -56,6 +56,12 @@ when `container` is set, or through `docker run --rm` when `image` is set.
 
 The analysis command consumes an existing `msprof` output directory. It does not
 read the workload command from the config and does not launch the workload.
+By default it analyzes every discovered device. To limit the scope, set
+`[analysis] top_devices_global` or `[analysis] devices = 3,4,5,6` in the
+profile config, or pass `--top-devices-global` / `--devices` on the CLI. The
+template keeps bounded event and macro limits for interactive use; set
+`max_main_events_per_device = 0` or `max_macro_defs = 0` only when you want an
+exhaustive offline pass.
 
 For direct analysis, TraceLoom still accepts either a run directory containing
 `msprof_raw` or the raw profile directory directly:
@@ -112,9 +118,15 @@ default:
 ```bash
 python3 reproduce/run_reference.py decode-a2a-buffer-reuse
 python3 reproduce/run_reference.py analyze-msprof /path/to/msprof_or_run_dir --name reviewer_msprof
+bash run_decode_a2a_buffer_reuse.sh --env-file reproduce/decode_a2a_buffer_reuse/local.env
 bash reproduce/decode_a2a_buffer_reuse/run_ab_benchmark.sh --env-file reproduce/decode_a2a_buffer_reuse/local.env
 bash reproduce/decode_a2a_buffer_reuse/run_profile_pair.sh --env-file reproduce/decode_a2a_buffer_reuse/local.env
 ```
+
+`run_decode_a2a_buffer_reuse.sh` is the integrated path for the local Ascend
+workload: it generates TraceLoom profile configs, runs baseline and optimized
+`msprof` captures, analyzes the produced msprof directories, and then builds the
+comparison report from those analysis outputs.
 
 After installation, the same entry point is available as `traceloom-reproduce`.
 

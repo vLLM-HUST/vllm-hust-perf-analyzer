@@ -52,7 +52,11 @@ profile_one() {
   fi
   mkdir -p "$raw_dir"
   if tl_in_container; then
-    tl_container_exec "rm -rf '$runtime_run_dir' && mkdir -p '$runtime_raw_dir'"
+    if tl_bool_true "${TRACELOOM_DRY_RUN:-0}"; then
+      echo "+ docker exec $TRACELOOM_CONTAINER sh -lc \"rm -rf '$runtime_run_dir' && mkdir -p '$runtime_raw_dir'\""
+    else
+      tl_container_exec "rm -rf '$runtime_run_dir' && mkdir -p '$runtime_raw_dir'"
+    fi
   fi
 
   tl_apply_patch_state "$state"
@@ -64,18 +68,32 @@ profile_one() {
   local application="$workload_text"
   if tl_in_container; then
     local wrapper="$runtime_run_dir/profile_workload.sh"
-    tl_container_exec "cat > '$wrapper' <<'EOF'
+    if tl_bool_true "${TRACELOOM_DRY_RUN:-0}"; then
+      echo "+ docker exec $TRACELOOM_CONTAINER sh -lc \"cat > '$wrapper' <<'EOF'
+#!/usr/bin/env sh
+set -e
+$workload_text
+EOF
+chmod +x '$wrapper'\""
+    else
+      tl_container_exec "cat > '$wrapper' <<'EOF'
 #!/usr/bin/env sh
 set -e
 $workload_text
 EOF
 chmod +x '$wrapper'"
+    fi
     application="$wrapper"
   fi
-  echo "+ msprof --output=$runtime_raw_dir --application=$application ${extra_msprof_args[*]:-} > $runtime_log_file 2>&1"
+  local msprof_command="msprof --output='$runtime_raw_dir' --application='$application' ${TRACELOOM_MSPROF_ARGS:-} > '$runtime_log_file' 2>&1"
+  if tl_in_container; then
+    printf '+ docker exec %s sh -lc %q\n' "$TRACELOOM_CONTAINER" "$msprof_command"
+  else
+    echo "+ msprof --output=$runtime_raw_dir --application=$application ${extra_msprof_args[*]:-} > $runtime_log_file 2>&1"
+  fi
   if ! tl_bool_true "${TRACELOOM_DRY_RUN:-0}"; then
     if tl_in_container; then
-      tl_container_exec "msprof --output='$runtime_raw_dir' --application='$application' ${TRACELOOM_MSPROF_ARGS:-} > '$runtime_log_file' 2>&1"
+      tl_container_exec "$msprof_command"
       rm -rf "$run_dir"
       mkdir -p "$run_dir"
       docker cp "$TRACELOOM_CONTAINER:$runtime_run_dir/." "$run_dir/"

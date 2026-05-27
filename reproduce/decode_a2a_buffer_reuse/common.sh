@@ -69,8 +69,27 @@ tl_check_host() {
   if tl_bool_true "${TRACELOOM_DRY_RUN:-0}"; then
     return
   fi
+  if tl_in_container; then
+    command -v docker >/dev/null 2>&1 || {
+      echo "docker not found but TRACELOOM_CONTAINER is set." >&2
+      exit 2
+    }
+    docker ps --format '{{.Names}}' | grep -Fx "$TRACELOOM_CONTAINER" >/dev/null || {
+      echo "container is not running: $TRACELOOM_CONTAINER" >&2
+      exit 2
+    }
+    tl_container_exec "command -v msprof >/dev/null && command -v npu-smi >/dev/null && npu-smi info >/dev/null" || {
+      echo "msprof/npu-smi check failed inside container: $TRACELOOM_CONTAINER" >&2
+      exit 2
+    }
+    return
+  fi
   command -v npu-smi >/dev/null 2>&1 || {
     echo "npu-smi not found; activate the Ascend runtime environment first." >&2
+    exit 2
+  }
+  command -v msprof >/dev/null 2>&1 || {
+    echo "msprof not found; activate the Ascend profiler environment first." >&2
     exit 2
   }
   npu-smi info >/dev/null
@@ -78,6 +97,14 @@ tl_check_host() {
 
 tl_prepare_runtime() {
   if ! tl_in_container; then
+    return
+  fi
+  if tl_bool_true "${TRACELOOM_DRY_RUN:-0}"; then
+    local remote_root
+    remote_root=$(tl_remote_root)
+    echo "+ docker exec $TRACELOOM_CONTAINER sh -lc \"mkdir -p '$remote_root' '$remote_root/patches' '$remote_root/workloads'\""
+    echo "+ docker cp $TRACELOOM_PROJECT_ROOT/examples/workloads/vllm_ascend_smoke.py $TRACELOOM_CONTAINER:$remote_root/workloads/vllm_ascend_smoke.py"
+    echo "+ docker cp $(tl_patch_file) $TRACELOOM_CONTAINER:$remote_root/patches/decode_a2a_buffer_reuse.diff"
     return
   fi
   command -v docker >/dev/null 2>&1 || {
@@ -202,5 +229,5 @@ tl_out_root() {
 }
 
 tl_runtime_env_prefix() {
-  echo "ASCEND_RT_VISIBLE_DEVICES=$TRACELOOM_DEVICES ASCEND_VISIBLE_DEVICES=$TRACELOOM_DEVICES NPU_VISIBLE_DEVICES=$TRACELOOM_DEVICES HCCL_OP_EXPANSION_MODE=${HCCL_OP_EXPANSION_MODE:-AIV} VLLM_PLUGINS=ascend VLLM_ASCEND_WORKER_NARROW_VISIBLE_DEVICES=${TRACELOOM_NARROW_WORKER_VISIBLE_DEVICES:-${VLLM_ASCEND_WORKER_NARROW_VISIBLE_DEVICES:-0}} VLLM_WORKER_MULTIPROC_METHOD=${TRACELOOM_WORKER_MULTIPROC_METHOD:-${VLLM_WORKER_MULTIPROC_METHOD:-fork}}"
+  echo "ASCEND_RT_VISIBLE_DEVICES=$TRACELOOM_DEVICES ASCEND_VISIBLE_DEVICES=$TRACELOOM_DEVICES NPU_VISIBLE_DEVICES=$TRACELOOM_DEVICES HCCL_OP_EXPANSION_MODE=${HCCL_OP_EXPANSION_MODE:-AIV} VLLM_PLUGINS=ascend VLLM_ASCEND_WORKER_NARROW_VISIBLE_DEVICES=${TRACELOOM_NARROW_WORKER_VISIBLE_DEVICES:-${VLLM_ASCEND_WORKER_NARROW_VISIBLE_DEVICES:-1}} VLLM_WORKER_MULTIPROC_METHOD=${TRACELOOM_WORKER_MULTIPROC_METHOD:-${VLLM_WORKER_MULTIPROC_METHOD:-spawn}}"
 }

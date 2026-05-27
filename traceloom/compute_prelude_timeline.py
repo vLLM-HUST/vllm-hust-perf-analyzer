@@ -31,7 +31,7 @@ from .msprof_reader import (
 
 @dataclass(frozen=True)
 class ComputePreludeConfig:
-    top_devices_global: int = 4
+    top_devices_global: int = 0
     max_main_events_per_device: int = 5_000
     max_macro_defs: int = 32
     collective_episode_gap_us: float = 5_000.0
@@ -40,6 +40,7 @@ class ComputePreludeConfig:
     readable_macro_mode: str = "inline"
     kernel_role_file: Path | None = None
     summary_top_loops: int = 12
+    device_ids: Tuple[int, ...] | None = None
 
 
 LOOP_PROMOTION_METHODS = [
@@ -2701,6 +2702,8 @@ def _rank_devices(db_paths: Sequence[Path], cfg: ComputePreludeConfig) -> List[D
     ranked_streams, _ranking_rows = _rank_streams_global(db_paths)
     buckets: Dict[Tuple[int, int], Dict[str, object]] = {}
     for stream in ranked_streams:
+        if cfg.device_ids is not None and stream.device_id not in cfg.device_ids:
+            continue
         key = (stream.db_idx, stream.device_id)
         bucket = buckets.setdefault(
             key,
@@ -3428,6 +3431,7 @@ def run_compute_prelude_timeline(
         "db_count": len(db_paths),
         "device_count": len(selections),
         "top_devices_global": cfg.top_devices_global,
+        "device_ids": list(cfg.device_ids) if cfg.device_ids is not None else None,
         "max_main_events_per_device": cfg.max_main_events_per_device,
         "max_macro_defs": cfg.max_macro_defs,
         "collective_episode_gap_us": cfg.collective_episode_gap_us,
@@ -3499,6 +3503,11 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--out-dir", type=Path, default=None)
     parser.add_argument("--top-devices-global", type=int, default=ComputePreludeConfig.top_devices_global)
     parser.add_argument(
+        "--devices",
+        default="",
+        help="Comma-separated physical device IDs to analyze, for example 3,4,5,6. Empty means all ranked devices.",
+    )
+    parser.add_argument(
         "--max-main-events-per-device",
         type=int,
         default=ComputePreludeConfig.max_main_events_per_device,
@@ -3551,6 +3560,13 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _parse_device_ids(value: str) -> Tuple[int, ...] | None:
+    value = value.strip()
+    if not value:
+        return None
+    return tuple(int(part.strip()) for part in value.split(",") if part.strip())
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
     run_dir = args.run_dir.resolve()
@@ -3568,6 +3584,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         readable_macro_mode=args.readable_macro_mode,
         kernel_role_file=args.kernel_role_file,
         summary_top_loops=args.summary_top_loops,
+        device_ids=_parse_device_ids(args.devices),
     )
     meta = run_compute_prelude_timeline(run_dir=run_dir, out_dir=out_dir, config=cfg)
     if args.json:

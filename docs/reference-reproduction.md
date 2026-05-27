@@ -39,6 +39,18 @@ For an external Ascend host, fill in the device set and workload paths:
 ```bash
 cp reproduce/decode_a2a_buffer_reuse/env.example reproduce/decode_a2a_buffer_reuse/local.env
 $EDITOR reproduce/decode_a2a_buffer_reuse/local.env
+bash run_decode_a2a_buffer_reuse.sh --env-file reproduce/decode_a2a_buffer_reuse/local.env
+```
+
+When the host itself is not an Ascend profiler environment, point
+`TRACELOOM_CONTAINER` at an already-running Huawei/Ascend container. TraceLoom
+then uses Docker as the launcher and runs both `msprof` and the workload inside
+that container.
+
+For lower-level debugging, the macro A/B reports and profile pair can still be
+collected separately:
+
+```bash
 bash reproduce/decode_a2a_buffer_reuse/run_ab_benchmark.sh --env-file reproduce/decode_a2a_buffer_reuse/local.env
 bash reproduce/decode_a2a_buffer_reuse/run_profile_pair.sh --env-file reproduce/decode_a2a_buffer_reuse/local.env
 ```

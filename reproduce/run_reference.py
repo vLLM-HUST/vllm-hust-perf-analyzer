@@ -58,6 +58,7 @@ def analyzer_command(args: argparse.Namespace, profile_dir: Path, analysis_dir: 
         sys.executable,
         "-m",
         "traceloom",
+        "analysis",
         str(profile_dir),
         "--out-dir",
         str(analysis_dir),
@@ -68,6 +69,8 @@ def analyzer_command(args: argparse.Namespace, profile_dir: Path, analysis_dir: 
         "--max-macro-defs",
         str(args.max_macro_defs),
     ]
+    if args.devices:
+        command.extend(["--devices", args.devices])
     if args.kernel_role_file is not None:
         command.extend(["--kernel-role-file", str(args.kernel_role_file)])
     return command
@@ -99,9 +102,10 @@ def write_manifest(
 
 
 def add_common_analyzer_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--top-devices-global", type=int, default=1)
-    parser.add_argument("--max-main-events-per-device", type=int, default=0)
-    parser.add_argument("--max-macro-defs", type=int, default=0)
+    parser.add_argument("--top-devices-global", type=int, default=0)
+    parser.add_argument("--devices", default="")
+    parser.add_argument("--max-main-events-per-device", type=int, default=5000)
+    parser.add_argument("--max-macro-defs", type=int, default=32)
     parser.add_argument("--kernel-role-file", type=Path, default=None)
     parser.add_argument("--dry-run", action="store_true")
 
@@ -181,6 +185,7 @@ def cmd_decode_a2a_buffer_reuse(args: argparse.Namespace) -> int:
         baseline_run_dir=args.baseline_run_dir.resolve() if args.baseline_run_dir else None,
         optimized_run_dir=args.optimized_run_dir.resolve() if args.optimized_run_dir else None,
         top_devices_global=args.top_devices_global,
+        devices=args.devices,
         max_main_events_per_device=args.max_main_events_per_device,
         max_macro_defs=args.max_macro_defs,
         dry_run=args.dry_run,

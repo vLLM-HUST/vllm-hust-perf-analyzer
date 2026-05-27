@@ -41,6 +41,11 @@ The three commands are intentionally separate:
 - `analysis` reads an existing `msprof` output directory and runs offline
   loop/cost analysis.
 
+Analysis defaults to every discovered device. Use `--devices 3,4,5,6`, or the
+matching `[analysis] devices` config key, when a run should be pinned to a
+specific physical device set. Set `max_main_events_per_device = 0` or
+`max_macro_defs = 0` only for an exhaustive pass over a large profile.
+
 Direct analysis of an existing profile:
 
 ```bash
