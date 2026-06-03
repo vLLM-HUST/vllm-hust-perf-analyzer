@@ -1,7 +1,36 @@
 # Output Schema
 
-TraceLoom writes one output bundle per selected device/profile DB plus run-level
-summary files.
+TraceLoom defaults to a compact analysis bundle rooted at:
+
+```text
+<raw_msprof_dir>/traceloom/
+```
+
+Use `--out-dir` to place it elsewhere.
+
+## Default Bundle
+
+- `dbNN.traceloom_augmented.db`: one sidecar copy per discovered msprof DB. Raw
+  profiler tables remain intact; TraceLoom adds `traceloom_*` tables and views.
+- `README.md`: generated instructions for inspecting this bundle.
+- `summary.md`: analyzed devices and top loop-cost summary.
+- `tree-map.md`: readable node-cost map. Its `node` column maps to
+  `traceloom_v_tree_node.local_node_id` for SQL drill-down. The table keeps
+  node label, `depth`, node occurrence count, `avg_total_us`, `avg_aux_us`, and
+  `total_us` visible while leaving detailed cost breakdowns, anchor counts, and
+  anchor ranges to query scripts.
+- `queries/*.sql`: starter report queries runnable with `traceloom report`.
+- `meta.json`: analyzer options, input paths, elapsed time, generated DBs, and
+  query files.
+
+This is the intended public surface. SQL reports should query the augmented DBs
+rather than depending on CSV/JSON debug exports.
+
+## Full Debug Export
+
+Run with `--output-mode full` to additionally write the legacy per-device
+CSV/JSON/Markdown evidence files. These files are useful while developing the
+analyzer, but they are not the default user-facing bundle.
 
 ## Run-Level Files
 

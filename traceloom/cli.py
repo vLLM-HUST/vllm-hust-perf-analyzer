@@ -5,6 +5,7 @@ import configparser
 import os
 import shlex
 import shutil
+import sqlite3
 import subprocess
 import sys
 from datetime import datetime
@@ -14,14 +15,16 @@ from typing import Dict, List, Sequence
 from .compute_prelude_timeline import (
     ComputePreludeConfig,
     _format_console_summary,
+    _resolve_msprof_raw_dir,
     run_compute_prelude_timeline,
 )
+from .report import parse_attach, report_to_file
 
 
 TEMPLATE = """# TraceLoom profile config.
 # Edit this file, then run:
 #   traceloom run traceloom.profile.ini
-#   traceloom analysis runs/local-msprof/msprof_raw --out-dir runs/local-msprof/analysis
+#   traceloom analyze runs/local-msprof/msprof_raw
 
 [profile]
 name = local-msprof
@@ -30,7 +33,7 @@ name = local-msprof
 # Paths are resolved relative to this config file unless absolute.
 run_dir = runs/local-msprof
 profile_dir = runs/local-msprof/msprof_raw
-analysis_dir = runs/local-msprof/analysis
+analysis_dir = runs/local-msprof/msprof_raw/traceloom
 log_file = runs/local-msprof/workload.log
 
 [workload]
@@ -54,6 +57,7 @@ devices =
 max_main_events_per_device = 5000
 max_macro_defs = 32
 summary_top_loops = 12
+output_mode = bundle
 
 [docker]
 # Docker is optional. In local mode, TraceLoom runs msprof directly.
@@ -218,6 +222,9 @@ def _analysis_config_from_args(args: argparse.Namespace) -> ComputePreludeConfig
         device_ids=_parse_device_ids(
             args.devices if args.devices is not None else _str_option(cfg, "analysis", "devices", "")
         ),
+        output_mode=args.output_mode
+        if args.output_mode is not None
+        else _str_option(cfg, "analysis", "output_mode", ComputePreludeConfig.output_mode),
     )
 
 
@@ -335,25 +342,51 @@ def cmd_run(args: argparse.Namespace) -> int:
     )
     print(f"profile_dir: {profile_dir}")
     print(f"log_file: {log_file}")
-    analysis_dir = _path_value(cfg, config_path, "paths", "analysis_dir", "analysis")
-    print(f"next: traceloom analysis {profile_dir} --out-dir {analysis_dir}")
+    analysis_dir = _path_value(cfg, config_path, "paths", "analysis_dir", str(profile_dir / "traceloom"))
+    print(f"next: traceloom analyze {profile_dir}")
+    print(f"default_analysis_dir: {analysis_dir}")
     return 0
 
 
 def cmd_analysis(args: argparse.Namespace) -> int:
     profile_dir = args.profile_dir.resolve()
-    analysis_dir = args.out_dir.resolve() if args.out_dir is not None else profile_dir.parent / "analysis"
-    meta = run_compute_prelude_timeline(
-        run_dir=profile_dir,
-        out_dir=analysis_dir,
-        config=_analysis_config_from_args(args),
-    )
+    try:
+        analysis_dir = args.out_dir.resolve() if args.out_dir is not None else _resolve_msprof_raw_dir(profile_dir) / "traceloom"
+        meta = run_compute_prelude_timeline(
+            run_dir=profile_dir,
+            out_dir=analysis_dir,
+            config=_analysis_config_from_args(args),
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        raise SystemExit(str(exc)) from exc
     if args.json:
         import json
 
         print(json.dumps(meta, ensure_ascii=False, indent=2))
     else:
         print(_format_console_summary(meta))
+    return 0
+
+
+def cmd_report(args: argparse.Namespace) -> int:
+    if args.sql is None and args.query is None:
+        raise SystemExit("report requires --sql or --query")
+    if args.sql is not None and args.query is not None:
+        raise SystemExit("report accepts only one of --sql or --query")
+    sql = args.query if args.query is not None else args.sql.read_text(encoding="utf-8")
+    try:
+        attaches = [parse_attach(value) for value in args.attach]
+        result = report_to_file(
+            db_path=args.database.resolve(),
+            sql=sql,
+            fmt=args.format,
+            output_path=args.output.resolve() if args.output is not None else None,
+            attaches=attaches,
+        )
+    except (FileNotFoundError, ValueError, sqlite3.Error) as exc:
+        raise SystemExit(str(exc)) from exc
+    if args.output is not None:
+        print(f"report: {args.output.resolve()} ({len(result.rows)} rows)")
     return 0
 
 
@@ -391,6 +424,12 @@ def add_analysis_options(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--kernel-role-file", type=Path, default=None)
     parser.add_argument("--summary-top-loops", type=int, default=None)
+    parser.add_argument(
+        "--output-mode",
+        choices=("bundle", "full"),
+        default=None,
+        help="bundle writes augmented DBs, README, summary, and SQL scripts; full also exports legacy CSV/JSON files.",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -422,6 +461,26 @@ def build_parser() -> argparse.ArgumentParser:
     add_analysis_options(analyze)
     analyze.add_argument("--json", action="store_true")
     analyze.set_defaults(func=cmd_analysis)
+
+    report = subparsers.add_parser("report", help="Run SQL against a TraceLoom augmented DB and export rows.")
+    report.add_argument("database", type=Path, help="TraceLoom augmented SQLite DB, such as db01.traceloom_augmented.db.")
+    report.add_argument("--sql", type=Path, default=None, help="SQL file containing a SELECT or WITH query.")
+    report.add_argument("--query", default=None, help="Inline SELECT or WITH query.")
+    report.add_argument(
+        "--format",
+        choices=("csv", "tsv", "json", "md"),
+        default="csv",
+        help="Output format.",
+    )
+    report.add_argument("-o", "--output", type=Path, default=None, help="Output file. Defaults to stdout.")
+    report.add_argument(
+        "--attach",
+        action="append",
+        default=[],
+        metavar="ALIAS=PATH",
+        help="Attach another SQLite DB for cross-rank queries. Can be passed multiple times.",
+    )
+    report.set_defaults(func=cmd_report)
 
     return parser
 
