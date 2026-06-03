@@ -128,8 +128,11 @@ Useful starter scripts:
 - `queries/node-events.sql`: concrete profiler events covered by one node id.
 
 See [docs/augmented-db-schema.md](docs/augmented-db-schema.md) for the DB
-schema. See [docs/output-schema.md](docs/output-schema.md) for the legacy full
-export contract.
+schema. Chinese users can also read
+[docs/tree-map-guide.zh.md](docs/tree-map-guide.zh.md) for a practical guide to
+using `tree-map.md` as a SQL drill-down map. See
+[docs/output-schema.md](docs/output-schema.md) for the legacy full export
+contract.
 
 ## Optional Profiling Runner
 

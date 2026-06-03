@@ -121,6 +121,9 @@ traceloom/
 3. 找到感兴趣的 `node`，例如 `N060`。
 4. 用 `queries/node-events.sql` 或 `queries/node-cost-breakdown.sql` 继续查原始事件和成本组成。
 
+更完整的阅读方法、真实表格示例、anchor/aux 成本模型和 agent 辅助分析建议见
+[docs/tree-map-guide.zh.md](docs/tree-map-guide.zh.md)。
+
 ## 用 SQL 深挖
 
 TraceLoom 的设计目标不是把所有细节塞进 Markdown 表，而是给出一张地图，然后让用户用 SQL 继续追。

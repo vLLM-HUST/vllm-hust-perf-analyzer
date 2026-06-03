@@ -18,7 +18,8 @@ Use `--out-dir` to place it elsewhere.
   `traceloom_v_tree_node.local_node_id` for SQL drill-down. The table keeps
   node label, `depth`, node occurrence count, `avg_total_us`, `avg_aux_us`, and
   `total_us` visible while leaving detailed cost breakdowns, anchor counts, and
-  anchor ranges to query scripts.
+  anchor ranges to query scripts. See `docs/tree-map-guide.zh.md` for a
+  practical Chinese guide to reading the map and drilling into the augmented DB.
 - `queries/*.sql`: starter report queries runnable with `traceloom report`.
 - `meta.json`: analyzer options, input paths, elapsed time, generated DBs, and
   query files.
