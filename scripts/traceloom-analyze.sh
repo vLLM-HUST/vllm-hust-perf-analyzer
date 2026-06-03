@@ -12,6 +12,7 @@ Environment:
   TRACELOOM_MAX_MAIN_EVENTS      Default --max-main-events-per-device. Default: 0
   TRACELOOM_MAX_MACRO_DEFS       Default --max-macro-defs. Default: 0
   TRACELOOM_READABLE_MACRO_MODE  Default --readable-macro-mode. Default: inline
+  TRACELOOM_OUTPUT_MODE          Default --output-mode. Default: bundle
 USAGE
 }
 
@@ -31,18 +32,18 @@ out_dir=""
 if [[ $# -gt 0 && "${1:-}" != --* ]]; then
   out_dir="$1"
   shift
-else
-  input_name="$(basename "${input_path%/}")"
-  stamp="$(date +%Y%m%d_%H%M%S)"
-  out_dir="${traceloom_root}/out/${input_name}_${stamp}"
 fi
 
 export PYTHONPATH="${traceloom_root}${PYTHONPATH:+:${PYTHONPATH}}"
 
-exec "${python_bin}" -m traceloom analysis "${input_path}" \
-  --out-dir "${out_dir}" \
+command=("${python_bin}" -m traceloom analyze "${input_path}")
+if [[ -n "${out_dir}" ]]; then
+  command+=(--out-dir "${out_dir}")
+fi
+exec "${command[@]}" \
   --top-devices-global "${TRACELOOM_TOP_DEVICES:-4}" \
   --max-main-events-per-device "${TRACELOOM_MAX_MAIN_EVENTS:-0}" \
   --max-macro-defs "${TRACELOOM_MAX_MACRO_DEFS:-0}" \
   --readable-macro-mode "${TRACELOOM_READABLE_MACRO_MODE:-inline}" \
+  --output-mode "${TRACELOOM_OUTPUT_MODE:-bundle}" \
   "$@"

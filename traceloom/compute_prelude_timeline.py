@@ -6,6 +6,7 @@ import copy
 import csv
 import json
 import math
+import shutil
 import sqlite3
 import time
 from collections import Counter
@@ -13,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Sequence, Tuple
 
+from .augmented_db import append_device_analysis, prepare_augmented_db
 from .io.discover import discover_msprof_dbs
 from .loop_tree import (
     MacroDef,
@@ -41,6 +43,7 @@ class ComputePreludeConfig:
     kernel_role_file: Path | None = None
     summary_top_loops: int = 12
     device_ids: Tuple[int, ...] | None = None
+    output_mode: str = "bundle"
 
 
 LOOP_PROMOTION_METHODS = [
@@ -1719,7 +1722,7 @@ def _augment_tree_node_cost_metrics(
     occurrence_contexts: Dict[str, List[str]] = {}
     counter = 0
 
-    def ensure_node(node: Dict[str, object], *, depth: int, path: str) -> str:
+    def ensure_node(node: Dict[str, object], *, depth: int, path: str, loop_depth: int) -> str:
         nonlocal counter
         node_id = str(node.get("node_id", "")).strip()
         if not node_id:
@@ -1737,6 +1740,7 @@ def _augment_tree_node_cost_metrics(
                 "path": path,
                 "depth": depth,
                 "display_depth": display_depth,
+                "loop_depth": loop_depth,
                 "structural_alias": structural_alias,
                 "kind": _node_cost_kind(node),
                 "type": node_type,
@@ -1751,9 +1755,18 @@ def _augment_tree_node_cost_metrics(
         occurrence_ranges.setdefault(node_id, []).append((start_idx, end_idx))
         occurrence_contexts.setdefault(node_id, []).append(context)
 
-    def visit(node: Dict[str, object], cursor: int, *, depth: int, path: str, context: str) -> int:
-        node_id = ensure_node(node, depth=depth, path=path)
+    def visit(
+        node: Dict[str, object],
+        cursor: int,
+        *,
+        depth: int,
+        path: str,
+        context: str,
+        loop_depth: int,
+    ) -> int:
         node_type = str(node.get("type", ""))
+        current_loop_depth = loop_depth + (1 if node_type == "Repeat" else 0)
+        node_id = ensure_node(node, depth=depth, path=path, loop_depth=current_loop_depth)
         start_idx = cursor
 
         if node_type == "Seq":
@@ -1770,6 +1783,7 @@ def _augment_tree_node_cost_metrics(
                             depth=depth + 1,
                             path=f"{path}.{idx}" if path else str(idx),
                             context=context,
+                            loop_depth=current_loop_depth,
                         )
             record_occurrence(node_id, start_idx, cursor, context)
             return cursor
@@ -1786,6 +1800,7 @@ def _augment_tree_node_cost_metrics(
                         depth=depth + 1,
                         path=f"{path}.body",
                         context=repeat_context,
+                        loop_depth=current_loop_depth,
                     )
             record_occurrence(node_id, start_idx, cursor, context)
             return cursor
@@ -1804,7 +1819,7 @@ def _augment_tree_node_cost_metrics(
         record_occurrence(node_id, start_idx, cursor, context)
         return cursor
 
-    consumed = visit(root, 0, depth=0, path="root", context="")
+    consumed = visit(root, 0, depth=0, path="root", context="", loop_depth=0)
     metric_rows: List[Dict[str, object]] = []
     link_rows: List[Dict[str, object]] = []
     for node_id, record in node_records.items():
@@ -1894,10 +1909,37 @@ def _augment_tree_node_cost_metrics(
         )
         metric_rows.append(row)
 
+    id_map = {
+        str(row.get("node_id", "")): f"N{idx:03d}"
+        for idx, row in enumerate(
+            sorted(metric_rows, key=lambda r: _node_display_order(str(r.get("node_id", "")))),
+            start=1,
+        )
+    }
+    for row in metric_rows:
+        raw_node_id = str(row.get("node_id", ""))
+        row["raw_node_id"] = raw_node_id
+        row["node_id"] = id_map.get(raw_node_id, raw_node_id)
+    for row in link_rows:
+        raw_node_id = str(row.get("node_id", ""))
+        row["raw_node_id"] = raw_node_id
+        row["node_id"] = id_map.get(raw_node_id, raw_node_id)
+        row["repeat_context"] = _remap_repeat_context(str(row.get("repeat_context", "")), id_map)
+
     tree_payload["node_cost_metrics"] = metric_rows
     tree_payload["node_anchor_link_count"] = len(link_rows)
     tree_payload["node_cost_metrics_unconsumed_anchors"] = max(0, len(step_rows) - consumed)
     return metric_rows, link_rows
+
+
+def _remap_repeat_context(context: str, id_map: Dict[str, str]) -> str:
+    if not context:
+        return ""
+    parts: List[str] = []
+    for part in context.split("/"):
+        node_id, sep, repeat_idx = part.partition("#")
+        parts.append(f"{id_map.get(node_id, node_id)}{sep}{repeat_idx}" if sep else id_map.get(node_id, node_id))
+    return "/".join(parts)
 
 
 def _augment_root_item_metrics(
@@ -2510,32 +2552,24 @@ def _render_node_cost_metrics(rows: Sequence[Dict[str, object]]) -> List[str]:
     lines.append("- `label` is the representative kernel or structural label for that node.")
     lines.append("- `repeat` is the loop repetition count for repeat nodes. `occ` is the number of times this row occurs in the expanded execution implied by its ancestor loops.")
     lines.append("- `total_us` is the inclusive wall-clock contribution of the node across all occurrences. For a `Repeat`, it should equal the sum of the visible body-child totals.")
-    lines.append("- `avg_total_us`, `avg_compute_us`, `avg_comm_us`, `avg_idle_us`, `avg_self_us`, and `avg_aux_us` divide the corresponding totals by `occ`, making loop-body per-iteration costs comparable.")
-    lines.append("- `avg_compute_us` counts covered compute-anchor execution, `avg_comm_us` counts prelude collective/communication time before those anchors, and `avg_idle_us` counts uncovered prelude gap time.")
-    lines.append("- `avg_self_us` is the node's own anchor cost after subtracting visible child contributions where applicable. It is most useful for spotting whether cost belongs to the node itself or to its nested structure.")
-    lines.append("- `comm%` and `idle%` are computed from inclusive totals, not averages, so they describe the node's total cost composition.")
-    lines.append("- `aux_events` counts auxiliary events attached to the node's anchor prelude slots; `avg_aux_us` is their average attached duration per occurrence.")
+    lines.append("- `avg_total_us` and `avg_aux_us` divide the corresponding totals by node execution occurrences, making loop-body per-iteration costs comparable.")
+    lines.append("- Detailed compute/communication/idle splits, anchor ranges, auxiliary event counts, and composition percentages are available through the SQL drill-down reports.")
     lines.append("- Read top-level rows for phase-level structure and total cost distribution; read a `Repeat` row together with its immediate children for loop-body cost distribution.")
     lines.append("")
     visible_rows = [row for row in rows if not row.get("structural_alias")]
     lines.append(
-        "| node | depth | kind | label | repeat | occ | avg_total_us | total_us | avg_compute_us | avg_comm_us | avg_idle_us | avg_self_us | comm% | idle% | aux_events | avg_aux_us |"
+        "| node | label | depth | occ | avg_total_us | avg_aux_us | total_us |"
     )
     lines.append(
-        "| --- | ---: | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: |"
     )
     for row in visible_rows:
         lines.append(
             (
-                f"| {row.get('node_id','')} | {row.get('display_depth', row.get('depth',0))} | {row.get('kind','')} "
-                f"| {row.get('label','')} | {row.get('repeat','')} "
-                f"| {row.get('occurrence_count',0)} "
-                f"| {row.get('avg_total_us',0.0)} | {row.get('total_us',0.0)} "
-                f"| {row.get('avg_compute_us',0.0)} | {row.get('avg_comm_us',0.0)} "
-                f"| {row.get('avg_idle_us',0.0)} | {row.get('avg_self_us',0.0)} "
-                f"| {round(float(row.get('comm_pct',0.0)) * 100.0, 2)} "
-                f"| {round(float(row.get('idle_pct',0.0)) * 100.0, 2)} "
-                f"| {row.get('aux_events',0.0)} | {row.get('avg_aux_us',0.0)} |"
+                f"| {row.get('node_id','')} | {row.get('label','')} "
+                f"| {row.get('display_depth', row.get('depth',0))} | {row.get('occurrence_count',0)} "
+                f"| {row.get('avg_total_us',0.0)} | {row.get('avg_aux_us',0.0)} "
+                f"| {row.get('total_us',0.0)} |"
             )
         )
     return lines
@@ -2802,6 +2836,7 @@ def _build_run_summary_markdown(
     loop_cost_rows: Sequence[Dict[str, object]],
     out_dir: Path,
     top_loops: int,
+    output_mode: str,
 ) -> str:
     lines: List[str] = []
     lines.append("# TraceLoom Summary")
@@ -2812,67 +2847,258 @@ def _build_run_summary_markdown(
     lines.append("## Devices")
     lines.append("")
     if summary_rows:
-        lines.append(
-            "| rank | db | device | anchors | loops_file | tree | used_total_us | prelude_gap_us | prelude_comm_us | prelude_idle_us |"
-        )
-        lines.append("| ---: | --- | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: |")
-        for row in summary_rows:
+        if output_mode == "full":
             lines.append(
-                (
-                    f"| {row.get('global_rank','')} | db{int(row.get('db_idx',0)):02d} | {row.get('device_id','')} "
-                    f"| {row.get('anchor_event_count',0)} | {row.get('anchor_loop_costs_file','')} "
-                    f"| {row.get('anchor_tree_readable_file','')} | {row.get('used_total_main_us',0.0)} "
-                    f"| {row.get('prelude_gap_us',0.0)} | {row.get('prelude_comm_us',0.0)} "
-                    f"| {row.get('prelude_idle_us',0.0)} |"
-                )
+                "| rank | db | device | anchors | loops_file | tree | used_total_us | prelude_gap_us | prelude_comm_us | prelude_idle_us |"
             )
+            lines.append("| ---: | --- | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: |")
+            for row in summary_rows:
+                lines.append(
+                    (
+                        f"| {row.get('global_rank','')} | db{int(row.get('db_idx',0)):02d} | {row.get('device_id','')} "
+                        f"| {row.get('anchor_event_count',0)} | {row.get('anchor_loop_costs_file','')} "
+                        f"| {row.get('anchor_tree_readable_file','')} | {row.get('used_total_main_us',0.0)} "
+                        f"| {row.get('prelude_gap_us',0.0)} | {row.get('prelude_comm_us',0.0)} "
+                        f"| {row.get('prelude_idle_us',0.0)} |"
+                    )
+                )
+        else:
+            lines.append(
+                "| rank | db | device | augmented_db | anchors | used_total_us | prelude_gap_us | prelude_comm_us | prelude_idle_us |"
+            )
+            lines.append("| ---: | --- | ---: | --- | ---: | ---: | ---: | ---: | ---: |")
+            for row in summary_rows:
+                lines.append(
+                    (
+                        f"| {row.get('global_rank','')} | db{int(row.get('db_idx',0)):02d} | {row.get('device_id','')} "
+                        f"| {row.get('augmented_db_file','')} | {row.get('anchor_event_count',0)} "
+                        f"| {row.get('used_total_main_us',0.0)} | {row.get('prelude_gap_us',0.0)} "
+                        f"| {row.get('prelude_comm_us',0.0)} | {row.get('prelude_idle_us',0.0)} |"
+                    )
+                )
     else:
         lines.append("No devices with executable task timelines were selected.")
     lines.append("")
     lines.append("## Top Loop Costs")
     lines.append("")
     if loop_cost_rows:
-        lines.append(
-            "| rank | device | node | repeat | occ | anchors/occ | avg_total_us | total_us | avg_compute_us | avg_comm_us | avg_idle_us | tree |"
-        )
-        lines.append("| ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |")
+        if output_mode == "full":
+            lines.append(
+                "| rank | device | node | repeat | occ | anchors/occ | avg_total_us | total_us | avg_compute_us | avg_comm_us | avg_idle_us | tree |"
+            )
+            lines.append("| ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |")
+        else:
+            lines.append(
+                "| rank | device | node | repeat | occ | anchors/occ | avg_total_us | total_us | avg_compute_us | avg_comm_us | avg_idle_us |"
+            )
+            lines.append("| ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
         for idx, row in enumerate(
             sorted(loop_cost_rows, key=lambda r: float(r.get("total_us", 0.0)), reverse=True)[:top_loops],
             start=1,
         ):
-            lines.append(
-                (
-                    f"| {idx} | {row.get('device_id','')} | {row.get('node_id','')} "
-                    f"| {row.get('repeat','')} | {row.get('occurrence_count',0)} "
-                    f"| {row.get('anchors_per_occurrence',0.0)} | {row.get('avg_total_us',0.0)} "
-                    f"| {row.get('total_us',0.0)} | {row.get('avg_compute_us',0.0)} "
-                    f"| {row.get('avg_comm_us',0.0)} | {row.get('avg_idle_us',0.0)} "
-                    f"| {row.get('anchor_tree_readable_file','')} |"
-                )
+            prefix = (
+                f"| {idx} | {row.get('device_id','')} | {row.get('node_id','')} "
+                f"| {row.get('repeat','')} | {row.get('occurrence_count',0)} "
+                f"| {row.get('anchors_per_occurrence',0.0)} | {row.get('avg_total_us',0.0)} "
+                f"| {row.get('total_us',0.0)} | {row.get('avg_compute_us',0.0)} "
+                f"| {row.get('avg_comm_us',0.0)} | {row.get('avg_idle_us',0.0)} "
             )
+            if output_mode == "full":
+                lines.append(prefix + f"| {row.get('anchor_tree_readable_file','')} |")
+            else:
+                lines.append(prefix + "|")
     else:
         lines.append("No repeat nodes were detected in the selected anchor timelines.")
     lines.append("")
     lines.append("## Main Files")
     lines.append("")
-    lines.append("- `device_summary.csv`")
-    lines.append("- `compute_anchor_loop_costs.csv`")
-    lines.append("- `compute_anchor_node_metrics.csv`")
-    lines.append("- `compute_anchor_aux_slots.csv`")
+    lines.append("- `dbNN.traceloom_augmented.db`")
+    lines.append("- `README.md`")
+    lines.append("- `queries/*.sql`")
+    lines.append("- `tree-map.md`")
+    lines.append("- `summary.md`")
+    lines.append("- `meta.json`")
+    if output_mode == "full":
+        lines.append("- `device_summary.csv`")
+        lines.append("- `compute_anchor_loop_costs.csv`")
+        lines.append("- `compute_anchor_node_metrics.csv`")
+        lines.append("- `compute_anchor_aux_slots.csv`")
     return "\n".join(lines) + "\n"
 
 
+def _build_tree_map_markdown(
+    *,
+    node_rows: Sequence[Dict[str, object]],
+    summary_rows: Sequence[Dict[str, object]],
+) -> str:
+    lines: List[str] = [
+        "# TraceLoom Tree Map",
+        "",
+        "This file is the readable map for SQL drill-down. Use `node` values such as `N027` with",
+        "`traceloom_v_tree_node.local_node_id`, then join through occurrence, anchor, and event views.",
+        "",
+        "## SQL Drill Down",
+        "",
+        "```sql",
+        "-- Read or filter the map.",
+        "select *",
+        "from traceloom_v_tree_node",
+        "where local_node_id = 'N027';",
+        "",
+        "-- Expand a node into repeated occurrences.",
+        "select *",
+        "from traceloom_tree_node_occurrence",
+        "where local_node_id = 'N027'",
+        "order by occurrence_idx;",
+        "",
+        "-- Drill from a node to concrete profiler events.",
+        "select",
+        "  a.anchor_idx, e.label, e.stream_id, e.start_ns, e.end_ns, e.dur_us",
+        "from traceloom_tree_node_anchor na",
+        "join traceloom_anchor a on a.anchor_id = na.anchor_id",
+        "join traceloom_event e on e.event_id = a.event_id",
+        "where na.local_node_id = 'N027'",
+        "order by na.occurrence_idx, na.anchor_order;",
+        "```",
+        "",
+    ]
+
+    rows_by_device: Dict[Tuple[int, int], List[Dict[str, object]]] = {}
+    for row in node_rows:
+        key = (_safe_int(row.get("db_idx")), _safe_int(row.get("device_id")))
+        rows_by_device.setdefault(key, []).append(row)
+
+    if not rows_by_device:
+        lines.append("No tree nodes were generated.")
+        return "\n".join(lines) + "\n"
+
+    summary_by_device = {
+        (_safe_int(row.get("db_idx")), _safe_int(row.get("device_id"))): row
+        for row in summary_rows
+    }
+    for key in sorted(rows_by_device):
+        db_idx, device_id = key
+        summary = summary_by_device.get(key, {})
+        lines.append(f"## db{db_idx:02d} device {device_id}")
+        lines.append("")
+        if summary.get("augmented_db_file"):
+            lines.append(f"- augmented_db: `{summary.get('augmented_db_file')}`")
+            lines.append("")
+        lines.append("| node | label | depth | occ | avg_total_us | avg_aux_us | total_us |")
+        lines.append("| --- | --- | ---: | ---: | ---: | ---: | ---: |")
+        for row in sorted(rows_by_device[key], key=lambda r: _node_display_order(str(r.get("node_id", "")))):
+            lines.append(
+                (
+                    f"| {row.get('node_id','')} | {_md_escape(row.get('label',''))} "
+                    f"| {row.get('display_depth', row.get('depth', 0))} | {row.get('occurrence_count',0)} "
+                    f"| {row.get('avg_total_us',0.0)} | {row.get('avg_aux_us',0.0)} "
+                    f"| {row.get('total_us',0.0)} |"
+                )
+            )
+        lines.append("")
+    return "\n".join(lines)
+
+
+def _node_display_order(local_node_id: str) -> int:
+    if len(local_node_id) > 1 and local_node_id[0].isalpha():
+        try:
+            return int(local_node_id[1:])
+        except ValueError:
+            return 0
+    return 0
+
+
+def _safe_int(value: object) -> int:
+    try:
+        return int(float(str(value)))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _md_escape(value: object) -> str:
+    return str(value).replace("\\", "\\\\").replace("|", "\\|").replace("\n", " ")
+
+
 def _format_console_summary(meta: Dict[str, object]) -> str:
-    out_dir = Path(str(meta.get("summary_file", ""))).parent
+    out_dir = Path(str(meta.get("out_dir") or Path(str(meta.get("run_summary_file", ""))).parent))
     lines = [
         "TraceLoom analysis complete",
         f"out_dir: {out_dir}",
+        f"output_mode: {meta.get('output_mode', 'bundle')}",
         f"devices: {meta.get('device_count', 0)} / dbs: {meta.get('db_count', 0)}",
         f"summary: {_relpath_or_self(str(meta.get('run_summary_file', '')), out_dir)}",
-        f"loop_costs: {_relpath_or_self(str(meta.get('anchor_loop_costs_file', '')), out_dir)}",
-        f"node_metrics: {_relpath_or_self(str(meta.get('anchor_node_metrics_file', '')), out_dir)}",
+        f"augmented_dbs: {', '.join(_relpath_or_self(str(p), out_dir) for p in meta.get('augmented_db_files', []))}",
     ]
+    if meta.get("output_mode") == "full":
+        lines.extend(
+            [
+                f"loop_costs: {_relpath_or_self(str(meta.get('anchor_loop_costs_file', '')), out_dir)}",
+                f"node_metrics: {_relpath_or_self(str(meta.get('anchor_node_metrics_file', '')), out_dir)}",
+            ]
+        )
     return "\n".join(lines)
+
+
+def _copy_report_sql_scripts(out_dir: Path) -> List[str]:
+    source_dir = Path(__file__).resolve().parents[1] / "docs" / "report-sql"
+    target_dir = out_dir / "queries"
+    if not source_dir.exists():
+        return []
+    target_dir.mkdir(parents=True, exist_ok=True)
+    copied: List[str] = []
+    for source in sorted(source_dir.glob("*.sql")):
+        target = target_dir / source.name
+        shutil.copy2(source, target)
+        copied.append(str(target.relative_to(out_dir)))
+    return copied
+
+
+def _write_output_readme(
+    *,
+    out_dir: Path,
+    raw_dir: Path,
+    augmented_db_paths: Sequence[Path],
+    query_files: Sequence[str],
+    output_mode: str,
+) -> Path:
+    lines = [
+        "# TraceLoom Analysis Bundle",
+        "",
+        f"- msprof_input: `{raw_dir}`",
+        f"- output_mode: `{output_mode}`",
+        "",
+        "## Primary Outputs",
+        "",
+    ]
+    for path in augmented_db_paths:
+        lines.append(f"- `{path.relative_to(out_dir)}`: copied msprof SQLite DB with TraceLoom `traceloom_*` tables and views.")
+    lines.extend(
+        [
+            "- `summary.md`: run-level device and loop summary.",
+            "- `tree-map.md`: readable node-cost map; copy a `node` id into SQL drill-down queries.",
+            "- `meta.json`: analyzer parameters and generated file paths.",
+            "- `queries/*.sql`: starter SQL reports for the augmented DBs.",
+            "",
+            "## Common Commands",
+            "",
+            "```bash",
+            "python3 -m pip install -e .",
+            "traceloom analyze /path/to/msprof_output",
+            "traceloom report /path/to/msprof_output/traceloom/db01.traceloom_augmented.db \\",
+            "  --sql /path/to/msprof_output/traceloom/queries/repeat-overview.sql \\",
+            "  --format md",
+            "```",
+            "",
+            "Run `traceloom analyze <msprof_dir> --output-mode full` to also export the legacy CSV/JSON debug tables.",
+        ]
+    )
+    if query_files:
+        lines.extend(["", "## Query Scripts", ""])
+        for query in query_files:
+            lines.append(f"- `{query}`")
+    path = out_dir / "README.md"
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
 
 
 def run_compute_prelude_timeline(
@@ -2882,6 +3108,9 @@ def run_compute_prelude_timeline(
     config: ComputePreludeConfig | None = None,
 ) -> Dict[str, object]:
     cfg = config or ComputePreludeConfig()
+    if cfg.output_mode not in {"bundle", "full"}:
+        raise ValueError(f"unsupported output_mode: {cfg.output_mode}")
+    write_full_outputs = cfg.output_mode == "full"
     started = time.time()
     raw_dir = _resolve_msprof_raw_dir(run_dir)
     out_dir = out_dir.resolve()
@@ -2889,6 +3118,10 @@ def run_compute_prelude_timeline(
 
     db_paths = discover_msprof_dbs(raw_dir)
     selections = _rank_devices(db_paths, cfg)
+    augmented_db_paths = {
+        db_idx: prepare_augmented_db(source_db=db_path, out_dir=out_dir, db_idx=db_idx)
+        for db_idx, db_path in enumerate(db_paths, start=1)
+    }
     role_overrides = _load_kernel_role_overrides(cfg.kernel_role_file)
     summary_rows: List[Dict[str, object]] = []
     all_step_rows: List[Dict[str, object]] = []
@@ -3172,88 +3405,105 @@ def run_compute_prelude_timeline(
             node_metric_rows=anchor_node_metric_rows,
             anchor_tree_readable_file=str(anchor_readable_path.relative_to(out_dir)),
         )
-        _write_csv(steps_path, step_rows)
-        _write_csv(symbols_path, symbol_rows)
-        _write_csv(kernel_roles_path, kernel_role_rows)
-        _write_csv(macros_path, anchor_macro_rows)
-        _write_csv(macro_edges_path, anchor_macro_edge_rows)
-        _write_csv(macro_metrics_path, anchor_macro_metric_rows)
-        _write_csv(macro_view_path, anchor_macro_view_rows)
-        _write_csv(full_macros_path, macro_rows)
-        _write_csv(full_macro_edges_path, macro_edge_rows)
-        _write_csv(full_macro_metrics_path, macro_metric_rows)
-        _write_csv(full_macro_view_path, macro_view_rows)
-        _write_csv(anchor_steps_path, anchor_step_rows)
-        _write_csv(anchor_symbols_path, anchor_symbol_rows)
-        _write_csv(anchor_aux_slots_path, anchor_aux_slot_rows)
-        _write_csv(anchor_aux_symbols_path, anchor_aux_symbol_rows)
-        _write_csv(anchor_macros_path, anchor_macro_rows)
-        _write_csv(anchor_macro_edges_path, anchor_macro_edge_rows)
-        _write_csv(anchor_macro_metrics_path, anchor_macro_metric_rows)
-        _write_csv(anchor_macro_aux_metrics_path, anchor_macro_aux_metric_rows)
-        _write_csv(anchor_macro_view_path, anchor_macro_view_rows)
-        _write_csv(anchor_root_item_metrics_path, anchor_root_item_metric_rows)
-        _write_csv(anchor_node_metrics_path, anchor_node_metric_rows)
-        _write_csv(anchor_node_links_path, anchor_node_link_rows)
-        _write_csv(anchor_loop_costs_path, anchor_loop_cost_rows)
-        _write_csv(anchor_macro_loop_chains_path, anchor_macro_loop_chain_rows)
-        tree_path.write_text(json.dumps(tree_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        raw_tree_path.write_text(json.dumps(raw_tree_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        full_tree_path.write_text(json.dumps(full_tree_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        anchor_tree_path.write_text(
-            json.dumps(anchor_tree_payload, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
+        augmented_db_path = augmented_db_paths[selection.db_idx]
+        append_device_analysis(
+            augmented_db=augmented_db_path,
+            db_idx=selection.db_idx,
+            device_id=selection.device_id,
+            global_rank=selection.global_rank,
+            stem=stem,
+            view_name="anchor_tree",
+            step_rows=step_rows,
+            anchor_step_rows=anchor_step_rows,
+            aux_slot_rows=anchor_aux_slot_rows,
+            node_metric_rows=anchor_node_metric_rows,
+            node_anchor_link_rows=anchor_node_link_rows,
+            loop_cost_rows=anchor_loop_cost_rows,
+            tree_payload=anchor_tree_payload,
         )
-        readable_path.write_text(
-            _render_anchor_readable(
-                tree_readable,
-                selection=selection,
-                anchor_step_rows=anchor_step_rows,
-                kernel_role_rows=kernel_role_rows,
-                aux_slot_rows=anchor_aux_slot_rows,
-                aux_symbol_rows=anchor_aux_symbol_rows,
-                aux_macro_rows=anchor_macro_aux_metric_rows,
-                node_metric_rows=anchor_node_metric_rows,
-                root_item_metric_rows=anchor_root_item_metric_rows,
-                macro_loop_chain_rows=anchor_macro_loop_chain_rows,
-                loop_cost_rows=anchor_loop_cost_rows,
-                loop_summary_limit=cfg.summary_top_loops,
-            ),
-            encoding="utf-8",
-        )
-        anchor_readable_path.write_text(
-            _render_anchor_readable(
-                anchor_tree_readable,
-                selection=selection,
-                anchor_step_rows=anchor_step_rows,
-                kernel_role_rows=kernel_role_rows,
-                aux_slot_rows=anchor_aux_slot_rows,
-                aux_symbol_rows=anchor_aux_symbol_rows,
-                aux_macro_rows=anchor_macro_aux_metric_rows,
-                node_metric_rows=anchor_node_metric_rows,
-                root_item_metric_rows=anchor_root_item_metric_rows,
-                macro_loop_chain_rows=anchor_macro_loop_chain_rows,
-                loop_cost_rows=anchor_loop_cost_rows,
-                loop_summary_limit=cfg.summary_top_loops,
-            ),
-            encoding="utf-8",
-        )
-        raw_readable_path.write_text(
-            _render_compute_readable(
-                raw_tree_readable,
-                selection=selection,
-                step_rows=step_rows,
-            ),
-            encoding="utf-8",
-        )
-        full_readable_path.write_text(
-            _render_compute_readable(
-                full_tree_readable,
-                selection=selection,
-                step_rows=step_rows,
-            ),
-            encoding="utf-8",
-        )
+        if write_full_outputs:
+            _write_csv(steps_path, step_rows)
+            _write_csv(symbols_path, symbol_rows)
+            _write_csv(kernel_roles_path, kernel_role_rows)
+            _write_csv(macros_path, anchor_macro_rows)
+            _write_csv(macro_edges_path, anchor_macro_edge_rows)
+            _write_csv(macro_metrics_path, anchor_macro_metric_rows)
+            _write_csv(macro_view_path, anchor_macro_view_rows)
+            _write_csv(full_macros_path, macro_rows)
+            _write_csv(full_macro_edges_path, macro_edge_rows)
+            _write_csv(full_macro_metrics_path, macro_metric_rows)
+            _write_csv(full_macro_view_path, macro_view_rows)
+            _write_csv(anchor_steps_path, anchor_step_rows)
+            _write_csv(anchor_symbols_path, anchor_symbol_rows)
+            _write_csv(anchor_aux_slots_path, anchor_aux_slot_rows)
+            _write_csv(anchor_aux_symbols_path, anchor_aux_symbol_rows)
+            _write_csv(anchor_macros_path, anchor_macro_rows)
+            _write_csv(anchor_macro_edges_path, anchor_macro_edge_rows)
+            _write_csv(anchor_macro_metrics_path, anchor_macro_metric_rows)
+            _write_csv(anchor_macro_aux_metrics_path, anchor_macro_aux_metric_rows)
+            _write_csv(anchor_macro_view_path, anchor_macro_view_rows)
+            _write_csv(anchor_root_item_metrics_path, anchor_root_item_metric_rows)
+            _write_csv(anchor_node_metrics_path, anchor_node_metric_rows)
+            _write_csv(anchor_node_links_path, anchor_node_link_rows)
+            _write_csv(anchor_loop_costs_path, anchor_loop_cost_rows)
+            _write_csv(anchor_macro_loop_chains_path, anchor_macro_loop_chain_rows)
+            tree_path.write_text(json.dumps(tree_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            raw_tree_path.write_text(json.dumps(raw_tree_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            full_tree_path.write_text(json.dumps(full_tree_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            anchor_tree_path.write_text(
+                json.dumps(anchor_tree_payload, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            readable_path.write_text(
+                _render_anchor_readable(
+                    tree_readable,
+                    selection=selection,
+                    anchor_step_rows=anchor_step_rows,
+                    kernel_role_rows=kernel_role_rows,
+                    aux_slot_rows=anchor_aux_slot_rows,
+                    aux_symbol_rows=anchor_aux_symbol_rows,
+                    aux_macro_rows=anchor_macro_aux_metric_rows,
+                    node_metric_rows=anchor_node_metric_rows,
+                    root_item_metric_rows=anchor_root_item_metric_rows,
+                    macro_loop_chain_rows=anchor_macro_loop_chain_rows,
+                    loop_cost_rows=anchor_loop_cost_rows,
+                    loop_summary_limit=cfg.summary_top_loops,
+                ),
+                encoding="utf-8",
+            )
+            anchor_readable_path.write_text(
+                _render_anchor_readable(
+                    anchor_tree_readable,
+                    selection=selection,
+                    anchor_step_rows=anchor_step_rows,
+                    kernel_role_rows=kernel_role_rows,
+                    aux_slot_rows=anchor_aux_slot_rows,
+                    aux_symbol_rows=anchor_aux_symbol_rows,
+                    aux_macro_rows=anchor_macro_aux_metric_rows,
+                    node_metric_rows=anchor_node_metric_rows,
+                    root_item_metric_rows=anchor_root_item_metric_rows,
+                    macro_loop_chain_rows=anchor_macro_loop_chain_rows,
+                    loop_cost_rows=anchor_loop_cost_rows,
+                    loop_summary_limit=cfg.summary_top_loops,
+                ),
+                encoding="utf-8",
+            )
+            raw_readable_path.write_text(
+                _render_compute_readable(
+                    raw_tree_readable,
+                    selection=selection,
+                    step_rows=step_rows,
+                ),
+                encoding="utf-8",
+            )
+            full_readable_path.write_text(
+                _render_compute_readable(
+                    full_tree_readable,
+                    selection=selection,
+                    step_rows=step_rows,
+                ),
+                encoding="utf-8",
+            )
 
         for row in step_rows:
             row = dict(row)
@@ -3404,28 +3654,32 @@ def run_compute_prelude_timeline(
                 "anchor_macro_loop_chains_file": str(anchor_macro_loop_chains_path.relative_to(out_dir)),
                 "anchor_tree_file": str(anchor_tree_path.relative_to(out_dir)),
                 "anchor_tree_readable_file": str(anchor_readable_path.relative_to(out_dir)),
+                "augmented_db_file": str(augmented_db_path.relative_to(out_dir)),
             }
         )
         summary_rows.append(summary)
 
-    _write_csv(out_dir / "compute_prelude_steps.csv", all_step_rows)
-    _write_csv(out_dir / "compute_prelude_symbols.csv", all_symbol_rows)
-    _write_csv(out_dir / "compute_prelude_macro_edges.csv", all_macro_edge_rows)
-    _write_csv(out_dir / "compute_prelude_macro_metrics.csv", all_macro_metric_rows)
-    _write_csv(out_dir / "compute_prelude_macro_view.csv", all_macro_view_rows)
-    _write_csv(out_dir / "compute_prelude_kernel_roles.csv", all_kernel_role_rows)
-    _write_csv(out_dir / "compute_anchor_aux_slots.csv", all_anchor_aux_slot_rows)
-    _write_csv(out_dir / "compute_anchor_aux_symbols.csv", all_anchor_aux_symbol_rows)
-    _write_csv(out_dir / "compute_anchor_macro_aux_metrics.csv", all_anchor_macro_aux_metric_rows)
-    _write_csv(out_dir / "compute_anchor_root_item_metrics.csv", all_anchor_root_item_metric_rows)
-    _write_csv(out_dir / "compute_anchor_node_metrics.csv", all_anchor_node_metric_rows)
-    _write_csv(out_dir / "compute_anchor_node_anchor_links.csv", all_anchor_node_link_rows)
-    _write_csv(out_dir / "compute_anchor_loop_costs.csv", all_anchor_loop_cost_rows)
-    _write_csv(out_dir / "compute_anchor_macro_loop_chains.csv", all_anchor_macro_loop_chain_rows)
-    _write_csv(out_dir / "device_summary.csv", summary_rows)
+    if write_full_outputs:
+        _write_csv(out_dir / "compute_prelude_steps.csv", all_step_rows)
+        _write_csv(out_dir / "compute_prelude_symbols.csv", all_symbol_rows)
+        _write_csv(out_dir / "compute_prelude_macro_edges.csv", all_macro_edge_rows)
+        _write_csv(out_dir / "compute_prelude_macro_metrics.csv", all_macro_metric_rows)
+        _write_csv(out_dir / "compute_prelude_macro_view.csv", all_macro_view_rows)
+        _write_csv(out_dir / "compute_prelude_kernel_roles.csv", all_kernel_role_rows)
+        _write_csv(out_dir / "compute_anchor_aux_slots.csv", all_anchor_aux_slot_rows)
+        _write_csv(out_dir / "compute_anchor_aux_symbols.csv", all_anchor_aux_symbol_rows)
+        _write_csv(out_dir / "compute_anchor_macro_aux_metrics.csv", all_anchor_macro_aux_metric_rows)
+        _write_csv(out_dir / "compute_anchor_root_item_metrics.csv", all_anchor_root_item_metric_rows)
+        _write_csv(out_dir / "compute_anchor_node_metrics.csv", all_anchor_node_metric_rows)
+        _write_csv(out_dir / "compute_anchor_node_anchor_links.csv", all_anchor_node_link_rows)
+        _write_csv(out_dir / "compute_anchor_loop_costs.csv", all_anchor_loop_cost_rows)
+        _write_csv(out_dir / "compute_anchor_macro_loop_chains.csv", all_anchor_macro_loop_chain_rows)
+        _write_csv(out_dir / "device_summary.csv", summary_rows)
 
     meta = {
         "version": "compute_prelude_timeline_v1",
+        "out_dir": str(out_dir),
+        "output_mode": cfg.output_mode,
         "run_dir": str(run_dir.resolve()),
         "msprof_raw_dir": str(raw_dir.resolve()),
         "db_count": len(db_paths),
@@ -3444,31 +3698,52 @@ def run_compute_prelude_timeline(
         "kernel_role_file": str(cfg.kernel_role_file.resolve()) if cfg.kernel_role_file is not None else "",
         "summary_top_loops": cfg.summary_top_loops,
         "elapsed_sec": round(time.time() - started, 3),
-        "summary_file": str(out_dir / "device_summary.csv"),
-        "steps_file": str(out_dir / "compute_prelude_steps.csv"),
-        "symbols_file": str(out_dir / "compute_prelude_symbols.csv"),
-        "macro_edges_file": str(out_dir / "compute_prelude_macro_edges.csv"),
-        "macro_metrics_file": str(out_dir / "compute_prelude_macro_metrics.csv"),
-        "macro_view_file": str(out_dir / "compute_prelude_macro_view.csv"),
-        "kernel_roles_file": str(out_dir / "compute_prelude_kernel_roles.csv"),
-        "anchor_aux_slots_file": str(out_dir / "compute_anchor_aux_slots.csv"),
-        "anchor_aux_symbols_file": str(out_dir / "compute_anchor_aux_symbols.csv"),
-        "anchor_macro_aux_metrics_file": str(out_dir / "compute_anchor_macro_aux_metrics.csv"),
-        "anchor_root_item_metrics_file": str(out_dir / "compute_anchor_root_item_metrics.csv"),
-        "anchor_node_metrics_file": str(out_dir / "compute_anchor_node_metrics.csv"),
-        "anchor_node_links_file": str(out_dir / "compute_anchor_node_anchor_links.csv"),
-        "anchor_loop_costs_file": str(out_dir / "compute_anchor_loop_costs.csv"),
-        "anchor_macro_loop_chains_file": str(out_dir / "compute_anchor_macro_loop_chains.csv"),
+        "summary_file": str(out_dir / "device_summary.csv") if write_full_outputs else "",
+        "steps_file": str(out_dir / "compute_prelude_steps.csv") if write_full_outputs else "",
+        "symbols_file": str(out_dir / "compute_prelude_symbols.csv") if write_full_outputs else "",
+        "macro_edges_file": str(out_dir / "compute_prelude_macro_edges.csv") if write_full_outputs else "",
+        "macro_metrics_file": str(out_dir / "compute_prelude_macro_metrics.csv") if write_full_outputs else "",
+        "macro_view_file": str(out_dir / "compute_prelude_macro_view.csv") if write_full_outputs else "",
+        "kernel_roles_file": str(out_dir / "compute_prelude_kernel_roles.csv") if write_full_outputs else "",
+        "anchor_aux_slots_file": str(out_dir / "compute_anchor_aux_slots.csv") if write_full_outputs else "",
+        "anchor_aux_symbols_file": str(out_dir / "compute_anchor_aux_symbols.csv") if write_full_outputs else "",
+        "anchor_macro_aux_metrics_file": str(out_dir / "compute_anchor_macro_aux_metrics.csv") if write_full_outputs else "",
+        "anchor_root_item_metrics_file": str(out_dir / "compute_anchor_root_item_metrics.csv") if write_full_outputs else "",
+        "anchor_node_metrics_file": str(out_dir / "compute_anchor_node_metrics.csv") if write_full_outputs else "",
+        "anchor_node_links_file": str(out_dir / "compute_anchor_node_anchor_links.csv") if write_full_outputs else "",
+        "anchor_loop_costs_file": str(out_dir / "compute_anchor_loop_costs.csv") if write_full_outputs else "",
+        "anchor_macro_loop_chains_file": str(out_dir / "compute_anchor_macro_loop_chains.csv") if write_full_outputs else "",
+        "augmented_db_files": [str(path) for path in sorted(augmented_db_paths.values())],
     }
     summary_text = _build_run_summary_markdown(
         summary_rows=summary_rows,
         loop_cost_rows=all_anchor_loop_cost_rows,
         out_dir=out_dir,
         top_loops=cfg.summary_top_loops,
+        output_mode=cfg.output_mode,
     )
     summary_path = out_dir / "summary.md"
     summary_path.write_text(summary_text, encoding="utf-8")
     meta["run_summary_file"] = str(summary_path)
+    tree_map_path = out_dir / "tree-map.md"
+    tree_map_path.write_text(
+        _build_tree_map_markdown(
+            node_rows=all_anchor_node_metric_rows,
+            summary_rows=summary_rows,
+        ),
+        encoding="utf-8",
+    )
+    meta["tree_map_file"] = str(tree_map_path)
+    query_files = _copy_report_sql_scripts(out_dir)
+    meta["query_files"] = query_files
+    readme_path = _write_output_readme(
+        out_dir=out_dir,
+        raw_dir=raw_dir,
+        augmented_db_paths=sorted(augmented_db_paths.values()),
+        query_files=query_files,
+        output_mode=cfg.output_mode,
+    )
+    meta["readme_file"] = str(readme_path)
     (out_dir / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return meta
 
@@ -3553,6 +3828,12 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Number of high-cost repeat nodes to show in summary.md and readable reports.",
     )
     parser.add_argument(
+        "--output-mode",
+        choices=("bundle", "full"),
+        default=ComputePreludeConfig.output_mode,
+        help="bundle writes augmented DBs, README, summary, and SQL scripts; full also exports legacy CSV/JSON files.",
+    )
+    parser.add_argument(
         "--json",
         action="store_true",
         help="Print full meta.json payload to stdout instead of the concise run summary.",
@@ -3573,7 +3854,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     out_dir = (
         args.out_dir.resolve()
         if args.out_dir is not None
-        else run_dir / "hprofile_processed" / "derived" / "compute_prelude_timeline"
+        else _resolve_msprof_raw_dir(run_dir) / "traceloom"
     )
     cfg = ComputePreludeConfig(
         top_devices_global=args.top_devices_global,
@@ -3585,6 +3866,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         kernel_role_file=args.kernel_role_file,
         summary_top_loops=args.summary_top_loops,
         device_ids=_parse_device_ids(args.devices),
+        output_mode=args.output_mode,
     )
     meta = run_compute_prelude_timeline(run_dir=run_dir, out_dir=out_dir, config=cfg)
     if args.json:

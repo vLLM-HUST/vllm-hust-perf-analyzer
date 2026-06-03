@@ -11,8 +11,15 @@ compute_prelude_timeline.py
 ```
 
 The package now has a thin config-driven runner for `msprof`, but the analyzer
-itself remains offline. Direct analysis consumes an existing raw profiler
-directory containing:
+itself remains offline. Normal use is an editable install followed by direct
+analysis of an existing profiler output:
+
+```bash
+python3 -m pip install -e .
+traceloom analyze <run-dir-or-msprof-raw-dir>
+```
+
+Direct analysis consumes an existing raw profiler directory containing:
 
 ```text
 <run_dir>/msprof_raw/PROF_*/msprof_*.db
@@ -24,14 +31,24 @@ or a raw directory directly:
 <raw_dir>/PROF_*/msprof_*.db
 ```
 
-## Run
+By default the output bundle is written to:
+
+```text
+<raw_dir>/traceloom/
+```
+
+The bundle contains augmented SQLite DBs, `tree-map.md`, `README.md`,
+`summary.md`, `queries/*.sql`, and `meta.json`. Use `--output-mode full` to
+also write the legacy CSV/JSON debug files.
+
+## Optional Run Config
 
 Example:
 
 ```bash
 traceloom create config -o traceloom.profile.ini
 traceloom run traceloom.profile.ini
-traceloom analysis runs/local-msprof/msprof_raw --out-dir runs/local-msprof/analysis
+traceloom analyze runs/local-msprof/msprof_raw
 ```
 
 The three commands are intentionally separate:
@@ -52,6 +69,7 @@ Direct analysis of an existing profile:
 python3 -m traceloom analysis \
   <run_dir-or-raw-msprof-dir> \
   --out-dir /tmp/traceloom_out \
+  --output-mode full \
   --max-main-events-per-device 0 \
   --max-macro-defs 0
 ```
@@ -59,23 +77,18 @@ python3 -m traceloom analysis \
 From a checkout, use the wrapper script when the package is not installed:
 
 ```bash
-scripts/traceloom-analyze.sh <run_dir-or-raw-msprof-dir> /tmp/traceloom_out
+scripts/traceloom-analyze.sh <run_dir-or-raw-msprof-dir>
 ```
 
 The default wrapper configuration is aimed at offline pattern discovery: it
 does not truncate main events and lets macro discovery continue while the pair
-grammar still has positive gain. The primary files to inspect are:
-
-- `summary.md`: run-level summary and top detected loop costs;
-- `compute_anchor_loop_costs.csv`: repeat nodes with inclusive aggregate cost;
-- `*.anchor.tree.readable.md`: readable loop structure plus node and loop cost
-  tables;
-- `*.anchor.node_metrics.csv`: full tree-node cost index.
+grammar still has positive gain. Inspect `summary.md`, then query
+`dbNN.traceloom_augmented.db` with scripts in `queries/`.
 
 ## Scope Boundary
 
 TraceLoom should stay an offline pattern-discovery tool. It reads an existing
-profile, prints readable loop structure, and writes CSV/JSON cost evidence.
+profile, writes augmented DB evidence, and exposes SQL-friendly reports.
 Visualization is a downstream concern; the analyzer core should not grow more
 UI or timeline-export responsibilities during this cleanup.
 

@@ -1,4 +1,4 @@
-include README.md LICENSE
+include README.md README.zh.md LICENSE
 recursive-include docs *
 recursive-include examples *
 recursive-include reproduce/decode_a2a_buffer_reuse *
