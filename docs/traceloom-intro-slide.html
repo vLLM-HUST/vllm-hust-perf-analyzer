@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>TraceLoom - 离线性能分析工具</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", sans-serif;
+    background: #0f1419;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+  }
+  .slide {
+    width: 1280px;
+    height: 720px;
+    background: linear-gradient(135deg, #1a1f2e 0%, #0d1117 100%);
+    border-radius: 12px;
+    padding: 56px 64px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto 1fr auto;
+    gap: 0 48px;
+    box-shadow: 0 24px 80px rgba(0,0,0,0.5);
+    position: relative;
+    overflow: hidden;
+  }
+  .slide::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, #58a6ff, #7ee787, #d2a8ff);
+  }
+
+  /* Header */
+  .header {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .header h1 {
+    font-size: 42px;
+    font-weight: 700;
+    color: #f0f6fc;
+    letter-spacing: -0.5px;
+  }
+  .header .subtitle {
+    font-size: 18px;
+    color: #8b949e;
+    font-weight: 400;
+  }
+  .badge {
+    display: inline-block;
+    background: rgba(88,166,255,0.15);
+    color: #58a6ff;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 12px;
+    border: 1px solid rgba(88,166,255,0.3);
+    margin-left: auto;
+  }
+
+  /* Left Column */
+  .left {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+  .tagline {
+    font-size: 15px;
+    color: #c9d1d9;
+    line-height: 1.6;
+    border-left: 3px solid #58a6ff;
+    padding-left: 14px;
+  }
+  .features {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .features li {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 14px;
+    color: #c9d1d9;
+    line-height: 1.5;
+  }
+  .features li .icon {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    margin-top: 1px;
+  }
+  .icon-blue { background: rgba(88,166,255,0.2); color: #58a6ff; }
+  .icon-green { background: rgba(126,231,135,0.2); color: #7ee787; }
+  .icon-purple { background: rgba(210,168,255,0.2); color: #d2a8ff; }
+
+  /* Right Column */
+  .right {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .section-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #8b949e;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .workflow {
+    background: rgba(22,27,34,0.8);
+    border: 1px solid #30363d;
+    border-radius: 10px;
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .workflow-step {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    color: #c9d1d9;
+    font-family: "JetBrains Mono", "Fira Code", monospace;
+  }
+  .step-num {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: rgba(88,166,255,0.15);
+    color: #58a6ff;
+    font-size: 11px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .arrow { color: #484f58; font-size: 16px; margin-left: 14px; }
+
+  .outputs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .output-card {
+    background: rgba(22,27,34,0.6);
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 10px 12px;
+    text-align: center;
+  }
+  .output-card .name {
+    font-size: 12px;
+    color: #f0f6fc;
+    font-weight: 600;
+    margin-bottom: 3px;
+  }
+  .output-card .desc {
+    font-size: 11px;
+    color: #8b949e;
+  }
+
+  /* Footer */
+  .footer {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: 16px;
+    border-top: 1px solid #21262d;
+    margin-top: 8px;
+  }
+  .footer .org {
+    font-size: 13px;
+    color: #8b949e;
+  }
+  .footer .org strong {
+    color: #c9d1d9;
+  }
+  .tech-tags {
+    display: flex;
+    gap: 8px;
+  }
+  .tech-tag {
+    font-size: 11px;
+    color: #7ee787;
+    background: rgba(126,231,135,0.1);
+    border: 1px solid rgba(126,231,135,0.2);
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-weight: 500;
+  }
+</style>
+</head>
+<body>
+<div class="slide">
+  <!-- Header -->
+  <div class="header">
+    <h1>TraceLoom</h1>
+    <span class="subtitle">离线加速器性能分析工具</span>
+    <span class="badge">MIT License</span>
+  </div>
+
+  <!-- Left Column -->
+  <div class="left">
+    <p class="tagline">
+      读取已采集的 Ascend/CANN msprof 产物，<br>
+      将 profiler 事件整理成可读、可查、可比较的<strong style="color:#f0f6fc;">性能地图</strong>。
+    </p>
+
+    <span class="section-title">核心能力</span>
+    <ul class="features">
+      <li>
+        <span class="icon icon-blue">&#9670;</span>
+        <span><strong style="color:#f0f6fc">语义锚点树</strong> — 从 profiler 事件中恢复循环结构和重复模式，生成可读 tree-map</span>
+      </li>
+      <li>
+        <span class="icon icon-green">&#9670;</span>
+        <span><strong style="color:#f0f6fc">增强 SQLite DB</strong> — 原始表不动，注入 traceloom_* 视图，用 SQL 无限深挖</span>
+      </li>
+      <li>
+        <span class="icon icon-purple">&#9670;</span>
+        <span><strong style="color:#f0f6fc">成本归因模型</strong> — compute / communication / aux / idle 逐节点拆分成本</span>
+      </li>
+      <li>
+        <span class="icon icon-blue">&#9670;</span>
+        <span><strong style="color:#f0f6fc">多卡对比</strong> — 自动发现设备，支持按 device 过滤或全局 top-N 分析</span>
+      </li>
+      <li>
+        <span class="icon icon-green">&#9670;</span>
+        <span><strong style="color:#f0f6fc">轻量离线</strong> — 纯分析工具，不安装驱动、不依赖 Docker、不绑定运行时</span>
+      </li>
+    </ul>
+  </div>
+
+  <!-- Right Column -->
+  <div class="right">
+    <span class="section-title">推荐工作流</span>
+    <div class="workflow">
+      <div class="workflow-step"><span class="step-num">1</span> traceloom analyze /path/to/msprof_raw</div>
+      <div class="arrow">↓</div>
+      <div class="workflow-step"><span class="step-num">2</span> 阅读 summary.md + tree-map.md</div>
+      <div class="arrow">↓</div>
+      <div class="workflow-step"><span class="step-num">3</span> 定位热点 node (例如 N060)</div>
+      <div class="arrow">↓</div>
+      <div class="workflow-step"><span class="step-num">4</span> queries/*.sql 深挖事件与成本</div>
+    </div>
+
+    <span class="section-title">输出产物</span>
+    <div class="outputs">
+      <div class="output-card">
+        <div class="name">tree-map.md</div>
+        <div class="desc">性能地图 / 热点循环</div>
+      </div>
+      <div class="output-card">
+        <div class="name">*.augmented.db</div>
+        <div class="desc">增强 SQLite / SQL 查询</div>
+      </div>
+      <div class="output-card">
+        <div class="name">summary.md</div>
+        <div class="desc">全局概览 / 设备列表</div>
+      </div>
+      <div class="output-card">
+        <div class="name">queries/*.sql</div>
+        <div class="desc">内置分析查询脚本</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    <span class="org"><strong>vLLM-HUST</strong> · 分布式推理性能分析基础设施</span>
+    <div class="tech-tags">
+      <span class="tech-tag">Ascend/CANN</span>
+      <span class="tech-tag">msprof</span>
+      <span class="tech-tag">SQLite</span>
+      <span class="tech-tag">Offline</span>
+    </div>
+  </div>
+</div>
+</body>
+</html>
