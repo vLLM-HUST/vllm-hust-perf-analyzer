@@ -4,6 +4,11 @@ TraceLoom 从底层 Ascend Profiling 数据中重建执行语义，并将原始 
 
 它把原始 profiler 数据库中的低层事件、kernel 时间线和通信记录，整理成可读、可查、可复现的性能诊断结果，帮助开发者更容易地观察硬件真实行为、定位热点循环、识别通信/同步瓶颈，并把可疑开销回溯到更接近源码算子的位置。
 
+在仓库内置的真实 vLLM-Ascend kickstart profile 上，TraceLoom 将 118 万+ 行
+selected profiler records 压缩成 112 个结构节点，并在两张 Ascend 设备上恢复出同构的
+`Repeat x36 -> Repeat x24` 嵌套执行模式。最终得到的是一棵紧凑的 Pattern
+Compression Tree，让重复 runtime 结构、HCCL 通信和 kernel 级热点可以一眼看到。
+
 **从原始时间线，到可行动的性能诊断。**
 
 ## 一眼看懂

@@ -17,6 +17,13 @@ distributed inference runs: dominant kernels, recurring execution patterns,
 synchronization stalls, communication bottlenecks, and likely source/operator
 causes.
 
+On the checked-in real vLLM-Ascend kickstart profile, TraceLoom compresses
+more than 1.18M selected profiler rows into 112 structural nodes and recovers
+the same nested `Repeat x36 -> Repeat x24` execution pattern on two Ascend
+devices. The result is a compact Pattern Compression Tree that makes repeated
+runtime structure, HCCL communication, and kernel-level hotspots visible at a
+glance.
+
 The common workflow is intentionally simple: profile your workload with
 `msprof`, give the profile directory to TraceLoom, then read the generated
 reports in the same profile directory.
