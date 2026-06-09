@@ -53,6 +53,7 @@ TraceLoom compresses it into comparable device structures:
 ```text
 device 0: 33,964 normalized events -> 11,008 semantic anchors -> 58 tree nodes
 device 1: 32,220 normalized events -> 10,510 semantic anchors -> 54 tree nodes
+selected raw table rows -> structural nodes: 1.18M+ -> 112 (~10,500:1)
 ```
 
 The useful showpiece is the shared nested loop pattern:
@@ -71,3 +72,20 @@ device 1
 
 That is the intended kickstart: raw profiler databases become a small,
 readable execution structure that developers can compare and drill into.
+
+## Example Findings
+
+This profile is small enough to inspect, but large enough to show the analysis
+shape TraceLoom is designed for:
+
+- Both devices recover the same nested Pattern Compression Tree:
+  `Repeat x36` outside, `Repeat x24` inside.
+- The outer repeated region dominates structural time: about 89% on device 0
+  and 91% on device 1.
+- The inner layer block accounts for about 75-77% of structural time across the
+  two devices.
+- HCCL AllReduce appears inside the repeated layer body, so communication is
+  visible in the same structure as MatMul, Rope, normalization, and activation
+  kernels.
+- The result is small enough for review: 112 structural nodes across two
+  devices, with SQL links back to the original profiler events.

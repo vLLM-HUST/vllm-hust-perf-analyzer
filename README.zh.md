@@ -21,7 +21,7 @@ Semantic Anchor Extraction
 Pattern Discovery
     |
     v
-Loop Tree Construction
+Pattern Compression Tree Construction
     |
     v
 Anchor-Auxiliary Cost Attribution
@@ -58,6 +58,7 @@ examples/kickstart_smoke/msprof_raw/
 TraceLoom 压缩结果
   device 0: 33,964 个 normalized events -> 11,008 个 semantic anchors -> 58 个 tree nodes
   device 1: 32,220 个 normalized events -> 10,510 个 semantic anchors -> 54 个 tree nodes
+  selected raw table rows -> structural nodes: 1.18M+ -> 112 (~10,500:1)
   恢复出的同构结构:
     外层 decode/warmup block: Repeat x36
       层内 block: Repeat x24
@@ -71,12 +72,26 @@ TraceLoom 压缩结果
 ACL graph capture/replay、prefill 和 decode，因此它的原始数据库形态更接近真实推理
 profile，而不是整齐的人造 kernel 序列。
 
-TraceLoom 将两张卡的 raw trace 压缩成可并排比较的 loop tree。最适合展示的结果是：
-两个 device 都被恢复出同构的嵌套循环结构，外层是 `Repeat x36`，内部包含层级
-`Repeat x24`，层内节点包括 `MatMul`、`AtbRopeKernel`、`hcom_allReduce`、
-`AddRmsNormBias` 和 `SwiGlu`。这就是推荐的第一步体验：先直接跑仓库里的真实
-profile 数据库，看 TraceLoom 如何把 raw timeline 压成结构化诊断，再分析自己的
-workload。
+TraceLoom 将两张卡的 raw trace 压缩成可并排比较的 Pattern Compression Tree。
+最适合展示的结果是：两个 device 都被恢复出同构的嵌套循环结构，外层是
+`Repeat x36`，内部包含层级 `Repeat x24`，层内节点包括 `MatMul`、
+`AtbRopeKernel`、`hcom_allReduce`、`AddRmsNormBias` 和 `SwiGlu`。
+这就是推荐的第一步体验：先直接跑仓库里的真实 profile 数据库，看 TraceLoom
+如何把 raw timeline 压成结构化诊断，再分析自己的 workload。
+
+## 示例发现
+
+对这份 kickstart bundle，TraceLoom 能直接给出几类判断：
+
+- 主导执行结构是重复的 transformer-style 区域：`Repeat x36` 约占 device 0
+  结构时间的 89%，约占 device 1 结构时间的 91%。
+- 嵌套的 `Repeat x24` 是主要层内 block，约占两张卡结构时间的 75-77%。
+- HCCL AllReduce 出现在层内关键路径里，和 `MatMul`、`AtbRopeKernel`、
+  `AddRmsNormBias`、`SwiGlu` 一起构成重复层结构。
+- 通信成本不会被藏在另一个报告里：重复 block 自带 communication 成本列，
+  外层 block 的通信占比在 device 0 上约 15%，在 device 1 上约 9%。
+- 最终阅读面很小：仅 `TASK`、`CANN_API` 和 HCCL task 这几类表就有
+  118 万+ 行 profiler 记录，TraceLoom 将它们压缩成两张卡共 112 个结构节点。
 
 安装后可以直接试一下：
 
@@ -102,7 +117,7 @@ TraceLoom 在原始 profile 数据库之上增加一层可分析的结构：
 - 读取 Ascend/CANN `msprof_*.db`，保留原始 profiler 表作为证据。
 - 规范化低层事件，建立统一的 event、anchor、symbol 和 source link。
 - 从 compute kernel、HCCL/collective、数据搬运和同步事件中抽取语义 anchor。
-- 在 anchor 序列上发现重复执行模式，压缩成 loop tree / repeat tree。
+- 在 anchor 序列上发现重复执行模式，压缩成 Pattern Compression Tree。
 - 区分主干 anchor kernel 与 auxiliary / prelude 事件，把等待、准备、通信碎片等成本归因到相邻结构。
 - 生成增强 SQLite 数据库、可读 Markdown 报告和可复用 SQL 查询。
 
@@ -115,7 +130,8 @@ TraceLoom 使用一组稳定概念描述 profile 数据库中的执行语义：
 - Semantic Execution Skeleton：由关键 compute、collective、data movement 和 sync anchor 组成的执行主干。
 - Semantic Anchor：代表主要计算、通信或同步行为的语义锚点，是 pattern mining 的基本符号。
 - Anchor-Auxiliary Attribution Model：把等待、准备、runtime 调用和通信碎片等 auxiliary/prelude 成本归因到相邻 anchor 或 loop node。
-- Pattern Compression Tree：把重复 anchor 序列压缩成可阅读的 loop tree / repeat tree。
+- Pattern Compression Tree：TraceLoom 的核心结构产物。它不是原始执行树，
+  而是把重复 anchor 序列压缩成可阅读 runtime structure 的压缩树。
 - Tree Map：面向人类阅读和 SQL 下钻的节点成本地图。
 
 ## 项目贡献

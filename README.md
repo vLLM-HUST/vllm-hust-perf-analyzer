@@ -36,7 +36,7 @@ Semantic Anchor Extraction
 Pattern Discovery
     |
     v
-Loop Tree Construction
+Pattern Compression Tree Construction
     |
     v
 Anchor-Auxiliary Cost Attribution
@@ -74,6 +74,7 @@ Raw profile scale
 TraceLoom compression
   device 0: 33,964 normalized events -> 11,008 semantic anchors -> 58 tree nodes
   device 1: 32,220 normalized events -> 10,510 semantic anchors -> 54 tree nodes
+  selected raw table rows -> structural nodes: 1.18M+ -> 112 (~10,500:1)
   recovered shared structure:
     outer decode/warmup block: Repeat x36
       layer block: Repeat x24
@@ -89,12 +90,31 @@ initialization, HCCL setup, ACL graph capture/replay, prefill, and decode, so
 the raw databases look like real inference profiler output rather than a tidy
 synthetic kernel sequence.
 
-TraceLoom compresses the two raw device traces into comparable loop trees. The
-showcase result is that both devices expose the same nested execution pattern:
-an outer `Repeat x36` region containing a per-layer `Repeat x24` block with
-`MatMul`, `AtbRopeKernel`, `hcom_allReduce`, `AddRmsNormBias`, and `SwiGlu`
-nodes. This is the intended first experience: run TraceLoom on a checked-in
-profiler database and inspect how raw timelines become a structured diagnosis.
+TraceLoom compresses the two raw device traces into comparable Pattern
+Compression Trees. The showcase result is that both devices expose the same
+nested execution pattern: an outer `Repeat x36` region containing a per-layer
+`Repeat x24` block with `MatMul`, `AtbRopeKernel`, `hcom_allReduce`,
+`AddRmsNormBias`, and `SwiGlu` nodes. This is the intended first experience:
+run TraceLoom on a checked-in profiler database and inspect how raw timelines
+become a structured diagnosis.
+
+## Example Findings
+
+On the kickstart bundle, TraceLoom immediately reveals:
+
+- The dominant execution structure is a repeated transformer-style region:
+  `Repeat x36` accounts for about 89% of device 0 structural time and 91% of
+  device 1 structural time.
+- The nested `Repeat x24` layer block is the main body inside that region,
+  accounting for about 75-77% of each device's structural time.
+- HCCL AllReduce appears inside the layer block's critical path, next to
+  `MatMul`, `AtbRopeKernel`, `AddRmsNormBias`, and `SwiGlu`.
+- Communication cost is not hidden in a separate report: the repeated block
+  carries explicit communication columns, with about 15% communication share on
+  device 0's outer block and about 9% on device 1's outer block.
+- The useful review surface is small: more than 1.18M selected profiler rows
+  from `TASK`, `CANN_API`, and HCCL task tables become 112 structural nodes
+  across the two devices.
 
 Have a try after installation:
 
@@ -119,7 +139,8 @@ thousands of low-level rows become a small, comparable execution structure.
 - Top-k and cumulative-share hotspot views for noisy multi-device traces.
 - Repeated execution pattern discovery over semantic kernel anchors.
 - Anchor kernel and auxiliary/prelude kernel separation.
-- Kernel timeline aggregation into loop trees, node-cost maps, and SQL views.
+- Kernel timeline aggregation into Pattern Compression Trees, node-cost maps,
+  and SQL views.
 - HCCL, communication, and synchronization bottleneck detection through
   collective anchors and auxiliary cost attribution.
 - Source/operator attribution through normalized kernel symbols, role
@@ -141,8 +162,8 @@ events, but developers usually need answers at a higher level:
 - Which source-level operators are likely responsible?
 
 TraceLoom compresses raw execution noise into a structured diagnosis surface:
-repeat trees, node-cost tables, anchor-to-event links, auxiliary/prelude
-evidence, and queryable augmented databases.
+Pattern Compression Trees, node-cost tables, anchor-to-event links,
+auxiliary/prelude evidence, and queryable augmented databases.
 
 ## Method Vocabulary
 
@@ -155,8 +176,9 @@ TraceLoom uses a small vocabulary for execution semantic reconstruction:
 - Anchor-Auxiliary Attribution Model: the cost model that attaches waiting,
   preparation, runtime calls, and communication fragments to nearby anchors or
   loop nodes.
-- Pattern Compression Tree: a loop tree / repeat tree that compresses repeated
-  anchor sequences into readable structure.
+- Pattern Compression Tree: TraceLoom's primary structural artifact. It is not
+  a raw execution tree; it is a compressed tree that turns repeated anchor
+  sequences into readable runtime structure.
 - Tree Map: a human-readable node-cost map designed for first-pass diagnosis
   and SQL drill-down.
 
