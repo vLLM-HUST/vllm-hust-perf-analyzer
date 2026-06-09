@@ -30,5 +30,7 @@ path is:
 ## Artifact Policy
 
 Raw profiles are usually large and often contain private workload details. Do
-not commit them to the open-source repository. Keep only small synthetic
-fixtures, checksums, manifests, and reproduction instructions in source.
+not commit production traces to the open-source repository. This repository
+keeps one compact real vLLM-Ascend kickstart profile under
+`examples/kickstart_smoke/`; larger traces should live in external artifact
+storage with checksums, manifests, and reproduction instructions in source.

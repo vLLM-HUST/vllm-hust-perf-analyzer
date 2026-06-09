@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "traceloom"
 version = "0.1.0"
-description = "Lightweight offline analyzer for accelerator profiler timelines."
+description = "Execution pattern mining and source attribution for Ascend distributed inference traces."
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [

@@ -9,3 +9,5 @@ storage.
 
 - `vllm_ascend_smoke.py`: parameterized vLLM/vLLM-Ascend decode workload used
   by the CANN Decode All-to-All Buffer Reuse reproduction scripts.
+- `torch_npu_distributed_smoke.py`: tiny HCCL/two-rank torch-npu workload for
+  local parser and communication smoke checks.
