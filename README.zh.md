@@ -1,20 +1,26 @@
 # TraceLoom
 
-TraceLoom 从底层 Ascend Profiling 数据中重建执行语义，并将原始 profiler 数据库转换为可查询、可复查的性能诊断产物。
+TraceLoom 是面向 Ascend 推理 runtime trace 的结构化 trace analysis framework。
 
-它把原始 profiler 数据库中的低层事件、kernel 时间线和通信记录，整理成可读、可查、可复现的性能诊断结果，帮助开发者更容易地观察硬件真实行为、定位热点循环、识别通信/同步瓶颈，并把可疑开销回溯到更接近源码算子的位置。
+它从底层 Ascend Profiling 数据中重建执行语义，把原始 `msprof` 数据库转换为可查询、可复查的性能诊断产物。TraceLoom 关心的不只是“哪个 kernel 最慢”，而是“这个 AI inference runtime 到底在做什么”：主要 kernel、重复执行模式、同步停顿、通信瓶颈，以及更接近源码算子的可疑原因。
 
 在仓库内置的真实 vLLM-Ascend kickstart profile 上，TraceLoom 将 118 万+ 行
 selected profiler records 压缩成 112 个结构节点，并在两张 Ascend 设备上恢复出同构的
 `Repeat x36 -> Repeat x24` 嵌套执行模式。最终得到的是一棵紧凑的 Pattern
 Compression Tree，让重复 runtime 结构、HCCL 通信和 kernel 级热点可以一眼看到。
 
+核心主线是：
+
+```text
+trace compression -> structure recovery -> cost attribution -> evidence drill-down
+```
+
 **从原始时间线，到可行动的性能诊断。**
 
 ## 一眼看懂
 
 ```text
-Ascend msprof database
+Raw Ascend msprof trace
     |
     v
 Event Normalization
@@ -32,11 +38,13 @@ Pattern Compression Tree Construction
 Anchor-Auxiliary Cost Attribution
     |
     v
-Tree Map / SQL Report / Augmented Profile DB
+Evidence-linked Diagnosis Artifact
+(Tree Map / SQL Report / Augmented Profile DB)
 ```
 
 TraceLoom 的目标是把密集、低层、难阅读的 profile 数据库，压缩成少量结构化问题：
 
+- 这个 runtime 实际上在做什么？
 - 主要执行骨架是什么？
 - 哪些循环或片段反复出现？
 - 哪些 kernel、通信或同步片段贡献了主要开销？

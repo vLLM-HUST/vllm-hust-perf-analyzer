@@ -6,14 +6,14 @@
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Execution semantics reconstruction for Ascend `msprof` traces.
+Structured trace analysis framework for Ascend inference runtime traces.
 
 **From raw timelines to actionable performance diagnosis.**
 
-TraceLoom reconstructs execution semantics from low-level Ascend profiling
-traces and turns profiler databases into queryable performance diagnosis
-artifacts. It helps developers see the real hardware behavior behind
-distributed inference runs: dominant kernels, recurring execution patterns,
+TraceLoom is an execution semantic reconstruction engine for low-level Ascend
+profiling traces. It turns raw `msprof` databases into queryable performance
+diagnosis artifacts, helping developers see what an AI inference runtime is
+actually doing: dominant kernels, recurring execution patterns,
 synchronization stalls, communication bottlenecks, and likely source/operator
 causes.
 
@@ -24,6 +24,12 @@ devices. The result is a compact Pattern Compression Tree that makes repeated
 runtime structure, HCCL communication, and kernel-level hotspots visible at a
 glance.
 
+The core flow is:
+
+```text
+trace compression -> structure recovery -> cost attribution -> evidence drill-down
+```
+
 The common workflow is intentionally simple: profile your workload with
 `msprof`, give the profile directory to TraceLoom, then read the generated
 reports in the same profile directory.
@@ -31,7 +37,7 @@ reports in the same profile directory.
 ## At A Glance
 
 ```text
-Ascend msprof database
+Raw Ascend msprof trace
     |
     v
 Event Normalization
@@ -49,12 +55,14 @@ Pattern Compression Tree Construction
 Anchor-Auxiliary Cost Attribution
     |
     v
-Tree Map / SQL Report / Augmented Profile DB
+Evidence-linked Diagnosis Artifact
+(Tree Map / SQL Report / Augmented Profile DB)
 ```
 
 TraceLoom compresses dense low-level profiler databases into a small set of
 questions developers can act on:
 
+- What is this runtime actually doing?
 - What is the semantic execution skeleton?
 - Which loops or fragments repeat?
 - Which kernels, collectives, and synchronization regions dominate cost?
