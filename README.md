@@ -6,20 +6,99 @@
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Automatic execution pattern mining and source attribution for Ascend `msprof`
-traces.
+Execution semantics reconstruction for Ascend `msprof` traces.
 
 **From raw timelines to actionable performance diagnosis.**
 
-TraceLoom analyzes Ascend/CANN `msprof` output and writes a structured diagnosis
-back next to the original profile. It helps developers see the real hardware
-behavior behind distributed inference runs: dominant kernels, recurring
-execution patterns, synchronization stalls, communication bottlenecks, and
-likely source/operator causes.
+TraceLoom reconstructs execution semantics from low-level Ascend profiling
+traces and turns profiler databases into queryable performance diagnosis
+artifacts. It helps developers see the real hardware behavior behind
+distributed inference runs: dominant kernels, recurring execution patterns,
+synchronization stalls, communication bottlenecks, and likely source/operator
+causes.
 
 The common workflow is intentionally simple: profile your workload with
 `msprof`, give the profile directory to TraceLoom, then read the generated
 reports in the same profile directory.
+
+## At A Glance
+
+```text
+Ascend msprof database
+    |
+    v
+Event Normalization
+    |
+    v
+Semantic Anchor Extraction
+    |
+    v
+Pattern Discovery
+    |
+    v
+Loop Tree Construction
+    |
+    v
+Anchor-Auxiliary Cost Attribution
+    |
+    v
+Tree Map / SQL Report / Augmented Profile DB
+```
+
+TraceLoom compresses dense low-level profiler databases into a small set of
+questions developers can act on:
+
+- What is the semantic execution skeleton?
+- Which loops or fragments repeat?
+- Which kernels, collectives, and synchronization regions dominate cost?
+- Which auxiliary or prelude events explain hidden cost around anchors?
+- Which nodes should be inspected against raw profiler events with SQL?
+
+## Real Kickstart Bundle
+
+```text
+examples/kickstart_smoke/msprof_raw/
+  PROF_...device_0.../msprof_20260609062629.db
+  PROF_...device_1.../msprof_20260609062627.db
+
+Raw CANN profile databases
+  per device: 82 TASK rows
+  per device: 8 COMMUNICATION_TASK_INFO rows
+  per device: 8 COMMUNICATION_OP rows
+
+TraceLoom output
+  per device: 36 normalized events
+  per device: 16 semantic anchors
+  recovered structure: Repeat x8
+    aclnnMatmul_MatMulCommon_MatMulV2
+    hcom_allReduce__#_#_#
+```
+
+This bundle is committed under [examples/kickstart_smoke](examples/kickstart_smoke).
+It is a real two-device Ascend/CANN `msprof` capture collected on an Ascend
+910B3 machine from a tiny torch-npu distributed workload. The workload repeats
+`matmul -> gelu -> all_reduce`, so the raw databases contain both compute and
+HCCL communication behavior.
+
+TraceLoom compresses the two raw device traces into the same comparable
+`MatMulV2 -> AllReduce` loop structure. This is the intended first experience:
+run TraceLoom on a checked-in profiler database and inspect the result before
+profiling your own workload.
+
+Have a try after installation:
+
+```bash
+traceloom analyze examples/kickstart_smoke/msprof_raw --devices 0,1
+```
+
+The result is written back to:
+
+```text
+examples/kickstart_smoke/msprof_raw/traceloom/
+```
+
+Open `tree-map.md` there and you should see both devices reconstructed as a
+`Repeat x8` execution pattern with `MatMulV2` and `hcom_allReduce` nodes.
 
 ## Key Capabilities
 
@@ -51,6 +130,22 @@ events, but developers usually need answers at a higher level:
 TraceLoom compresses raw execution noise into a structured diagnosis surface:
 repeat trees, node-cost tables, anchor-to-event links, auxiliary/prelude
 evidence, and queryable augmented databases.
+
+## Method Vocabulary
+
+TraceLoom uses a small vocabulary for execution semantic reconstruction:
+
+- Semantic Execution Skeleton: the main execution backbone formed by compute,
+  collective, data movement, and synchronization anchors.
+- Semantic Anchor: a semantic token for major compute, communication, or
+  synchronization behavior; the basic symbol used by pattern mining.
+- Anchor-Auxiliary Attribution Model: the cost model that attaches waiting,
+  preparation, runtime calls, and communication fragments to nearby anchors or
+  loop nodes.
+- Pattern Compression Tree: a loop tree / repeat tree that compresses repeated
+  anchor sequences into readable structure.
+- Tree Map: a human-readable node-cost map designed for first-pass diagnosis
+  and SQL drill-down.
 
 ## Quick Start
 
@@ -117,20 +212,6 @@ Ascend msprof output
 
 See [docs/workflow.md](docs/workflow.md) for a fuller walkthrough.
 
-## Demo
-
-A minimal demo narrative is available in [docs/demo.md](docs/demo.md). It shows
-how an Ascend profiling trace becomes:
-
-- top kernels by duration;
-- repeated compute and collective patterns;
-- suspected communication or synchronization bottlenecks;
-- source/operator attribution candidates;
-- optimization hints grounded in the report.
-
-The committed demo uses representative placeholder numbers so the repository
-does not need to include large or private profile databases.
-
 ## Architecture
 
 TraceLoom is organized as a layered offline analysis pipeline:
@@ -183,18 +264,6 @@ Useful query surfaces include:
 
 See [docs/output-schema.md](docs/output-schema.md) and
 [docs/augmented-db-schema.md](docs/augmented-db-schema.md).
-
-## Example Report
-
-See [examples/sample_report.md](examples/sample_report.md) for a compact sample
-diagnostic report with:
-
-- overview;
-- top kernels by duration;
-- repeated patterns;
-- communication and synchronization analysis;
-- source/operator attribution;
-- optimization hints.
 
 ## Optional Profiling Runner
 
