@@ -58,37 +58,48 @@ questions developers can act on:
 
 ```text
 examples/kickstart_smoke/msprof_raw/
-  PROF_...device_0.../msprof_20260609062629.db
-  PROF_...device_1.../msprof_20260609062627.db
+  PROF_...device_0.../msprof_20260609064817.db
+  PROF_...device_1.../msprof_20260609064834.db
 
-Raw CANN profile databases
-  per device: 82 TASK rows
-  per device: 8 COMMUNICATION_TASK_INFO rows
-  per device: 8 COMMUNICATION_OP rows
+Real vLLM-Ascend generation profile
+  model: Qwen2.5-0.5B-Instruct
+  hardware: Ascend 910B3
+  parallelism: tensor_parallel_size=2
+  request: 1 prompt, 12 generated tokens
 
-TraceLoom output
-  per device: 36 normalized events
-  per device: 16 semantic anchors
-  recovered structure: Repeat x8
-    aclnnMatmul_MatMulCommon_MatMulV2
-    hcom_allReduce__#_#_#
+Raw profile scale
+  device 0 DB: 84,928 TASK rows, 518,110 CANN_API rows, 1,775 HCCL task rows
+  device 1 DB: 57,455 TASK rows, 518,489 CANN_API rows, 1,773 HCCL task rows
+
+TraceLoom compression
+  device 0: 33,964 normalized events -> 11,008 semantic anchors -> 58 tree nodes
+  device 1: 32,220 normalized events -> 10,510 semantic anchors -> 54 tree nodes
+  recovered shared structure:
+    outer decode/warmup block: Repeat x36
+      layer block: Repeat x24
+        MatMul / Rope / HCCL AllReduce / AddRmsNorm / SwiGlu
 ```
 
 This bundle is committed under [examples/kickstart_smoke](examples/kickstart_smoke).
 It is a real two-device Ascend/CANN `msprof` capture collected on an Ascend
-910B3 machine from a tiny torch-npu distributed workload. The workload repeats
-`matmul -> gelu -> all_reduce`, so the raw databases contain both compute and
-HCCL communication behavior.
+910B3 machine from a short vLLM-Ascend generation run. The workload loads
+`Qwen2.5-0.5B-Instruct` with tensor parallelism across two NPUs and generates
+12 tokens for one prompt. The profile intentionally includes engine
+initialization, HCCL setup, ACL graph capture/replay, prefill, and decode, so
+the raw databases look like real inference profiler output rather than a tidy
+synthetic kernel sequence.
 
-TraceLoom compresses the two raw device traces into the same comparable
-`MatMulV2 -> AllReduce` loop structure. This is the intended first experience:
-run TraceLoom on a checked-in profiler database and inspect the result before
-profiling your own workload.
+TraceLoom compresses the two raw device traces into comparable loop trees. The
+showcase result is that both devices expose the same nested execution pattern:
+an outer `Repeat x36` region containing a per-layer `Repeat x24` block with
+`MatMul`, `AtbRopeKernel`, `hcom_allReduce`, `AddRmsNormBias`, and `SwiGlu`
+nodes. This is the intended first experience: run TraceLoom on a checked-in
+profiler database and inspect how raw timelines become a structured diagnosis.
 
 Have a try after installation:
 
 ```bash
-traceloom analyze examples/kickstart_smoke/msprof_raw --devices 0,1
+traceloom analyze examples/kickstart_smoke/msprof_raw
 ```
 
 The result is written back to:
@@ -97,8 +108,10 @@ The result is written back to:
 examples/kickstart_smoke/msprof_raw/traceloom/
 ```
 
-Open `tree-map.md` there and you should see both devices reconstructed as a
-`Repeat x8` execution pattern with `MatMulV2` and `hcom_allReduce` nodes.
+Open `tree-map.md` there and you should see two device sections. Device 0 has
+`N014 Repeat x36` with nested `N017 Repeat x24`; device 1 has `N010 Repeat x36`
+with nested `N013 Repeat x24`. That is the useful compression: hundreds of
+thousands of low-level rows become a small, comparable execution structure.
 
 ## Key Capabilities
 
@@ -320,9 +333,9 @@ See [docs/reference-reproduction.md](docs/reference-reproduction.md).
   enough device-side context.
 - The output schema is still alpha. Public releases should version the schema
   before downstream tools depend on every column name.
-- Large raw profile databases are intentionally excluded from the repository.
-  Use external artifact storage for real traces and keep only manifests,
-  checksums, or small synthetic fixtures in source control.
+- The repository includes one compact real vLLM-Ascend kickstart profile. Larger
+  production traces should still live in external artifact storage with
+  manifests or checksums in source control.
 
 ## Roadmap
 

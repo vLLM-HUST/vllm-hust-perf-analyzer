@@ -1,55 +1,73 @@
-# TraceLoom Kickstart Smoke
+# TraceLoom Kickstart Profile
 
-This directory contains a real two-device Ascend/CANN `msprof` smoke profile
-and the TraceLoom analysis generated from it.
+This directory contains a real two-device Ascend/CANN `msprof` bundle for a
+short vLLM-Ascend inference run.
 
-The workload is `examples/workloads/torch_npu_distributed_smoke.py`: a tiny
-two-rank torch-npu program that repeats `matmul -> gelu -> all_reduce`.
+## Source
 
-The checked-in capture was generated on an Ascend 910B3 machine with two
-visible devices:
+- Hardware: Ascend 910B3
+- Runtime: vLLM-Ascend
+- Model: `/data/shared-models/Qwen2.5-0.5B-Instruct`
+- Parallelism: `tensor_parallel_size=2`
+- Request shape: 1 prompt, 12 generated tokens
+- Captured behavior: engine initialization, HCCL setup, ACL graph
+  capture/replay, prefill, and decode
 
-```bash
-msprof --output=/tmp/traceloom_kickstart_smoke/msprof_raw \
-  --hccl=on \
-  --runtime-api=on \
-  --task-time=on \
-  --type=db \
-  --application=/tmp/run_traceloom_smoke.sh
+The workload result is recorded in [workload_result.json](workload_result.json).
+The checked-in raw profile databases are:
+
+```text
+msprof_raw/
+  PROF_000001_20260609064648517_AJJGNKPPJMEGGLFA/msprof_20260609064817.db
+  PROF_000001_20260609064648547_OEJLKCHMOPRFGKIB/msprof_20260609064834.db
 ```
 
-The workload command inside `/tmp/run_traceloom_smoke.sh` was:
+## Try It
+
+From the repository root:
 
 ```bash
-ASCEND_RT_VISIBLE_DEVICES=0,1 \
-ASCEND_VISIBLE_DEVICES=0,1 \
-HCCL_OP_EXPANSION_MODE=AIV \
-torchrun --standalone --nnodes=1 --nproc-per-node=2 \
-  /workspace/torch_npu_distributed_smoke.py \
-  --iters 6 --warmup 2 --size 256
+python3 -m pip install -e .
+traceloom analyze examples/kickstart_smoke/msprof_raw
 ```
 
-## Re-run The Analysis
+TraceLoom writes the analysis back into:
 
-From the `traceloom/` repository root:
-
-```bash
-traceloom analyze examples/kickstart_smoke/msprof_raw \
-  --devices 0,1 \
-  --max-main-events-per-device 0
+```text
+examples/kickstart_smoke/msprof_raw/traceloom/
 ```
 
-## What To Inspect
+Start with `summary.md`, then open `tree-map.md`.
 
-- `msprof_raw/traceloom/summary.md`: confirms TraceLoom analyzed two devices.
-- `msprof_raw/traceloom/tree-map.md`: shows both devices compressed into the same
-  `Repeat x8` structure.
-- `msprof_raw/traceloom/queries/*.sql`: starter SQL reports. Running the
-  analysis command locally also creates queryable `dbNN.traceloom_augmented.db`
-  files in the same directory.
-- `msprof_raw/PROF_*/msprof_*.db`: original CANN profiler databases.
+## What To Look For
 
-The captured raw DBs each contain 82 `TASK` rows, 8 communication task rows, and
-8 communication op rows. TraceLoom normalizes each device into 36 events and 16
-semantic anchors, then recovers the repeated `MatMulV2 -> AllReduce` execution
-structure.
+The raw profile is noisy enough to be representative:
+
+```text
+device 0 DB: 84,928 TASK rows, 518,110 CANN_API rows, 1,775 HCCL task rows
+device 1 DB: 57,455 TASK rows, 518,489 CANN_API rows, 1,773 HCCL task rows
+```
+
+TraceLoom compresses it into comparable device structures:
+
+```text
+device 0: 33,964 normalized events -> 11,008 semantic anchors -> 58 tree nodes
+device 1: 32,220 normalized events -> 10,510 semantic anchors -> 54 tree nodes
+```
+
+The useful showpiece is the shared nested loop pattern:
+
+```text
+device 0
+  N014 Repeat x36
+    N017 Repeat x24
+      MatMul / Rope / HCCL AllReduce / AddRmsNorm / SwiGlu
+
+device 1
+  N010 Repeat x36
+    N013 Repeat x24
+      MatMul / Rope / HCCL AllReduce / AddRmsNorm / SwiGlu
+```
+
+That is the intended kickstart: raw profiler databases become a small,
+readable execution structure that developers can compare and drill into.

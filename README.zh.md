@@ -42,35 +42,46 @@ TraceLoom 的目标是把密集、低层、难阅读的 profile 数据库，压�
 
 ```text
 examples/kickstart_smoke/msprof_raw/
-  PROF_...device_0.../msprof_20260609062629.db
-  PROF_...device_1.../msprof_20260609062627.db
+  PROF_...device_0.../msprof_20260609064817.db
+  PROF_...device_1.../msprof_20260609064834.db
 
-原始 CANN profile 数据库
-  每张卡: 82 行 TASK
-  每张卡: 8 行 COMMUNICATION_TASK_INFO
-  每张卡: 8 行 COMMUNICATION_OP
+真实 vLLM-Ascend 生成 profile
+  模型: Qwen2.5-0.5B-Instruct
+  硬件: Ascend 910B3
+  并行: tensor_parallel_size=2
+  请求: 1 个 prompt, 生成 12 token
 
-TraceLoom 输出
-  每张卡: 36 个 normalized events
-  每张卡: 16 个 semantic anchors
-  恢复出的结构: Repeat x8
-    aclnnMatmul_MatMulCommon_MatMulV2
-    hcom_allReduce__#_#_#
+原始 profile 规模
+  device 0 DB: 84,928 行 TASK, 518,110 行 CANN_API, 1,775 行 HCCL task
+  device 1 DB: 57,455 行 TASK, 518,489 行 CANN_API, 1,773 行 HCCL task
+
+TraceLoom 压缩结果
+  device 0: 33,964 个 normalized events -> 11,008 个 semantic anchors -> 58 个 tree nodes
+  device 1: 32,220 个 normalized events -> 10,510 个 semantic anchors -> 54 个 tree nodes
+  恢复出的同构结构:
+    外层 decode/warmup block: Repeat x36
+      层内 block: Repeat x24
+        MatMul / Rope / HCCL AllReduce / AddRmsNorm / SwiGlu
 ```
 
 这份 bundle 已经放在 [examples/kickstart_smoke](examples/kickstart_smoke)。
-它是在 Ascend 910B3 机器上采集的真实双卡 Ascend/CANN `msprof` smoke：一个很小的
-torch-npu 分布式 workload 反复执行 `matmul -> gelu -> all_reduce`，因此 raw
-数据库里同时包含计算 kernel 和 HCCL 通信行为。
+它是在 Ascend 910B3 机器上采集的真实双卡 Ascend/CANN `msprof` profile：
+用 vLLM-Ascend 加载 `Qwen2.5-0.5B-Instruct`，在两张 NPU 上做 tensor parallel，
+对一个 prompt 生成 12 个 token。这个 profile 包含 engine 初始化、HCCL 初始化、
+ACL graph capture/replay、prefill 和 decode，因此它的原始数据库形态更接近真实推理
+profile，而不是整齐的人造 kernel 序列。
 
-TraceLoom 将两张卡的 raw trace 压缩成同构的 `MatMulV2 -> AllReduce` 循环结构，
-便于并排比较。这就是推荐的第一步体验：先直接跑我们放进仓库的 profiler 数据库，
-看 TraceLoom 如何把 raw trace 变成结构化诊断，再去分析自己的 workload。
+TraceLoom 将两张卡的 raw trace 压缩成可并排比较的 loop tree。最适合展示的结果是：
+两个 device 都被恢复出同构的嵌套循环结构，外层是 `Repeat x36`，内部包含层级
+`Repeat x24`，层内节点包括 `MatMul`、`AtbRopeKernel`、`hcom_allReduce`、
+`AddRmsNormBias` 和 `SwiGlu`。这就是推荐的第一步体验：先直接跑仓库里的真实
+profile 数据库，看 TraceLoom 如何把 raw timeline 压成结构化诊断，再分析自己的
+workload。
 
 安装后可以直接试一下：
 
 ```bash
-traceloom analyze examples/kickstart_smoke/msprof_raw --devices 0,1
+traceloom analyze examples/kickstart_smoke/msprof_raw
 ```
 
 分析结果会写回：
@@ -79,8 +90,10 @@ traceloom analyze examples/kickstart_smoke/msprof_raw --devices 0,1
 examples/kickstart_smoke/msprof_raw/traceloom/
 ```
 
-打开里面的 `tree-map.md`，应该能看到两张卡都被重建成 `Repeat x8` 执行模式，
-主体节点是 `MatMulV2` 和 `hcom_allReduce`。
+打开里面的 `tree-map.md`，应该能看到两个 device section。device 0 中有
+`N014 Repeat x36` 和嵌套的 `N017 Repeat x24`；device 1 中有
+`N010 Repeat x36` 和嵌套的 `N013 Repeat x24`。这就是 TraceLoom 的价值：
+把数十万行低层 profiler 事件压缩成少量可对比、可下钻的执行结构。
 
 ## 核心方法
 
