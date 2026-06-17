@@ -315,25 +315,6 @@ Useful query surfaces include:
 See [docs/output-schema.md](docs/output-schema.md) and
 [docs/augmented-db-schema.md](docs/augmented-db-schema.md).
 
-## Paper Reproduction Model
-
-The repository should not commit large profile databases. Reviewers reproduce
-paper results by running TraceLoom on an existing raw profile directory or on
-the checked experiment bundle. TraceLoom does not launch `msprof` or the
-workload.
-
-Generated reproduction outputs are written under ignored `out/reproduce/` by
-default:
-
-```bash
-python3 reproduce/run_reference.py decode-a2a-buffer-reuse
-python3 reproduce/run_reference.py analyze-msprof /path/to/msprof_or_run_dir --name reviewer_msprof
-bash reproduce/decode_a2a_buffer_reuse/run_ab_benchmark.sh --env-file reproduce/decode_a2a_buffer_reuse/local.env
-```
-
-After installation, the same entry point is available as `traceloom-reproduce`.
-See [docs/reference-reproduction.md](docs/reference-reproduction.md).
-
 ## Limitations
 
 - The current production parser targets Ascend/CANN `msprof` SQLite output.

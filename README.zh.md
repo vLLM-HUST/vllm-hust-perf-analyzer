@@ -311,7 +311,7 @@ traceloom report /path/to/db01.traceloom_augmented.db \
 修改代码后可以运行：
 
 ```bash
-python3 -m compileall traceloom reproduce
+python3 -m compileall traceloom
 ```
 
 本地快速分析脚本：

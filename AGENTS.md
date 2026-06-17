@@ -31,7 +31,7 @@ PYTHONPATH="$PWD" python3 -m traceloom --help
 Useful smoke check after code changes:
 
 ```bash
-python3 -m compileall traceloom reproduce
+python3 -m compileall traceloom
 ```
 
 ## Analyze Existing msprof Data
@@ -86,22 +86,6 @@ TraceLoom is a post-processing analyzer. Users collect Ascend/CANN `msprof`
 profiles outside this repository, then pass the raw profile directory to
 `traceloom analysis` or `traceloom analyze`.
 
-## Reproduction Scripts
-
-The decode all-to-all buffer reuse reproduction is under
-`reproduce/decode_a2a_buffer_reuse/`.
-
-Use:
-
-```bash
-cp reproduce/decode_a2a_buffer_reuse/env.example reproduce/decode_a2a_buffer_reuse/local.env
-# edit local.env for the local Ascend/CANN host, model path, and device set
-bash reproduce/decode_a2a_buffer_reuse/run_ab_benchmark.sh --env-file reproduce/decode_a2a_buffer_reuse/local.env
-```
-
-Local env files matching `reproduce/decode_a2a_buffer_reuse/local*.env` are
-ignored and must remain machine-local.
-
 ## Repository Hygiene
 
 Ignored generated paths include:
@@ -111,13 +95,12 @@ Ignored generated paths include:
 - `profiles/`
 - `artifacts/`
 - `*.db`, `*.sqlite`, `*.nsys-rep`, `*.qdrep`, `*.trace`
-- `reproduce/decode_a2a_buffer_reuse/local*.env`
 
 Before handing changes back:
 
 ```bash
 git status --short
-python3 -m compileall traceloom reproduce
+python3 -m compileall traceloom
 ```
 
 When adding features, keep the public CLI stable:

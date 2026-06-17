@@ -33,9 +33,8 @@ The public-facing repository layout is reasonable:
 
 - `README.md`: project overview and usage;
 - `pyproject.toml`: installable package and CLI entry points;
-- `docs/`: architecture, input profile, output schema, reproduction notes;
+- `docs/`: architecture, input profile, and output schema;
 - `examples/`: minimal configs and workload sketches;
-- `reproduce/`: paper reproduction scripts;
 - `traceloom/`: Python package.
 
 The main technical debt is inside the package:
