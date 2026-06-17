@@ -314,12 +314,6 @@ traceloom report /path/to/db01.traceloom_augmented.db \
 python3 -m compileall traceloom
 ```
 
-本地快速分析脚本：
-
-```bash
-scripts/traceloom-analyze.sh /path/to/msprof_output
-```
-
 ## License
 
 TraceLoom 使用 MIT License。

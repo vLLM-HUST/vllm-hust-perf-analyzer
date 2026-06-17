@@ -245,7 +245,7 @@ Common options for larger traces:
 For local development without installation:
 
 ```bash
-scripts/traceloom-analyze.sh <run_dir-or-raw-msprof-dir>
+PYTHONPATH="$PWD" python3 -m traceloom analyze <run_dir-or-raw-msprof-dir>
 ```
 
 ## Example Workflow

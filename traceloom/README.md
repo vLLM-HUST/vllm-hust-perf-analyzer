@@ -56,16 +56,14 @@ python3 -m traceloom analysis \
   --max-macro-defs 0
 ```
 
-From a checkout, use the wrapper script when the package is not installed:
+From a checkout, run the module directly when the package is not installed:
 
 ```bash
-scripts/traceloom-analyze.sh <run_dir-or-raw-msprof-dir>
+PYTHONPATH="$PWD" python3 -m traceloom analyze <run_dir-or-raw-msprof-dir>
 ```
 
-The default wrapper configuration is aimed at offline pattern discovery: it
-does not truncate main events and lets macro discovery continue while the pair
-grammar still has positive gain. Inspect `summary.md`, then query
-`dbNN.traceloom_augmented.db` with scripts in `queries/`.
+Inspect `summary.md`, then query `dbNN.traceloom_augmented.db` with scripts in
+`queries/`.
 
 ## Scope Boundary
 
