@@ -1,0 +1,100 @@
+diff --git a/vllm_ascend/attention/utils.py b/vllm_ascend/attention/utils.py
+index 946d5c66..757cccb8 100644
+--- a/vllm_ascend/attention/utils.py
++++ b/vllm_ascend/attention/utils.py
+@@ -13,6 +13,13 @@ from vllm_ascend import envs
+ from vllm_ascend.utils import AscendDeviceType, get_ascend_config, get_ascend_device_type
+ 
+ 
++def _find_first_true_boundary(sorted_mask: torch.Tensor) -> int:
++    """Return the index of the first True in a monotonic False->True mask."""
++    if sorted_mask.numel() == 0:
++        return 0
++    return int(torch.searchsorted(sorted_mask.to(dtype=torch.int32), 1).item())
++
++
+ def ascend_chunked_prefill_workspace_size(vllm_config: VllmConfig) -> int:
+     scheduler_config = vllm_config.scheduler_config
+     cache_config = vllm_config.cache_config
+@@ -250,10 +257,10 @@ def split_decodes_and_prefills(
+ 
+     query_lens = (query_start_loc[1:] - query_start_loc[:-1]) if query_lens_pcp_full is None else query_lens_pcp_full
+     is_prefill = query_lens > decode_threshold
+-    if not torch.any(is_prefill):
++    first_prefill = _find_first_true_boundary(is_prefill)
++    if first_prefill == num_reqs:
+         return num_reqs, 0, num_tokens, 0
+ 
+-    first_prefill = is_prefill.int().argmax(dim=-1).item()
+     num_decodes = first_prefill
+     num_prefills = num_reqs - num_decodes
+     num_decode_tokens = query_start_loc[first_prefill].item()
+diff --git a/tests/ut/attention/test_attention_utils.py b/tests/ut/attention/test_attention_utils.py
+new file mode 100644
+index 00000000..e0b6611b
+--- /dev/null
++++ b/tests/ut/attention/test_attention_utils.py
+@@ -0,0 +1,63 @@
++import torch
++
++from vllm_ascend.attention.utils import (
++    AscendCommonAttentionMetadata,
++    AscendPrefillContextParallelMetadata,
++    split_decodes_and_prefills,
++)
++
++
++def _common_metadata(
++    query_lens: list[int],
++    *,
++    max_query_len: int | None = None,
++    query_lens_pcp_full: list[int] | None = None,
++) -> AscendCommonAttentionMetadata:
++    query_lens_tensor = torch.tensor(query_lens, dtype=torch.int64)
++    query_start_loc = torch.empty(len(query_lens) + 1, dtype=torch.int64)
++    query_start_loc[0] = 0
++    torch.cumsum(query_lens_tensor, dim=0, out=query_start_loc[1:])
++
++    pcp_metadata = None
++    if query_lens_pcp_full is not None:
++        pcp_metadata = AscendPrefillContextParallelMetadata(
++            query_lens_pcp_full_cpu=torch.tensor(query_lens_pcp_full, dtype=torch.int64),
++            max_query_len_pcp_full=max(query_lens_pcp_full),
++        )
++
++    return AscendCommonAttentionMetadata(
++        query_start_loc=query_start_loc,
++        query_start_loc_cpu=query_start_loc,
++        num_reqs=len(query_lens),
++        num_actual_tokens=int(query_start_loc[-1]),
++        max_query_len=max(query_lens) if max_query_len is None else max_query_len,
++        prefill_context_parallel_metadata=pcp_metadata,
++    )
++
++
++def test_split_decodes_and_prefills_decode_only():
++    metadata = _common_metadata([1, 1, 1])
++
++    assert split_decodes_and_prefills(metadata) == (3, 0, 3, 0)
++
++
++def test_split_decodes_and_prefills_prefill_only():
++    metadata = _common_metadata([8, 16, 32])
++
++    assert split_decodes_and_prefills(metadata) == (0, 3, 0, 56)
++
++
++def test_split_decodes_and_prefills_mixed_batch():
++    metadata = _common_metadata([1, 1, 4, 8])
++
++    assert split_decodes_and_prefills(metadata) == (2, 2, 2, 12)
++
++
++def test_split_decodes_and_prefills_uses_full_pcp_query_lens():
++    metadata = _common_metadata(
++        [1, 1, 1, 1],
++        max_query_len=1,
++        query_lens_pcp_full=[1, 1, 128, 256],
++    )
++
++    assert split_decodes_and_prefills(metadata) == (2, 2, 2, 2)

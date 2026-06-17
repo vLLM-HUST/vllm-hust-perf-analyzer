@@ -1,0 +1,20 @@
+# Informational recipe. This file documents the intended profiling protocol and
+# is not consumed by the current CLI.
+name: ascend_msprof_vllm_decode
+backend: ascend_cann_msprof
+profile_layout:
+  run_dir: runs/ascend_vllm_decode
+  raw_profile_dir: runs/ascend_vllm_decode/msprof_raw
+expected_input_glob: msprof_raw/PROF_*/msprof_*.db
+trace_command:
+  profiler: msprof
+  output_dir: runs/ascend_vllm_decode/msprof_raw
+  application: "<user vLLM decode benchmark command>"
+analyze_command:
+  - traceloom
+  - runs/ascend_vllm_decode
+  - --out-dir
+  - out/ascend_vllm_decode
+notes:
+  - Keep the workload and CANN environment native to the user machine.
+  - Do not commit generated msprof databases to the repository.
