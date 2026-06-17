@@ -315,20 +315,6 @@ Useful query surfaces include:
 See [docs/output-schema.md](docs/output-schema.md) and
 [docs/augmented-db-schema.md](docs/augmented-db-schema.md).
 
-## Reference Materials
-
-The main TraceLoom workflow remains offline analysis of existing profiler
-output. The repository also keeps reference assets for deeper review:
-
-- `examples/configs/`: informational profiling recipes.
-- `examples/workloads/`: small workload scaffolds for local smoke checks.
-- `reproduce/`: optional thesis reproduction helpers and archived experiment
-  table generation.
-- `patches/`: related upstream patch material used by the case study.
-
-See [docs/reference-reproduction.md](docs/reference-reproduction.md) for the
-reproduction contract.
-
 ## Limitations
 
 - The current production parser targets Ascend/CANN `msprof` SQLite output.
