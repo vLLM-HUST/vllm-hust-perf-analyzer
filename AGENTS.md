@@ -80,28 +80,11 @@ Key outputs to inspect first:
 See `docs/output-schema.md` for the output contract and
 `docs/input-profiles.md` for accepted input layouts.
 
-## Collecting Profiles
+## Profile Inputs
 
-TraceLoom can generate an editable config and invoke `msprof`, but it does not
-install CANN, drivers, Docker images, models, or vLLM.
-
-```bash
-traceloom create config -o traceloom.profile.ini
-# edit workload.command, paths.profile_dir, paths.analysis_dir, profiler.extra_args
-traceloom run traceloom.profile.ini
-traceloom analysis runs/local-msprof/msprof_raw --out-dir runs/local-msprof/analysis
-```
-
-`traceloom run` calls:
-
-```text
-msprof --output=<profile_dir> --application=<workload.command> <profiler.extra_args>
-```
-
-If the workload must run inside an existing container, configure the `[docker]`
-section. Prefer `docker exec <existing-container>` over creating a new container
-unless the user explicitly provides image, volume, device, network, and CANN
-mount details.
+TraceLoom is a post-processing analyzer. Users collect Ascend/CANN `msprof`
+profiles outside this repository, then pass the raw profile directory to
+`traceloom analysis` or `traceloom analyze`.
 
 ## Reproduction Scripts
 
@@ -113,7 +96,7 @@ Use:
 ```bash
 cp reproduce/decode_a2a_buffer_reuse/env.example reproduce/decode_a2a_buffer_reuse/local.env
 # edit local.env for the local Ascend/CANN host, model path, and device set
-bash run_decode_a2a_buffer_reuse.sh --env-file reproduce/decode_a2a_buffer_reuse/local.env
+bash reproduce/decode_a2a_buffer_reuse/run_ab_benchmark.sh --env-file reproduce/decode_a2a_buffer_reuse/local.env
 ```
 
 Local env files matching `reproduce/decode_a2a_buffer_reuse/local*.env` are
@@ -141,7 +124,5 @@ When adding features, keep the public CLI stable:
 
 - `traceloom analysis`
 - `traceloom analyze`
-- `traceloom create config`
-- `traceloom run`
 
 Prefer small, inspectable CSV/JSON/Markdown outputs over binary artifacts.

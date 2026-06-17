@@ -110,12 +110,12 @@ queries.
 The public CLI exposes three workflows:
 
 - `traceloom analyze <profile_dir>`: analyze an existing `msprof` profile.
+- `traceloom analysis <profile_dir>`: same analyzer entry point under the
+  historical command name.
 - `traceloom report <augmented.db> --sql query.sql`: run SQL reports against a
   TraceLoom augmented database.
-- `traceloom create config` and `traceloom run`: optional convenience path for
-  invoking `msprof` from an editable config.
 
-The analyzer remains offline even when the optional runner is used.
+TraceLoom does not launch `msprof` or user workloads.
 
 ## Current Module Map
 

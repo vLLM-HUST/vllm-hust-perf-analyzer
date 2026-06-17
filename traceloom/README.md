@@ -10,9 +10,8 @@ tree:
 compute_prelude_timeline.py
 ```
 
-The package now has a thin config-driven runner for `msprof`, but the analyzer
-itself remains offline. Normal use is an editable install followed by direct
-analysis of an existing profiler output:
+TraceLoom does not launch `msprof` or the workload. Normal use is an editable
+install followed by direct analysis of an existing profiler output:
 
 ```bash
 python3 -m pip install -e .
@@ -40,23 +39,6 @@ By default the output bundle is written to:
 The bundle contains augmented SQLite DBs, `tree-map.md`, `README.md`,
 `summary.md`, `queries/*.sql`, and `meta.json`. Use `--output-mode full` to
 also write the legacy CSV/JSON debug files.
-
-## Optional Run Config
-
-Example:
-
-```bash
-traceloom create config -o traceloom.profile.ini
-traceloom run traceloom.profile.ini
-traceloom analyze runs/local-msprof/msprof_raw
-```
-
-The three commands are intentionally separate:
-
-- `create config` writes an editable INI template;
-- `run` starts `msprof` and the configured workload, optionally inside Docker;
-- `analysis` reads an existing `msprof` output directory and runs offline
-  loop/cost analysis.
 
 Analysis defaults to every discovered device. Use `--devices 3,4,5,6`, or the
 matching `[analysis] devices` config key, when a run should be pinned to a

@@ -78,18 +78,14 @@ tl_check_host() {
       echo "container is not running: $TRACELOOM_CONTAINER" >&2
       exit 2
     }
-    tl_container_exec "command -v msprof >/dev/null && command -v npu-smi >/dev/null && npu-smi info >/dev/null" || {
-      echo "msprof/npu-smi check failed inside container: $TRACELOOM_CONTAINER" >&2
+    tl_container_exec "command -v npu-smi >/dev/null && npu-smi info >/dev/null" || {
+      echo "npu-smi check failed inside container: $TRACELOOM_CONTAINER" >&2
       exit 2
     }
     return
   fi
   command -v npu-smi >/dev/null 2>&1 || {
     echo "npu-smi not found; activate the Ascend runtime environment first." >&2
-    exit 2
-  }
-  command -v msprof >/dev/null 2>&1 || {
-    echo "msprof not found; activate the Ascend profiler environment first." >&2
     exit 2
   }
   npu-smi info >/dev/null

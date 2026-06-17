@@ -30,9 +30,9 @@ The core flow is:
 trace compression -> structure recovery -> cost attribution -> evidence drill-down
 ```
 
-The common workflow is intentionally simple: profile your workload with
-`msprof`, give the profile directory to TraceLoom, then read the generated
-reports in the same profile directory.
+The common workflow is intentionally simple: collect a native `msprof` profile
+outside TraceLoom, give the profile directory to TraceLoom, then read the
+generated reports in the same profile directory.
 
 ## At A Glance
 
@@ -276,8 +276,8 @@ TraceLoom is organized as a layered offline analysis pipeline:
   attaches cost to loop nodes.
 - Report layer: writes augmented SQLite databases, Markdown summaries, SQL
   report queries, and optional full debug exports.
-- CLI layer: exposes `traceloom analyze`, `traceloom report`, and optional
-  profiling runner commands.
+- CLI layer: exposes `traceloom analyze`, `traceloom analysis`, and
+  `traceloom report`.
 
 See [docs/architecture.md](docs/architecture.md).
 
@@ -315,34 +315,12 @@ Useful query surfaces include:
 See [docs/output-schema.md](docs/output-schema.md) and
 [docs/augmented-db-schema.md](docs/augmented-db-schema.md).
 
-## Optional Profiling Runner
-
-TraceLoom can create a profile config and invoke Ascend/CANN `msprof`, but this
-is a convenience path. The analyzer core still consumes profiler output after
-the workload has run.
-
-```bash
-traceloom create config -o traceloom.profile.ini
-# edit workload, profiler, Docker, and output paths
-traceloom run traceloom.profile.ini
-traceloom analyze runs/local-msprof/msprof_raw
-```
-
-`traceloom run` invokes Ascend/CANN `msprof` as:
-
-```text
-msprof --output=<profile_dir> --application=<workload.command> <profiler.extra_args>
-```
-
-If `[docker] enabled = true`, the profiler command is run through `docker exec`
-when `container` is set, or through `docker run --rm` when `image` is set.
-
 ## Paper Reproduction Model
 
 The repository should not commit large profile databases. Reviewers reproduce
-paper results by running the documented reference workload and profiler command
-on their own multi-card Ascend/CANN machine, then running TraceLoom on the
-resulting profile directory.
+paper results by running TraceLoom on an existing raw profile directory or on
+the checked experiment bundle. TraceLoom does not launch `msprof` or the
+workload.
 
 Generated reproduction outputs are written under ignored `out/reproduce/` by
 default:
@@ -350,9 +328,7 @@ default:
 ```bash
 python3 reproduce/run_reference.py decode-a2a-buffer-reuse
 python3 reproduce/run_reference.py analyze-msprof /path/to/msprof_or_run_dir --name reviewer_msprof
-bash run_decode_a2a_buffer_reuse.sh --env-file reproduce/decode_a2a_buffer_reuse/local.env
 bash reproduce/decode_a2a_buffer_reuse/run_ab_benchmark.sh --env-file reproduce/decode_a2a_buffer_reuse/local.env
-bash reproduce/decode_a2a_buffer_reuse/run_profile_pair.sh --env-file reproduce/decode_a2a_buffer_reuse/local.env
 ```
 
 After installation, the same entry point is available as `traceloom-reproduce`.

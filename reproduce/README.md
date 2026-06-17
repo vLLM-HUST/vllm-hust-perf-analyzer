@@ -50,7 +50,6 @@ For a fresh Ascend host, copy and fill the CANN recipe environment first:
 cp reproduce/decode_a2a_buffer_reuse/env.example reproduce/decode_a2a_buffer_reuse/local.env
 $EDITOR reproduce/decode_a2a_buffer_reuse/local.env
 bash reproduce/decode_a2a_buffer_reuse/run_ab_benchmark.sh --env-file reproduce/decode_a2a_buffer_reuse/local.env
-bash reproduce/decode_a2a_buffer_reuse/run_profile_pair.sh --env-file reproduce/decode_a2a_buffer_reuse/local.env
 ```
 
 ## Analyze An Existing Ascend/CANN Profile
@@ -67,35 +66,11 @@ The TraceLoom outputs are written to:
 out/reproduce/reviewer_msprof/analysis/
 ```
 
-## Profile And Analyze An Ascend/CANN Workload
-
-Activate the user's CANN environment first, then run:
-
-```bash
-python3 reproduce/run_reference.py ascend-msprof \
-  --name ascend_reference \
-  -- \
-  python3 /path/to/workload.py --arg value
-```
-
-The script calls `msprof`, writes raw profile data under
-`out/reproduce/ascend_reference/msprof_raw/`, then runs TraceLoom and writes
-analysis outputs under `out/reproduce/ascend_reference/analysis/`.
-
-Extra profiler flags can be passed with repeated `--msprof-arg`:
-
-```bash
-python3 reproduce/run_reference.py ascend-msprof \
-  --msprof-arg=--some-msprof-flag=value \
-  -- \
-  python3 /path/to/workload.py
-```
-
 ## Dry Run
 
-Use `--dry-run` to print commands and write manifests without invoking
-profilers or the analyzer:
+Use `--dry-run` to print analysis commands and write manifests without invoking
+the analyzer:
 
 ```bash
-python3 reproduce/run_reference.py ascend-msprof --dry-run -- python3 workload.py
+python3 reproduce/run_reference.py analyze-msprof /path/to/msprof_raw --dry-run
 ```

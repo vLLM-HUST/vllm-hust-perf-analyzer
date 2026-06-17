@@ -9,7 +9,6 @@ from __future__ import annotations
 import argparse
 import json
 import shlex
-import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -23,13 +22,6 @@ DEFAULT_OUT_ROOT = PROJECT_ROOT / "out" / "reproduce"
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def strip_separator(args: Sequence[str]) -> list[str]:
-    values = list(args)
-    if values and values[0] == "--":
-        return values[1:]
-    return values
 
 
 def ensure_dir(path: Path) -> Path:
@@ -135,46 +127,6 @@ def cmd_analyze_msprof(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_ascend_msprof(args: argparse.Namespace) -> int:
-    workload = strip_separator(args.workload)
-    if not workload:
-        raise SystemExit("ascend-msprof requires a workload command after --")
-    if shutil.which("msprof") is None and not args.dry_run:
-        raise SystemExit("msprof was not found in PATH. Activate the CANN environment first.")
-
-    run_dir = ensure_dir((args.out_root / args.name).resolve())
-    profile_dir = ensure_dir((args.profile_dir or (run_dir / "msprof_raw")).resolve())
-    analysis_dir = ensure_dir(run_dir / "analysis")
-
-    workload_text = shlex.join(workload)
-    msprof_command = [
-        "msprof",
-        f"--output={profile_dir}",
-        f"--application={workload_text}",
-        *args.msprof_arg,
-    ]
-
-    commands = [
-        run_command(msprof_command, cwd=PROJECT_ROOT, dry_run=args.dry_run),
-        run_command(analyzer_command(args, profile_dir, analysis_dir), cwd=PROJECT_ROOT, dry_run=args.dry_run),
-    ]
-    status = "dry_run" if args.dry_run else "complete"
-    write_manifest(
-        run_dir,
-        name=args.name,
-        backend="ascend_cann_msprof",
-        status=status,
-        commands=commands,
-        artifacts={
-            "profile_dir": str(profile_dir),
-            "analysis_dir": str(analysis_dir),
-            "manifest": str(run_dir / "reproduce_manifest.json"),
-        },
-    )
-    print(f"TraceLoom artifacts: {analysis_dir}")
-    return 0
-
-
 def cmd_decode_a2a_buffer_reuse(args: argparse.Namespace) -> int:
     from reproduce.decode_a2a_buffer_reuse import run_decode_a2a_buffer_reuse
 
@@ -209,14 +161,6 @@ def build_parser() -> argparse.ArgumentParser:
     analyze.add_argument("--name", default="msprof_existing")
     add_common_analyzer_args(analyze)
     analyze.set_defaults(func=cmd_analyze_msprof)
-
-    ascend = subparsers.add_parser("ascend-msprof", help="Run msprof on a workload, then analyze the profile.")
-    ascend.add_argument("--name", default="ascend_reference")
-    ascend.add_argument("--profile-dir", type=Path, default=None)
-    ascend.add_argument("--msprof-arg", action="append", default=[], help="Extra raw argument passed to msprof.")
-    add_common_analyzer_args(ascend)
-    ascend.add_argument("workload", nargs=argparse.REMAINDER, help="Workload command after --")
-    ascend.set_defaults(func=cmd_ascend_msprof)
 
     paper = subparsers.add_parser("decode-a2a-buffer-reuse", help="Reproduce the CANN Decode All-to-All Buffer Reuse paper tables.")
     paper.add_argument(
