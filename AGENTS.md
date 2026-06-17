@@ -31,7 +31,7 @@ PYTHONPATH="$PWD" python3 -m traceloom --help
 Useful smoke check after code changes:
 
 ```bash
-python3 -m compileall traceloom
+python3 -m compileall traceloom reproduce
 ```
 
 ## Analyze Existing msprof Data
@@ -100,12 +100,16 @@ Before handing changes back:
 
 ```bash
 git status --short
-python3 -m compileall traceloom
+python3 -m compileall traceloom reproduce
 ```
 
 When adding features, keep the public CLI stable:
 
 - `traceloom analysis`
 - `traceloom analyze`
+
+The `reproduce/` package is optional reference material. Keep it installable,
+but do not make the main `traceloom` analyzer depend on hardware-specific
+reproduction workflows.
 
 Prefer small, inspectable CSV/JSON/Markdown outputs over binary artifacts.

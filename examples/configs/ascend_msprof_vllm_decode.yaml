@@ -12,6 +12,7 @@ trace_command:
   application: "<user vLLM decode benchmark command>"
 analyze_command:
   - traceloom
+  - analyze
   - runs/ascend_vllm_decode
   - --out-dir
   - out/ascend_vllm_decode
