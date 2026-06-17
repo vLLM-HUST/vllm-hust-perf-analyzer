@@ -1,6 +1,6 @@
-# RFC: TraceLoom Synchronization and Gap Attribution
+# RFC: Explaining Visible Device Idle in TraceLoom
 
-Status: Draft for external review
+Status: Draft v2 for external review
 
 Target: TraceLoom Ascend/CANN `msprof` analysis pipeline
 
@@ -8,58 +8,57 @@ Related issue: `notes/issues/synchronization-discovery.md`
 
 ## Summary
 
-TraceLoom currently exposes prelude gaps and unattributed time around execution
-anchors. This is useful because it shows where repeated model-execution
-patterns contain hidden cost, but the current names and aggregates can make
-unobserved time look like true hardware idle.
+TraceLoom already compresses visible compute and communication work into a
+structured execution timeline. The next step should be narrower and simpler:
 
-This RFC proposes a conservative synchronization and gap-attribution model. The
-core idea is not to infer the complete internal CANN runtime state. Instead,
-TraceLoom should reconstruct the strongest state that is supported by profiler
-evidence, split gaps into auditable categories, and attach a confidence level to
-each attribution.
+```text
+Find visible device idle intervals, then explain why they look idle.
+```
 
-The proposed first version is implementable using existing `msprof` SQLite
-tables. It can attribute confirmed device-side wait tasks, communication tasks,
-host-side synchronization overlap, and submitted-but-not-started task delay.
-Precise stream/event dependency reconstruction remains out of reach without
-additional instrumentation, because current `CANN_API` rows do not expose API
-arguments such as stream handles and event handles.
+This RFC revises the earlier gap-attribution design around one core model:
 
-## Background
+1. Build a global productive device timeline from visible compute,
+   communication, and data-movement work.
+2. Extract visible productive idle intervals from gaps in that global timeline.
+3. Build per-stream observable state timelines from all visible stream tasks.
+4. Explain each global idle interval by projecting it onto per-stream states
+   and host/device evidence.
+5. Aggregate idle explanations back to anchors, prelude windows, symbols, and
+   loop-tree nodes.
 
-TraceLoom reads Ascend/CANN `msprof` output, normalizes profiler rows into
-events, compresses anchor sequences into repeated execution trees, and reports
-node-level cost composition. Its current attribution model attaches auxiliary
-and prelude activity to the following anchor.
+Prelude attribution becomes a consumer of this model, not the foundation of the
+model. This keeps the design focused: TraceLoom is not trying to reconstruct
+the full CANN runtime scheduler. It is labeling visible productive idle using
+observable evidence.
 
-Today, a gap before an anchor is summarized roughly as:
+## Key Terms
 
-- activity in the prelude window, grouped by normalized task category;
-- explicit wait task time when `TASK.taskType` looks like wait;
-- communication task time;
-- the remaining time, currently exposed as idle-like prelude gap.
+`productive task`: A visible device task that represents useful compute,
+communication, or data movement. Examples include AI Core kernels, AI Vector
+kernels, HCCL/communication work, and memcpy/data movement.
 
-This is already useful, but it is too coarse for synchronization diagnosis.
-Large prelude or idle-like gaps may mean several different things:
+`non-productive visible task`: A visible device task that occupies a stream but
+does not represent useful model work. Examples include `EVENT_WAIT`,
+`NOTIFY_WAIT`, `CAPTURE_WAIT`, record tasks, and runtime control tasks.
 
-- the target stream is waiting on an event, notify, collective, or queue
-  dependency;
-- the host is blocked in `aclrtSynchronize*` or related runtime calls;
-- work was submitted but did not start immediately on device;
-- the host did not submit work during the interval;
-- the profiler did not expose the event needed to explain the gap;
-- the device is genuinely idle.
+`global productive timeline`: The union of productive task intervals for a
+device. This is the timeline TraceLoom uses to describe visible model progress.
 
-Those cases have different engineering implications, so TraceLoom should stop
-collapsing them into a single idle-style number.
+`visible productive idle`: A gap in the global productive timeline. This does
+not prove the hardware is idle. It means TraceLoom sees no productive
+compute/communication/data-movement task covering that interval.
+
+`observable stream state`: The state TraceLoom can infer from profiler-visible
+tasks on a stream. It is not the real internal runtime queue state.
+
+`idle explanation`: A conservative label attached to a visible productive idle
+interval, derived from stream-state projection and host/device evidence.
 
 ## Current Observations
 
-The current Ascend `msprof` schema contains enough information for a useful
-partial solution.
+The current Ascend `msprof` schema is sufficient for a useful first version.
 
-In the compact TraceLoom kickstart profile, the relevant tables include:
+Relevant tables include:
 
 - `TASK(startNs, endNs, deviceId, connectionId, globalTaskId, globalPid,
   taskType, contextId, streamId, taskId, modelId)`
@@ -79,241 +78,317 @@ Important profiler properties:
 - `CANN_API` does not expose stream handles, event handles, notify handles, or
   API arguments.
 
-Empirical observations from the kickstart profile:
+Empirical observations from the compact TraceLoom kickstart profile:
 
 - `aclrtStreamWaitEvent` appears 44,321 times in `CANN_API`; 41,906 of those
   rows join to one or more `TASK` rows through `connectionId`, covering 104
   streams.
 - `EVENT_WAIT` appears 3,548 times in `TASK`, totaling about 2.376 seconds of
-  device-side wait task time.
+  device-side visible wait task time.
 - `NOTIFY_WAIT` appears 236 times in `TASK`, totaling about 96 ms.
 - `CAPTURE_WAIT` appears 37,483 times in `TASK`. These rows are confirmed
   profiler-visible control tasks, but their synchronization meaning is opaque.
-  They should be preserved as a separate capture/control category rather than
-  hidden as transparent noise or merged into wait time.
+  They should be preserved as a separate capture/control state rather than
+  hidden as noise or merged into semantic wait time.
 - `aclrtSynchronizeStream` appears 501 times in `CANN_API`, but in this profile
-  none of those rows join to a `TASK` row by `connectionId`.
+  none of those rows join to `TASK` rows by `connectionId`.
 - `aclrtSynchronizeDeviceWithTimeout` appears 1,215 times; 840 rows join to
   `MODEL_MAINTAINCE` tasks, but long blocking calls may still have no direct
-  target stream evidence.
+  target-stream evidence.
 
-These observations imply a clear boundary:
+These observations imply a boundary:
 
-- Some synchronization evidence is directly observable and should be reported
-  as confirmed.
-- Some synchronization evidence is host-visible but not stream-specific and
-  should be reported as probable or contextual.
-- Full stream/event dependency reconstruction is not possible from current
+- Some idle explanations are directly observable and can be reported as
+  confirmed.
+- Some evidence is host-visible but not stream-specific and should be reported
+  as contextual presence.
+- Exact stream/event dependency reconstruction is not possible from current
   tables alone.
 
 ## Problem
 
-The current reporting surface has three issues.
+TraceLoom currently exposes prelude gaps and idle-like cost around anchors, but
+the underlying model is too attached to anchor/prelude accounting. That makes
+the design harder to reason about.
 
-First, unresolved gaps are too easy to overinterpret. A value called
-`idle_us` may be read as true hardware idle, even when the interval overlaps
-host synchronization, device wait tasks, or pending queue dependencies.
+The real question is simpler:
 
-Second, TraceLoom does not currently maintain a first-class stream/device state
-model. It has normalized events and anchor prelude windows, but it does not
-persist the interval-level state that explains why a window was classified as
-compute, communication, wait, host-blocked, queued, or unknown.
+```text
+When the global productive device timeline has a gap, what observable stream
+and host states explain that gap?
+```
 
-Third, CANN API records often lack the arguments needed for exact attribution.
-For example, a `aclrtSynchronizeStream` row proves the host thread blocked in a
-stream synchronization call, but current `CANN_API` rows do not expose which
-stream was passed to that call. Without additional instrumentation, binding it
-to a specific stream is heuristic.
+Without this model, reports risk implying that a gap is true hardware idle.
+In reality, a visible productive idle interval may be explained by:
+
+- device streams running visible wait tasks;
+- capture/control tasks;
+- host synchronization API presence;
+- submitted work waiting before device task start;
+- no observed productive work on any stream;
+- profiler blind spots;
+- genuinely idle hardware.
+
+The analyzer should preserve these distinctions instead of collapsing them into
+a scalar `idle_us`.
 
 ## Goals
 
 The design should:
 
-- preserve all existing raw evidence and source links;
-- distinguish confirmed facts from probable inferences;
-- split prelude gaps into more meaningful categories;
-- keep unresolved time visible as unresolved;
-- avoid claiming precise stream/event dependencies when the profiler does not
+- make visible productive idle a first-class timeline object;
+- model per-stream observable state independently from anchors and prelude
+  windows;
+- explain device-level idle by querying stream states and host/device evidence;
+- distinguish facts from inferences with explicit confidence;
+- keep unknown time visible;
+- avoid claiming exact stream/event dependencies when the profiler does not
   expose them;
-- be useful without requiring patched CANN or patched `msprof`;
-- provide a clean upgrade path for richer instrumentation later.
+- aggregate idle explanations back into the existing TraceLoom loop tree.
 
 ## Non-Goals
 
 The first implementation should not:
 
-- reverse engineer all internal CANN scheduler state;
-- claim exact stream arguments for API calls that do not expose them;
+- reconstruct the full internal CANN scheduler state;
+- claim exact stream arguments for APIs that do not expose them;
 - infer event-handle dependency graphs without event-handle evidence;
-- depend on large private traces;
-- require users to patch the Ascend software stack before getting useful
-  reports.
+- require patched CANN or patched `msprof`;
+- make prelude attribution the lowest-level state model.
 
-## Proposed Design
+## Proposed Model
 
-Introduce an evidence-layered gap-attribution pipeline.
+### Layer 1: Global Productive Device Timeline
 
-The pipeline should produce explicit interval slices for each anchor prelude
-window. Each slice has:
+For each `(db_idx, device_id)`, TraceLoom builds one global productive timeline
+by taking the interval union of visible productive tasks:
 
-- a time interval;
-- a category;
-- a confidence level;
-- source links to raw profiler rows when available;
-- an explanation string suitable for reports.
+- compute kernels;
+- collective or communication tasks;
+- memcpy and data movement tasks that represent useful work.
 
-Recommended categories:
+The complement of this union within the analyzed device span is the set of
+visible productive idle intervals.
 
-- `active_compute_us`: visible compute task time in the window.
-- `active_comm_us`: visible communication or data-movement task time.
-- `visible_wait_task_us`: visible device-side wait task time, such as
-  `EVENT_WAIT` or `NOTIFY_WAIT`.
-- `host_sync_api_overlap_us`: temporal presence of host-side synchronization
-  APIs, such as `aclrtSynchronizeStream`,
-  `aclrtSynchronizeDeviceWithTimeout`, `aclrtSynchronizeEvent`, or runtime
-  equivalents. This means the host API overlaps the window; it does not prove
-  that the host API caused the device-side gap.
-- `queued_visible_task_delay_us`: time between host API submission and device
-  task start, when `CANN_API.connectionId` joins to `TASK.connectionId`.
-- `host_submit_activity_us`: host launch, memcpy, record, or wait API activity
-  that may explain runtime overhead but is not itself device execution.
-- `no_observed_submit_gap_us`: gap interval where TraceLoom observes no host
-  submission or synchronization activity near the selected device timeline.
-  This is an observation about profiler evidence, not proof that no host
-  activity occurred.
-- `unattributed_gap_us`: remaining unclassified time.
+This definition is deliberately narrow. If a stream is running `EVENT_WAIT`,
+that interval is not productive model work. Therefore it can explain visible
+productive idle rather than remove it from the idle set.
+
+Recommended output concepts:
+
+- `productive_active_interval`
+- `visible_productive_idle_interval`
+- `productive_active_us`
+- `visible_productive_idle_us`
+
+### Layer 2: Per-Stream Observable State Timelines
+
+For each `(db_idx, device_id, stream_id)`, TraceLoom builds a stream-state
+timeline from all visible `TASK` rows.
+
+Suggested observable states:
+
+- `running_compute`
+- `running_comm`
+- `running_data_move`
+- `running_wait`
+- `running_capture_control`
+- `running_record`
+- `running_runtime_control`
+- `empty_observed`
+- `unknown`
+
+`empty_observed` means TraceLoom sees no task on that stream in the interval.
+It does not mean the runtime queue is empty. The real state may include queued
+work that the profiler does not expose yet.
+
+`running_capture_control` should include `CAPTURE_WAIT` by default. This is a
+confirmed visible state, but its synchronization meaning remains separate from
+semantic wait until additional evidence justifies promotion.
+
+### Layer 3: Idle Explanation
+
+For each global visible productive idle interval, TraceLoom projects the
+interval onto:
+
+- per-stream observable states;
+- host API intervals from `CANN_API`;
+- confirmed host-to-device links through `connectionId`;
+- communication metadata when available.
+
+The result is an interval-level explanation with a category and confidence.
+
+Recommended explanation categories:
+
+- `blocked_by_visible_wait`: one or more streams have visible wait tasks such
+  as `EVENT_WAIT` or `NOTIFY_WAIT`.
+- `capture_control_present`: one or more streams have `CAPTURE_WAIT` or related
+  capture/control tasks.
+- `runtime_control_present`: one or more streams have visible runtime control
+  tasks that are neither productive nor semantic wait.
+- `host_sync_api_present`: host-side synchronization APIs temporally overlap
+  the idle interval. This is presence, not causality.
+- `queued_visible_task_delay`: a host API is linked to a later visible device
+  task through `connectionId`, and the interval covers API-to-task-start delay.
+- `no_observed_device_work`: all relevant streams are `empty_observed`, and no
+  stronger host/device evidence explains the interval.
+- `unattributed_visible_idle`: remaining time with insufficient evidence.
 
 Recommended confidence levels:
 
 - `confirmed`: direct evidence from `TASK`, `COMMUNICATION_OP`, or an exact
   `CANN_API.connectionId -> TASK.connectionId` join.
-- `probable`: temporal overlap with a relevant host API, but without exact
+- `contextual`: temporal presence of relevant host APIs without exact
   stream/event arguments.
 - `heuristic`: inferred from same-thread neighborhood or repeated-pattern
   context.
-- `unknown`: retained as unresolved time.
+- `unknown`: unresolved after available evidence is applied.
 
-The key semantic rule is:
+The core rule is:
 
-> TraceLoom may report that a gap overlaps host synchronization, or that a
-> visible task is a wait task. TraceLoom must not report the precise waited-on
-> stream or event unless the evidence exposes that relationship.
+> TraceLoom explains visible productive idle with observable evidence. It does
+> not claim true hardware idle, exact stream dependencies, or causality unless
+> the evidence exposes those facts.
 
 ## Algorithm Sketch
 
-### 1. Load Raw Evidence
+### 1. Normalize Device Tasks
 
-Build three normalized evidence collections:
+Load `TASK` rows and resolve task type and labels through `STRING_IDS`,
+`COMPUTE_TASK_INFO`, `COMMUNICATION_TASK_INFO`, and communication metadata.
 
-1. Device task events from `TASK`.
-   Include device id, stream id, task type, connection id, global task id,
-   start/end timestamps, and resolved labels.
+Classify each task into:
 
-2. Host API events from `CANN_API`.
-   Include API name, API type, global thread id, connection id, start/end
-   timestamps, and coarse API family.
-
-3. Communication events from `COMMUNICATION_OP` and
-   `COMMUNICATION_TASK_INFO`, when available.
-
-### 2. Classify Events Conservatively
-
-Classify device tasks into:
-
-- `compute`
-- `comm`
-- `wait`
+- `productive_compute`
+- `productive_comm`
+- `productive_data_move`
+- `visible_wait`
 - `capture_control`
 - `record`
-- `control`
+- `runtime_control`
 - `unknown`
 
-Classify host APIs into:
+### 2. Build the Global Productive Timeline
 
-- `submit_kernel`
-- `submit_memcpy`
-- `record_event`
-- `stream_wait_event`
-- `stream_synchronize`
-- `device_synchronize`
-- `event_synchronize`
-- `query`
-- `allocation`
-- `other`
+For each device:
 
-This classification should eventually share infrastructure with the
-signal-classification ruleset proposed in `notes/issues/signal_classification_rule.md`.
+1. Select productive task intervals.
+2. Compute their union.
+3. Compute gaps between union intervals within the selected analysis span.
+4. Store those gaps as visible productive idle intervals.
 
-`CAPTURE_WAIT` should map to `capture_control` by default. It is confirmed as a
-profiler-visible task, but its interpretation should remain separate from
-semantic synchronization waits until additional evidence justifies promotion.
+The analysis span should be configurable. Reasonable first choices:
 
-### 3. Build Observable Stream State
+- from first productive task start to last productive task end;
+- or from first anchor start to last anchor end for anchor-scoped analysis.
 
-For each `(db_idx, device_id, stream_id)`, construct a timeline of visible
-stream states from `TASK`:
+### 3. Build Per-Stream State Timelines
 
-- `running_compute`
-- `running_comm`
-- `running_wait`
-- `running_capture_control`
-- `running_control`
-- `empty_observed`
+For each stream:
 
-This is not the real runtime queue state. It is the profiler-visible task
-state.
+1. Sort visible tasks by time.
+2. Convert task intervals into observable states.
+3. Fill uncovered intervals with `empty_observed`.
+4. Preserve overlap or ambiguity explicitly when profiler rows overlap in a
+   way that cannot be linearly ordered.
 
-### 4. Build Host-to-Device Links
+This is the stream-state layer that later explains device-level idle.
 
-Use `connectionId` as the strongest bridge:
+### 4. Build Host Evidence
 
-```text
-CANN_API.connectionId == TASK.connectionId
-```
+Normalize `CANN_API` rows into host API events:
 
-For each successful join, persist:
+- API name;
+- API family;
+- global thread id;
+- connection id;
+- start/end timestamps.
 
-- API timing and task timing;
-- API name and task type;
-- thread id;
-- stream id from the task;
-- delay from API end to task start;
-- overlap between API interval and task interval.
+Join host API events to device tasks by `connectionId` when possible. These
+links are the strongest evidence for submitted work and API-to-task delay.
 
-This supports confirmed attribution for submitted work whose device task is
-visible.
+Host synchronization APIs without stream arguments should remain contextual:
 
-### 5. Slice Prelude Windows
+- `aclrtSynchronizeStream`
+- `aclrtSynchronizeDeviceWithTimeout`
+- `aclrtSynchronizeEvent`
+- runtime equivalents such as `StreamSynchronize`, `DeviceSynchronize`, and
+  `EventSynchronize`
 
-For each anchor prelude window `[prelude_start_ns, anchor_start_ns)`, perform
-interval slicing in priority order:
+### 5. Explain Idle Intervals
 
-1. Visible device task intervals.
-2. Confirmed host-to-device submission delay intervals.
-3. Host synchronization API presence intervals.
-4. Host submit/record/query activity overlaps.
-5. Residual time.
+For each visible productive idle interval:
 
-The priority order avoids double-counting. For example, if a visible
-`EVENT_WAIT` task occupies an interval, that interval should be counted as
-`visible_wait_task_us` before it is considered host synchronization API
-presence.
+1. Query overlapping per-stream states.
+2. Query overlapping host API evidence.
+3. Query API-to-task delay links.
+4. Slice the idle interval into explanation intervals using a deterministic
+   priority order.
 
-### 6. Aggregate to Anchors and Nodes
+Suggested priority order:
 
-Attach gap slices to the following anchor, matching the existing prelude
-attribution model.
+1. `blocked_by_visible_wait`
+2. `capture_control_present`
+3. `runtime_control_present`
+4. `queued_visible_task_delay`
+5. `host_sync_api_present`
+6. `no_observed_device_work`
+7. `unattributed_visible_idle`
 
-Then aggregate slice durations through existing node-to-anchor coverage:
+This order intentionally gives device-visible states priority over host API
+presence. Temporal overlap with a host synchronization API is useful evidence,
+but overlap is not causality.
 
-- anchor-level gap slice table;
-- symbol-level summaries;
-- node-level totals and averages;
-- run-level summary.
+### 6. Aggregate Explanations Upward
+
+After idle intervals are explained, aggregate them into existing TraceLoom
+surfaces:
+
+- anchor prelude windows;
+- anchor symbols;
+- loop-tree nodes;
+- device summary rows;
+- SQL reports.
+
+This keeps the state model reusable. Prelude attribution becomes one report
+view over the idle explanation table.
 
 ## Proposed Output Schema
 
-Add experimental tables to the augmented DB.
+Add experimental tables under the `traceloom_*` namespace.
+
+### `traceloom_device_interval`
+
+Device-level productive active and visible productive idle intervals.
+
+Important columns:
+
+- `interval_id`
+- `db_idx`
+- `device_id`
+- `start_ns`
+- `end_ns`
+- `dur_us`
+- `interval_kind`: `productive_active` or `visible_productive_idle`
+- `source_count`
+
+### `traceloom_stream_state`
+
+Per-stream observable state intervals.
+
+Important columns:
+
+- `state_id`
+- `db_idx`
+- `device_id`
+- `stream_id`
+- `start_ns`
+- `end_ns`
+- `dur_us`
+- `state`
+- `confidence`
+- `source_event_id`
+- `source_key`
 
 ### `traceloom_host_api_event`
 
@@ -331,7 +406,6 @@ Important columns:
 - `api_type`
 - `api_name`
 - `api_family`
-- `source_table`
 - `source_key`
 
 ### `traceloom_task_api_link`
@@ -349,133 +423,106 @@ Important columns:
 - `api_name`
 - `task_type`
 - `submit_to_start_us`
-- `api_task_overlap_us`
 - `confidence`
 
-For first implementation, rows in this table should be `confirmed`, because
-they require direct `connectionId` evidence.
+Rows in this table require direct `connectionId` evidence and should therefore
+start as `confirmed`.
 
-### `traceloom_gap_slice`
+### `traceloom_idle_explanation`
 
-Interval-level gap attribution attached to anchors.
+Explanation slices for visible productive idle intervals.
 
 Important columns:
 
-- `gap_slice_id`
-- `anchor_id`
+- `idle_explanation_id`
+- `interval_id`
 - `db_idx`
 - `device_id`
-- `stream_id`
 - `start_ns`
 - `end_ns`
 - `dur_us`
 - `category`
 - `confidence`
 - `reason`
-- `source_event_id`
+- `source_state_id`
 - `source_api_event_id`
-- `source_key`
+- `source_event_id`
 
 Example categories:
 
-- `active_compute`
-- `active_comm`
-- `visible_wait_task`
-- `capture_control`
-- `host_sync_api_overlap`
+- `blocked_by_visible_wait`
+- `capture_control_present`
+- `runtime_control_present`
 - `queued_visible_task_delay`
-- `host_submit_activity`
-- `no_observed_submit_gap`
-- `unattributed_gap`
+- `host_sync_api_present`
+- `no_observed_device_work`
+- `unattributed_visible_idle`
 
 ### Views
 
-Add convenience views:
+Recommended views:
 
-- `traceloom_v_anchor_gap_cost`
-- `traceloom_v_node_gap_cost`
-- `traceloom_v_sync_hotspot`
+- `traceloom_v_device_idle_summary`
+- `traceloom_v_anchor_idle_explanation`
+- `traceloom_v_node_idle_explanation`
+- `traceloom_v_idle_hotspot`
 
-These should expose both total durations and confidence breakdowns.
+These views should expose total duration, average duration per occurrence, and
+confidence breakdowns.
 
 ## Reporting Changes
 
-Update human-readable reports to avoid overclaiming.
+Reports should make the new semantic boundary explicit.
 
 Recommended terminology:
 
-- Keep `prelude_gap_us` as the total pre-anchor interval.
-- Deprecate or qualify `prelude_idle_us`.
-- Add `unattributed_gap_us`.
-- Add `visible_wait_task_us`.
-- Add `capture_control_us`.
-- Add `host_sync_api_overlap_us`.
-- Add `queued_visible_task_delay_us`.
-
-For compatibility, `idle_us` can remain in existing CSVs for one release, but
-the generated summary should explain that it means unresolved or uncovered
-prelude time, not proven hardware idle.
+- Use `visible_productive_idle_us` for device-level gaps in productive work.
+- Use `unattributed_visible_idle_us` for unexplained residual time.
+- Avoid using `idle_us` without a qualifier.
+- Keep old `idle_us` columns temporarily as compatibility aliases, but document
+  them as unresolved visible productive idle rather than proven hardware idle.
 
 Example report language:
 
 ```text
-This node has 8.4 ms/occurrence of prelude gap. Of that, 5.7 ms is confirmed
-device wait task time, 1.1 ms overlaps host stream synchronization API calls,
-and 1.6 ms remains unattributed. The overlap is temporal presence, not proof
-that the host API caused the device-side gap. The stream/event dependency for
-the host sync calls is not available in the current msprof schema.
+Node N017 has 8.4 ms/occurrence of visible productive idle. Of that, 5.7 ms is
+confirmed visible wait-task time, 0.8 ms is capture/control presence, 1.1 ms
+has host synchronization API presence, and 0.8 ms remains unattributed. Host
+sync API presence is temporal context, not proof of causality.
 ```
-
-## Expected Effects
-
-The proposed design should improve TraceLoom in several ways.
-
-First, it reduces false idle diagnoses. Users will see when a gap is backed by
-explicit wait tasks or host synchronization calls.
-
-Second, it makes synchronization cost structurally comparable. Because slices
-attach to anchors and aggregate through the existing loop tree, users can ask
-which repeated pattern contains the most wait-like behavior.
-
-Third, it creates an auditable path from high-level reports back to raw rows.
-Every confirmed slice should link to a `TASK`, `CANN_API`, or communication
-row.
-
-Fourth, it makes profiler limitations visible. Instead of hiding uncertainty,
-TraceLoom can report that the current schema lacks stream/event arguments for
-some host synchronization calls.
 
 ## Expected Benefits
 
-For model-serving developers:
+This design gives TraceLoom a clearer backbone.
 
-- clearer separation between compute, communication, wait, capture/control,
-  host sync API presence, queue delay, and unknown time;
-- better prioritization of synchronization bottlenecks in repeated decode
-  loops;
-- fewer misleading "device idle" conclusions;
-- SQL drill-down paths for suspicious synchronization regions.
+For users:
 
-For TraceLoom maintainers:
+- fewer misleading device-idle conclusions;
+- a direct answer to "why does the device-level productive timeline have a
+  gap?";
+- SQL drill-down from loop nodes to stream states and host API evidence;
+- clearer distinction between wait, capture/control, host API presence, queue
+  delay, and unknown time.
 
-- a clean state model that can absorb richer profiler signals later;
-- a natural home for future signal-classification rules;
-- a stable schema for tests and external reviewers;
-- a way to compare traces collected with and without extra instrumentation.
+For implementation:
 
-For systems researchers:
+- prelude attribution becomes simpler because it consumes idle explanations;
+- stream/device state modeling is reusable outside prelude windows;
+- the schema has a clean place for future richer instrumentation;
+- existing loop-tree aggregation remains compatible.
 
-- explicit evidence levels make claims easier to evaluate;
-- repeated-pattern aggregation turns low-level synchronization noise into
-  workload-level structure;
-- the design distinguishes observability limitations from algorithmic
-  limitations.
+For research:
+
+- the model separates timeline construction from observability semantics;
+- confidence levels make claims easier to audit;
+- repeated-pattern aggregation turns low-level idle explanations into
+  workload-level structure.
 
 ## Instrumentation Extension
 
-The current profiler schema is insufficient for exact stream/event dependency
-graphs. To make attribution precise, TraceLoom would benefit from an optional
-instrumentation channel that records CANN API arguments.
+The current `CANN_API` table does not expose API arguments, so exact stream and
+event dependency reconstruction is limited. Optional instrumentation can
+upgrade contextual or heuristic explanations to confirmed explanations.
 
 Minimum useful fields:
 
@@ -487,7 +534,7 @@ Minimum useful fields:
 - event or notify handle;
 - connection id, if available;
 - return status;
-- optional queue depth or enqueue sequence number.
+- optional enqueue sequence number or queue depth.
 
 High-priority APIs:
 
@@ -507,117 +554,119 @@ Potential implementation approaches:
 - patched `msprof`;
 - patched ACL/CANN runtime emitting an auxiliary trace table.
 
-The first implementation should not depend on this instrumentation, but the
-schema should be designed so instrumented dependency edges can be added later.
-
 ## Validation Plan
 
-Use three classes of validation traces.
+Use three validation classes.
 
-1. Synthetic microbenchmarks.
-   Build small Ascend programs with known patterns:
+1. Synthetic microbenchmarks:
    - stream wait event;
    - stream synchronize;
    - device synchronize;
    - async memcpy followed by wait;
    - multiple streams with record/wait dependencies.
 
-2. Existing compact TraceLoom kickstart profile.
-   Use it to ensure the new logic works on a real vLLM-Ascend trace and does
-   not regress current loop-tree outputs.
+2. Existing compact TraceLoom kickstart profile:
+   - verify that visible productive idle intervals are stable;
+   - verify that `EVENT_WAIT`, `NOTIFY_WAIT`, and `CAPTURE_WAIT` are separated;
+   - verify that old prelude totals can be derived from new idle explanations.
 
-3. Instrumented comparison traces.
-   When wrapper or patched-runtime data is available, compare heuristic
-   attribution against ground-truth stream/event arguments.
+3. Instrumented comparison traces:
+   - compare contextual host sync API presence against ground-truth stream and
+     event arguments when instrumentation is available.
 
 Success criteria:
 
-- confirmed wait task time matches `TASK` evidence;
-- confirmed API-task links match `connectionId` joins;
-- no host sync call without stream arguments is reported as exact stream wait;
-- total gap slices sum to the original prelude gap within rounding tolerance;
-- repeated-node aggregation is stable and explainable.
+- visible productive idle intervals plus productive active intervals cover the
+  selected device analysis span within rounding tolerance;
+- visible wait and capture/control explanations match `TASK` evidence;
+- host API presence is never reported as causality without dependency evidence;
+- prelude and loop-node reports can be derived from the new tables;
+- unexplained time remains explicitly visible.
 
 ## Implementation Plan
 
-### Milestone 0: Naming and Documentation
+### Milestone 0: Naming and Compatibility
 
-- Rename or qualify unresolved idle-like fields in docs.
-- Add report notes explaining that unresolved gap is not proven hardware idle.
-- Keep existing fields for compatibility.
+- Qualify existing idle-like fields in docs.
+- Keep old columns as aliases where necessary.
+- Introduce `visible_productive_idle` terminology.
 
-### Milestone 1: Host API Loader
+### Milestone 1: Productive Timeline
 
-- Add a reader for `CANN_API` and API-name resolution through `STRING_IDS`.
-- Normalize API families.
-- Persist optional host API events into the augmented DB.
+- Classify productive compute/communication/data-movement tasks.
+- Build per-device productive interval unions.
+- Emit visible productive idle intervals.
 
-### Milestone 2: Confirmed API-to-Task Links
+### Milestone 2: Stream State Timeline
 
-- Join `CANN_API` and `TASK` by `connectionId`.
-- Persist confirmed host-to-device links.
-- Compute submission-to-start delay and API/task overlap.
+- Build per-stream observable state intervals.
+- Preserve wait, capture/control, record, runtime-control, and unknown states.
+- Add stream-state SQL tables and basic views.
 
-### Milestone 3: Gap Slice Attribution
+### Milestone 3: Idle Explanation
 
-- Replace scalar-only prelude accounting with interval slices.
-- Preserve current aggregate columns by deriving them from slices.
-- Add anchor-level and node-level gap views.
+- Project each visible productive idle interval onto stream states.
+- Add host API presence and API-to-task delay evidence.
+- Emit `traceloom_idle_explanation`.
 
-### Milestone 4: Reports and SQL
+### Milestone 4: Aggregation and Reports
 
-- Add summary tables for top synchronization-heavy nodes.
-- Add starter SQL queries:
-  - top wait-task nodes;
-  - top host-sync API presence nodes;
-  - top capture-control nodes;
-  - top unattributed-gap nodes;
-  - API-to-task delay outliers.
+- Derive anchor prelude idle explanations from device idle explanations.
+- Aggregate idle categories to symbols and loop-tree nodes.
+- Add top idle-hotspot SQL reports.
 
 ### Milestone 5: Optional Instrumentation
 
-- Define an auxiliary trace schema for API arguments.
-- Support importing that schema into the augmented DB.
-- Upgrade selected `probable` and `heuristic` slices to `confirmed` when
-  stream/event handles are available.
+- Define an auxiliary API-argument trace schema.
+- Import instrumented stream/event handle data.
+- Upgrade contextual explanations to confirmed explanations when possible.
 
 ## Risks and Tradeoffs
 
-The biggest risk is over-attribution. Temporal overlap is not causality. The
-confidence model is therefore part of the design, not a reporting nicety.
+`visible productive idle` may still be misread as true hardware idle. The
+reports must repeatedly state that it is a gap in productive profiler-visible
+work, not proof that hardware resources are unused.
 
-Another risk is schema churn. Gap attribution should be introduced under
-experimental table names first, while preserving existing outputs.
+Temporal host API presence is not causality. It should remain contextual unless
+instrumentation or profiler evidence exposes a dependency edge.
 
-There is also a cost-model risk. If slices are attached only to the following
-anchor, some cross-anchor synchronization behavior may be assigned to a nearby
-anchor rather than the semantic source of the dependency. This is consistent
-with current prelude attribution but should be documented.
+The global productive timeline intentionally excludes visible wait and control
+tasks. This is useful for explaining lack of productive progress, but it means
+TraceLoom should also expose a separate "all visible task" coverage metric for
+users who want raw profiler occupancy.
 
-Finally, host API volume can be high. The implementation should keep SQL
-indexes on timestamp, connection id, API family, device id, and stream id where
-available.
+The stream-state layer may increase output volume. The first version should
+index by device, stream, start/end time, state, and source id.
 
 ## Open Questions
 
-- How should TraceLoom handle nested ACL/runtime API rows that describe the
-  same operation at different abstraction layers?
-- Should host synchronization API presence be attached to all devices in the
-  same DB, or only devices with nearby task evidence?
-- What threshold should distinguish meaningful submission delay from normal
+- Should the global productive timeline include memcpy/data movement by
+  default, or should users choose whether data movement counts as productive?
+- What threshold should distinguish meaningful API-to-task delay from normal
   launch latency?
-- Should the first version expose `idle_us` as a compatibility alias for
-  `unattributed_gap_us`, or remove it from new views entirely?
+- How should overlapping tasks on the same stream be represented if the
+  profiler produces ambiguous intervals?
+- Should host sync API presence attach to all devices in the DB, only devices
+  with nearby task evidence, or only devices with thread/context evidence?
+- Should compatibility `idle_us` map to `visible_productive_idle_us` or to
+  `unattributed_visible_idle_us` in new views?
 
 ## Recommendation
 
-Proceed with the evidence-layered design.
+Proceed with the simplified idle-explanation design.
 
-The problem is partially solvable with current `msprof` output and becomes much
-more precise with optional instrumentation. The right first step is not to
-claim exact CANN runtime state. The right first step is to make TraceLoom's
-existing gap accounting more explicit, auditable, and conservative.
+The previous evidence-layered RFC had the right safety principles, but it was
+too centered on prelude gap slicing. The revised design gives TraceLoom a
+clearer backbone:
 
-This should produce immediate user value while keeping a clean path toward
-precise stream/event dependency reconstruction when richer CANN API argument
-data is available.
+```text
+global productive timeline
+  -> visible productive idle intervals
+  -> per-stream observable state projection
+  -> idle explanations
+  -> anchor and loop-tree aggregation
+```
+
+This keeps the system honest about what is observable while giving users a much
+clearer answer to the practical question: why does the device-level productive
+timeline stop making progress here?
