@@ -167,6 +167,14 @@ TraceLoom 关注 profile 数据库分析层，提供几个核心能力：
 python3 -m pip install -e .
 ```
 
+如果旧系统 Python 上 editable install 报 `build_editable` 相关错误，先升级用户态
+构建工具再重试：
+
+```bash
+python3 -m pip install --user --upgrade pip setuptools wheel
+python3 -m pip install --user -e .
+```
+
 把 `msprof` 产物目录交给 TraceLoom：
 
 ```bash
@@ -191,6 +199,21 @@ traceloom analyze /path/to/msprof_output
 ```bash
 traceloom analyze /path/to/msprof_output --out-dir /path/to/analysis
 ```
+
+对团队共享的大实验仓库，尤其是原始 `msprof` 产物通过 Git LFS 同步时，建议显式把
+TraceLoom 输出写到原始 artifact 目录之外：
+
+```bash
+git lfs pull
+git lfs fsck --objects
+traceloom analyze experiments/profiler/exp_001/profiler/msprof \
+  --out-dir /tmp/traceloom-exp001
+```
+
+这样原始 LFS artifact 目录可以保持只读，也能避免把临时生成的 `traceloom/`
+分析 bundle 误提交进实验仓库。需要沉淀到仓库里的通常是小体积摘要、关键 SQL
+查询结果，或者指向生成 bundle 的路径；除非团队明确决定把增强分析 DB 也纳入
+artifact policy。
 
 如果只想分析部分卡：
 

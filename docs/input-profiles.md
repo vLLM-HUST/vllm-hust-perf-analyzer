@@ -34,3 +34,24 @@ not commit production traces to the open-source repository. This repository
 keeps one compact real vLLM-Ascend kickstart profile under
 `examples/kickstart_smoke/`; larger traces should live in external artifact
 storage with checksums, manifests, and reproduction instructions in source.
+
+When a team intentionally keeps large raw profiles in a private repository
+through Git LFS, validate that the local checkout contains real file contents
+before analysis:
+
+```bash
+git lfs pull
+git lfs fsck --objects
+```
+
+Run TraceLoom with `--out-dir` pointing outside the raw profile tree when the
+input directory is source-controlled:
+
+```bash
+traceloom analyze experiments/profiler/exp_001/profiler/msprof \
+  --out-dir /tmp/traceloom-exp001
+```
+
+Treat the generated bundle as derived data. Keep raw LFS artifacts immutable,
+and commit generated analysis databases only when they are part of the
+repository's explicit experiment artifact policy.

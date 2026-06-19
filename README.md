@@ -205,6 +205,14 @@ Install from the repository root:
 python3 -m pip install -e .
 ```
 
+If editable install fails on an older system Python with a `build_editable`
+message, upgrade the user-local build tools and retry:
+
+```bash
+python3 -m pip install --user --upgrade pip setuptools wheel
+python3 -m pip install --user -e .
+```
+
 Analyze an existing Ascend/CANN profile directory:
 
 ```bash
@@ -234,6 +242,22 @@ Use `--out-dir <dir>` only when you want to place the results somewhere else:
 ```bash
 traceloom analyze /path/to/msprof_output --out-dir out/qwen2-decode-analysis
 ```
+
+For large shared experiment repositories, especially when raw `msprof` output
+is tracked by Git LFS, prefer an explicit output directory outside the raw
+artifact tree:
+
+```bash
+git lfs pull
+git lfs fsck --objects
+traceloom analyze experiments/profiler/exp_001/profiler/msprof \
+  --out-dir /tmp/traceloom-exp001
+```
+
+This keeps the raw LFS artifact directory read-only and avoids committing
+generated `traceloom/` bundles by accident. Commit only small summaries or
+links back to the generated bundle unless the analysis DBs are intentionally
+part of the experiment artifact policy.
 
 Common options for larger traces:
 
