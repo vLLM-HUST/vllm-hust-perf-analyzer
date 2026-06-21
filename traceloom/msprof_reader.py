@@ -46,6 +46,8 @@ class StreamEvent:
     task_type: str
     label: str
     category: str
+    source_table: str = "TASK"
+    source_key: str = ""
 
     @property
     def dur_ns(self) -> int:
@@ -81,7 +83,8 @@ def _canonical_label(label: str, *, category: str) -> str:
     # Keep operator variants like MatMulV2/MatMulV3 distinguishable for exec.
     # For non-exec control/comm labels, normalize numbers more aggressively.
     if category == "exec":
-        s = re.sub(r"\b\d{6,}\b", "#", s)
+        if "[grd=" not in s.lower():
+            s = re.sub(r"\b\d{6,}\b", "#", s)
     else:
         s = re.sub(r"\d+", "#", s)
     s = re.sub(r"\s+", " ", s)

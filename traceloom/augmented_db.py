@@ -987,6 +987,9 @@ def _node_id(db_idx: int, device_id: int, view_name: str, local_node_id: str) ->
 
 
 def _source_table(row: Row) -> str:
+    explicit = str(row.get("source_table", "")).strip()
+    if explicit:
+        return explicit
     role = str(row.get("role", ""))
     if role == "collective":
         return "COMMUNICATION_OP_OR_TASK"
@@ -994,6 +997,9 @@ def _source_table(row: Row) -> str:
 
 
 def _source_key(row: Row, step_idx: int) -> str:
+    explicit = str(row.get("source_key", "")).strip()
+    if explicit:
+        return explicit
     stream_id = str(row.get("stream_id", ""))
     start_ns = str(row.get("start_ns", ""))
     return f"step={step_idx};stream={stream_id};start_ns={start_ns}"

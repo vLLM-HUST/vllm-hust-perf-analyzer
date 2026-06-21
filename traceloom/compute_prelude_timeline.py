@@ -15,7 +15,8 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Sequence, Tuple
 
 from .augmented_db import append_device_analysis, prepare_augmented_db
-from .io.discover import discover_msprof_dbs
+from .hygon_reader import is_hygon_profile, load_hygon_device_events, rank_hygon_streams_global
+from .io.discover import discover_msprof_dbs, discover_profile_dbs, has_hygon_profile_data
 from .loop_tree import (
     MacroDef,
     _build_tree_v2,
@@ -127,7 +128,7 @@ def _task_key(ev: StreamEvent) -> str:
 def _is_memcpy_like(ev: StreamEvent) -> bool:
     key = _task_key(ev)
     label = ev.label.lower()
-    return "MEMCPY" in key or "memcpy" in label or "tensorcopy" in label
+    return "MEMCPY" in key or "COPY" in key or "memcpy" in label or "copy" in label or "tensorcopy" in label
 
 
 COLLECTIVE_FAMILIES = {"allreduce", "allgather", "alltoall", "reducescatter", "broadcast"}
@@ -196,12 +197,14 @@ def _label_family(label: str, category: str) -> str:
         return "reducescatter"
     if "broadcast" in low:
         return "broadcast"
-    if "matmul" in low:
+    if low.startswith("cijk") or "matmul" in low or "gemm" in low:
         return "matmul"
-    if "rmsnorm" in low or "layernorm" in low:
+    if "rmsnorm" in low or "rms_norm" in low or "layernorm" in low or "layer_norm" in low:
         return "norm"
-    if "pagedattention" in low or "attention" in low:
+    if "pagedattention" in low or "paged_attention" in low or "attention" in low:
         return "attention"
+    if "kv" in low and ("cache" in low or "block" in low):
+        return "kv_cache"
     if "swiglu" in low:
         return "swiglu"
     if "rope" in low or "rotary" in low:
@@ -254,7 +257,7 @@ def _is_main_event(ev: StreamEvent, stream_stats: Dict[int, Dict[str, object]], 
         return False
     if ev.category == "exec":
         return True
-    if ev.category != "comm":
+    if ev.category not in {"comm", "data_move"}:
         return False
     if _is_collective_like(ev):
         return True
@@ -271,7 +274,7 @@ def _main_role(ev: StreamEvent) -> str:
         return "collective"
     if ev.category == "exec":
         return "compute"
-    if ev.category == "comm" and _is_collective_like(ev):
+    if ev.category in {"comm", "data_move"} and _is_collective_like(ev):
         return "collective"
     return "data_move"
 
@@ -469,6 +472,8 @@ def _default_anchor_compute_reason(item: MainEvent) -> str:
     if item.role != "compute":
         return ""
     ev = item.event
+    if _normalize_task_key(ev.task_type) in {"HIP_KERNEL", "ROCPROF_KERNEL"}:
+        return "anchor_hygon_kernel"
     family = _label_family(ev.label, ev.category)
     if family in {"matmul", "norm", "attention", "swiglu", "rope"}:
         return f"anchor_family:{family}"
@@ -940,6 +945,8 @@ def _build_steps(
                 "task_type": ev.task_type,
                 "label": ev.label,
                 "family": _label_family(ev.label, ev.category),
+                "source_table": ev.source_table,
+                "source_key": ev.source_key,
                 "source_event_count": len(_source_global_task_ids(item)),
                 "source_streams": " ".join(str(s) for s in item.source_stream_ids),
                 "start_ns": ev.start_ns,
@@ -1103,6 +1110,146 @@ def _fold_adjacent_macro_loops(
     return out, macro_id
 
 
+def _fold_adjacent_symbol_runs(
+    seq_tokens: Sequence[GrammarToken],
+    defs: List[MacroDef],
+    *,
+    macro_id: int,
+    max_macro_defs: int,
+    min_repeat_count: int = 2,
+) -> Tuple[List[GrammarToken], int]:
+    out = list(seq_tokens)
+
+    def has_budget() -> bool:
+        return max_macro_defs <= 0 or len(defs) < max_macro_defs
+
+    while has_budget() and len(out) >= min_repeat_count:
+        best_start = -1
+        best_end = -1
+        i = 0
+        while i < len(out):
+            j = i + 1
+            while j < len(out) and out[j].name == out[i].name:
+                j += 1
+            if j - i >= min_repeat_count and (best_start < 0 or j - i > best_end - best_start):
+                best_start = i
+                best_end = j
+            i = j
+
+        if best_start < 0:
+            break
+
+        run_len = best_end - best_start
+        source_name = out[best_start].name
+        loop_name = f"M{macro_id}"
+        start_ns = out[best_start].start_ns
+        end_ns = out[best_end - 1].end_ns
+        out = [
+            *out[:best_start],
+            GrammarToken(name=loop_name, start_ns=start_ns, end_ns=end_ns),
+            *out[best_end:],
+        ]
+        defs.append(
+            MacroDef(
+                name=loop_name,
+                level="LP",
+                tokens=[source_name] * run_len,
+                definition_len=run_len,
+                replace_count=1,
+                gain=run_len - 1,
+                first_pos=best_start,
+                windows=[(start_ns, end_ns)],
+                defs_covered=0,
+            )
+        )
+        macro_id += 1
+
+    return out, macro_id
+
+
+def _fold_adjacent_repeated_blocks(
+    seq_tokens: Sequence[GrammarToken],
+    defs: List[MacroDef],
+    *,
+    macro_id: int,
+    max_macro_defs: int,
+    min_block_len: int = 2,
+    min_repeat_count: int = 2,
+) -> Tuple[List[GrammarToken], int]:
+    out = list(seq_tokens)
+
+    def has_budget(extra_defs: int = 2) -> bool:
+        return max_macro_defs <= 0 or len(defs) + extra_defs <= max_macro_defs
+
+    while has_budget() and len(out) >= min_block_len * min_repeat_count:
+        best: Tuple[int, int, int, int] | None = None
+        n = len(out)
+        for start in range(n):
+            max_block = (n - start) // min_repeat_count
+            for block_len in range(min_block_len, max_block + 1):
+                block = [tok.name for tok in out[start : start + block_len]]
+                repeat = 1
+                pos = start + block_len
+                while pos + block_len <= n and [tok.name for tok in out[pos : pos + block_len]] == block:
+                    repeat += 1
+                    pos += block_len
+                if repeat < min_repeat_count:
+                    continue
+                gain = repeat * (block_len - 1) - (block_len + 1)
+                if gain <= 0:
+                    continue
+                key = (gain, repeat, block_len, -start)
+                if best is None or key > (best[0], best[1], best[2], -best[3]):
+                    best = (gain, repeat, block_len, start)
+
+        if best is None:
+            break
+
+        gain, repeat, block_len, start = best
+        end = start + repeat * block_len
+        block_name = f"M{macro_id}"
+        loop_name = f"M{macro_id + 1}"
+        block_tokens = [tok.name for tok in out[start : start + block_len]]
+        block_windows = [
+            (out[start + i * block_len].start_ns, out[start + (i + 1) * block_len - 1].end_ns)
+            for i in range(repeat)
+        ]
+        defs.append(
+            MacroDef(
+                name=block_name,
+                level="RP",
+                tokens=block_tokens,
+                definition_len=block_len,
+                replace_count=repeat,
+                gain=gain,
+                first_pos=start,
+                windows=block_windows,
+                defs_covered=sum(1 for tok in block_tokens if tok.startswith("M")),
+            )
+        )
+        defs.append(
+            MacroDef(
+                name=loop_name,
+                level="LP",
+                tokens=[block_name] * repeat,
+                definition_len=repeat,
+                replace_count=1,
+                gain=gain,
+                first_pos=start,
+                windows=[(out[start].start_ns, out[end - 1].end_ns)],
+                defs_covered=1,
+            )
+        )
+        out = [
+            *out[:start],
+            GrammarToken(name=loop_name, start_ns=out[start].start_ns, end_ns=out[end - 1].end_ns),
+            *out[end:],
+        ]
+        macro_id += 2
+
+    return out, macro_id
+
+
 def _discover_pair_grammar_macros(
     symbol_seq: Sequence[str],
     atom_windows: Sequence[Tuple[int, int]],
@@ -1118,6 +1265,18 @@ def _discover_pair_grammar_macros(
     ]
     defs: List[MacroDef] = []
     macro_id = 1
+    seq_tokens, macro_id = _fold_adjacent_symbol_runs(
+        seq_tokens,
+        defs,
+        macro_id=macro_id,
+        max_macro_defs=max_macro_defs,
+    )
+    seq_tokens, macro_id = _fold_adjacent_repeated_blocks(
+        seq_tokens,
+        defs,
+        macro_id=macro_id,
+        max_macro_defs=max_macro_defs,
+    )
 
     while (max_macro_defs <= 0 or len(defs) < max_macro_defs) and len(seq_tokens) >= 2:
         counts: Counter[Tuple[str, str]] = Counter(
@@ -2733,7 +2892,10 @@ def _render_anchor_readable(
 
 
 def _rank_devices(db_paths: Sequence[Path], cfg: ComputePreludeConfig) -> List[DeviceSelection]:
-    ranked_streams, _ranking_rows = _rank_streams_global(db_paths)
+    if db_paths and is_hygon_profile(db_paths[0]):
+        ranked_streams, _ranking_rows = rank_hygon_streams_global(list(db_paths))
+    else:
+        ranked_streams, _ranking_rows = _rank_streams_global(db_paths)
     buckets: Dict[Tuple[int, int], Dict[str, object]] = {}
     for stream in ranked_streams:
         if cfg.device_ids is not None and stream.device_id not in cfg.device_ids:
@@ -2752,6 +2914,7 @@ def _rank_devices(db_paths: Sequence[Path], cfg: ComputePreludeConfig) -> List[D
         )
         bucket["main_event_count"] = int(bucket["main_event_count"]) + int(stream.stats.get("event_count", 0))
         bucket["exec_us"] = float(bucket["exec_us"]) + float(stream.stats.get("exec_us", 0.0))
+        bucket["data_move_us"] = float(bucket["data_move_us"]) + float(stream.stats.get("comm_us", 0.0))
 
     selections: List[DeviceSelection] = []
     for bucket in buckets.values():
@@ -3116,7 +3279,7 @@ def run_compute_prelude_timeline(
     out_dir = out_dir.resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    db_paths = discover_msprof_dbs(raw_dir)
+    db_paths = discover_profile_dbs(raw_dir, generated_dir=out_dir / "_sources")
     selections = _rank_devices(db_paths, cfg)
     augmented_db_paths = {
         db_idx: prepare_augmented_db(source_db=db_path, out_dir=out_dir, db_idx=db_idx)
@@ -3140,8 +3303,12 @@ def run_compute_prelude_timeline(
     all_anchor_loop_cost_rows: List[Dict[str, object]] = []
 
     for selection in selections:
-        device_events, stream_stats = _load_device_events(selection.db_path, selection.device_id)
-        communication_op_events = _load_communication_op_events(selection.db_path, selection.device_id)
+        if is_hygon_profile(selection.db_path):
+            device_events, stream_stats = load_hygon_device_events(selection.db_path, selection.device_id)
+            communication_op_events = []
+        else:
+            device_events, stream_stats = _load_device_events(selection.db_path, selection.device_id)
+            communication_op_events = _load_communication_op_events(selection.db_path, selection.device_id)
         collective_anchor_source = "communication_op" if communication_op_events else "task_coalesced"
         main_events, symbol_rows = _build_main_events(
             device_events=device_events,
@@ -3763,6 +3930,8 @@ def _resolve_msprof_raw_dir(run_dir: Path) -> Path:
             discover_msprof_dbs(candidate)
         except FileNotFoundError as exc:
             last_error = exc
+            if has_hygon_profile_data(candidate):
+                return candidate
             continue
         return candidate
     if last_error is not None:
