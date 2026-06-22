@@ -45,6 +45,7 @@ class ComputePreludeConfig:
     summary_top_loops: int = 12
     device_ids: Tuple[int, ...] | None = None
     output_mode: str = "bundle"
+    anchor_grammar_input: str = "raw"
 
 
 LOOP_PROMOTION_METHODS = [
@@ -509,6 +510,8 @@ def _classify_kernel_role(
     for override in overrides:
         if _match_kernel_role_override(item, override):
             return override.role, "override"
+    if _normalize_task_key(item.event.task_type) == "HIP_KERNEL_AUX":
+        return "aux", "aux_hygon_lifted"
     if item.role == "collective":
         return "anchor", "anchor_collective"
     if _is_transparent_main_event(item):
@@ -1175,6 +1178,7 @@ def _fold_adjacent_repeated_blocks(
     max_macro_defs: int,
     min_block_len: int = 2,
     min_repeat_count: int = 2,
+    max_block_len: int = 64,
 ) -> Tuple[List[GrammarToken], int]:
     out = list(seq_tokens)
 
@@ -1185,7 +1189,7 @@ def _fold_adjacent_repeated_blocks(
         best: Tuple[int, int, int, int] | None = None
         n = len(out)
         for start in range(n):
-            max_block = (n - start) // min_repeat_count
+            max_block = min(max_block_len, (n - start) // min_repeat_count)
             for block_len in range(min_block_len, max_block + 1):
                 block = [tok.name for tok in out[start : start + block_len]]
                 repeat = 1
@@ -1350,6 +1354,98 @@ def _discover_pair_grammar_macros(
 
     final_tokens = [t.name for t in seq_tokens]
     return final_tokens, defs, []
+
+
+def _compressed_anchor_run_inputs(
+    *,
+    anchor_step_rows: Sequence[Dict[str, object]],
+    anchor_aux_slot_rows: Sequence[Dict[str, object]],
+) -> Tuple[List[str], List[Tuple[int, int]], List[Dict[str, object]], List[Dict[str, object]]]:
+    if not anchor_step_rows:
+        return [], [], [], []
+
+    ranges: List[Tuple[int, int]] = []
+    start = 0
+    prev_symbol = str(anchor_step_rows[0].get("symbol", ""))
+    for idx, row in enumerate(anchor_step_rows[1:], start=1):
+        symbol = str(row.get("symbol", ""))
+        if symbol == prev_symbol:
+            continue
+        ranges.append((start, idx))
+        start = idx
+        prev_symbol = symbol
+    ranges.append((start, len(anchor_step_rows)))
+
+    def sum_field(rows: Sequence[Dict[str, object]], field: str) -> float:
+        return sum(float(row.get(field, 0.0) or 0.0) for row in rows)
+
+    numeric_aux_fields = (
+        "aux_event_count",
+        "aux_compute_count",
+        "aux_data_move_count",
+        "aux_dur_us",
+        "aux_memcpy_count",
+        "aux_ai_core_count",
+        "aux_model_execute_count",
+        "aux_copy_count",
+        "aux_fill_count",
+        "aux_cast_count",
+        "aux_set_value_count",
+        "aux_shape_count",
+    )
+    compressed_steps: List[Dict[str, object]] = []
+    compressed_aux: List[Dict[str, object]] = []
+    symbol_seq: List[str] = []
+    windows: List[Tuple[int, int]] = []
+    for run_idx, (left, right) in enumerate(ranges, start=1):
+        rows = list(anchor_step_rows[left:right])
+        aux_rows = list(anchor_aux_slot_rows[left:right])
+        first = dict(rows[0])
+        last = rows[-1]
+        start_ns = int(first.get("start_ns", 0) or 0)
+        end_ns = int(last.get("end_ns", 0) or 0)
+        trace_anchor_count = right - left
+        first.update(
+            {
+                "step_idx": run_idx,
+                "start_ns": start_ns,
+                "end_ns": end_ns,
+                "dur_us": round(sum_field(rows, "dur_us"), 3),
+                "prelude_gap_us": round(sum_field(rows, "prelude_gap_us"), 3),
+                "prelude_active_union_us": round(sum_field(rows, "prelude_active_union_us"), 3),
+                "prelude_idle_us": round(sum_field(rows, "prelude_idle_us"), 3),
+                "prelude_wait_us": round(sum_field(rows, "prelude_wait_us"), 3),
+                "prelude_comm_us": round(sum_field(rows, "prelude_comm_us"), 3),
+                "prelude_exec_aux_us": round(sum_field(rows, "prelude_exec_aux_us"), 3),
+                "prelude_memcpy_us": round(sum_field(rows, "prelude_memcpy_us"), 3),
+                "prelude_event_count": int(sum_field(rows, "prelude_event_count")),
+                "trace_anchor_count": trace_anchor_count,
+                "run_start_anchor_idx": left + 1,
+                "run_end_anchor_idx": right,
+            }
+        )
+        compressed_steps.append(first)
+
+        aux = dict(aux_rows[0]) if aux_rows else {}
+        aux.update(
+            {
+                "anchor_idx": run_idx,
+                "step_idx": run_idx,
+                "anchor_start_ns": start_ns,
+                "anchor_dur_us": first["dur_us"],
+                "trace_anchor_count": trace_anchor_count,
+                "run_start_anchor_idx": left + 1,
+                "run_end_anchor_idx": right,
+            }
+        )
+        for field in numeric_aux_fields:
+            aux[field] = round(sum_field(aux_rows, field), 3)
+        compressed_aux.append(aux)
+
+        symbol_seq.append(str(first.get("symbol", "")))
+        windows.append((start_ns, end_ns))
+
+    return symbol_seq, windows, compressed_steps, compressed_aux
 
 
 def _expand_macro_tokens(
@@ -1758,6 +1854,7 @@ def _summarize_anchor_span(
 ) -> Dict[str, object]:
     rows = list(step_rows[start_idx:end_idx])
     aux_rows = list(aux_slot_rows[start_idx:end_idx])
+    anchor_count = sum(float(row.get("trace_anchor_count", 1.0) or 1.0) for row in rows)
     collective_hint: Dict[str, float] = {}
     prelude_top: Dict[str, float] = {}
     for row in rows:
@@ -1768,7 +1865,7 @@ def _summarize_anchor_span(
     return {
         "anchor_start_idx": start_idx + 1 if rows else "",
         "anchor_end_idx": end_idx if rows else "",
-        "anchor_count": len(rows),
+        "anchor_count": int(anchor_count),
         "compute_count": sum(1 for row in rows if row.get("role") == "compute"),
         "collective_count": sum(1 for row in rows if row.get("role") == "collective"),
         "data_move_count": sum(1 for row in rows if row.get("role") == "data_move"),
@@ -1839,6 +1936,7 @@ def _summarize_node_cost_occurrence(
 ) -> Dict[str, float]:
     rows = list(step_rows[start_idx:end_idx])
     aux_rows = list(aux_slot_rows[start_idx:end_idx])
+    anchor_count = sum(float(row.get("trace_anchor_count", 1.0) or 1.0) for row in rows)
     self_compute_us = sum(float(row.get("dur_us", 0.0)) for row in rows if row.get("role") == "compute")
     self_comm_us = sum(float(row.get("dur_us", 0.0)) for row in rows if row.get("role") == "collective")
     prelude_exec_aux_us = sum(float(row.get("prelude_exec_aux_us", 0.0)) for row in rows)
@@ -1849,7 +1947,7 @@ def _summarize_node_cost_occurrence(
     idle_us = prelude_idle_us
     total_us = compute_us + comm_us + idle_us
     return {
-        "anchor_count": float(len(rows)),
+        "anchor_count": float(anchor_count),
         "compute_us": compute_us,
         "comm_us": comm_us,
         "idle_us": idle_us,
@@ -2029,6 +2127,7 @@ def _augment_tree_node_cost_metrics(
                     "anchor_start_idx": start_idx + 1 if end_idx > start_idx else "",
                     "anchor_end_idx": end_idx if end_idx > start_idx else "",
                     "anchor_count": max(0, end_idx - start_idx),
+                    "trace_anchor_count": int(summary.get("anchor_count", 0.0)),
                 }
             )
         denom = float(occurrence_count or 1)
@@ -3273,6 +3372,8 @@ def run_compute_prelude_timeline(
     cfg = config or ComputePreludeConfig()
     if cfg.output_mode not in {"bundle", "full"}:
         raise ValueError(f"unsupported output_mode: {cfg.output_mode}")
+    if cfg.anchor_grammar_input not in {"raw", "run-compressed"}:
+        raise ValueError(f"unsupported anchor_grammar_input: {cfg.anchor_grammar_input}")
     write_full_outputs = cfg.output_mode == "full"
     started = time.time()
     raw_dir = _resolve_msprof_raw_dir(run_dir)
@@ -3372,8 +3473,21 @@ def run_compute_prelude_timeline(
             semantic_roles=semantic_roles,
             step_rows=step_rows,
         )
-        anchor_symbol_seq = [item.symbol for item in anchor_events]
-        anchor_atom_windows = [(item.event.start_ns, item.event.end_ns) for item in anchor_events]
+        anchor_grammar_step_rows = anchor_step_rows
+        anchor_grammar_aux_slot_rows = anchor_aux_slot_rows
+        if cfg.anchor_grammar_input == "run-compressed":
+            (
+                anchor_symbol_seq,
+                anchor_atom_windows,
+                anchor_grammar_step_rows,
+                anchor_grammar_aux_slot_rows,
+            ) = _compressed_anchor_run_inputs(
+                anchor_step_rows=anchor_step_rows,
+                anchor_aux_slot_rows=anchor_aux_slot_rows,
+            )
+        else:
+            anchor_symbol_seq = [item.symbol for item in anchor_events]
+            anchor_atom_windows = [(item.event.start_ns, item.event.end_ns) for item in anchor_events]
         anchor_final_expr_tokens, anchor_l1_defs, anchor_l2_defs = _discover_pair_grammar_macros(
             anchor_symbol_seq,
             anchor_atom_windows,
@@ -3385,12 +3499,12 @@ def run_compute_prelude_timeline(
         anchor_macro_edge_rows = _macro_edge_rows(anchor_macro_defs)
         anchor_macro_metric_rows = _macro_metric_rows(
             macro_defs=anchor_macro_defs,
-            step_rows=anchor_step_rows,
+            step_rows=anchor_grammar_step_rows,
         )
         anchor_macro_aux_metric_rows = _anchor_macro_aux_metric_rows(
             macro_defs=anchor_macro_defs,
-            anchor_step_rows=anchor_step_rows,
-            aux_slot_rows=anchor_aux_slot_rows,
+            anchor_step_rows=anchor_grammar_step_rows,
+            aux_slot_rows=anchor_grammar_aux_slot_rows,
         )
         (
             anchor_view_final_expr_tokens,
@@ -3453,16 +3567,16 @@ def run_compute_prelude_timeline(
             anchor_tree_payload = _inline_tree_payload_macro_refs(anchor_tree_payload)
         anchor_node_metric_rows, anchor_node_link_rows = _augment_tree_node_cost_metrics(
             anchor_tree_payload,
-            step_rows=anchor_step_rows,
-            aux_slot_rows=anchor_aux_slot_rows,
+            step_rows=anchor_grammar_step_rows,
+            aux_slot_rows=anchor_grammar_aux_slot_rows,
             macro_def_tokens=anchor_tree_macro_def_tokens,
         )
         if cfg.readable_macro_mode == "inline":
             anchor_tree_readable = _render_tree_payload_readable(anchor_tree_payload)
         anchor_root_item_metric_rows = _augment_root_item_metrics(
             anchor_tree_payload,
-            step_rows=anchor_step_rows,
-            aux_slot_rows=anchor_aux_slot_rows,
+            step_rows=anchor_grammar_step_rows,
+            aux_slot_rows=anchor_grammar_aux_slot_rows,
             macro_def_tokens=anchor_tree_macro_def_tokens,
         )
 
@@ -3859,6 +3973,7 @@ def run_compute_prelude_timeline(
         "collective_anchor_source": "communication_op_if_available",
         "macro_discovery": "pair_grammar",
         "readable_macro_mode": cfg.readable_macro_mode,
+        "anchor_grammar_input": cfg.anchor_grammar_input,
         "loop_promotion_methods": LOOP_PROMOTION_METHODS,
         "semantic_projection": "anchor_compute_collective_only",
         "auxiliary_attribution": "attach_aux_events_to_following_anchor_prelude_slot",
@@ -3982,6 +4097,12 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--anchor-grammar-input",
+        choices=("raw", "run-compressed"),
+        default=ComputePreludeConfig.anchor_grammar_input,
+        help="Use raw anchor events or adjacent same-label run tokens for anchor grammar discovery.",
+    )
+    parser.add_argument(
         "--kernel-role-file",
         type=Path,
         default=None,
@@ -4032,6 +4153,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         collective_episode_gap_us=args.collective_episode_gap_us,
         min_main_event_us=args.min_main_event_us,
         readable_macro_mode=args.readable_macro_mode,
+        anchor_grammar_input=args.anchor_grammar_input,
         kernel_role_file=args.kernel_role_file,
         summary_top_loops=args.summary_top_loops,
         device_ids=_parse_device_ids(args.devices),

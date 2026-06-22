@@ -100,6 +100,9 @@ def _analysis_config_from_args(args: argparse.Namespace) -> ComputePreludeConfig
         readable_macro_mode=args.readable_macro_mode
         if args.readable_macro_mode is not None
         else _str_option(cfg, "analysis", "readable_macro_mode", ComputePreludeConfig.readable_macro_mode),
+        anchor_grammar_input=args.anchor_grammar_input
+        if args.anchor_grammar_input is not None
+        else _str_option(cfg, "analysis", "anchor_grammar_input", ComputePreludeConfig.anchor_grammar_input),
         kernel_role_file=args.kernel_role_file,
         summary_top_loops=args.summary_top_loops
         if args.summary_top_loops is not None
@@ -186,6 +189,12 @@ def add_analysis_options(parser: argparse.ArgumentParser) -> None:
         "--readable-macro-mode",
         choices=("inline", "auto"),
         default=None,
+    )
+    parser.add_argument(
+        "--anchor-grammar-input",
+        choices=("raw", "run-compressed"),
+        default=None,
+        help="Use raw anchor events or adjacent same-label run tokens for anchor grammar discovery.",
     )
     parser.add_argument("--kernel-role-file", type=Path, default=None)
     parser.add_argument("--summary-top-loops", type=int, default=None)

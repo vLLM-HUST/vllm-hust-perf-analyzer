@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import re
 import sqlite3
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -171,7 +172,8 @@ def _load_hipops_events(conn: sqlite3.Connection, table: str, str_map: Dict[int,
     )
     for start_ns, end_ns, dev_id, queue_id, name, index, _dur_ns in rows:
         name_id = _as_int(name, -1)
-        label = _canonical_label(str_map.get(name_id, f"hip_kernel_{name_id}"), category="exec")
+        raw_label = str_map.get(name_id, f"hip_kernel_{name_id}")
+        lifted = _lift_hygon_kernel_label(raw_label)
         task_id = _as_int(index, -1)
         events.append(
             StreamEvent(
@@ -182,14 +184,121 @@ def _load_hipops_events(conn: sqlite3.Connection, table: str, str_map: Dict[int,
                 task_id=task_id,
                 global_task_id=task_id,
                 connection_id=-1,
-                task_type="HIP_KERNEL",
-                label=label,
+                task_type="HIP_KERNEL" if lifted["role"] == "anchor" else "HIP_KERNEL_AUX",
+                label=_canonical_label(str(lifted["label"]), category="exec"),
                 category="exec",
                 source_table=table,
-                source_key=f"_Index={task_id};BeginNs={start_ns}",
+                source_key=(
+                    f"_Index={task_id};BeginNs={start_ns};Name={name_id};"
+                    f"hygon_role={lifted['role']};hygon_detail={lifted['detail']};raw_label={raw_label}"
+                ),
             )
         )
     return events
+
+
+def _lift_hygon_kernel_label(raw_label: str) -> Dict[str, str]:
+    """Project low-level Hygon HIP kernel symbols to TraceLoom semantic labels.
+
+    Hygon hipprof records GPU kernel symbols rather than framework-level task
+    names. The labels here are intentionally coarse: they become the symbol key
+    used by grammar discovery, while the raw kernel name remains in source_key
+    for drill-down.
+    """
+
+    label = raw_label or ""
+    low = label.lower()
+    if "cijk_b_postgsu" in low:
+        return _lifted_aux("GemmEpilogue", "TensilePostGSU")
+    if "cijk_alik_bljk_bbh" in low:
+        match = re.search(r"_mt(\d+x\d+x\d+)", low)
+        return _lifted_anchor("MatMul", f"TensileGEMM[{match.group(1)}]" if match else "TensileGEMM")
+
+    if "flash_fwd_kernel" in low:
+        return _lifted_anchor("FlashAttention", "flash_fwd")
+    if "kernel_unified_attention" in low:
+        return _lifted_anchor("Attention", "unified_attention")
+    if "reshape_and_cache_kernel_flash" in low:
+        return _lifted_anchor("KVCacheUpdate", "reshape_and_cache_flash")
+    if "rotary_kernel" in low or "_triton_mrope_forward" in low:
+        return _lifted_anchor("Rope", "rotary/mrope")
+
+    if (
+        "layer_norm_fwd_kernel" in low
+        or "l2norm_fwd_kernel2" in low
+        or "vectorized_layer_norm_kernel" in low
+    ):
+        return _lifted_anchor("Norm", "layer/l2 norm")
+    if "triton_red_fused__to_copy_add_mean_mul_pow_rsqrt_0" in low:
+        return _lifted_anchor("RmsNorm", "triton fused rmsnorm")
+
+    if "act_and_mul_kernel" in low or "gelucudakernelimpl" in low:
+        return _lifted_anchor("Activation", "silu/gelu gate")
+
+    if "_causal_conv1d_fwd_kernel" in low or "_causal_conv1d_update_kernel" in low:
+        return _lifted_anchor("MambaConv", "causal_conv1d")
+    if "chunk_scaled_dot_kkt_fwd_kernel" in low:
+        return _lifted_anchor("MambaChunk", "scaled_dot_kkt")
+    if "chunk_gated_delta_rule_fwd_kernel" in low or "fused_recurrent_gated_delta_rule" in low:
+        return _lifted_anchor("MambaDeltaRule", "gated_delta_rule")
+    if "chunk_fwd_kernel_o" in low:
+        return _lifted_anchor("MambaChunkOut", "chunk_fwd_o")
+    if "chunk_local_cumsum_scalar_kernel" in low:
+        return _lifted_anchor("MambaScan", "local_cumsum")
+    if "merge_16x16_to_64x64_inverse_kernel" in low:
+        return _lifted_anchor("MambaLayout", "merge_inverse")
+    if "recompute_w_u_fwd_kernel" in low:
+        return _lifted_anchor("MambaRecompute", "recompute_w_u")
+    if "reduce_segments" in low:
+        return _lifted_anchor("MambaSegmentReduce", "reduce_segments")
+    if "fused_gdn_gating_kernel" in low:
+        return _lifted_anchor("MambaGate", "fused_gdn_gating")
+
+    aux_terms = [
+        ("KVCacheInit", ("_zero_kv_blocks_kernel",)),
+        ("Fill", ("fillfunctor", "fill_reverse_indices")),
+        ("Copy", ("direct_copy_kernel", "copy_kernel_cuda", "catarraybatchedcopy", "tensorcopy")),
+        ("Index", ("index_elementwise_kernel", "indexselectsmallindex", "vectorized_gather_kernel", "scatter_gather")),
+        ("Mask", ("masked_fill_kernel", "where_kernel_impl", "compare_scalar_kernel", "bitwise_not_kernel")),
+        ("Random", ("distribution_elementwise_grid_stride_kernel", "distribution_nullary_kernel")),
+        (
+            "ScanHelper",
+            (
+                "rocprim::detail::single_scan_kernel",
+                "rocprim::detail::lookback_scan_kernel",
+                "rocprim::detail::init_lookback_scan_state_kernel",
+            ),
+        ),
+        (
+            "Pointwise",
+            (
+                "binaryfunctor",
+                "aunaryfunctor",
+                "bunaryfunctor",
+                "cudafunctor",
+                "divfunctor",
+                "mulfunctor",
+                "pow_tensor_tensor_kernel",
+                "reciprocal_kernel_cuda",
+                "sigmoid_kernel_cuda",
+            ),
+        ),
+        ("Range", ("arange_cuda_out", "linspace_cuda_out", "launch_clamp_scalar")),
+        ("ReductionHelper", ("argmaxops", "sum_functor", "reduceop")),
+    ]
+    for detail, terms in aux_terms:
+        if any(term in low for term in terms):
+            return _lifted_aux(detail, detail)
+
+    return _lifted_aux("Unknown", "unclassified")
+
+
+def _lifted_anchor(label: str, detail: str) -> Dict[str, str]:
+    return {"role": "anchor", "label": label, "detail": detail}
+
+
+def _lifted_aux(label: str, detail: str) -> Dict[str, str]:
+    return {"role": "aux", "label": f"HygonAux:{label}", "detail": detail}
 
 
 def _load_hipcopy_events(conn: sqlite3.Connection, table: str) -> List[StreamEvent]:
