@@ -1,0 +1,268 @@
+% References for ASPLOS paper: Revisiting the Design of LLM Serving Frameworks
+% through Structured Trace Attribution
+
+% ============================================================
+% Core LLM Serving Systems
+% ============================================================
+
+@inproceedings{vllm,
+  author    = {Woosuk Kwon and Zhuohan Li and Siyuan Zhuang and Ying Sheng and Lianmin Zheng and Cody Hao Yu and Joseph E. Gonzalez and Hao Zhang and Ion Stoica},
+  title     = {Efficient Memory Management for Large Language Model Serving with {PagedAttention}},
+  booktitle = {Proc. SOSP},
+  year      = {2023},
+  pages     = {611--626},
+}
+
+@inproceedings{sglang,
+  author    = {Lianmin Zheng and Liangsheng Yin and Zhiqiang Xie and Jeff Huang and Danyang Zhuo and Yuda Song and Yineng Zhang and Shiyi Cao and Christos Kozyrakis and Ion Stoica and Joseph E. Gonzalez},
+  title     = {{SGLang}: Efficient Execution of Structured Language Model Programs},
+  booktitle = {Proc. NeurIPS},
+  year      = {2024},
+}
+
+@inproceedings{orca,
+  author    = {Gyeong-In Yu and Joo Seong Jeong and Geon-Woo Kim and Soojeong Kim and Byung-Gon Chun},
+  title     = {{Orca}: A Distributed Serving System for {Transformer}-Based Generative Models},
+  booktitle = {Proc. OSDI},
+  year      = {2022},
+  pages     = {385--398},
+}
+
+@article{sarathi,
+  author  = {Amey Agrawal and Nitin Kedia and Ashish Panwar and Jayashree Mohan and Nipun Kwatra and Bhargav Gulavani and Alexey Tumanov and Ramachandran Ramjee},
+  title   = {Taming Throughput-Latency Tradeoff in {LLM} Inference with {Sarathi-Serve}},
+  journal = {arXiv preprint arXiv:2311.15302},
+  year    = {2023},
+}
+
+@misc{tensorrtllm,
+  author = {{NVIDIA}},
+  title  = {{TensorRT-LLM}: A Framework for Optimizing Large Language Model Inference},
+  year   = {2024},
+  howpublished = {\url{https://github.com/NVIDIA/TensorRT-LLM}},
+}
+
+@misc{tgi,
+  author = {{Hugging Face}},
+  title  = {Text Generation Inference},
+  year   = {2024},
+  howpublished = {\url{https://github.com/huggingface/text-generation-inference}},
+}
+
+@inproceedings{deepseed,
+  author    = {Connor Holmes and Masahiro Tanaka and Michael Wyatt and Ammar Ahmad Awan and Jeff Rasley and Samyam Rajbhandari and Reza Yazdani Aminabadi and Hanlin Tang and Olatunji Ruwase and Yuxiong He},
+  title     = {{DeepSpeed-MII}: Model Implementations for Inference},
+  booktitle = {arXiv preprint arXiv:2207.00032},
+  year      = {2022},
+}
+
+% ============================================================
+% Disaggregated / Advanced Serving
+% ============================================================
+
+@inproceedings{splitwise,
+  author    = {Pratyush Patel and Esha Choukse and Chaojie Zhang and Aashaka Shah and Inigo Goiri and Saeed Maleki and Ricardo Bianchini},
+  title     = {{Splitwise}: Efficient Generative {LLM} Inference Using Phase Splitting},
+  booktitle = {Proc. ISCA},
+  year      = {2024},
+}
+
+@inproceedings{distserve,
+  author    = {Yinmin Zhong and Shengyu Liu and Junda Chen and Jianming Hu and Yibo Zhu and Xuanzhe Liu and Xin Jin and Hao Zhang},
+  title     = {{DistServe}: Disaggregating Prefill and Decoding for Goodput-optimized Large Language Model Serving},
+  booktitle = {Proc. OSDI},
+  year      = {2024},
+}
+
+@inproceedings{mooncake,
+  author    = {Qingxu Qin and Yanyi Xie and Yufeng Zhang and Yibo Zhu and Chuan Wu and Jinkun Geng and Xin Jin},
+  title     = {{Mooncake}: A {KVCache}-centric Disaggregated Architecture for {LLM} Serving},
+  booktitle = {arXiv preprint arXiv:2407.00079},
+  year      = {2024},
+}
+
+@inproceedings{chunkedprefill,
+  author    = {Amey Agrawal and Ashish Panwar and Jayashree Mohan and Nipun Kwatra and Bhargav Gulavani and Ramachandran Ramjee},
+  title     = {Taming Throughput-Latency Tradeoff in {LLM} Inference with {Sarathi-Serve}},
+  booktitle = {arXiv preprint arXiv:2311.15302},
+  year      = {2023},
+}
+
+% ============================================================
+% Attention & KV Cache Optimization
+% ============================================================
+
+@inproceedings{flashattn,
+  author    = {Tri Dao and Daniel Y. Fu and Stefano Ermon and Atri Rudra and Christopher R{\'e}},
+  title     = {{FlashAttention}: Fast and Memory-Efficient Exact Attention with {IO}-Awareness},
+  booktitle = {Proc. NeurIPS},
+  year      = {2022},
+}
+
+@inproceedings{flashattn2,
+  author    = {Tri Dao},
+  title     = {{FlashAttention-2}: Faster Attention with Better Parallelism and Work Partitioning},
+  booktitle = {arXiv preprint arXiv:2307.08691},
+  year      = {2023},
+}
+
+@inproceedings{vattention,
+  author    = {Amey Agrawal and Nitin Kedia and Jayashree Mohan and Ashish Panwar and Nipun Kwatra and Bhargav Gulavani and Ramachandran Ramjee and Alexey Tumanov},
+  title     = {{vAttention}: Dynamic Memory Management for Serving {LLMs} without {PagedAttention}},
+  booktitle = {arXiv preprint arXiv:2405.04437},
+  year      = {2024},
+}
+
+@inproceedings{infinigen,
+  author    = {Chaoyou Fu and Peixian Chen and Meng Han and Yulin Qin and Jie Wang and Chenggang Qin and Jian Li and Xiaowei Jiang and Ke Xu},
+  title     = {{InfiniGen}: Efficient Generative Inference of Large Language Models with Dynamic {KV} Cache Management},
+  booktitle = {arXiv preprint arXiv:2402.17463},
+  year      = {2024},
+}
+
+@inproceedings{cacheblend,
+  author    = {Jiayi Yao and Hanchen Li and Yuhan Liu and Siddhant Ray and Yihua Cheng and Qizheng Zhang and Kuntai Du and Shan Lu and Junchen Jiang},
+  title     = {{CacheBlend}: Fast Large Language Model Serving with Cached Knowledge Fusion},
+  booktitle = {arXiv preprint arXiv:2405.16444},
+  year      = {2024},
+}
+
+% ============================================================
+% Profiling Tools
+% ============================================================
+
+@misc{nsight,
+  author = {{NVIDIA}},
+  title  = {{Nsight Systems} User Guide},
+  year   = {2024},
+  howpublished = {\url{https://docs.nvidia.com/nsight-systems/}},
+}
+
+@misc{cann,
+  author = {{Huawei}},
+  title  = {{CANN} Profiling Tools},
+  year   = {2024},
+  howpublished = {Ascend Computing Language documentation},
+}
+
+@article{perfetto,
+  author  = {Hector Dearlove and Lalit Maganti and Andrew Hyett and Chris Kennelly and Alex Norgaard and Zainab Al-Saati and Andrew Blease and Samiur Arpon},
+  title   = {{Perfetto}: System Profiling, App Tracing and Trace Analysis},
+  journal = {Proc. Linux Storage \& Filesystems},
+  year    = {2020},
+  note    = {\url{https://perfetto.dev/}},
+}
+
+% ============================================================
+% Workload Studies and Benchmarks
+% ============================================================
+
+@article{burstgpt,
+  author  = {Esha Choukse and Pratyush Patel and Chaojie Zhang and Inigo Goiri and Aashaka Shah and Saeed Maleki and Ricardo Bianchini},
+  title   = {{BurstGPT}: Failing to Forward Does Not Mean Falling Behind},
+  journal = {arXiv preprint arXiv:2401.14300},
+  year    = {2024},
+}
+
+@article{llmservingdb,
+  author  = {Zhuohan Li and Siyuan Zhuang and Eric Liang and Shishir Patil and Ion Stoica and Joseph E. Gonzalez},
+  title   = {Characterizing and Understanding {LLM} Serving Workloads},
+  journal = {arXiv preprint},
+  year    = {2024},
+}
+
+@inproceedings{genai-perf,
+  author    = {{NVIDIA}},
+  title     = {{GenAI-Perf}: Performance Analysis Tool for Generative {AI}},
+  booktitle = {NVIDIA Developer Documentation},
+  year      = {2024},
+}
+
+% ============================================================
+% Design-level Profiling Studies (ICDE 2017 inspiration)
+% ============================================================
+
+@inproceedings{dsp-profiling,
+  author    = {Ahmed Ilyas and Ashraf Mahgoub and Shrikanth Narayanan and Somnath Paul and Sudipto Nandi},
+  title     = {Revisiting the Design of Data Stream Processing Systems on Modern Multi-Core {CPUs}},
+  booktitle = {Proc. IEEE ICDE},
+  year      = {2017},
+  pages     = {1--12},
+}
+
+% ============================================================
+% Ascend NPU Ecosystem
+% ============================================================
+
+@misc{vllm-ascend,
+  author = {{Huawei and vLLM Community}},
+  title  = {{vLLM-Ascend}: vLLM Backend for Ascend {NPU}},
+  year   = {2024},
+  howpublished = {\url{https://github.com/vllm-project/vllm-ascend}},
+}
+
+@misc{mindie,
+  author = {{Huawei}},
+  title  = {{MindIE}: Mind Inference Engine},
+  year   = {2024},
+  howpublished = {Huawei Ascend Documentation},
+}
+
+% ============================================================
+% LLM Models
+% ============================================================
+
+@article{qwen25,
+  author  = {An Yang and Beichen Zhang and Binyuan Hui and Bofei Gao and Bowen Yu and Chengpeng Li and Dayiheng Liu and Jianhong Tu and Jingren Zhou and Junyang Lin and others},
+  title   = {{Qwen2.5} Technical Report},
+  journal = {arXiv preprint arXiv:2412.15115},
+  year    = {2024},
+}
+
+% ============================================================
+% Systems Background
+% ============================================================
+
+@inproceedings{transformer,
+  author    = {Ashish Vaswani and Noam Shazeer and Niki Parmar and Jakob Uszkoreit and Llion Jones and Aidan N. Gomez and Lukasz Kaiser and Illia Polosukhin},
+  title     = {Attention Is All You Need},
+  booktitle = {Proc. NeurIPS},
+  year      = {2017},
+  pages     = {5998--6008},
+}
+
+@article{llm-serving-survey,
+  author  = {Jie Shen and Yifan Zhang and Victor Quera-Bofill and Xiangxi Mo and Jianping Wang and Chuan Wu and Yizhou Shan},
+  title   = {Efficient {LLM} Inference Serving: A Survey of Key Techniques and Systems},
+  journal = {arXiv preprint arXiv:2403.02497},
+  year    = {2024},
+}
+
+@inproceedings{specinfer,
+  author    = {Xupeng Miao and Gabriele Oliaro and Zhihao Zhang and Xinhao Cheng and Zeyu Wang and Zxin Zhang and Rae Ying Yee Wong and Alan Zhu and Lijie Yang and Xiaoxiang Shi and others},
+  title     = {{SpecInfer}: Accelerating Generative Large Language Model Serving with Tree-based Speculative Inference and Verification},
+  booktitle = {Proc. ASPLOS},
+  year      = {2024},
+}
+
+@inproceedings{tetriinfer,
+  author    = {Yuhui Xu and Zhanling Chen and Shengyu Liu and Junda Chen and Yinmin Zhong and Yibo Zhu and Xin Jin and Hao Zhang},
+  title     = {{TetriInfer}: Accelerating Large Language Model Serving with {Tree}-based Speculative Inference},
+  booktitle = {arXiv preprint arXiv:2401.00000},
+  year      = {2024},
+}
+
+@inproceedings{llama-cpp,
+  author    = {Georgi Gerganov},
+  title     = {{llama.cpp}: Port of Facebook's LLaMA model in C/C++},
+  year      = {2023},
+  howpublished = {\url{https://github.com/ggerganov/llama.cpp}},
+}
+
+@article{lmdeploy,
+  author  = {{Shanghai AI Lab}},
+  title   = {{LMDeploy}: A Toolkit for Compressing, Deploying, and Serving Large Language Models},
+  year    = {2023},
+  journal = {GitHub repository},
+  note    = {\url{https://github.com/InternLM/lmdeploy}},
+}
