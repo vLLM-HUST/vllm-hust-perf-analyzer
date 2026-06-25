@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
+from .collective_tag import format_collective_tag_summary, run_collective_tag
 from .compute_prelude_timeline import (
     ComputePreludeConfig,
     _format_console_summary,
@@ -158,6 +159,24 @@ def cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_collective_tag(args: argparse.Namespace) -> int:
+    try:
+        meta = run_collective_tag(
+            analysis_dir=args.analysis_dir.resolve(),
+            run_name=args.run_name,
+            expected_world_size=args.expected_world_size,
+        )
+    except (FileNotFoundError, ValueError, sqlite3.Error) as exc:
+        raise SystemExit(str(exc)) from exc
+    if args.json:
+        import json
+
+        print(json.dumps(meta, ensure_ascii=False, indent=2))
+    else:
+        print(format_collective_tag_summary(meta))
+    return 0
+
+
 def add_analysis_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--config", type=Path, default=None, help="Optional profile config; reads [analysis] defaults only.")
     parser.add_argument("--top-devices-global", type=int, default=None)
@@ -243,6 +262,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Attach another SQLite DB for cross-rank queries. Can be passed multiple times.",
     )
     report.set_defaults(func=cmd_report)
+
+    collective_tag = subparsers.add_parser(
+        "collective-tag",
+        help="Tag cross-device collective candidates in an existing TraceLoom analysis bundle.",
+    )
+    collective_tag.add_argument(
+        "analysis_dir",
+        type=Path,
+        help="TraceLoom analysis bundle containing dbNN.traceloom_augmented.db, or a raw dir with traceloom/.",
+    )
+    collective_tag.add_argument(
+        "--run-name",
+        default=None,
+        help="Prefix for generated candidate_collective_key values. Defaults to the profile/run directory name.",
+    )
+    collective_tag.add_argument(
+        "--expected-world-size",
+        type=int,
+        default=None,
+        help="Expected number of device members per candidate. Defaults to analyzed device count.",
+    )
+    collective_tag.add_argument("--json", action="store_true")
+    collective_tag.set_defaults(func=cmd_collective_tag)
 
     return parser
 

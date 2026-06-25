@@ -114,6 +114,8 @@ The public CLI exposes three workflows:
   historical command name.
 - `traceloom report <augmented.db> --sql query.sql`: run SQL reports against a
   TraceLoom augmented database.
+- `traceloom collective-tag <analysis_dir>`: add candidate cross-device
+  collective keys to existing augmented DBs and write `global_collectives.db`.
 
 TraceLoom does not launch `msprof` or user workloads.
 

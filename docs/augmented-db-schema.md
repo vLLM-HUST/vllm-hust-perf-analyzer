@@ -109,6 +109,34 @@ Best-effort many-to-one mapping from each anchor to its most specific visible
 node. This is a convenience index for highlighting; it is not the authoritative
 statistics relation. Use `traceloom_viz_node_anchor` for node cost queries.
 
+### `traceloom_collective_global_link`
+
+Optional cross-device collective tags written by:
+
+```bash
+traceloom collective-tag <analysis_dir>
+```
+
+This table is local to each sidecar DB. It maps a local collective anchor to a
+candidate run-level collective key. The key is structural evidence, not a final
+proof that the members are the same hardware operation.
+
+Important columns:
+
+- `candidate_collective_key`: run-level candidate key built from loop pair,
+  occurrence, collective type, and order inside that occurrence.
+- `pair_id`: structural loop-pair identifier shared by matching repeat nodes
+  across devices.
+- `local_node_id`, `occurrence_idx`, `idx_in_occurrence`: local structural
+  position used to build the key.
+- `op_type`: normalized collective type such as `allReduce` or `allGather`.
+- `anchor_id`, `event_id`, `source_table`, `source_key`: evidence links back to
+  TraceLoom and raw profiler rows.
+- `connection_id`, `op_id`: best-effort `COMMUNICATION_OP` identifiers when
+  they can be recovered from the raw sidecar DB.
+- `validation_status`, `confidence`: candidate quality copied from the global
+  summary.
+
 ## Convenience Views
 
 TraceLoom creates these views for common report SQL:
@@ -163,6 +191,30 @@ join traceloom_event e on e.event_id = a.event_id
 where na.local_node_id = 'N027'
 order by na.occurrence_idx, na.anchor_order;
 ```
+
+## Cross-Device Collective Summary
+
+`traceloom collective-tag` also writes a run-level database:
+
+```text
+<analysis_dir>/global_collectives.db
+```
+
+The primary table is `traceloom_global_collective_summary`.
+
+Important columns:
+
+- `candidate_collective_key`.
+- `pair_id`, `occurrence_idx`, `op_type`, `idx_in_occurrence`.
+- `member_count` and `expected_world_size`.
+- `start_skew_us`: latest member start minus earliest member start.
+- `duration_skew_us`: slowest member duration minus fastest member duration.
+- `connection_ids`, `op_ids`, `members`, `missing_members`.
+- `validation_status`: `complete`, `partial`, or `singleton`.
+- `confidence`: conservative score for the structural candidate.
+
+The companion table `traceloom_global_collective_member` contains one row per
+local member anchor for drill-down.
 
 ## Design Rules
 
