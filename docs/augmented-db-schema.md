@@ -117,6 +117,46 @@ Important columns:
 
 Parent-child edges for the compressed visualization tree.
 
+### `traceloom_semantic_tree`
+
+Durable header for a recovered semantic execution tree. This table makes the
+compressed tree a first-class augmented-DB artifact instead of only a Markdown
+or JSON report.
+
+Important columns:
+
+- `tree_id`: stable tree key.
+- `view_name`: analyzer view, such as `anchor_tree`.
+- `tree_kind`: semantic tree flavor copied from the tree payload.
+- `root_node_id`: root row in `traceloom_semantic_node`.
+- `semantic_projection`, `macro_discovery`, `auxiliary_attribution`: recovery
+  policy metadata.
+
+### `traceloom_semantic_node`
+
+Preorder semantic tree nodes with parent pointers, display path, structural
+kind, repeat count, anchor span, cost columns, and hidden auxiliary attribution.
+This is the table to query when a report needs the readable tree structure.
+
+Important columns:
+
+- `node_id`: stable node key; intentionally matches `traceloom_viz_node.node_id`
+  for the same local node.
+- `parent_node_id`, `preorder_idx`, `sibling_order`, `path`: tree structure.
+- `node_type`: `Seq`, `Repeat`, `Atom`, etc.
+- `semantic_kind`, `label`, `symbol`, `category`: recovered behavior label.
+- `repeat_count`, `occurrence_count`, `anchor_count`.
+- `first_anchor_idx`, `last_anchor_idx`, `start_ns`, `end_ns`.
+- `total_us`, `compute_us`, `comm_us`, `idle_us`, `self_us`.
+- `hidden_aux_event_count`, `hidden_aux_us`: auxiliary evidence attributed to
+  the node but normally hidden from the main readable tree.
+
+### `traceloom_semantic_edge`
+
+Explicit parent-child edges for `traceloom_semantic_node`. Most queries can use
+`parent_node_id` and `preorder_idx` from `traceloom_semantic_node`; this edge
+table is provided for graph-style joins and tools that prefer edge lists.
+
 ### `traceloom_viz_node_anchor`
 
 Discrete node-to-anchor coverage. This is the core statistics relation. Every
@@ -168,6 +208,21 @@ Important columns:
   summary.
 
 ## Convenience Views
+
+### `traceloom_v_semantic_tree_node`
+
+Semantic nodes with parent label and percentage fields.
+
+### `traceloom_v_semantic_tree_readable`
+
+One row per readable tree line. The intended export query is:
+
+```sql
+SELECT line
+FROM traceloom_v_semantic_tree_readable
+WHERE view_name = 'anchor_tree'
+ORDER BY preorder_idx;
+```
 
 TraceLoom creates these views for common report SQL:
 

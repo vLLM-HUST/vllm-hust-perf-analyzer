@@ -106,6 +106,15 @@ def append_device_analysis(
             rows=node_anchor_link_rows,
             node_rows=node_metric_rows,
         )
+        _insert_semantic_tree(
+            conn,
+            db_idx=db_idx,
+            device_id=device_id,
+            view_name=view_name,
+            stem=stem,
+            tree_payload=tree_payload,
+            node_rows=node_metric_rows,
+        )
         _insert_loop_nodes(
             conn,
             db_idx=db_idx,
@@ -341,6 +350,82 @@ def _initialize_schema(conn: sqlite3.Connection) -> None:
             raw_json TEXT
         );
 
+        CREATE TABLE IF NOT EXISTS traceloom_semantic_tree (
+            tree_id TEXT PRIMARY KEY,
+            db_idx INTEGER NOT NULL,
+            device_id INTEGER NOT NULL,
+            view_name TEXT NOT NULL,
+            tree_kind TEXT NOT NULL,
+            stem TEXT,
+            root_node_id TEXT,
+            schema_version TEXT,
+            semantic_projection TEXT,
+            macro_discovery TEXT,
+            readable_macro_mode TEXT,
+            auxiliary_attribution TEXT,
+            raw_json TEXT,
+            UNIQUE(db_idx, device_id, view_name, tree_kind)
+        );
+
+        CREATE TABLE IF NOT EXISTS traceloom_semantic_node (
+            node_id TEXT PRIMARY KEY,
+            tree_id TEXT NOT NULL,
+            db_idx INTEGER NOT NULL,
+            device_id INTEGER NOT NULL,
+            view_name TEXT NOT NULL,
+            tree_kind TEXT NOT NULL,
+            local_node_id TEXT NOT NULL,
+            parent_node_id TEXT,
+            parent_local_node_id TEXT,
+            preorder_idx INTEGER NOT NULL,
+            sibling_order INTEGER NOT NULL,
+            path TEXT,
+            depth INTEGER,
+            display_depth INTEGER,
+            loop_depth INTEGER,
+            node_type TEXT,
+            semantic_kind TEXT,
+            symbol TEXT,
+            label TEXT,
+            category TEXT,
+            repeat_count INTEGER,
+            occurrence_count INTEGER,
+            anchor_count INTEGER,
+            first_anchor_idx INTEGER,
+            last_anchor_idx INTEGER,
+            start_ns INTEGER,
+            end_ns INTEGER,
+            compute_us REAL,
+            comm_us REAL,
+            idle_us REAL,
+            total_us REAL,
+            avg_compute_us REAL,
+            avg_comm_us REAL,
+            avg_idle_us REAL,
+            avg_total_us REAL,
+            self_us REAL,
+            aux_event_count REAL,
+            aux_us REAL,
+            hidden_aux_event_count REAL,
+            hidden_aux_us REAL,
+            raw_json TEXT,
+            UNIQUE(db_idx, device_id, view_name, tree_kind, local_node_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS traceloom_semantic_edge (
+            parent_node_id TEXT NOT NULL,
+            child_node_id TEXT NOT NULL,
+            tree_id TEXT NOT NULL,
+            db_idx INTEGER NOT NULL,
+            device_id INTEGER NOT NULL,
+            view_name TEXT NOT NULL,
+            tree_kind TEXT NOT NULL,
+            edge_order INTEGER NOT NULL,
+            edge_kind TEXT,
+            raw_json TEXT,
+            PRIMARY KEY(parent_node_id, child_node_id, tree_id, edge_order)
+        );
+
         CREATE INDEX IF NOT EXISTS idx_traceloom_event_device_step
             ON traceloom_event(db_idx, device_id, step_idx);
         CREATE INDEX IF NOT EXISTS idx_traceloom_event_source_lookup
@@ -359,6 +444,12 @@ def _initialize_schema(conn: sqlite3.Connection) -> None:
             ON traceloom_viz_node_anchor(node_id);
         CREATE INDEX IF NOT EXISTS idx_traceloom_node_anchor_anchor
             ON traceloom_viz_node_anchor(anchor_id);
+        CREATE INDEX IF NOT EXISTS idx_traceloom_semantic_node_tree_order
+            ON traceloom_semantic_node(tree_id, preorder_idx);
+        CREATE INDEX IF NOT EXISTS idx_traceloom_semantic_node_parent
+            ON traceloom_semantic_node(parent_node_id);
+        CREATE INDEX IF NOT EXISTS idx_traceloom_semantic_edge_tree
+            ON traceloom_semantic_edge(tree_id, edge_order);
 
         CREATE VIEW IF NOT EXISTS traceloom_v_node_anchor_cost AS
             SELECT
@@ -619,6 +710,56 @@ def _initialize_schema(conn: sqlite3.Connection) -> None:
                 JOIN traceloom_viz_node child ON child.node_id = e.child_node_id
             )
             SELECT * FROM tree;
+
+        CREATE VIEW IF NOT EXISTS traceloom_v_semantic_tree_node AS
+            SELECT
+                n.*,
+                parent.local_node_id AS parent_local_id,
+                parent.label AS parent_label,
+                CASE
+                    WHEN COALESCE(n.total_us, 0.0) = 0.0 THEN 0.0
+                    ELSE ROUND(COALESCE(n.comm_us, 0.0) / n.total_us, 6)
+                END AS comm_pct,
+                CASE
+                    WHEN COALESCE(n.total_us, 0.0) = 0.0 THEN 0.0
+                    ELSE ROUND(COALESCE(n.idle_us, 0.0) / n.total_us, 6)
+                END AS idle_pct
+            FROM traceloom_semantic_node n
+            LEFT JOIN traceloom_semantic_node parent ON parent.node_id = n.parent_node_id;
+
+        CREATE VIEW IF NOT EXISTS traceloom_v_semantic_tree_readable AS
+            SELECT
+                n.tree_id,
+                n.db_idx,
+                n.device_id,
+                n.view_name,
+                n.tree_kind,
+                n.preorder_idx,
+                n.local_node_id,
+                n.parent_local_node_id,
+                n.path,
+                n.display_depth,
+                printf('%*s', COALESCE(n.display_depth, 0) * 2, '') ||
+                '- [' || COALESCE(NULLIF(n.path, ''), 'root') || '] ' ||
+                n.local_node_id || ' ' ||
+                CASE
+                    WHEN n.node_type = 'Repeat' THEN
+                        'Repeat x' || COALESCE(n.repeat_count, 1)
+                    WHEN n.node_type = 'Seq' THEN
+                        'Seq'
+                    ELSE
+                        COALESCE(NULLIF(n.node_type, ''), 'Node')
+                END ||
+                ' | ' || COALESCE(NULLIF(n.label, ''), NULLIF(n.symbol, ''), n.semantic_kind, '') ||
+                ' | anchors=' || COALESCE(n.anchor_count, 0) ||
+                ' total_us=' || printf('%.3f', COALESCE(n.total_us, 0.0)) ||
+                CASE
+                    WHEN COALESCE(n.hidden_aux_event_count, 0.0) > 0.0 THEN
+                        ' hidden_aux=' || printf('%.0f', n.hidden_aux_event_count) ||
+                        ' hidden_aux_us=' || printf('%.3f', COALESCE(n.hidden_aux_us, 0.0))
+                    ELSE ''
+                END AS line
+            FROM traceloom_semantic_node n;
         """
     )
     ensure_collective_link_schema(conn)
@@ -634,6 +775,9 @@ def _replace_metadata(conn: sqlite3.Connection, values: Dict[str, object]) -> No
 def _delete_device_rows(conn: sqlite3.Connection, *, db_idx: int, device_id: int, view_name: str) -> None:
     params = {"db_idx": db_idx, "device_id": device_id, "view_name": view_name}
     for table in (
+        "traceloom_semantic_edge",
+        "traceloom_semantic_node",
+        "traceloom_semantic_tree",
         "traceloom_anchor_primary_node",
         "traceloom_viz_node_anchor",
         "traceloom_viz_edge",
@@ -1092,6 +1236,258 @@ def _insert_node_anchor_links(
     )
 
 
+def _insert_semantic_tree(
+    conn: sqlite3.Connection,
+    *,
+    db_idx: int,
+    device_id: int,
+    view_name: str,
+    stem: str,
+    tree_payload: Row,
+    node_rows: Sequence[Row],
+) -> None:
+    tree_kind = str(tree_payload.get("view", "") or view_name or "semantic_tree")
+    tree_id = _tree_id(db_idx, device_id, view_name, tree_kind)
+    node_by_raw_id: Dict[str, Row] = {}
+    node_by_local_id: Dict[str, Row] = {}
+    raw_to_local_id: Dict[str, str] = {}
+    for row in node_rows:
+        local_id = str(row.get("node_id", "")).strip()
+        raw_id = str(row.get("raw_node_id", "") or local_id).strip()
+        if not local_id:
+            continue
+        node_by_local_id[local_id] = row
+        node_by_raw_id[raw_id] = row
+        raw_to_local_id[raw_id] = local_id
+    has_distinct_raw_ids = any(raw != local for raw, local in raw_to_local_id.items())
+
+    root = tree_payload.get("root", {})
+    preorder: List[Dict[str, object]] = []
+    edge_values: List[Tuple[object, ...]] = []
+
+    def row_for_node(node: Row) -> Row | None:
+        raw_id = str(node.get("node_id", "")).strip()
+        if raw_id in node_by_raw_id:
+            return node_by_raw_id[raw_id]
+        if has_distinct_raw_ids:
+            return None
+        local_id = raw_to_local_id.get(raw_id, raw_id)
+        return node_by_local_id.get(local_id)
+
+    def visit(
+        node: object,
+        *,
+        parent_local_id: str | None,
+        sibling_order: int,
+        depth: int,
+        path: str,
+    ) -> str | None:
+        if not isinstance(node, dict):
+            return parent_local_id
+        node_type = str(node.get("type", ""))
+        row = row_for_node(node)
+        local_id = str(row.get("node_id", "")).strip() if row is not None else ""
+        current_parent = parent_local_id
+        if row is not None and local_id:
+            preorder.append(
+                {
+                    "row": row,
+                    "local_id": local_id,
+                    "parent_local_id": parent_local_id or "",
+                    "sibling_order": sibling_order,
+                    "depth": depth,
+                    "path": str(row.get("path", "") or path),
+                    "node_type": node_type or str(row.get("type", "")),
+                }
+            )
+            if parent_local_id:
+                edge_values.append(
+                    (
+                        _node_id(db_idx, device_id, view_name, parent_local_id),
+                        _node_id(db_idx, device_id, view_name, local_id),
+                        tree_id,
+                        db_idx,
+                        device_id,
+                        view_name,
+                        tree_kind,
+                        sibling_order,
+                        node_type or str(row.get("type", "")),
+                        _json_value({"parent": parent_local_id, "child": local_id, "path": path}),
+                    )
+                )
+            current_parent = local_id
+        if node_type == "Seq":
+            items = node.get("items", [])
+            if isinstance(items, list):
+                for idx, item in enumerate(items, start=1):
+                    child = item.get("node") if isinstance(item, dict) else None
+                    child_path = f"{path}.{idx}" if path else str(idx)
+                    visit(
+                        child,
+                        parent_local_id=current_parent,
+                        sibling_order=_as_int(item.get("ord", idx)) if isinstance(item, dict) else idx,
+                        depth=depth + 1,
+                        path=child_path,
+                    )
+        elif node_type == "Repeat":
+            body = node.get("body")
+            visit(
+                body,
+                parent_local_id=current_parent,
+                sibling_order=1,
+                depth=depth + 1,
+                path=f"{path}.body" if path else "body",
+            )
+        return current_parent
+
+    visit(root, parent_local_id=None, sibling_order=1, depth=0, path="root")
+    root_local_id = str(preorder[0]["local_id"]) if preorder else ""
+    root_node_id = _node_id(db_idx, device_id, view_name, root_local_id) if root_local_id else ""
+
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO traceloom_semantic_tree(
+            tree_id, db_idx, device_id, view_name, tree_kind, stem, root_node_id,
+            schema_version, semantic_projection, macro_discovery, readable_macro_mode,
+            auxiliary_attribution, raw_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            tree_id,
+            db_idx,
+            device_id,
+            view_name,
+            tree_kind,
+            stem,
+            root_node_id,
+            str(tree_payload.get("schema_version", "")),
+            str(tree_payload.get("semantic_projection", "")),
+            str(tree_payload.get("macro_discovery", "")),
+            str(tree_payload.get("readable_macro_mode", "")),
+            str(tree_payload.get("auxiliary_attribution", "")),
+            _json_value(tree_payload),
+        ),
+    )
+
+    span_by_node = _semantic_anchor_spans(conn, db_idx=db_idx, device_id=device_id, view_name=view_name)
+    node_values: List[Tuple[object, ...]] = []
+    for idx, entry in enumerate(preorder, start=1):
+        row = entry["row"]
+        if not isinstance(row, dict):
+            continue
+        local_id = str(entry["local_id"])
+        parent_local_id = str(entry.get("parent_local_id", ""))
+        node_id = _node_id(db_idx, device_id, view_name, local_id)
+        parent_node_id = _node_id(db_idx, device_id, view_name, parent_local_id) if parent_local_id else None
+        span = span_by_node.get(node_id, {})
+        repeat_label = str(row.get("repeat", ""))
+        repeat_count = _parse_repeat_count(repeat_label) or _parse_repeat_count(str(row.get("label", "")))
+        aux_events = _nullable_float(row.get("aux_events"))
+        aux_us = _nullable_float(row.get("aux_us"))
+        node_values.append(
+            (
+                node_id,
+                tree_id,
+                db_idx,
+                device_id,
+                view_name,
+                tree_kind,
+                local_id,
+                parent_node_id,
+                parent_local_id or None,
+                idx,
+                _as_int(entry.get("sibling_order")),
+                str(entry.get("path", "")),
+                _nullable_int(row.get("depth")),
+                _nullable_int(row.get("display_depth")),
+                _nullable_int(row.get("loop_depth")),
+                str(row.get("type", "") or entry.get("node_type", "")),
+                str(row.get("kind", "")),
+                str(row.get("symbol", "")),
+                str(row.get("label", "")),
+                str(row.get("category", "")),
+                repeat_count,
+                _nullable_int(row.get("occurrence_count")),
+                _nullable_int(row.get("anchor_count")),
+                _nullable_int(row.get("first_anchor_idx")) or _nullable_int(span.get("first_anchor_idx")),
+                _nullable_int(row.get("last_anchor_idx")) or _nullable_int(span.get("last_anchor_idx")),
+                _nullable_int(span.get("start_ns")),
+                _nullable_int(span.get("end_ns")),
+                _nullable_float(row.get("compute_us")),
+                _nullable_float(row.get("comm_us")),
+                _nullable_float(row.get("idle_us")),
+                _nullable_float(row.get("total_us")),
+                _nullable_float(row.get("avg_compute_us")),
+                _nullable_float(row.get("avg_comm_us")),
+                _nullable_float(row.get("avg_idle_us")),
+                _nullable_float(row.get("avg_total_us")),
+                _nullable_float(row.get("self_us")),
+                aux_events,
+                aux_us,
+                aux_events,
+                aux_us,
+                _json_value(row),
+            )
+        )
+
+    conn.executemany(
+        """
+        INSERT OR REPLACE INTO traceloom_semantic_node(
+            node_id, tree_id, db_idx, device_id, view_name, tree_kind, local_node_id,
+            parent_node_id, parent_local_node_id, preorder_idx, sibling_order, path,
+            depth, display_depth, loop_depth, node_type, semantic_kind, symbol, label,
+            category, repeat_count, occurrence_count, anchor_count, first_anchor_idx,
+            last_anchor_idx, start_ns, end_ns, compute_us, comm_us, idle_us, total_us,
+            avg_compute_us, avg_comm_us, avg_idle_us, avg_total_us, self_us,
+            aux_event_count, aux_us, hidden_aux_event_count, hidden_aux_us, raw_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        node_values,
+    )
+    conn.executemany(
+        """
+        INSERT OR REPLACE INTO traceloom_semantic_edge(
+            parent_node_id, child_node_id, tree_id, db_idx, device_id, view_name,
+            tree_kind, edge_order, edge_kind, raw_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        edge_values,
+    )
+
+
+def _semantic_anchor_spans(
+    conn: sqlite3.Connection,
+    *,
+    db_idx: int,
+    device_id: int,
+    view_name: str,
+) -> Dict[str, Dict[str, object]]:
+    rows = conn.execute(
+        """
+        SELECT
+            na.node_id,
+            MIN(a.anchor_idx) AS first_anchor_idx,
+            MAX(a.anchor_idx) AS last_anchor_idx,
+            MIN(a.start_ns) AS start_ns,
+            MAX(a.end_ns) AS end_ns
+        FROM traceloom_viz_node_anchor na
+        JOIN traceloom_anchor a ON a.anchor_id = na.anchor_id
+        WHERE na.db_idx = ? AND na.device_id = ? AND na.view_name = ?
+        GROUP BY na.node_id
+        """,
+        (db_idx, device_id, view_name),
+    ).fetchall()
+    return {
+        str(row[0]): {
+            "first_anchor_idx": row[1],
+            "last_anchor_idx": row[2],
+            "start_ns": row[3],
+            "end_ns": row[4],
+        }
+        for row in rows
+    }
+
+
 def _insert_loop_nodes(
     conn: sqlite3.Connection,
     *,
@@ -1186,6 +1582,10 @@ def _anchor_id(db_idx: int, device_id: int, anchor_idx: int) -> str:
 
 def _node_id(db_idx: int, device_id: int, view_name: str, local_node_id: str) -> str:
     return f"db{db_idx:02d}:dev{device_id}:{view_name}:{local_node_id}"
+
+
+def _tree_id(db_idx: int, device_id: int, view_name: str, tree_kind: str) -> str:
+    return f"db{db_idx:02d}:dev{device_id}:{view_name}:{tree_kind}"
 
 
 def _source_table(row: Row) -> str:
