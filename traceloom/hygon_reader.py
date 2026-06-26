@@ -1,12 +1,28 @@
 from __future__ import annotations
 
 import csv
+import os
 import re
 import sqlite3
 from pathlib import Path
 from typing import Dict, List, Tuple
 
 from .msprof_reader import StreamEvent, StreamSelection, _canonical_label
+
+
+HYGON_GLUE_ATTRIBUTION_FAMILIES = {
+    "elementwise_helper",
+    "index_gather",
+    "index_or_range",
+    "init_or_fill",
+    "layout_copy",
+    "mask_or_select",
+    "random_or_init",
+    "reduction_helper",
+    "scan_helper",
+    "softmax",
+    "startup_or_autotune",
+}
 
 
 def is_hygon_profile(db_path: Path) -> bool:
@@ -101,6 +117,7 @@ def rank_hygon_streams_global(db_paths: List[Path]) -> Tuple[List[StreamSelectio
 def _load_hygon_events(db_path: Path) -> Tuple[List[StreamEvent], Dict[int, Dict[str, object]]]:
     events: List[StreamEvent] = []
     stream_stats: Dict[int, Dict[str, object]] = {}
+    attribution_map = _load_attribution_map()
     with sqlite3.connect(f"file:{db_path.resolve()}?immutable=1", uri=True) as conn:
         tables = _table_names(conn)
         if "ROCPROF_KERNEL" in tables:
@@ -110,7 +127,7 @@ def _load_hygon_events(db_path: Path) -> Tuple[List[StreamEvent], Dict[int, Dict
         default_device = _default_device_id(conn, tables)
         for table in tables:
             if table.startswith("HIPOPS_"):
-                events.extend(_load_hipops_events(conn, table, str_map))
+                events.extend(_load_hipops_events(conn, table, str_map, attribution_map))
             elif table.startswith("HIPCOPY_"):
                 events.extend(_load_hipcopy_events(conn, table))
             elif table.startswith("HIP_"):
@@ -160,7 +177,12 @@ def _load_rocprof_kernel_events(conn: sqlite3.Connection) -> List[StreamEvent]:
     return events
 
 
-def _load_hipops_events(conn: sqlite3.Connection, table: str, str_map: Dict[int, str]) -> List[StreamEvent]:
+def _load_hipops_events(
+    conn: sqlite3.Connection,
+    table: str,
+    str_map: Dict[int, str],
+    attribution_map: Dict[int, Dict[str, str]],
+) -> List[StreamEvent]:
     events: List[StreamEvent] = []
     rows = conn.execute(
         f"""
@@ -173,7 +195,7 @@ def _load_hipops_events(conn: sqlite3.Connection, table: str, str_map: Dict[int,
     for start_ns, end_ns, dev_id, queue_id, name, index, _dur_ns in rows:
         name_id = _as_int(name, -1)
         raw_label = str_map.get(name_id, f"hip_kernel_{name_id}")
-        lifted = _lift_hygon_kernel_label(raw_label)
+        lifted = _lift_hygon_kernel_label(raw_label, name_id=name_id, attribution_map=attribution_map)
         task_id = _as_int(index, -1)
         events.append(
             StreamEvent(
@@ -197,7 +219,12 @@ def _load_hipops_events(conn: sqlite3.Connection, table: str, str_map: Dict[int,
     return events
 
 
-def _lift_hygon_kernel_label(raw_label: str) -> Dict[str, str]:
+def _lift_hygon_kernel_label(
+    raw_label: str,
+    *,
+    name_id: int | None = None,
+    attribution_map: Dict[int, Dict[str, str]] | None = None,
+) -> Dict[str, str]:
     """Project low-level Hygon HIP kernel symbols to TraceLoom semantic labels.
 
     Hygon hipprof records GPU kernel symbols rather than framework-level task
@@ -208,6 +235,11 @@ def _lift_hygon_kernel_label(raw_label: str) -> Dict[str, str]:
 
     label = raw_label or ""
     low = label.lower()
+    if name_id is not None and attribution_map:
+        attributed = attribution_map.get(name_id)
+        if attributed is not None:
+            return attributed
+
     if "cijk_b_postgsu" in low:
         return _lifted_aux("GemmEpilogue", "TensilePostGSU")
     if "cijk_alik_bljk_bbh" in low:
@@ -291,6 +323,98 @@ def _lift_hygon_kernel_label(raw_label: str) -> Dict[str, str]:
             return _lifted_aux(detail, detail)
 
     return _lifted_aux("Unknown", "unclassified")
+
+
+def _load_attribution_map() -> Dict[int, Dict[str, str]]:
+    path = os.environ.get("TRACELOOM_HYGON_ATTRIBUTION_CSV", "").strip()
+    if not path:
+        return {}
+    csv_path = Path(path)
+    if not csv_path.exists():
+        return {}
+    demote_glue = _env_truthy("TRACELOOM_HYGON_GLUE_AUX")
+    out: Dict[int, Dict[str, str]] = {}
+    with csv_path.open("r", encoding="utf-8", newline="", errors="replace") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            kernel_id = _as_int(row.get("kernel_id"), -1)
+            if kernel_id < 0:
+                continue
+            confidence = str(row.get("confidence") or "").strip().lower()
+            family = str(row.get("semantic_family") or "").strip()
+            compute = str(row.get("compute_pattern") or "").strip()
+            matched = str(row.get("matched_pattern") or "").strip()
+            family_key = _attribution_key(family)
+            label = _op_label_from_attribution(family, compute, matched)
+            is_glue = family_key in HYGON_GLUE_ATTRIBUTION_FAMILIES
+            if confidence in {"high", "medium"} and not (demote_glue and is_glue):
+                out[kernel_id] = _lifted_anchor(
+                    label,
+                    f"{confidence}:{family}/{compute}",
+                )
+            else:
+                out[kernel_id] = _lifted_aux(
+                    label,
+                    f"{confidence or 'none'}:{family}/{compute}",
+                )
+    return out
+
+
+def _env_truthy(name: str) -> bool:
+    value = os.environ.get(name, "").strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
+def _attribution_key(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", (value or "").strip().lower()).strip("_")
+
+
+def _op_label_from_attribution(family: str, compute: str, matched: str) -> str:
+    family_key = _attribution_key(family)
+    compute_key = _attribution_key(compute)
+    matched_key = (matched or "").strip().lower()
+
+    if family_key == "attention":
+        return "FlashAttention" if "flash" in matched_key else "Attention"
+    if family_key == "matmul_or_mlp_candidate":
+        return "MatMul"
+    if family_key == "state_space":
+        return "StateSpace"
+    if family_key == "mlp":
+        return "MLP"
+    if family_key == "norm":
+        return "Norm"
+    if family_key == "rope":
+        return "Rope"
+    if family_key == "kv_cache":
+        return "KVCache"
+    if family_key == "layout_copy":
+        return "LayoutCopy"
+    if family_key == "init_or_fill":
+        return "InitOrFill"
+    if family_key == "elementwise_helper":
+        return "Elementwise"
+    if family_key == "index_gather":
+        return "IndexGather"
+    if family_key == "reduction_helper":
+        return "Reduction"
+    if family_key == "scan_helper":
+        return "Scan"
+    if family_key == "mask_or_select":
+        return "MaskSelect"
+    if family_key == "random_or_init":
+        return "RandomInit"
+    if family_key == "softmax":
+        return "Softmax"
+    if family_key == "startup_or_autotune":
+        return "StartupAutotune"
+    if family_key == "index_or_range":
+        return "IndexRange"
+    if family_key:
+        return "".join(part.capitalize() for part in family_key.split("_"))
+    if compute_key:
+        return "".join(part.capitalize() for part in compute_key.split("_"))
+    return "Unknown"
 
 
 def _lifted_anchor(label: str, detail: str) -> Dict[str, str]:

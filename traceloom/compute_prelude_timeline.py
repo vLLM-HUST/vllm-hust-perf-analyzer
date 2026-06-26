@@ -36,7 +36,7 @@ from .msprof_reader import (
 class ComputePreludeConfig:
     top_devices_global: int = 0
     max_main_events_per_device: int = 5_000
-    max_macro_defs: int = 32
+    max_macro_defs: int = 0
     collective_episode_gap_us: float = 5_000.0
     min_main_event_us: float = 0.0
     top_prelude_labels: int = 8
@@ -1127,44 +1127,71 @@ def _fold_adjacent_symbol_runs(
         return max_macro_defs <= 0 or len(defs) < max_macro_defs
 
     while has_budget() and len(out) >= min_repeat_count:
-        best_start = -1
-        best_end = -1
+        candidates: Dict[Tuple[str, int], Dict[str, object]] = {}
         i = 0
         while i < len(out):
             j = i + 1
             while j < len(out) and out[j].name == out[i].name:
                 j += 1
-            if j - i >= min_repeat_count and (best_start < 0 or j - i > best_end - best_start):
-                best_start = i
-                best_end = j
+            run_len = j - i
+            if run_len >= min_repeat_count:
+                key = (out[i].name, run_len)
+                row = candidates.setdefault(key, {"windows": [], "first_pos": i})
+                row["windows"].append((out[i].start_ns, out[j - 1].end_ns))
+                row["first_pos"] = min(int(row["first_pos"]), i)
             i = j
 
-        if best_start < 0:
+        if not candidates:
             break
 
-        run_len = best_end - best_start
-        source_name = out[best_start].name
+        (source_name, run_len), best = max(
+            candidates.items(),
+            key=lambda kv: (
+                len(kv[1]["windows"]) * (kv[0][1] - 1),
+                kv[0][1],
+                len(kv[1]["windows"]),
+                -int(kv[1]["first_pos"]),
+                kv[0][0],
+            ),
+        )
+        windows = list(best["windows"])
+        replace_count = len(windows)
+        gain = replace_count * (run_len - 1)
+        if gain <= 0:
+            break
+
         loop_name = f"M{macro_id}"
-        start_ns = out[best_start].start_ns
-        end_ns = out[best_end - 1].end_ns
-        out = [
-            *out[:best_start],
-            GrammarToken(name=loop_name, start_ns=start_ns, end_ns=end_ns),
-            *out[best_end:],
-        ]
+        new_tokens: List[GrammarToken] = []
+        first_selected = -1
+        i = 0
+        while i < len(out):
+            j = i + 1
+            while j < len(out) and out[j].name == out[i].name:
+                j += 1
+            if out[i].name == source_name and j - i == run_len:
+                start_ns = out[i].start_ns
+                end_ns = out[j - 1].end_ns
+                new_tokens.append(GrammarToken(name=loop_name, start_ns=start_ns, end_ns=end_ns))
+                if first_selected < 0:
+                    first_selected = i
+            else:
+                new_tokens.extend(out[i:j])
+            i = j
+
         defs.append(
             MacroDef(
                 name=loop_name,
                 level="LP",
                 tokens=[source_name] * run_len,
                 definition_len=run_len,
-                replace_count=1,
-                gain=run_len - 1,
-                first_pos=best_start,
-                windows=[(start_ns, end_ns)],
+                replace_count=replace_count,
+                gain=gain,
+                first_pos=first_selected,
+                windows=windows,
                 defs_covered=0,
             )
         )
+        out = new_tokens
         macro_id += 1
 
     return out, macro_id
@@ -1186,15 +1213,18 @@ def _fold_adjacent_repeated_blocks(
         return max_macro_defs <= 0 or len(defs) + extra_defs <= max_macro_defs
 
     while has_budget() and len(out) >= min_block_len * min_repeat_count:
+        names = tuple(tok.name for tok in out)
         best: Tuple[int, int, int, int] | None = None
         n = len(out)
         for start in range(n):
             max_block = min(max_block_len, (n - start) // min_repeat_count)
             for block_len in range(min_block_len, max_block + 1):
-                block = [tok.name for tok in out[start : start + block_len]]
+                if names[start] != names[start + block_len]:
+                    continue
+                block = names[start : start + block_len]
                 repeat = 1
                 pos = start + block_len
-                while pos + block_len <= n and [tok.name for tok in out[pos : pos + block_len]] == block:
+                while pos + block_len <= n and names[pos : pos + block_len] == block:
                     repeat += 1
                     pos += block_len
                 if repeat < min_repeat_count:
@@ -1210,23 +1240,59 @@ def _fold_adjacent_repeated_blocks(
             break
 
         gain, repeat, block_len, start = best
-        end = start + repeat * block_len
+        block_tokens = names[start : start + block_len]
         block_name = f"M{macro_id}"
         loop_name = f"M{macro_id + 1}"
-        block_tokens = [tok.name for tok in out[start : start + block_len]]
-        block_windows = [
-            (out[start + i * block_len].start_ns, out[start + (i + 1) * block_len - 1].end_ns)
-            for i in range(repeat)
-        ]
+        new_tokens: List[GrammarToken] = []
+        block_windows: List[Tuple[int, int]] = []
+        loop_windows: List[Tuple[int, int]] = []
+        first_selected = -1
+        i = 0
+        while i < n:
+            end = i + repeat * block_len
+            if end <= n and all(
+                names[i + j * block_len : i + (j + 1) * block_len] == block_tokens for j in range(repeat)
+            ):
+                # Keep the replacement to maximal runs with the selected repeat
+                # count. Longer runs can be promoted by a later iteration.
+                prev_start = i - block_len
+                if prev_start >= 0 and names[prev_start:i] == block_tokens:
+                    new_tokens.append(out[i])
+                    i += 1
+                    continue
+                next_end = end + block_len
+                if next_end <= n and names[end:next_end] == block_tokens:
+                    new_tokens.append(out[i])
+                    i += 1
+                    continue
+                start_ns = out[i].start_ns
+                end_ns = out[end - 1].end_ns
+                new_tokens.append(GrammarToken(name=loop_name, start_ns=start_ns, end_ns=end_ns))
+                loop_windows.append((start_ns, end_ns))
+                for j in range(repeat):
+                    body_start = i + j * block_len
+                    body_end = i + (j + 1) * block_len - 1
+                    block_windows.append((out[body_start].start_ns, out[body_end].end_ns))
+                if first_selected < 0:
+                    first_selected = i
+                i = end
+            else:
+                new_tokens.append(out[i])
+                i += 1
+
+        if not loop_windows:
+            break
+
+        total_gain = gain * len(loop_windows)
         defs.append(
             MacroDef(
                 name=block_name,
                 level="RP",
-                tokens=block_tokens,
+                tokens=list(block_tokens),
                 definition_len=block_len,
-                replace_count=repeat,
-                gain=gain,
-                first_pos=start,
+                replace_count=len(block_windows),
+                gain=total_gain,
+                first_pos=first_selected,
                 windows=block_windows,
                 defs_covered=sum(1 for tok in block_tokens if tok.startswith("M")),
             )
@@ -1237,18 +1303,14 @@ def _fold_adjacent_repeated_blocks(
                 level="LP",
                 tokens=[block_name] * repeat,
                 definition_len=repeat,
-                replace_count=1,
-                gain=gain,
-                first_pos=start,
-                windows=[(out[start].start_ns, out[end - 1].end_ns)],
+                replace_count=len(loop_windows),
+                gain=total_gain,
+                first_pos=first_selected,
+                windows=loop_windows,
                 defs_covered=1,
             )
         )
-        out = [
-            *out[:start],
-            GrammarToken(name=loop_name, start_ns=out[start].start_ns, end_ns=out[end - 1].end_ns),
-            *out[end:],
-        ]
+        out = new_tokens
         macro_id += 2
 
     return out, macro_id
