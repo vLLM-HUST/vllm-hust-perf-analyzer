@@ -85,6 +85,8 @@ def run_collective_tag(
     run_name: str | None = None,
     expected_world_size: int | None = None,
 ) -> Dict[str, object]:
+    if expected_world_size is not None and expected_world_size < 1:
+        raise ValueError("--expected-world-size must be a positive integer")
     started = time.time()
     resolved_dir = _resolve_analysis_dir(analysis_dir)
     db_paths = sorted(resolved_dir.glob("db*.traceloom_augmented.db"))
@@ -121,7 +123,7 @@ def run_collective_tag(
         links_by_db[db_path] = links
         all_links.extend(links)
 
-    world_size = expected_world_size or max(1, len(expected_members))
+    world_size = expected_world_size if expected_world_size is not None else max(1, len(expected_members))
     summaries = _summarize_links(
         links=all_links,
         expected_members=sorted(expected_members),
@@ -292,6 +294,7 @@ def _load_loop_nodes(conn: sqlite3.Connection, db_name: str) -> List[LoopNode]:
     loops: List[LoopNode] = []
     for row in rows:
         pattern = _loop_collective_pattern(conn, str(row["node_id"]))
+        anchor_tokens = _loop_anchor_tokens(conn, str(row["node_id"]))
         repeat_count = _as_int(row["repeat_count"])
         anchor_count = _as_int(row["anchor_count"])
         occurrence_count = _as_int(row["occurrence_count"])
@@ -299,8 +302,7 @@ def _load_loop_nodes(conn: sqlite3.Connection, db_name: str) -> List[LoopNode]:
         if anchors_per_occurrence <= 0 and occurrence_count > 0:
             anchors_per_occurrence = max(1, int(round(anchor_count / occurrence_count)))
         signature = _loop_signature(
-            repeat_count=repeat_count,
-            anchors_per_occurrence=anchors_per_occurrence,
+            anchor_tokens=anchor_tokens,
             collective_pattern=pattern,
         )
         db_idx = _as_int(row["db_idx"])
@@ -349,15 +351,64 @@ def _loop_collective_pattern(conn: sqlite3.Connection, node_id: str) -> str:
     return ",".join(f"{_as_int(row[0])}:{_normalize_op_type(str(row[1]), str(row[2]))}" for row in rows)
 
 
+def _loop_anchor_tokens(conn: sqlite3.Connection, node_id: str) -> List[str]:
+    occurrence_row = conn.execute(
+        "SELECT MIN(occurrence_idx) FROM traceloom_viz_node_anchor WHERE node_id = ?",
+        (node_id,),
+    ).fetchone()
+    occurrence_idx = _as_int(occurrence_row[0] if occurrence_row else 0)
+    rows = conn.execute(
+        """
+        SELECT
+            COALESCE(e.role, '') AS role,
+            COALESCE(e.family, a.family, '') AS family,
+            COALESCE(e.label, a.label, '') AS label
+        FROM traceloom_viz_node_anchor na
+        JOIN traceloom_anchor a ON a.anchor_id = na.anchor_id
+        JOIN traceloom_event e ON e.event_id = a.event_id
+        WHERE na.node_id = ?
+          AND na.occurrence_idx = ?
+        ORDER BY na.anchor_order, e.start_ns, a.anchor_idx
+        """,
+        (node_id, occurrence_idx),
+    ).fetchall()
+    tokens: List[str] = []
+    for row in rows:
+        role = str(row["role"])
+        family = str(row["family"])
+        label = str(row["label"])
+        if role == "collective":
+            label = _normalize_op_type(family, label)
+        tokens.append(f"{role}:{family}:{label}")
+    return tokens
+
+
 def _loop_signature(
     *,
-    repeat_count: int,
-    anchors_per_occurrence: int,
+    anchor_tokens: Sequence[str],
     collective_pattern: str,
 ) -> str:
-    payload = f"repeat={repeat_count};anchors_per_occurrence={anchors_per_occurrence};collectives={collective_pattern}"
+    motif = _primitive_motif(anchor_tokens)
+    if motif:
+        payload = "motif=" + "|".join(motif)
+        digest = hashlib.sha1(payload.encode("utf-8")).hexdigest()[:10]
+        return f"M{len(motif):04d}:{digest}"
+    payload = f"collectives={collective_pattern}"
     digest = hashlib.sha1(payload.encode("utf-8")).hexdigest()[:10]
-    return f"R{repeat_count:04d}:A{anchors_per_occurrence:05d}:{digest}"
+    return f"M0000:{digest}"
+
+
+def _primitive_motif(tokens: Sequence[str]) -> Sequence[str]:
+    count = len(tokens)
+    if count == 0:
+        return ()
+    for period in range(1, count + 1):
+        if count % period != 0:
+            continue
+        motif = tokens[:period]
+        if all(tokens[idx] == motif[idx % period] for idx in range(count)):
+            return motif
+    return tokens
 
 
 def _assign_loop_pairs(loops: Sequence[LoopNode]) -> List[LoopNode]:
@@ -367,37 +418,49 @@ def _assign_loop_pairs(loops: Sequence[LoopNode]) -> List[LoopNode]:
 
     out: List[LoopNode] = []
     for signature in sorted(by_signature):
-        by_member: Dict[str, List[LoopNode]] = defaultdict(list)
-        for loop in by_signature[signature]:
-            by_member[loop.member_id].append(loop)
-        for member_loops in by_member.values():
-            member_loops.sort(key=lambda item: (item.first_anchor_idx, item.local_node_id))
+        by_member = _loops_by_member(by_signature[signature])
 
         max_ordinal = max((len(items) for items in by_member.values()), default=0)
         for ordinal in range(1, max_ordinal + 1):
-            sample = next((items[ordinal - 1] for items in by_member.values() if len(items) >= ordinal), None)
-            if sample is None:
+            candidates = [
+                items[ordinal - 1]
+                for member_id, items in sorted(by_member.items())
+                if len(items) >= ordinal
+            ]
+            if not candidates:
                 continue
+            sample = candidates[0]
             pair_id = _pair_id(sample, ordinal)
-            for items in by_member.values():
-                if len(items) >= ordinal:
-                    loop = items[ordinal - 1]
-                    out.append(
-                        LoopNode(
-                            **{
-                                **loop.__dict__,
-                                "signature_ordinal": ordinal,
-                                "pair_id": pair_id,
-                            }
-                        )
-                    )
+            for loop in candidates:
+                out.append(_with_pair(loop, ordinal=ordinal, pair_id=pair_id))
+
     out.sort(key=lambda item: (item.pair_id, item.db_name, item.device_id, item.first_anchor_idx))
     return out
 
 
+def _loops_by_member(loops: Sequence[LoopNode]) -> Dict[str, List[LoopNode]]:
+    by_member: Dict[str, List[LoopNode]] = defaultdict(list)
+    for loop in loops:
+        by_member[loop.member_id].append(loop)
+    for member_loops in by_member.values():
+        member_loops.sort(key=lambda item: (item.first_anchor_idx, item.local_node_id))
+    return by_member
+
+
+def _with_pair(loop: LoopNode, *, ordinal: int, pair_id: str) -> LoopNode:
+    return LoopNode(
+        **{
+            **loop.__dict__,
+            "signature_ordinal": ordinal,
+            "pair_id": pair_id,
+        }
+    )
+
+
 def _pair_id(loop: LoopNode, ordinal: int) -> str:
     digest = loop.signature.rsplit(":", 1)[-1][:6]
-    return f"LP_R{loop.repeat_count:03d}_A{loop.anchors_per_occurrence:04d}_{ordinal:02d}_{digest}"
+    motif_len = _as_int(loop.signature.split(":", 1)[0].lstrip("M"))
+    return f"LP_M{motif_len:03d}_{ordinal:02d}_{digest}"
 
 
 def _build_db_links(
@@ -787,6 +850,11 @@ def _build_summary_markdown(
         f"- loop_pairs: `{len(pair_members)}`",
         f"- local_links: `{len(links)}`",
         f"- candidate_collectives: `{len(summaries)}`",
+        "",
+        "## Notes",
+        "",
+        "- Loop pairs are matched with canonical primitive anchor motifs, so equivalent shapes such as `AB x 22` and `(ABAB) x 11` share one structural signature.",
+        "- `singleton` means no matching member was found in the current TraceLoom structural evidence; inspect nearby raw communication rows before treating it as a one-sided hardware collective.",
         "",
         "## Validation Status",
         "",
