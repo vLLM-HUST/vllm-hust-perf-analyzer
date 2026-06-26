@@ -15,8 +15,9 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Sequence, Tuple
 
 from .augmented_db import append_device_analysis, prepare_augmented_db
+from .cuda_reader import is_cuda_profile, load_cuda_device_events, rank_cuda_streams_global
 from .hygon_reader import is_hygon_profile, load_hygon_device_events, rank_hygon_streams_global
-from .io.discover import discover_msprof_dbs, discover_profile_dbs, has_hygon_profile_data
+from .io.discover import discover_msprof_dbs, discover_profile_dbs, has_cuda_profile_data, has_hygon_profile_data
 from .loop_tree import (
     MacroDef,
     _build_tree_v2,
@@ -24,6 +25,7 @@ from .loop_tree import (
 )
 from .msprof_reader import (
     StreamEvent,
+    StreamSelection,
     _canonical_label,
     _load_device_events,
     _load_string_ids,
@@ -36,7 +38,6 @@ from .msprof_reader import (
 class ComputePreludeConfig:
     top_devices_global: int = 0
     max_main_events_per_device: int = 5_000
-    max_macro_defs: int = 0
     collective_episode_gap_us: float = 5_000.0
     min_main_event_us: float = 0.0
     top_prelude_labels: int = 8
@@ -52,6 +53,11 @@ LOOP_PROMOTION_METHODS = [
     "pair_grammar_macro_discovery",
     "adjacent_identical_macro_runs",
 ]
+
+
+# Nsight can report graph replay as a launch interval and emit the replayed GPU
+# work immediately after it. The tail only applies to the last graph on a stream.
+CUDA_GRAPH_POST_REPLAY_TAIL_NS = 5_000_000
 
 
 @dataclass(frozen=True)
@@ -92,12 +98,21 @@ class GrammarToken:
     end_ns: int
 
 
-def _write_csv(path: Path, rows: Sequence[Dict[str, object]]) -> None:
-    if not rows:
+def _write_csv(
+    path: Path,
+    rows: Sequence[Dict[str, object]],
+    *,
+    fieldnames: Sequence[str] | None = None,
+) -> None:
+    if not rows and not fieldnames:
         path.write_text("", encoding="utf-8")
         return
     fields: List[str] = []
     seen: set[str] = set()
+    for key in fieldnames or ():
+        if key not in seen:
+            seen.add(key)
+            fields.append(key)
     for row in rows:
         for key in row.keys():
             if key not in seen:
@@ -108,6 +123,42 @@ def _write_csv(path: Path, rows: Sequence[Dict[str, object]]) -> None:
         writer.writeheader()
         for row in rows:
             writer.writerow(row)
+
+
+CUDA_GRAPH_ENVELOPE_FIELDS = [
+    "envelope_idx",
+    "db_idx",
+    "db",
+    "global_rank",
+    "device_id",
+    "graph_step_idx",
+    "graph_symbol",
+    "graph_label",
+    "graph_stream_id",
+    "graph_correlation_id",
+    "graph_id",
+    "graph_exec_id",
+    "graph_context_id",
+    "graph_start_ns",
+    "graph_end_ns",
+    "graph_dur_us",
+    "child_step_idx",
+    "child_symbol",
+    "child_label",
+    "child_task_type",
+    "child_source_table",
+    "child_stream_id",
+    "child_start_ns",
+    "child_end_ns",
+    "child_dur_us",
+    "start_offset_us",
+    "end_offset_us",
+    "stream_relation",
+    "relation",
+    "cuda_graph_envelope_file",
+    "cuda_graph_events_file",
+    "anchor_tree_readable_file",
+]
 
 
 def _mean(values: Sequence[float]) -> float:
@@ -171,7 +222,7 @@ def _is_alltoall_label(text: str) -> bool:
 
 def _is_collective_like(ev: StreamEvent) -> bool:
     low = ev.label.lower()
-    return any(
+    return "nccl" in low or any(
         name in low
         for name in (
             "allreduce",
@@ -475,6 +526,10 @@ def _default_anchor_compute_reason(item: MainEvent) -> str:
     ev = item.event
     if _normalize_task_key(ev.task_type) in {"HIP_KERNEL", "ROCPROF_KERNEL"}:
         return "anchor_hygon_kernel"
+    if _normalize_task_key(ev.task_type) == "CUDA_GRAPH_TRACE":
+        return "anchor_cuda_graph_replay"
+    if _normalize_task_key(ev.task_type) == "CUDA_KERNEL" and not ev.label.startswith("CudaAux:"):
+        return "anchor_cuda_kernel"
     family = _label_family(ev.label, ev.category)
     if family in {"matmul", "norm", "attention", "swiglu", "rope"}:
         return f"anchor_family:{family}"
@@ -965,6 +1020,249 @@ def _build_steps(
     return rows
 
 
+def _parse_source_key(source_key: object) -> Dict[str, str]:
+    fields: Dict[str, str] = {}
+    for part in str(source_key or "").split(";"):
+        if "=" not in part:
+            continue
+        key, value = part.split("=", 1)
+        fields[key] = value
+    return fields
+
+
+def _cuda_graph_event_rows(
+    *,
+    selection: StreamSelection,
+    step_rows: Sequence[Dict[str, object]],
+    events_file: str,
+    anchor_tree_readable_file: str,
+) -> List[Dict[str, object]]:
+    rows: List[Dict[str, object]] = []
+    for event_idx, row in enumerate(
+        (r for r in step_rows if str(r.get("task_type", "")) == "CUDA_GRAPH_TRACE"),
+        start=1,
+    ):
+        source_fields = _parse_source_key(row.get("source_key", ""))
+        rows.append(
+            {
+                "graph_event_idx": event_idx,
+                "db_idx": selection.db_idx,
+                "db": str(selection.db_path),
+                "global_rank": selection.global_rank,
+                "device_id": selection.device_id,
+                "step_idx": row.get("step_idx", ""),
+                "symbol": row.get("symbol", ""),
+                "semantic_role": row.get("semantic_role", ""),
+                "semantic_role_reason": row.get("semantic_role_reason", ""),
+                "label": row.get("label", ""),
+                "task_type": row.get("task_type", ""),
+                "source_table": row.get("source_table", ""),
+                "stream_id": row.get("stream_id", ""),
+                "correlation_id": source_fields.get("correlationId", ""),
+                "graph_id": source_fields.get("graphId", ""),
+                "graph_exec_id": source_fields.get("graphExecId", ""),
+                "context_id": source_fields.get("contextId", ""),
+                "start_ns": row.get("start_ns", ""),
+                "end_ns": row.get("end_ns", ""),
+                "dur_us": row.get("dur_us", ""),
+                "prelude_idle_us": row.get("prelude_idle_us", ""),
+                "prelude_comm_us": row.get("prelude_comm_us", ""),
+                "prelude_wait_us": row.get("prelude_wait_us", ""),
+                "source_key": row.get("source_key", ""),
+                "cuda_graph_events_file": events_file,
+                "anchor_tree_readable_file": anchor_tree_readable_file,
+            }
+        )
+    return rows
+
+
+def _cuda_graph_envelope_rows(
+    *,
+    selection: StreamSelection,
+    step_rows: Sequence[Dict[str, object]],
+    envelope_file: str,
+    graph_events_file: str,
+    anchor_tree_readable_file: str,
+) -> List[Dict[str, object]]:
+    graphs = [row for row in step_rows if str(row.get("task_type", "")) == "CUDA_GRAPH_TRACE"]
+    graphs_by_stream: Dict[Tuple[int, int], List[Dict[str, object]]] = {}
+    for graph in graphs:
+        key = (_safe_int(graph.get("device_id")), _safe_int(graph.get("stream_id")))
+        graphs_by_stream.setdefault(key, []).append(graph)
+    for stream_graphs in graphs_by_stream.values():
+        stream_graphs.sort(key=lambda row: (_safe_int(row.get("start_ns")), _safe_int(row.get("end_ns"))))
+
+    candidates = [
+        row
+        for row in step_rows
+        if str(row.get("task_type", "")) != "CUDA_GRAPH_TRACE"
+        and str(row.get("source_table", "")).startswith("CUPTI_ACTIVITY_KIND_")
+    ]
+    candidates.sort(key=lambda row: (_safe_int(row.get("start_ns")), _safe_int(row.get("end_ns"))))
+    starts = [_safe_int(row.get("start_ns")) for row in candidates]
+
+    rows: List[Dict[str, object]] = []
+    envelope_idx = 0
+
+    def append_link(
+        *,
+        graph: Dict[str, object],
+        child: Dict[str, object],
+        relation: str,
+        source_fields: Dict[str, str],
+        graph_start: int,
+        graph_end: int,
+    ) -> None:
+        nonlocal envelope_idx
+        child_start = _safe_int(child.get("start_ns"))
+        child_end = _safe_int(child.get("end_ns"))
+        if child_end <= child_start:
+            return
+        envelope_idx += 1
+        rows.append(
+            {
+                "envelope_idx": envelope_idx,
+                "db_idx": selection.db_idx,
+                "db": str(selection.db_path),
+                "global_rank": selection.global_rank,
+                "device_id": selection.device_id,
+                "graph_step_idx": graph.get("step_idx", ""),
+                "graph_symbol": graph.get("symbol", ""),
+                "graph_label": graph.get("label", ""),
+                "graph_stream_id": graph.get("stream_id", ""),
+                "graph_correlation_id": source_fields.get("correlationId", ""),
+                "graph_id": source_fields.get("graphId", ""),
+                "graph_exec_id": source_fields.get("graphExecId", ""),
+                "graph_context_id": source_fields.get("contextId", ""),
+                "graph_start_ns": graph_start,
+                "graph_end_ns": graph_end,
+                "graph_dur_us": graph.get("dur_us", ""),
+                "child_step_idx": child.get("step_idx", ""),
+                "child_symbol": child.get("symbol", ""),
+                "child_label": child.get("label", ""),
+                "child_task_type": child.get("task_type", ""),
+                "child_source_table": child.get("source_table", ""),
+                "child_stream_id": child.get("stream_id", ""),
+                "child_start_ns": child_start,
+                "child_end_ns": child_end,
+                "child_dur_us": child.get("dur_us", ""),
+                "start_offset_us": round((child_start - graph_start) / 1000.0, 3),
+                "end_offset_us": round((child_end - graph_start) / 1000.0, 3),
+                "stream_relation": (
+                    "same_stream"
+                    if str(child.get("stream_id", "")) == str(graph.get("stream_id", ""))
+                    else "different_stream"
+                ),
+                "relation": relation,
+                "cuda_graph_envelope_file": envelope_file,
+                "cuda_graph_events_file": graph_events_file,
+                "anchor_tree_readable_file": anchor_tree_readable_file,
+            }
+        )
+
+    for graph in graphs:
+        graph_start = _safe_int(graph.get("start_ns"))
+        graph_end = _safe_int(graph.get("end_ns"))
+        if graph_end <= graph_start:
+            continue
+        source_fields = _parse_source_key(graph.get("source_key", ""))
+
+        graph_links_before = len(rows)
+        lo = bisect.bisect_left(starts, graph_start)
+        hi = bisect.bisect_right(starts, graph_end)
+        for child in candidates[lo:hi]:
+            child_start = _safe_int(child.get("start_ns"))
+            child_end = _safe_int(child.get("end_ns"))
+            if child_start < graph_start or child_end > graph_end or child_end <= child_start:
+                continue
+            append_link(
+                graph=graph,
+                child=child,
+                relation="time_contained",
+                source_fields=source_fields,
+                graph_start=graph_start,
+                graph_end=graph_end,
+            )
+
+        if len(rows) > graph_links_before:
+            continue
+
+        stream_key = (_safe_int(graph.get("device_id")), _safe_int(graph.get("stream_id")))
+        stream_graphs = graphs_by_stream.get(stream_key, [])
+        next_graph_start = 0
+        for other in stream_graphs:
+            other_start = _safe_int(other.get("start_ns"))
+            if other_start > graph_start:
+                next_graph_start = other_start
+                break
+        if next_graph_start <= graph_end:
+            next_graph_start = graph_end + CUDA_GRAPH_POST_REPLAY_TAIL_NS
+
+        lo = bisect.bisect_left(starts, graph_end)
+        hi = bisect.bisect_left(starts, next_graph_start)
+        for child in candidates[lo:hi]:
+            child_start = _safe_int(child.get("start_ns"))
+            child_end = _safe_int(child.get("end_ns"))
+            if child_start < graph_end or child_start >= next_graph_start or child_end <= child_start:
+                continue
+            if str(child.get("stream_id", "")) != str(graph.get("stream_id", "")):
+                continue
+            append_link(
+                graph=graph,
+                child=child,
+                relation="post_replay_segment",
+                source_fields=source_fields,
+                graph_start=graph_start,
+                graph_end=graph_end,
+            )
+    return rows
+
+
+def _augment_cuda_graph_event_rows_with_envelope(
+    graph_rows: Sequence[Dict[str, object]],
+    envelope_rows: Sequence[Dict[str, object]],
+) -> List[Dict[str, object]]:
+    by_graph_step: Dict[str, Dict[str, object]] = {}
+    for row in envelope_rows:
+        key = str(row.get("graph_step_idx", ""))
+        bucket = by_graph_step.setdefault(
+            key,
+            {
+                "event_count": 0,
+                "event_us": 0.0,
+                "kernel_count": 0,
+                "kernel_us": 0.0,
+                "top_labels": Counter(),
+            },
+        )
+        child_us = float(row.get("child_dur_us", 0.0) or 0.0)
+        bucket["event_count"] = int(bucket["event_count"]) + 1
+        bucket["event_us"] = float(bucket["event_us"]) + child_us
+        if str(row.get("child_task_type", "")).endswith("KERNEL"):
+            bucket["kernel_count"] = int(bucket["kernel_count"]) + 1
+            bucket["kernel_us"] = float(bucket["kernel_us"]) + child_us
+        top_labels = bucket["top_labels"]
+        if isinstance(top_labels, Counter):
+            top_labels[str(row.get("child_label", ""))] += 1
+
+    out: List[Dict[str, object]] = []
+    for row in graph_rows:
+        row = dict(row)
+        bucket = by_graph_step.get(str(row.get("step_idx", "")), {})
+        row["enclosed_event_count"] = int(bucket.get("event_count", 0) or 0)
+        row["enclosed_event_us"] = round(float(bucket.get("event_us", 0.0) or 0.0), 3)
+        row["enclosed_kernel_count"] = int(bucket.get("kernel_count", 0) or 0)
+        row["enclosed_kernel_us"] = round(float(bucket.get("kernel_us", 0.0) or 0.0), 3)
+        top_labels = bucket.get("top_labels")
+        row["enclosed_top_labels"] = (
+            " ".join(f"{label}:{count}" for label, count in top_labels.most_common(6))
+            if isinstance(top_labels, Counter)
+            else ""
+        )
+        out.append(row)
+    return out
+
+
 def _augment_symbol_rows(symbol_rows: List[Dict[str, object]], step_rows: Sequence[Dict[str, object]]) -> List[Dict[str, object]]:
     by_symbol: Dict[str, List[Dict[str, object]]] = {}
     for row in step_rows:
@@ -1015,7 +1313,6 @@ def _fold_adjacent_macro_loops(
     defs: List[MacroDef],
     *,
     macro_id: int,
-    max_macro_defs: int,
     min_repeat_count: int = 2,
 ) -> Tuple[List[GrammarToken], int]:
     """Fold adjacent equal bare macro refs into opaque loop macro refs.
@@ -1028,10 +1325,7 @@ def _fold_adjacent_macro_loops(
     out = list(seq_tokens)
     macro_levels: Dict[str, str] = {d.name: d.level for d in defs}
 
-    def has_budget() -> bool:
-        return max_macro_defs <= 0 or len(defs) < max_macro_defs
-
-    while has_budget() and len(out) >= min_repeat_count:
+    while len(out) >= min_repeat_count:
         candidates: Dict[Tuple[str, int], Dict[str, int]] = {}
         i = 0
         while i < len(out):
@@ -1118,15 +1412,11 @@ def _fold_adjacent_symbol_runs(
     defs: List[MacroDef],
     *,
     macro_id: int,
-    max_macro_defs: int,
     min_repeat_count: int = 2,
 ) -> Tuple[List[GrammarToken], int]:
     out = list(seq_tokens)
 
-    def has_budget() -> bool:
-        return max_macro_defs <= 0 or len(defs) < max_macro_defs
-
-    while has_budget() and len(out) >= min_repeat_count:
+    while len(out) >= min_repeat_count:
         candidates: Dict[Tuple[str, int], Dict[str, object]] = {}
         i = 0
         while i < len(out):
@@ -1202,17 +1492,13 @@ def _fold_adjacent_repeated_blocks(
     defs: List[MacroDef],
     *,
     macro_id: int,
-    max_macro_defs: int,
     min_block_len: int = 2,
     min_repeat_count: int = 2,
     max_block_len: int = 64,
 ) -> Tuple[List[GrammarToken], int]:
     out = list(seq_tokens)
 
-    def has_budget(extra_defs: int = 2) -> bool:
-        return max_macro_defs <= 0 or len(defs) + extra_defs <= max_macro_defs
-
-    while has_budget() and len(out) >= min_block_len * min_repeat_count:
+    while len(out) >= min_block_len * min_repeat_count:
         names = tuple(tok.name for tok in out)
         best: Tuple[int, int, int, int] | None = None
         n = len(out)
@@ -1319,8 +1605,6 @@ def _fold_adjacent_repeated_blocks(
 def _discover_pair_grammar_macros(
     symbol_seq: Sequence[str],
     atom_windows: Sequence[Tuple[int, int]],
-    *,
-    max_macro_defs: int,
 ) -> Tuple[List[str], List[MacroDef], List[MacroDef]]:
     if len(symbol_seq) < 2:
         return list(symbol_seq), [], []
@@ -1335,16 +1619,14 @@ def _discover_pair_grammar_macros(
         seq_tokens,
         defs,
         macro_id=macro_id,
-        max_macro_defs=max_macro_defs,
     )
     seq_tokens, macro_id = _fold_adjacent_repeated_blocks(
         seq_tokens,
         defs,
         macro_id=macro_id,
-        max_macro_defs=max_macro_defs,
     )
 
-    while (max_macro_defs <= 0 or len(defs) < max_macro_defs) and len(seq_tokens) >= 2:
+    while len(seq_tokens) >= 2:
         counts: Counter[Tuple[str, str]] = Counter(
             (seq_tokens[i].name, seq_tokens[i + 1].name)
             for i in range(len(seq_tokens) - 1)
@@ -1411,7 +1693,6 @@ def _discover_pair_grammar_macros(
             seq_tokens,
             defs,
             macro_id=macro_id,
-            max_macro_defs=max_macro_defs,
         )
 
     final_tokens = [t.name for t in seq_tokens]
@@ -3055,6 +3336,8 @@ def _render_anchor_readable(
 def _rank_devices(db_paths: Sequence[Path], cfg: ComputePreludeConfig) -> List[DeviceSelection]:
     if db_paths and is_hygon_profile(db_paths[0]):
         ranked_streams, _ranking_rows = rank_hygon_streams_global(list(db_paths))
+    elif db_paths and is_cuda_profile(db_paths[0]):
+        ranked_streams, _ranking_rows = rank_cuda_streams_global(list(db_paths))
     else:
         ranked_streams, _ranking_rows = _rank_streams_global(db_paths)
     buckets: Dict[Tuple[int, int], Dict[str, object]] = {}
@@ -3158,6 +3441,7 @@ def _build_run_summary_markdown(
     *,
     summary_rows: Sequence[Dict[str, object]],
     loop_cost_rows: Sequence[Dict[str, object]],
+    cuda_graph_event_rows: Sequence[Dict[str, object]],
     out_dir: Path,
     top_loops: int,
     output_mode: str,
@@ -3234,6 +3518,35 @@ def _build_run_summary_markdown(
     else:
         lines.append("No repeat nodes were detected in the selected anchor timelines.")
     lines.append("")
+    lines.append("## CUDA Graph Replay")
+    lines.append("")
+    if cuda_graph_event_rows:
+        total_graph_us = round(sum(float(row.get("dur_us", 0.0) or 0.0) for row in cuda_graph_event_rows), 3)
+        enclosed_events = sum(int(row.get("enclosed_event_count", 0) or 0) for row in cuda_graph_event_rows)
+        enclosed_kernels = sum(int(row.get("enclosed_kernel_count", 0) or 0) for row in cuda_graph_event_rows)
+        enclosed_kernel_us = round(sum(float(row.get("enclosed_kernel_us", 0.0) or 0.0) for row in cuda_graph_event_rows), 3)
+        lines.append(f"- events: `{len(cuda_graph_event_rows)}`")
+        lines.append(f"- total_us: `{total_graph_us}`")
+        lines.append(f"- enclosed_events: `{enclosed_events}`")
+        lines.append(f"- enclosed_kernels: `{enclosed_kernels}`")
+        lines.append(f"- enclosed_kernel_us: `{enclosed_kernel_us}`")
+        if output_mode == "full":
+            lines.append("- file: `cuda_graph_events.csv`")
+            lines.append("- envelope_file: `cuda_graph_envelope_events.csv`")
+        by_exec: Dict[str, Dict[str, float]] = {}
+        for row in cuda_graph_event_rows:
+            graph_exec_id = str(row.get("graph_exec_id", ""))
+            bucket = by_exec.setdefault(graph_exec_id, {"events": 0.0, "total_us": 0.0})
+            bucket["events"] += 1.0
+            bucket["total_us"] += float(row.get("dur_us", 0.0) or 0.0)
+        lines.append("")
+        lines.append("| graph_exec_id | events | total_us |")
+        lines.append("| --- | ---: | ---: |")
+        for graph_exec_id, bucket in sorted(by_exec.items(), key=lambda item: item[1]["total_us"], reverse=True)[:10]:
+            lines.append(f"| {graph_exec_id} | {int(bucket['events'])} | {round(bucket['total_us'], 3)} |")
+    else:
+        lines.append("No CUDA Graph replay events were found in the selected timelines.")
+    lines.append("")
     lines.append("## Main Files")
     lines.append("")
     lines.append("- `dbNN.traceloom_augmented.db`")
@@ -3247,6 +3560,8 @@ def _build_run_summary_markdown(
         lines.append("- `compute_anchor_loop_costs.csv`")
         lines.append("- `compute_anchor_node_metrics.csv`")
         lines.append("- `compute_anchor_aux_slots.csv`")
+        lines.append("- `cuda_graph_events.csv`")
+        lines.append("- `cuda_graph_envelope_events.csv`")
     return "\n".join(lines) + "\n"
 
 
@@ -3358,8 +3673,13 @@ def _format_console_summary(meta: Dict[str, object]) -> str:
             [
                 f"loop_costs: {_relpath_or_self(str(meta.get('anchor_loop_costs_file', '')), out_dir)}",
                 f"node_metrics: {_relpath_or_self(str(meta.get('anchor_node_metrics_file', '')), out_dir)}",
+                f"cuda_graph_events: {_relpath_or_self(str(meta.get('cuda_graph_events_file', '')), out_dir)}",
+                f"cuda_graph_envelope: {_relpath_or_self(str(meta.get('cuda_graph_envelope_file', '')), out_dir)}",
             ]
         )
+    if int(meta.get("cuda_graph_event_count", 0) or 0):
+        lines.append(f"cuda_graph_event_count: {meta.get('cuda_graph_event_count', 0)}")
+        lines.append(f"cuda_graph_envelope_event_count: {meta.get('cuda_graph_envelope_event_count', 0)}")
     return "\n".join(lines)
 
 
@@ -3464,10 +3784,15 @@ def run_compute_prelude_timeline(
     all_anchor_node_link_rows: List[Dict[str, object]] = []
     all_anchor_macro_loop_chain_rows: List[Dict[str, object]] = []
     all_anchor_loop_cost_rows: List[Dict[str, object]] = []
+    all_cuda_graph_event_rows: List[Dict[str, object]] = []
+    all_cuda_graph_envelope_rows: List[Dict[str, object]] = []
 
     for selection in selections:
         if is_hygon_profile(selection.db_path):
             device_events, stream_stats = load_hygon_device_events(selection.db_path, selection.device_id)
+            communication_op_events = []
+        elif is_cuda_profile(selection.db_path):
+            device_events, stream_stats = load_cuda_device_events(selection.db_path, selection.device_id)
             communication_op_events = []
         else:
             device_events, stream_stats = _load_device_events(selection.db_path, selection.device_id)
@@ -3503,7 +3828,6 @@ def run_compute_prelude_timeline(
         final_expr_tokens, l1_defs, l2_defs = _discover_pair_grammar_macros(
             symbol_seq,
             atom_windows,
-            max_macro_defs=cfg.max_macro_defs,
         )
         macro_defs = l1_defs + l2_defs
         macro_rows = _macro_rows(macro_defs)
@@ -3553,7 +3877,6 @@ def run_compute_prelude_timeline(
         anchor_final_expr_tokens, anchor_l1_defs, anchor_l2_defs = _discover_pair_grammar_macros(
             anchor_symbol_seq,
             anchor_atom_windows,
-            max_macro_defs=cfg.max_macro_defs,
         )
         anchor_macro_defs = anchor_l1_defs + anchor_l2_defs
         anchor_macro_rows = _macro_rows(anchor_macro_defs)
@@ -3743,6 +4066,25 @@ def run_compute_prelude_timeline(
         anchor_macro_loop_chains_path = out_dir / f"{stem}.anchor.macro_loop_chains.csv"
         anchor_tree_path = out_dir / f"{stem}.anchor.tree.json"
         anchor_readable_path = out_dir / f"{stem}.anchor.tree.readable.md"
+        cuda_graph_events_path = out_dir / f"{stem}.cuda_graph_events.csv"
+        cuda_graph_envelope_path = out_dir / f"{stem}.cuda_graph_envelope_events.csv"
+        cuda_graph_event_rows = _cuda_graph_event_rows(
+            selection=selection,
+            step_rows=step_rows,
+            events_file=str(cuda_graph_events_path.relative_to(out_dir)),
+            anchor_tree_readable_file=str(anchor_readable_path.relative_to(out_dir)),
+        )
+        cuda_graph_envelope_rows = _cuda_graph_envelope_rows(
+            selection=selection,
+            step_rows=step_rows,
+            envelope_file=str(cuda_graph_envelope_path.relative_to(out_dir)),
+            graph_events_file=str(cuda_graph_events_path.relative_to(out_dir)),
+            anchor_tree_readable_file=str(anchor_readable_path.relative_to(out_dir)),
+        )
+        cuda_graph_event_rows = _augment_cuda_graph_event_rows_with_envelope(
+            cuda_graph_event_rows,
+            cuda_graph_envelope_rows,
+        )
         anchor_loop_cost_rows = _loop_cost_rows(
             selection=selection,
             node_metric_rows=anchor_node_metric_rows,
@@ -3762,6 +4104,8 @@ def run_compute_prelude_timeline(
             node_metric_rows=anchor_node_metric_rows,
             node_anchor_link_rows=anchor_node_link_rows,
             loop_cost_rows=anchor_loop_cost_rows,
+            cuda_graph_event_rows=cuda_graph_event_rows,
+            cuda_graph_envelope_rows=cuda_graph_envelope_rows,
             tree_payload=anchor_tree_payload,
         )
         if write_full_outputs:
@@ -3790,6 +4134,12 @@ def run_compute_prelude_timeline(
             _write_csv(anchor_node_links_path, anchor_node_link_rows)
             _write_csv(anchor_loop_costs_path, anchor_loop_cost_rows)
             _write_csv(anchor_macro_loop_chains_path, anchor_macro_loop_chain_rows)
+            _write_csv(cuda_graph_events_path, cuda_graph_event_rows)
+            _write_csv(
+                cuda_graph_envelope_path,
+                cuda_graph_envelope_rows,
+                fieldnames=CUDA_GRAPH_ENVELOPE_FIELDS,
+            )
             tree_path.write_text(json.dumps(tree_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             raw_tree_path.write_text(json.dumps(raw_tree_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             full_tree_path.write_text(json.dumps(full_tree_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -3954,6 +4304,8 @@ def run_compute_prelude_timeline(
             row["anchor_macro_loop_chains_file"] = str(anchor_macro_loop_chains_path.relative_to(out_dir))
             row["anchor_tree_readable_file"] = str(anchor_readable_path.relative_to(out_dir))
             all_anchor_macro_loop_chain_rows.append(row)
+        all_cuda_graph_event_rows.extend(cuda_graph_event_rows)
+        all_cuda_graph_envelope_rows.extend(cuda_graph_envelope_rows)
 
         summary = _device_summary_row(selection, step_rows)
         summary.update(
@@ -3995,6 +4347,10 @@ def run_compute_prelude_timeline(
                 "anchor_node_links_file": str(anchor_node_links_path.relative_to(out_dir)),
                 "anchor_loop_costs_file": str(anchor_loop_costs_path.relative_to(out_dir)),
                 "anchor_macro_loop_chains_file": str(anchor_macro_loop_chains_path.relative_to(out_dir)),
+                "cuda_graph_event_count": len(cuda_graph_event_rows),
+                "cuda_graph_envelope_event_count": len(cuda_graph_envelope_rows),
+                "cuda_graph_events_file": str(cuda_graph_events_path.relative_to(out_dir)),
+                "cuda_graph_envelope_file": str(cuda_graph_envelope_path.relative_to(out_dir)),
                 "anchor_tree_file": str(anchor_tree_path.relative_to(out_dir)),
                 "anchor_tree_readable_file": str(anchor_readable_path.relative_to(out_dir)),
                 "augmented_db_file": str(augmented_db_path.relative_to(out_dir)),
@@ -4017,6 +4373,12 @@ def run_compute_prelude_timeline(
         _write_csv(out_dir / "compute_anchor_node_anchor_links.csv", all_anchor_node_link_rows)
         _write_csv(out_dir / "compute_anchor_loop_costs.csv", all_anchor_loop_cost_rows)
         _write_csv(out_dir / "compute_anchor_macro_loop_chains.csv", all_anchor_macro_loop_chain_rows)
+        _write_csv(out_dir / "cuda_graph_events.csv", all_cuda_graph_event_rows)
+        _write_csv(
+            out_dir / "cuda_graph_envelope_events.csv",
+            all_cuda_graph_envelope_rows,
+            fieldnames=CUDA_GRAPH_ENVELOPE_FIELDS,
+        )
         _write_csv(out_dir / "device_summary.csv", summary_rows)
 
     meta = {
@@ -4030,7 +4392,6 @@ def run_compute_prelude_timeline(
         "top_devices_global": cfg.top_devices_global,
         "device_ids": list(cfg.device_ids) if cfg.device_ids is not None else None,
         "max_main_events_per_device": cfg.max_main_events_per_device,
-        "max_macro_defs": cfg.max_macro_defs,
         "collective_episode_gap_us": cfg.collective_episode_gap_us,
         "collective_anchor_source": "communication_op_if_available",
         "macro_discovery": "pair_grammar",
@@ -4057,11 +4418,16 @@ def run_compute_prelude_timeline(
         "anchor_node_links_file": str(out_dir / "compute_anchor_node_anchor_links.csv") if write_full_outputs else "",
         "anchor_loop_costs_file": str(out_dir / "compute_anchor_loop_costs.csv") if write_full_outputs else "",
         "anchor_macro_loop_chains_file": str(out_dir / "compute_anchor_macro_loop_chains.csv") if write_full_outputs else "",
+        "cuda_graph_events_file": str(out_dir / "cuda_graph_events.csv") if write_full_outputs else "",
+        "cuda_graph_envelope_file": str(out_dir / "cuda_graph_envelope_events.csv") if write_full_outputs else "",
+        "cuda_graph_event_count": len(all_cuda_graph_event_rows),
+        "cuda_graph_envelope_event_count": len(all_cuda_graph_envelope_rows),
         "augmented_db_files": [str(path) for path in sorted(augmented_db_paths.values())],
     }
     summary_text = _build_run_summary_markdown(
         summary_rows=summary_rows,
         loop_cost_rows=all_anchor_loop_cost_rows,
+        cuda_graph_event_rows=all_cuda_graph_event_rows,
         out_dir=out_dir,
         top_loops=cfg.summary_top_loops,
         output_mode=cfg.output_mode,
@@ -4107,7 +4473,7 @@ def _resolve_msprof_raw_dir(run_dir: Path) -> Path:
             discover_msprof_dbs(candidate)
         except FileNotFoundError as exc:
             last_error = exc
-            if has_hygon_profile_data(candidate):
+            if has_hygon_profile_data(candidate) or has_cuda_profile_data(candidate):
                 return candidate
             continue
         return candidate
@@ -4133,12 +4499,6 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=int,
         default=ComputePreludeConfig.max_main_events_per_device,
         help="Maximum main compute/data-move events per device; 0 means no truncation.",
-    )
-    parser.add_argument(
-        "--max-macro-defs",
-        type=int,
-        default=ComputePreludeConfig.max_macro_defs,
-        help="Maximum macro definitions; 0 means keep discovering pair-grammar macros while gain is positive.",
     )
     parser.add_argument(
         "--collective-episode-gap-us",
@@ -4211,7 +4571,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     cfg = ComputePreludeConfig(
         top_devices_global=args.top_devices_global,
         max_main_events_per_device=args.max_main_events_per_device,
-        max_macro_defs=args.max_macro_defs,
         collective_episode_gap_us=args.collective_episode_gap_us,
         min_main_event_us=args.min_main_event_us,
         readable_macro_mode=args.readable_macro_mode,

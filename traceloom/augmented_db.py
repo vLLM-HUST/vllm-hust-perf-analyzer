@@ -45,6 +45,8 @@ def append_device_analysis(
     node_anchor_link_rows: Sequence[Row],
     loop_cost_rows: Sequence[Row],
     tree_payload: Row,
+    cuda_graph_event_rows: Sequence[Row] = (),
+    cuda_graph_envelope_rows: Sequence[Row] = (),
 ) -> None:
     with sqlite3.connect(str(augmented_db)) as conn:
         conn.execute("PRAGMA foreign_keys=OFF")
@@ -60,6 +62,18 @@ def append_device_analysis(
         _delete_device_rows(conn, db_idx=db_idx, device_id=device_id, view_name=view_name)
         _insert_events(conn, db_idx=db_idx, device_id=device_id, rows=step_rows)
         _insert_anchors(conn, db_idx=db_idx, device_id=device_id, rows=anchor_step_rows)
+        _insert_cuda_graph_replays(
+            conn,
+            db_idx=db_idx,
+            device_id=device_id,
+            rows=cuda_graph_event_rows,
+        )
+        _insert_cuda_graph_envelopes(
+            conn,
+            db_idx=db_idx,
+            device_id=device_id,
+            rows=cuda_graph_envelope_rows,
+        )
         _insert_aux_links(
             conn,
             db_idx=db_idx,
@@ -188,6 +202,54 @@ def _initialize_schema(conn: sqlite3.Connection) -> None:
             PRIMARY KEY(anchor_id, aux_event_id)
         );
 
+        CREATE TABLE IF NOT EXISTS traceloom_cuda_graph_replay (
+            graph_event_id TEXT PRIMARY KEY,
+            db_idx INTEGER NOT NULL,
+            device_id INTEGER NOT NULL,
+            graph_event_idx INTEGER NOT NULL,
+            event_id TEXT NOT NULL,
+            step_idx INTEGER NOT NULL,
+            stream_id INTEGER,
+            correlation_id TEXT,
+            graph_id TEXT,
+            graph_exec_id TEXT,
+            context_id TEXT,
+            start_ns INTEGER,
+            end_ns INTEGER,
+            dur_us REAL,
+            enclosed_event_count INTEGER,
+            enclosed_event_us REAL,
+            enclosed_kernel_count INTEGER,
+            enclosed_kernel_us REAL,
+            raw_json TEXT,
+            UNIQUE(db_idx, device_id, step_idx)
+        );
+
+        CREATE TABLE IF NOT EXISTS traceloom_cuda_graph_envelope (
+            envelope_id TEXT PRIMARY KEY,
+            db_idx INTEGER NOT NULL,
+            device_id INTEGER NOT NULL,
+            envelope_idx INTEGER NOT NULL,
+            graph_event_id TEXT NOT NULL,
+            child_event_id TEXT NOT NULL,
+            graph_step_idx INTEGER NOT NULL,
+            child_step_idx INTEGER NOT NULL,
+            relation TEXT NOT NULL,
+            stream_relation TEXT,
+            graph_id TEXT,
+            graph_exec_id TEXT,
+            graph_correlation_id TEXT,
+            graph_start_ns INTEGER,
+            graph_end_ns INTEGER,
+            child_start_ns INTEGER,
+            child_end_ns INTEGER,
+            start_offset_us REAL,
+            end_offset_us REAL,
+            child_dur_us REAL,
+            raw_json TEXT,
+            UNIQUE(db_idx, device_id, graph_step_idx, child_step_idx)
+        );
+
         CREATE TABLE IF NOT EXISTS traceloom_viz_node (
             node_id TEXT PRIMARY KEY,
             db_idx INTEGER NOT NULL,
@@ -285,6 +347,12 @@ def _initialize_schema(conn: sqlite3.Connection) -> None:
             ON traceloom_anchor(db_idx, device_id, anchor_idx);
         CREATE INDEX IF NOT EXISTS idx_traceloom_aux_anchor
             ON traceloom_aux_link(anchor_id);
+        CREATE INDEX IF NOT EXISTS idx_traceloom_cuda_graph_replay_exec
+            ON traceloom_cuda_graph_replay(db_idx, device_id, graph_exec_id);
+        CREATE INDEX IF NOT EXISTS idx_traceloom_cuda_graph_envelope_graph
+            ON traceloom_cuda_graph_envelope(graph_event_id);
+        CREATE INDEX IF NOT EXISTS idx_traceloom_cuda_graph_envelope_child
+            ON traceloom_cuda_graph_envelope(child_event_id);
         CREATE INDEX IF NOT EXISTS idx_traceloom_node_anchor_node
             ON traceloom_viz_node_anchor(node_id);
         CREATE INDEX IF NOT EXISTS idx_traceloom_node_anchor_anchor
@@ -317,6 +385,36 @@ def _initialize_schema(conn: sqlite3.Connection) -> None:
             FROM traceloom_viz_node_anchor na
             JOIN traceloom_aux_link al ON al.anchor_id = na.anchor_id
             JOIN traceloom_event e ON e.event_id = al.aux_event_id;
+
+        CREATE VIEW IF NOT EXISTS traceloom_v_cuda_graph_replay AS
+            SELECT
+                g.*,
+                e.symbol,
+                e.label,
+                e.task_type,
+                e.semantic_role,
+                e.semantic_role_reason,
+                a.anchor_idx
+            FROM traceloom_cuda_graph_replay g
+            JOIN traceloom_event e ON e.event_id = g.event_id
+            LEFT JOIN traceloom_anchor a ON a.event_id = e.event_id;
+
+        CREATE VIEW IF NOT EXISTS traceloom_v_cuda_graph_envelope AS
+            SELECT
+                ge.*,
+                graph_anchor.anchor_idx AS graph_anchor_idx,
+                graph.label AS graph_label,
+                graph.stream_id AS graph_stream_id,
+                child.label AS child_label,
+                child.task_type AS child_task_type,
+                child.source_table AS child_source_table,
+                child.stream_id AS child_stream_id,
+                child.symbol AS child_symbol,
+                child.semantic_role AS child_semantic_role
+            FROM traceloom_cuda_graph_envelope ge
+            JOIN traceloom_event graph ON graph.event_id = ge.graph_event_id
+            LEFT JOIN traceloom_anchor graph_anchor ON graph_anchor.event_id = graph.event_id
+            JOIN traceloom_event child ON child.event_id = ge.child_event_id;
 
         CREATE VIEW IF NOT EXISTS traceloom_v_node_cost AS
             SELECT
@@ -544,6 +642,8 @@ def _delete_device_rows(conn: sqlite3.Connection, *, db_idx: int, device_id: int
             params,
         )
     for table in (
+        "traceloom_cuda_graph_envelope",
+        "traceloom_cuda_graph_replay",
         "traceloom_aux_link",
         "traceloom_anchor_aux_slot",
         "traceloom_anchor",
@@ -648,6 +748,105 @@ def _insert_anchors(conn: sqlite3.Connection, *, db_idx: int, device_id: int, ro
             anchor_id, db_idx, device_id, anchor_idx, event_id, step_idx,
             symbol, role, label, family, start_ns, end_ns, dur_us
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        values,
+    )
+
+
+def _insert_cuda_graph_replays(
+    conn: sqlite3.Connection,
+    *,
+    db_idx: int,
+    device_id: int,
+    rows: Sequence[Row],
+) -> None:
+    values = []
+    for row in rows:
+        step_idx = _as_int(row.get("step_idx"))
+        event_id = _event_id(db_idx, device_id, step_idx)
+        values.append(
+            (
+                event_id,
+                db_idx,
+                device_id,
+                _as_int(row.get("graph_event_idx")),
+                event_id,
+                step_idx,
+                _nullable_int(row.get("stream_id")),
+                str(row.get("correlation_id", "")),
+                str(row.get("graph_id", "")),
+                str(row.get("graph_exec_id", "")),
+                str(row.get("context_id", "")),
+                _nullable_int(row.get("start_ns")),
+                _nullable_int(row.get("end_ns")),
+                _nullable_float(row.get("dur_us")),
+                _nullable_int(row.get("enclosed_event_count")),
+                _nullable_float(row.get("enclosed_event_us")),
+                _nullable_int(row.get("enclosed_kernel_count")),
+                _nullable_float(row.get("enclosed_kernel_us")),
+                _json_value(row),
+            )
+        )
+    conn.executemany(
+        """
+        INSERT OR REPLACE INTO traceloom_cuda_graph_replay(
+            graph_event_id, db_idx, device_id, graph_event_idx, event_id,
+            step_idx, stream_id, correlation_id, graph_id, graph_exec_id,
+            context_id, start_ns, end_ns, dur_us, enclosed_event_count,
+            enclosed_event_us, enclosed_kernel_count, enclosed_kernel_us,
+            raw_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        values,
+    )
+
+
+def _insert_cuda_graph_envelopes(
+    conn: sqlite3.Connection,
+    *,
+    db_idx: int,
+    device_id: int,
+    rows: Sequence[Row],
+) -> None:
+    values = []
+    for row in rows:
+        graph_step_idx = _as_int(row.get("graph_step_idx"))
+        child_step_idx = _as_int(row.get("child_step_idx"))
+        envelope_idx = _as_int(row.get("envelope_idx"))
+        values.append(
+            (
+                f"db{db_idx:02d}:dev{device_id}:cuda_graph_envelope{envelope_idx}",
+                db_idx,
+                device_id,
+                envelope_idx,
+                _event_id(db_idx, device_id, graph_step_idx),
+                _event_id(db_idx, device_id, child_step_idx),
+                graph_step_idx,
+                child_step_idx,
+                str(row.get("relation", "")),
+                str(row.get("stream_relation", "")),
+                str(row.get("graph_id", "")),
+                str(row.get("graph_exec_id", "")),
+                str(row.get("graph_correlation_id", "")),
+                _nullable_int(row.get("graph_start_ns")),
+                _nullable_int(row.get("graph_end_ns")),
+                _nullable_int(row.get("child_start_ns")),
+                _nullable_int(row.get("child_end_ns")),
+                _nullable_float(row.get("start_offset_us")),
+                _nullable_float(row.get("end_offset_us")),
+                _nullable_float(row.get("child_dur_us")),
+                _json_value(row),
+            )
+        )
+    conn.executemany(
+        """
+        INSERT OR REPLACE INTO traceloom_cuda_graph_envelope(
+            envelope_id, db_idx, device_id, envelope_idx, graph_event_id,
+            child_event_id, graph_step_idx, child_step_idx, relation,
+            stream_relation, graph_id, graph_exec_id, graph_correlation_id,
+            graph_start_ns, graph_end_ns, child_start_ns, child_end_ns,
+            start_offset_us, end_offset_us, child_dur_us, raw_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         values,
     )

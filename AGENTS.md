@@ -61,8 +61,7 @@ If a profile is very large, start with bounded analysis:
 traceloom analysis /path/to/msprof_raw \
   --out-dir /path/to/analysis \
   --top-devices-global 4 \
-  --max-main-events-per-device 5000 \
-  --max-macro-defs 32
+  --max-main-events-per-device 5000
 ```
 
 Use `--devices 3,4,5,6` to pin physical Ascend device IDs.

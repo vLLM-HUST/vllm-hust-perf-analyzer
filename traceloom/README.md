@@ -42,8 +42,10 @@ also write the legacy CSV/JSON debug files.
 
 Analysis defaults to every discovered device. Use `--devices 3,4,5,6`, or the
 matching `[analysis] devices` config key, when a run should be pinned to a
-specific physical device set. Set `max_main_events_per_device = 0` or
-`max_macro_defs = 0` only for an exhaustive pass over a large profile.
+specific physical device set. Set `max_main_events_per_device = 0` only when
+you want to disable event truncation for an exhaustive pass over a large
+profile. Macro discovery is always unbounded and stops only when no profitable
+compression remains.
 
 Direct analysis of an existing profile:
 
@@ -52,8 +54,7 @@ python3 -m traceloom analysis \
   <run_dir-or-raw-msprof-dir> \
   --out-dir /tmp/traceloom_out \
   --output-mode full \
-  --max-main-events-per-device 0 \
-  --max-macro-defs 0
+  --max-main-events-per-device 0
 ```
 
 From a checkout, run the module directly when the package is not installed:

@@ -58,9 +58,25 @@ analyzer, but they are not the default user-facing bundle.
   anchors.
 - `*.anchor.root_item_metrics.csv`: top-level item metrics for the compressed
   root sequence, when emitted.
+- `*.cuda_graph_events.csv`: CUDA Graph replay evidence table, one row per
+  `CUPTI_ACTIVITY_KIND_GRAPH_TRACE` event modeled as a `CudaGraphReplay`
+  anchor. It includes stream, timing, `correlation_id`, `graph_id`,
+  `graph_exec_id`, `context_id`, semantic role, enclosed-event counts, and tree
+  file references.
+- `*.cuda_graph_envelope_events.csv`: best-effort CUDA Graph replay envelope
+  links. Each row connects a `CudaGraphReplay` event to a CUDA activity event
+  associated with the replay. TraceLoom first uses direct time containment. For
+  Nsight exports where kernels appear immediately after the graph trace interval
+  rather than inside it, TraceLoom falls back to a same-stream
+  `post_replay_segment` relation, bounded by the next graph replay on that
+  stream or a short tail window for the final replay.
 
 The run-level `compute_anchor_loop_costs.csv` concatenates all per-device
 `*.anchor.loop_costs.csv` files.
+The run-level `cuda_graph_events.csv` concatenates all per-device CUDA Graph
+replay evidence tables.
+The run-level `cuda_graph_envelope_events.csv` concatenates all CUDA Graph
+envelope links.
 
 ## Compatibility Rule
 

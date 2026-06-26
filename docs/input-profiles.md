@@ -18,14 +18,22 @@ them; otherwise the analyzer falls back to task coalescing.
 
 ## CUDA/Nsight
 
-CUDA/Nsight support is a target interface, not the current parser. The intended
-path is:
+CUDA/Nsight support currently accepts SQLite exports produced by Nsight Systems:
 
-1. collect a native Nsight Systems profile from the user's workload;
-2. export or read a timeline representation that can be mapped to Perfetto /
-   Chrome Trace style events;
-3. normalize kernels and collectives into TraceLoom semantic anchors;
-4. run the same loop tree, metrics, report, and augmented timeline exporters.
+```bash
+nsys profile --trace=cuda,nvtx,osrt -o run_name <workload command>
+nsys export --type=sqlite --force-overwrite=true -o run_name.sqlite run_name.nsys-rep
+traceloom analysis /path/to/directory/containing/run_name.sqlite --out-dir /path/to/analysis
+```
+
+The adapter reads CUPTI kernel, CUDA Graph replay, memcpy, memset, and
+synchronization activity from the SQLite export. CUDA Graph replay rows are
+modeled as `CudaGraphReplay` execution anchors; major CUDA kernels and
+NCCL-like collectives are normalized into TraceLoom semantic anchors. The CUDA
+path reuses the same loop tree, metrics, report, and augmented database
+exporters as the Ascend path. NVTX ranges are preserved in the source SQLite and
+can be queried directly; first-pass semantic projection is driven by GPU
+activity rows.
 
 ## Artifact Policy
 

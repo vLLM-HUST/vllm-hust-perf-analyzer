@@ -83,9 +83,6 @@ def _analysis_config_from_args(args: argparse.Namespace) -> ComputePreludeConfig
             "max_main_events_per_device",
             ComputePreludeConfig.max_main_events_per_device,
         ),
-        max_macro_defs=args.max_macro_defs
-        if args.max_macro_defs is not None
-        else _int_option(cfg, "analysis", "max_macro_defs", ComputePreludeConfig.max_macro_defs),
         collective_episode_gap_us=args.collective_episode_gap_us
         if args.collective_episode_gap_us is not None
         else _float_option(
@@ -171,12 +168,6 @@ def add_analysis_options(parser: argparse.ArgumentParser) -> None:
         type=int,
         default=None,
         help="Maximum main compute/data-move events per device; 0 means no truncation.",
-    )
-    parser.add_argument(
-        "--max-macro-defs",
-        type=int,
-        default=None,
-        help="Maximum macro definitions; 0 means keep discovering while gain is positive.",
     )
     parser.add_argument(
         "--collective-episode-gap-us",

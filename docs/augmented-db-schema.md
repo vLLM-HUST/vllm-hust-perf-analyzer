@@ -64,6 +64,36 @@ Important columns:
 - `link_type`: currently `prelude`.
 - `reason`: semantic-role reason from the classifier.
 
+### `traceloom_cuda_graph_replay`
+
+CUDA Graph replay evidence. Each row corresponds to a normalized
+`CudaGraphReplay` event backed by `CUPTI_ACTIVITY_KIND_GRAPH_TRACE`.
+
+Important columns:
+
+- `graph_event_id` / `event_id`: stable TraceLoom event key for the replay.
+- `correlation_id`, `graph_id`, `graph_exec_id`, `context_id`: parsed Nsight
+  graph identity fields.
+- `start_ns`, `end_ns`, `dur_us`.
+- `enclosed_event_count`, `enclosed_kernel_count`: best-effort envelope counts.
+
+### `traceloom_cuda_graph_envelope`
+
+Best-effort links from a CUDA Graph replay event to CUDA activity events
+associated with the replay. TraceLoom first uses direct time containment. Some
+Nsight exports summarize replay as a graph launch interval and emit the GPU
+activity immediately after it; for those profiles TraceLoom falls back to a
+same-stream `post_replay_segment`, bounded by the next graph replay on the same
+stream or a short tail window for the final replay.
+
+Important columns:
+
+- `graph_event_id`: replay event id.
+- `child_event_id`: contained CUDA activity event id.
+- `relation`: `time_contained` or `post_replay_segment`.
+- `start_offset_us`, `end_offset_us`: child timing relative to graph replay
+  start.
+
 ## Visualization Structure
 
 ### `traceloom_viz_node`
@@ -123,6 +153,10 @@ TraceLoom creates these views for common report SQL:
   down from a tree node to anchors and events.
 - `traceloom_v_node_anchor_cost`: anchor-event cost per node.
 - `traceloom_v_node_aux_cost`: aux/prelude cost per node.
+- `traceloom_v_cuda_graph_replay`: CUDA Graph replay rows joined to normalized
+  TraceLoom event/anchor metadata.
+- `traceloom_v_cuda_graph_envelope`: CUDA Graph replay-to-contained-event
+  links joined to normalized child event metadata.
 - `traceloom_v_node_cost`: combined node cost and structure fields.
 - `traceloom_v_node_children`: ordered child nodes.
 

@@ -60,6 +60,20 @@ def _is_hipprof_db(db: Path) -> bool:
         return False
 
 
+def _is_nsys_sqlite_db(db: Path) -> bool:
+    try:
+        with sqlite3.connect(f"file:{db.resolve()}?immutable=1", uri=True) as conn:
+            return (
+                _table_exists(conn, "CUPTI_ACTIVITY_KIND_KERNEL")
+                and _table_row_count(conn, "CUPTI_ACTIVITY_KIND_KERNEL") > 0
+            ) or (
+                _table_exists(conn, "CUPTI_ACTIVITY_KIND_GRAPH_TRACE")
+                and _table_row_count(conn, "CUPTI_ACTIVITY_KIND_GRAPH_TRACE") > 0
+            )
+    except sqlite3.Error:
+        return False
+
+
 def _is_rocprof_csv(path: Path) -> bool:
     try:
         with path.open("r", encoding="utf-8", newline="", errors="replace") as f:
@@ -206,6 +220,20 @@ def has_hygon_profile_data(run_dir: Path) -> bool:
     return any(_is_rocprof_csv(csv_path) for csv_path in sorted(run_dir.rglob("*.csv")))
 
 
+def discover_cuda_profile_dbs(run_dir: Path) -> List[Path]:
+    out: List[Path] = []
+    for db in sorted(list(run_dir.rglob("*.sqlite")) + list(run_dir.rglob("*.db"))):
+        if db.name.endswith(".traceloom_augmented.db"):
+            continue
+        if _is_nsys_sqlite_db(db):
+            out.append(db.resolve())
+    return out
+
+
+def has_cuda_profile_data(run_dir: Path) -> bool:
+    return bool(discover_cuda_profile_dbs(run_dir))
+
+
 def discover_profile_dbs(run_dir: Path, *, generated_dir: Path | None = None) -> List[Path]:
     try:
         return discover_msprof_dbs(run_dir)
@@ -214,8 +242,11 @@ def discover_profile_dbs(run_dir: Path, *, generated_dir: Path | None = None) ->
     if generated_dir is None:
         generated_dir = run_dir / ".traceloom_generated"
     out = discover_hygon_profile_dbs(run_dir, generated_dir=generated_dir)
+    if out:
+        return out
+    out = discover_cuda_profile_dbs(run_dir)
     if not out:
-        raise FileNotFoundError(f"no supported msprof or Hygon profile data under run_dir={run_dir}")
+        raise FileNotFoundError(f"no supported msprof, Hygon, or CUDA/Nsight profile data under run_dir={run_dir}")
     return out
 
 
