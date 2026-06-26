@@ -266,6 +266,17 @@ Common options for larger traces:
 - `--kernel-role-file roles.csv`: provide role overrides for local kernels.
 - `--output-mode full`: also write legacy CSV/JSON debug exports.
 
+Tag candidate cross-device collectives after an analysis run:
+
+```bash
+traceloom collective-tag /path/to/msprof_output/traceloom
+```
+
+This writes `global_collectives.db`, `collective_summary.md`, and a
+`traceloom_collective_global_link` table in each augmented sidecar DB. The
+candidate key is based on matched repeat-loop position, occurrence index,
+normalized collective type, and order inside the occurrence.
+
 For local development without installation:
 
 ```bash
@@ -300,8 +311,8 @@ TraceLoom is organized as a layered offline analysis pipeline:
   attaches cost to loop nodes.
 - Report layer: writes augmented SQLite databases, Markdown summaries, SQL
   report queries, and optional full debug exports.
-- CLI layer: exposes `traceloom analyze`, `traceloom analysis`, and
-  `traceloom report`.
+- CLI layer: exposes `traceloom analyze`, `traceloom analysis`,
+  `traceloom report`, and `traceloom collective-tag`.
 
 See [docs/architecture.md](docs/architecture.md).
 
@@ -318,6 +329,13 @@ The default bundle is intentionally small:
   SQL queries for drill-down.
 - `queries/*.sql`: starter report queries.
 - `meta.json`: analyzer parameters and generated paths.
+
+Running `traceloom collective-tag` on the bundle adds:
+
+- `global_collectives.db`: run-level candidate collective summary.
+- `collective_summary.md`: readable completeness and skew report.
+- `traceloom_collective_global_link`: local anchor-to-candidate mapping table
+  in each augmented DB.
 
 Run SQL reports directly from an augmented DB:
 

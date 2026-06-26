@@ -18,6 +18,7 @@ reproduce/decode_a2a_buffer_reuse/local*.env
 !examples/kickstart_smoke/msprof_raw/PROF_*/msprof_*.db
 examples/kickstart_smoke/msprof_raw/traceloom/README.md
 examples/kickstart_smoke/msprof_raw/traceloom/meta.json
+**/traceloom/collective_summary.md
 *.nsys-rep
 *.qdrep
 *.qdstrm

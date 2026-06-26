@@ -27,6 +27,26 @@ Use `--out-dir` to place it elsewhere.
 This is the intended public surface. SQL reports should query the augmented DBs
 rather than depending on CSV/JSON debug exports.
 
+## Optional Collective Tagging
+
+After analysis, run:
+
+```bash
+traceloom collective-tag <raw_msprof_dir>/traceloom
+```
+
+This adds:
+
+- `traceloom_collective_global_link` inside each `dbNN.traceloom_augmented.db`;
+- `global_collectives.db`, with `traceloom_global_collective_summary` and
+  member rows;
+- `collective_summary.md`, a compact skew and completeness report.
+
+The generated `candidate_collective_key` is a structural candidate built from
+matched repeat-loop position, occurrence index, collective type, and order in
+that occurrence. Treat it as cross-device correlation evidence rather than a
+hard proof.
+
 ## Full Debug Export
 
 Run with `--output-mode full` to additionally write the legacy per-device

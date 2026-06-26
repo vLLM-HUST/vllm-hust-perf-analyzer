@@ -7,6 +7,8 @@ import sqlite3
 from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
 
+from .collective_tag import ensure_collective_link_schema
+
 
 Row = Dict[str, object]
 
@@ -619,6 +621,7 @@ def _initialize_schema(conn: sqlite3.Connection) -> None:
             SELECT * FROM tree;
         """
     )
+    ensure_collective_link_schema(conn)
 
 
 def _replace_metadata(conn: sqlite3.Connection, values: Dict[str, object]) -> None:
