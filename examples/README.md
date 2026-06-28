@@ -5,6 +5,8 @@ first run.
 
 - `kickstart_smoke/`: real two-device Ascend/CANN `msprof` smoke profile and
   TraceLoom output for a deterministic first run.
+- `ascend_graph_report/`: sanitized readable report that showcases the merged
+  loop tree and cost-table view with ACLGraph replay nodes.
 
 For the fastest first run, start with `kickstart_smoke/`.
 
