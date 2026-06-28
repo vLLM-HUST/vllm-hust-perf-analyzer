@@ -210,10 +210,10 @@ def analyze_aclgraph_for_device(
         activity_segments,
         model_execs_by_segment=model_execs_by_activity_segment,
     )
-    segments = _split_segments_by_model_execute_wave(
+    segments, segment_metadata = _split_segments_into_replay_units(
         activity_segments,
-        model_execs_by_segment=model_execs_by_activity_segment,
-        wave_size=wave_size,
+        semantic_by_key=semantic_by_key,
+        compute=compute,
     )
     controls_by_segment = _graph_controls_by_segment(segments, semantic_by_key=semantic_by_key)
     step_rows, replay_rows, top_op_rows = _build_replay_rows(
@@ -223,6 +223,7 @@ def analyze_aclgraph_for_device(
         device_id=device_id,
         first_step_idx=first_step_idx,
         segments=segments,
+        segment_metadata=segment_metadata,
         controls_by_segment=controls_by_segment,
         compute=compute,
     )
@@ -247,6 +248,8 @@ def analyze_aclgraph_for_device(
         "active_model_stream_count": len({row["stream_id"] for row in graph_model_tasks}),
         "replay_segment_count": len(replay_rows),
         "activity_segment_count": len(activity_segments),
+        "replay_activity_count": len(activity_segments),
+        "replay_unit_count": len(replay_rows),
         "model_execute_wave_size": wave_size,
         "replay_total_device_us": round(sum(float(row["dur_us"] or 0.0) for row in replay_rows), 3),
         "replay_child_task_count": sum(int(row.get("raw_child_task_count", 0) or 0) for row in replay_rows),
@@ -345,6 +348,7 @@ def _build_replay_rows(
     device_id: int,
     first_step_idx: int,
     segments: Sequence[Sequence[dict[str, Any]]],
+    segment_metadata: Sequence[dict[str, object]],
     controls_by_segment: Sequence[Sequence[dict[str, object]]],
     compute: dict[int, dict[str, str]],
 ) -> tuple[list[dict[str, object]], list[dict[str, object]], list[dict[str, object]]]:
@@ -352,7 +356,9 @@ def _build_replay_rows(
     replay_rows: list[dict[str, object]] = []
     top_op_rows: list[dict[str, object]] = []
     graph_type_by_hash: dict[str, str] = {}
+    graph_template_by_hash: dict[str, str] = {}
     for replay_idx, segment in enumerate(segments, start=1):
+        metadata = segment_metadata[replay_idx - 1] if replay_idx - 1 < len(segment_metadata) else {}
         start_ns = min(int(row["start_ns"]) for row in segment)
         end_ns = max(int(row["end_ns"]) for row in segment)
         streams = sorted({int(row["stream_id"]) for row in segment})
@@ -384,22 +390,40 @@ def _build_replay_rows(
             else []
         )
         control_counter = Counter(str(row["task_label"]) for row in controls)
-        body_signature = "\n".join(f"{name}:{count}" for name, count in sorted(body_counter.items()))
-        body_noise_signature = "\n".join(f"{name}:{count}" for name, count in sorted(body_noise_counter.items()))
-        control_signature = "\n".join(f"{name}:{count}" for name, count in sorted(control_counter.items()))
+        body_signature = _format_signature(body_counter)
+        body_noise_signature = _format_signature(body_noise_counter)
+        control_signature = _format_signature(control_counter)
+        replay_unit_count, replay_unit_source = _infer_graph_replay_unit_count(body_counter, control_counter)
+        template_signature = _format_unit_signature(body_counter, replay_unit_count)
         body_hash = _stable_hash(body_signature)
+        template_hash = _stable_hash(template_signature)
         envelope_hash = _stable_hash(f"{body_hash}\n{control_signature}\nstreams={_compact_ints(streams)}")
         graph_type_symbol = graph_type_by_hash.get(body_hash)
         if graph_type_symbol is None:
             graph_type_symbol = f"G{len(graph_type_by_hash) + 1:03d}"
             graph_type_by_hash[body_hash] = graph_type_symbol
+        graph_template_symbol = graph_template_by_hash.get(template_hash)
+        if graph_template_symbol is None:
+            graph_template_symbol = f"T{len(graph_template_by_hash) + 1:03d}"
+            graph_template_by_hash[template_hash] = graph_template_symbol
+        graph_replay_symbol = f"{graph_template_symbol}x{replay_unit_count}"
+        graph_replay_hash = _stable_hash(f"{template_hash}\nunit_count={replay_unit_count}")
         step_idx = first_step_idx + replay_idx - 1
         primary_stream = max(stream_dur.items(), key=lambda item: (item[1], -item[0]))[0] if stream_dur else -1
         source_key = f"provider=aclgraph;replay_idx={replay_idx};streams={_compact_ints(streams)}"
         common = {
             "graph_provider": "aclgraph",
-            "graph_kind": "aclgraph_execute",
+            "graph_kind": "aclgraph_replay_unit",
             "graph_event_idx": replay_idx,
+            "graph_activity_idx": metadata.get("graph_activity_idx", replay_idx),
+            "graph_activity_indices": metadata.get("graph_activity_indices", metadata.get("graph_activity_idx", replay_idx)),
+            "graph_activity_unit_idx": metadata.get("graph_activity_unit_idx", 1),
+            "graph_activity_unit_count": metadata.get("graph_activity_unit_count", 1),
+            "graph_activity_expected_unit_count": metadata.get("graph_activity_expected_unit_count", 1),
+            "graph_activity_unit_source": metadata.get("graph_activity_unit_source", ""),
+            "graph_activity_start_ns": metadata.get("graph_activity_start_ns", start_ns),
+            "graph_activity_end_ns": metadata.get("graph_activity_end_ns", end_ns),
+            "graph_activity_split_source": metadata.get("graph_activity_split_source", "single"),
             "db_idx": db_idx,
             "db": str(db_path),
             "global_rank": global_rank,
@@ -407,10 +431,22 @@ def _build_replay_rows(
             "step_idx": step_idx,
             "symbol": "ACLGRAPH",
             "semantic_role": "graph",
-            "semantic_role_reason": "aclgraph_execute",
-            "label": f"ACLGraph Execute {replay_idx}",
+            "semantic_role_reason": "aclgraph_replay_unit",
+            "label": f"ACLGraph ReplayUnit {replay_idx}",
             "graph_type_symbol": graph_type_symbol,
             "graph_type_label": f"ACLGraphType {graph_type_symbol}",
+            "graph_exact_type_symbol": graph_type_symbol,
+            "graph_exact_type_label": f"ACLGraphType {graph_type_symbol}",
+            "graph_template_symbol": graph_template_symbol,
+            "graph_template_label": f"ACLGraphTemplate {graph_template_symbol}",
+            "graph_template_hash": template_hash,
+            "graph_template_signature": template_signature,
+            "graph_template_hash_policy": "anchor_compute_unit_body_v1",
+            "graph_replay_symbol": graph_replay_symbol,
+            "graph_replay_label": f"ACLGraph {graph_template_symbol} x{replay_unit_count}",
+            "graph_replay_hash": graph_replay_hash,
+            "graph_replay_unit_count": replay_unit_count,
+            "graph_replay_unit_source": replay_unit_source,
             "graph_body_hash": body_hash,
             "graph_envelope_hash": envelope_hash,
             "graph_body_token_count": sum(body_counter.values()),
@@ -418,13 +454,13 @@ def _build_replay_rows(
             "graph_body_noise_signature": body_noise_signature,
             "graph_body_hash_policy": "anchor_compute_body_v1",
             "graph_control_signature": control_signature,
-            "task_type": "ACL_GRAPH_EXECUTE",
+            "task_type": "ACL_GRAPH_REPLAY_UNIT",
             "source_table": "ACLGRAPH_REPLAY",
             "source_key": source_key,
             "stream_id": primary_stream,
             "correlation_id": "",
-            "graph_id": f"aclgraph:{db_idx}:{device_id}",
-            "graph_exec_id": f"aclgraph:{db_idx}:{device_id}",
+            "graph_id": f"aclgraph:{db_idx}:{device_id}:activity:{metadata.get('graph_activity_idx', replay_idx)}",
+            "graph_exec_id": f"aclgraph:{db_idx}:{device_id}:unit:{replay_idx}",
             "context_id": "",
             "start_ns": start_ns,
             "end_ns": end_ns,
@@ -469,6 +505,54 @@ def _build_replay_rows(
                 }
             )
     return step_rows, replay_rows, top_op_rows
+
+
+def _format_signature(counter: Counter[str]) -> str:
+    return "\n".join(f"{name}:{count}" for name, count in sorted(counter.items()))
+
+
+def _format_unit_signature(counter: Counter[str], unit_count: int) -> str:
+    unit_count = max(1, int(unit_count))
+    return "\n".join(
+        f"{name}:{_format_unit_count(count, unit_count)}"
+        for name, count in sorted(counter.items())
+    )
+
+
+def _format_unit_count(count: int, unit_count: int) -> str:
+    if unit_count <= 1:
+        return str(count)
+    if count % unit_count == 0:
+        return str(count // unit_count)
+    return f"{count}/{unit_count}"
+
+
+def _infer_graph_replay_unit_count(
+    body_counter: Counter[str],
+    control_counter: Counter[str],
+) -> tuple[int, str]:
+    # A replay segment can still contain several identical graph replay units.
+    # The old exact body hash treated x1/x2/xN repetitions as unrelated graph
+    # types. Prefer an explicit per-unit body landmark when present, then fall
+    # back to control waves so the exact Gxxx hash remains queryable while the
+    # visible graph identity can include replay length.
+    for token in ("index|Index", "attention|Attention"):
+        count = int(body_counter.get(token, 0))
+        if count > 0:
+            return count, f"body:{token}"
+    notify_wait = int(control_counter.get("NOTIFY_WAIT", 0))
+    if notify_wait > 0:
+        if notify_wait % 29 == 0:
+            return max(1, notify_wait // 29), "control:NOTIFY_WAIT/29"
+        return notify_wait, "control:NOTIFY_WAIT"
+    positive_counts = [int(value) for value in body_counter.values() if int(value) > 0]
+    if positive_counts:
+        common = positive_counts[0]
+        for value in positive_counts[1:]:
+            common = math.gcd(common, value)
+        if common > 1:
+            return common, "body:gcd"
+    return 1, "fallback:single"
 
 
 def _stable_hash(value: str) -> str:
@@ -1062,6 +1146,252 @@ def _split_one_segment_by_model_execute_wave(
     return waves
 
 
+def _split_segments_into_replay_units(
+    segments: Sequence[Sequence[dict[str, Any]]],
+    *,
+    semantic_by_key: dict[str, Sequence[dict[str, object]]],
+    compute: dict[int, dict[str, str]],
+) -> tuple[list[list[dict[str, Any]]], list[dict[str, object]]]:
+    global_units = _split_activities_by_global_body_landmarks(segments, compute=compute)
+    if global_units is not None:
+        return global_units
+
+    notify_waits_by_segment = _overlap_rows_by_interval(
+        _segment_bounds(segments),
+        semantic_by_key.get("NOTIFY_WAIT", ()),
+        touching_overlaps=True,
+    )
+    model_execs_by_segment = _overlap_rows_by_interval(
+        _segment_bounds(segments),
+        semantic_by_key.get("MODEL_EXECUTE", ()),
+        touching_overlaps=True,
+    )
+    out_segments: list[list[dict[str, Any]]] = []
+    out_metadata: list[dict[str, object]] = []
+    for activity_idx, segment in enumerate(segments, start=1):
+        rows = sorted(segment, key=lambda row: (row["start_ns"], row["end_ns"], row["stream_id"], row["task_id"]))
+        if not rows:
+            continue
+        body_counter = _graph_body_counter(rows, compute)
+        controls = list(notify_waits_by_segment[activity_idx - 1]) if activity_idx - 1 < len(notify_waits_by_segment) else []
+        controls.extend(
+            list(model_execs_by_segment[activity_idx - 1])
+            if activity_idx - 1 < len(model_execs_by_segment)
+            else []
+        )
+        unit_count, unit_source = _infer_graph_replay_unit_count(
+            body_counter,
+            Counter(str(row.get("task_label", "")) for row in controls),
+        )
+        unit_segments, split_source = _split_one_activity_into_replay_units(
+            rows,
+            unit_count=unit_count,
+            notify_waits=notify_waits_by_segment[activity_idx - 1] if activity_idx - 1 < len(notify_waits_by_segment) else (),
+            model_execs=model_execs_by_segment[activity_idx - 1] if activity_idx - 1 < len(model_execs_by_segment) else (),
+            compute=compute,
+        )
+        activity_start = min(int(row["start_ns"]) for row in rows)
+        activity_end = max(int(row["end_ns"]) for row in rows)
+        effective_unit_count = len(unit_segments)
+        for unit_idx, unit_segment in enumerate(unit_segments, start=1):
+            out_segments.append(unit_segment)
+            out_metadata.append(
+                {
+                    "graph_activity_idx": activity_idx,
+                    "graph_activity_unit_idx": unit_idx,
+                    "graph_activity_unit_count": effective_unit_count,
+                    "graph_activity_expected_unit_count": unit_count,
+                    "graph_activity_unit_source": unit_source,
+                    "graph_activity_split_source": split_source,
+                    "graph_activity_start_ns": activity_start,
+                    "graph_activity_end_ns": activity_end,
+                }
+            )
+    return out_segments, out_metadata
+
+
+def _split_activities_by_global_body_landmarks(
+    segments: Sequence[Sequence[dict[str, Any]]],
+    *,
+    compute: dict[int, dict[str, str]],
+) -> tuple[list[list[dict[str, Any]]], list[dict[str, object]]] | None:
+    rows: list[dict[str, Any]] = []
+    row_activity: dict[int, int] = {}
+    activity_bounds: dict[int, tuple[int, int]] = {}
+    for activity_idx, segment in enumerate(segments, start=1):
+        ordered = sorted(segment, key=lambda row: (row["start_ns"], row["end_ns"], row["stream_id"], row["task_id"]))
+        if not ordered:
+            continue
+        activity_bounds[activity_idx] = (
+            min(int(row["start_ns"]) for row in ordered),
+            max(int(row["end_ns"]) for row in ordered),
+        )
+        for row in ordered:
+            rows.append(row)
+            row_activity[id(row)] = activity_idx
+    rows.sort(key=lambda row: (row["start_ns"], row["end_ns"], row["stream_id"], row["task_id"]))
+    if len(rows) <= 1:
+        return None
+
+    landmarks: list[int] = []
+    for row in rows:
+        token = _canonical_graph_body_token(row, compute.get(int(row["global_task_id"]), {}))
+        if token in {"index|Index", "attention|Attention"}:
+            landmarks.append(int(row["start_ns"]))
+    if len(landmarks) <= 1:
+        return None
+    landmarks.sort()
+    boundaries = _valid_inner_boundaries(
+        (landmarks[idx - 1] + landmarks[idx]) // 2 for idx in range(1, len(landmarks))
+    )
+    if len(boundaries) != len(landmarks) - 1:
+        return None
+    units = _split_rows_by_boundaries(rows, boundaries)
+    if len(units) != len(landmarks) or any(not unit for unit in units):
+        return None
+
+    metadata: list[dict[str, object]] = []
+    total_units = len(units)
+    for unit_idx, unit in enumerate(units, start=1):
+        activity_ids = sorted({row_activity.get(id(row), 0) for row in unit if row_activity.get(id(row), 0)})
+        activity_idx = activity_ids[0] if activity_ids else 0
+        activity_start, activity_end = activity_bounds.get(
+            activity_idx,
+            (
+                min(int(row["start_ns"]) for row in unit),
+                max(int(row["end_ns"]) for row in unit),
+            ),
+        )
+        metadata.append(
+            {
+                "graph_activity_idx": activity_idx,
+                "graph_activity_indices": _compact_ints(activity_ids),
+                "graph_activity_unit_idx": unit_idx,
+                "graph_activity_unit_count": total_units,
+                "graph_activity_expected_unit_count": total_units,
+                "graph_activity_unit_source": "body:global_landmark",
+                "graph_activity_split_source": "body:global_landmark_midpoint",
+                "graph_activity_start_ns": activity_start,
+                "graph_activity_end_ns": activity_end,
+            }
+        )
+    return units, metadata
+
+
+def _graph_body_counter(
+    rows: Sequence[dict[str, Any]],
+    compute: dict[int, dict[str, str]],
+) -> Counter[str]:
+    counter: Counter[str] = Counter()
+    for row in rows:
+        token = _canonical_graph_body_token(row, compute.get(int(row["global_task_id"]), {}))
+        if token:
+            counter[token] += 1
+    return counter
+
+
+def _split_one_activity_into_replay_units(
+    rows: Sequence[dict[str, Any]],
+    *,
+    unit_count: int,
+    notify_waits: Sequence[dict[str, object]],
+    model_execs: Sequence[dict[str, object]],
+    compute: dict[int, dict[str, str]],
+) -> tuple[list[list[dict[str, Any]]], str]:
+    ordered_rows = sorted(rows, key=lambda row: (row["start_ns"], row["end_ns"], row["stream_id"], row["task_id"]))
+    unit_count = max(1, int(unit_count))
+    if unit_count <= 1 or len(ordered_rows) <= 1:
+        return [list(ordered_rows)], "single"
+
+    boundaries = _unit_boundaries_from_body_landmarks(ordered_rows, unit_count=unit_count, compute=compute)
+    if boundaries:
+        split = _split_rows_by_boundaries(ordered_rows, boundaries)
+        if len(split) == unit_count:
+            return split, "body:landmark_midpoint"
+
+    boundaries = _unit_boundaries_from_controls(notify_waits, unit_count=unit_count)
+    if boundaries:
+        split = _split_rows_by_boundaries(ordered_rows, boundaries)
+        if len(split) == unit_count:
+            return split, "control:NOTIFY_WAIT"
+
+    boundaries = _unit_boundaries_from_controls(model_execs, unit_count=unit_count)
+    if boundaries:
+        split = _split_rows_by_boundaries(ordered_rows, boundaries)
+        if len(split) == unit_count:
+            return split, "control:MODEL_EXECUTE"
+
+    return [list(ordered_rows)], "unsplit"
+
+
+def _unit_boundaries_from_controls(
+    controls: Sequence[dict[str, object]],
+    *,
+    unit_count: int,
+) -> list[int]:
+    ordered = sorted(controls, key=lambda row: (int(row.get("start_ns", 0)), int(row.get("end_ns", 0)), int(row.get("stream_id", -1))))
+    if unit_count <= 1 or len(ordered) < unit_count:
+        return []
+    wave_size = len(ordered) // unit_count
+    if wave_size <= 0:
+        return []
+    boundaries: list[int] = []
+    for unit_idx in range(1, unit_count):
+        control_idx = unit_idx * wave_size
+        if control_idx >= len(ordered):
+            return []
+        boundaries.append(int(ordered[control_idx].get("start_ns", 0)))
+    return _valid_inner_boundaries(boundaries)
+
+
+def _unit_boundaries_from_body_landmarks(
+    rows: Sequence[dict[str, Any]],
+    *,
+    unit_count: int,
+    compute: dict[int, dict[str, str]],
+) -> list[int]:
+    landmarks: list[int] = []
+    for row in rows:
+        token = _canonical_graph_body_token(row, compute.get(int(row["global_task_id"]), {}))
+        if token in {"index|Index", "attention|Attention"}:
+            landmarks.append(int(row["start_ns"]))
+    if len(landmarks) != unit_count or unit_count <= 1:
+        return []
+    landmarks.sort()
+    boundaries = [(landmarks[idx - 1] + landmarks[idx]) // 2 for idx in range(1, len(landmarks))]
+    return _valid_inner_boundaries(boundaries)
+
+
+def _split_rows_by_boundaries(
+    rows: Sequence[dict[str, Any]],
+    boundaries: Sequence[int],
+) -> list[list[dict[str, Any]]]:
+    out: list[list[dict[str, Any]]] = [[] for _ in range(len(boundaries) + 1)]
+    cursor = 0
+    for row in rows:
+        start_ns = int(row["start_ns"])
+        while cursor < len(boundaries) and start_ns >= boundaries[cursor]:
+            cursor += 1
+        out[cursor].append(row)
+    if any(not part for part in out):
+        return [list(rows)]
+    return out
+
+
+def _valid_inner_boundaries(boundaries: Sequence[int]) -> list[int]:
+    out: list[int] = []
+    last = None
+    for value in boundaries:
+        value = int(value)
+        if value <= 0:
+            return []
+        if last is not None and value <= last:
+            return []
+        out.append(value)
+        last = value
+    return out
+
+
 def _summarize_model_streams(
     *,
     rows_by_stream: dict[int, Sequence[dict[str, Any]]],
@@ -1119,6 +1449,8 @@ def _merge_summaries(summaries: Sequence[dict[str, object]]) -> dict[str, object
         timed_counts.update(dict(summary.get("semantic_timed_task_count_by_label", {})))
         ascend_task_summary.extend(list(summary.get("ascend_task_summary", [])))
     replay_segment_count = sum(int(summary.get("replay_segment_count", 0) or 0) for summary in summaries)
+    replay_activity_count = sum(int(summary.get("replay_activity_count", summary.get("activity_segment_count", 0)) or 0) for summary in summaries)
+    replay_unit_count = sum(int(summary.get("replay_unit_count", summary.get("replay_segment_count", 0)) or 0) for summary in summaries)
     replay_child_task_count = sum(int(summary.get("replay_child_task_count", 0) or 0) for summary in summaries)
     active_model_stream_count = sum(int(summary.get("active_model_stream_count", 0) or 0) for summary in summaries)
     capture_stream_count = sum(int(summary.get("capture_stream_count", 0) or 0) for summary in summaries)
@@ -1130,6 +1462,8 @@ def _merge_summaries(summaries: Sequence[dict[str, object]]) -> dict[str, object
         "capture_stream_count": capture_stream_count,
         "active_model_stream_count": active_model_stream_count,
         "replay_segment_count": replay_segment_count,
+        "replay_activity_count": replay_activity_count,
+        "replay_unit_count": replay_unit_count,
         "replay_total_device_us": round(
             sum(float(summary.get("replay_total_device_us", 0.0) or 0.0) for summary in summaries),
             3,
@@ -1159,6 +1493,8 @@ def _summary_markdown(summary: dict[str, object], replay_rows: Sequence[dict[str
         f"- capture_stream_count: `{summary.get('capture_stream_count', 0)}`",
         f"- active_model_stream_count: `{summary.get('active_model_stream_count', 0)}`",
         f"- replay_segment_count: `{summary.get('replay_segment_count', 0)}`",
+        f"- replay_activity_count: `{summary.get('replay_activity_count', 0)}`",
+        f"- replay_unit_count: `{summary.get('replay_unit_count', 0)}`",
         f"- replay_total_device_us: `{summary.get('replay_total_device_us', 0.0)}`",
         f"- replay_child_task_count: `{summary.get('replay_child_task_count', 0)}`",
         f"- semantic_task_count: `{summary.get('semantic_task_count', 0)}`",

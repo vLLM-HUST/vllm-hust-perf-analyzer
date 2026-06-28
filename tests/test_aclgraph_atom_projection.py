@@ -1,4 +1,5 @@
 import unittest
+from collections import Counter
 
 from traceloom.compute_prelude_timeline import (
     MainEvent,
@@ -9,7 +10,9 @@ from traceloom.compute_prelude_timeline import (
 from traceloom.ascend_aclgraph import (
     _canonical_graph_body_token,
     _canonical_graph_noise_token,
+    _infer_graph_replay_unit_count,
     _overlap_rows_by_interval,
+    _split_segments_into_replay_units,
 )
 from traceloom.msprof_reader import StreamEvent, canonical_device_label
 
@@ -30,6 +33,17 @@ def _event(start: int, end: int, label: str) -> MainEvent:
         source_key=f"task={label}",
     )
     return MainEvent(event=ev, role="compute", symbol=label)
+
+
+def _task(start: int, end: int, global_task_id: int) -> dict[str, int | str]:
+    return {
+        "start_ns": start,
+        "end_ns": end,
+        "stream_id": 7,
+        "task_id": global_task_id,
+        "global_task_id": global_task_id,
+        "task_label": "KERNEL_AICORE",
+    }
 
 
 class AclGraphAtomProjectionTests(unittest.TestCase):
@@ -94,6 +108,103 @@ class AclGraphAtomProjectionTests(unittest.TestCase):
         self.assertIn("partial_overlap_kept", {row["relation"] for row in diagnostics})
         self.assertEqual(graph_events[0].event.category, "graph")
         self.assertEqual(graph_events[0].source_stream_ids, (7, 8))
+
+    def test_aclgraph_atom_prefers_replay_unit_symbol_when_present(self) -> None:
+        graph_events = _aclgraph_atom_main_events(
+            [
+                {
+                    "graph_provider": "aclgraph",
+                    "graph_event_idx": 1,
+                    "graph_type_symbol": "G005",
+                    "graph_type_label": "ACLGraphType G005",
+                    "graph_replay_symbol": "T001x4",
+                    "graph_replay_label": "ACLGraph T001 x4",
+                    "source_key": "provider=aclgraph;replay_idx=1",
+                    "source_table": "ACLGRAPH_REPLAY",
+                    "device_id": 0,
+                    "stream_id": 7,
+                    "start_ns": 10,
+                    "end_ns": 20,
+                }
+            ]
+        )
+
+        self.assertEqual(graph_events[0].symbol, "T001x4")
+        self.assertEqual(graph_events[0].event.label, "ACLGraph T001 x4")
+
+    def test_aclgraph_replay_unit_count_prefers_body_landmark(self) -> None:
+        unit_count, source = _infer_graph_replay_unit_count(
+            Counter({"index|Index": 4, "matmul|MatMul": 448, "shape|Shape": 224}),
+            Counter({"NOTIFY_WAIT": 116, "MODEL_EXECUTE": 115}),
+        )
+
+        self.assertEqual(unit_count, 4)
+        self.assertEqual(source, "body:index|Index")
+
+    def test_aclgraph_activity_splits_into_replay_units_by_body_landmark(self) -> None:
+        segment = [
+            _task(0, 5, 1),
+            _task(10, 15, 2),
+            _task(20, 25, 3),
+            _task(100, 105, 4),
+            _task(110, 115, 5),
+            _task(120, 125, 6),
+            _task(200, 205, 7),
+            _task(210, 215, 8),
+            _task(220, 225, 9),
+        ]
+        compute = {
+            1: {"op_type": "MatMulV2"},
+            2: {"op_type": "GatherV2"},
+            3: {"op_type": "RmsNorm"},
+            4: {"op_type": "MatMulV2"},
+            5: {"op_type": "GatherV2"},
+            6: {"op_type": "RmsNorm"},
+            7: {"op_type": "MatMulV2"},
+            8: {"op_type": "GatherV2"},
+            9: {"op_type": "RmsNorm"},
+        }
+
+        unit_segments, metadata = _split_segments_into_replay_units(
+            [segment],
+            semantic_by_key={},
+            compute=compute,
+        )
+
+        self.assertEqual([len(unit) for unit in unit_segments], [3, 3, 3])
+        self.assertEqual([row["graph_activity_unit_idx"] for row in metadata], [1, 2, 3])
+        self.assertEqual({row["graph_activity_unit_count"] for row in metadata}, {3})
+        self.assertEqual({row["graph_activity_split_source"] for row in metadata}, {"body:global_landmark_midpoint"})
+
+    def test_aclgraph_replay_units_ignore_activity_boundaries(self) -> None:
+        first_activity = [
+            _task(0, 5, 1),
+            _task(10, 15, 2),
+            _task(20, 25, 3),
+            _task(100, 105, 4),
+        ]
+        second_activity = [
+            _task(110, 115, 5),
+            _task(120, 125, 6),
+        ]
+        compute = {
+            1: {"op_type": "MatMulV2"},
+            2: {"op_type": "GatherV2"},
+            3: {"op_type": "RmsNorm"},
+            4: {"op_type": "MatMulV2"},
+            5: {"op_type": "GatherV2"},
+            6: {"op_type": "RmsNorm"},
+        }
+
+        unit_segments, metadata = _split_segments_into_replay_units(
+            [first_activity, second_activity],
+            semantic_by_key={},
+            compute=compute,
+        )
+
+        self.assertEqual(len(unit_segments), 2)
+        self.assertEqual([len(unit) for unit in unit_segments], [3, 3])
+        self.assertEqual(metadata[1]["graph_activity_indices"], "1..2")
 
     def test_interval_sweep_matches_naive_overlap_semantics(self) -> None:
         intervals = [(10, 20), (30, 40), (15, 15)]
