@@ -243,6 +243,8 @@ def _is_collective_like(ev: StreamEvent) -> bool:
 def _label_family(label: str, category: str) -> str:
     label = _canonical_label(label, category=category)
     low = label.lower()
+    if category == "graph" or low.startswith("aclgraph"):
+        return "aclgraph"
     if "allreduce" in low or "all_reduce" in low or _is_device_allreduce_kernel_label(low):
         return "allreduce"
     if "allgather" in low or "all_gather" in low:
@@ -276,6 +278,8 @@ def _label_family(label: str, category: str) -> str:
 
 def _main_event_key(ev: StreamEvent, role: str) -> Tuple[str, str, str]:
     family = _label_family(ev.label, ev.category)
+    if family == "aclgraph":
+        return (role, family, ev.label)
     if role in {"collective", "data_move"}:
         return (role, family, _task_key(ev))
     return (role, ev.label, _task_key(ev))
@@ -339,6 +343,45 @@ def _source_global_task_ids(item: MainEvent) -> Tuple[int, ...]:
     if item.source_global_task_ids:
         return item.source_global_task_ids
     return (item.event.global_task_id,)
+
+
+def _main_event_source_key(item: MainEvent) -> str:
+    ev = item.event
+    return f"{ev.source_table}\0{ev.source_key}\0{ev.start_ns}\0{ev.end_ns}\0{ev.stream_id}\0{ev.label}"
+
+
+def _step_row_source_key(row: Dict[str, object]) -> str:
+    return (
+        f"{row.get('source_table', '')}\0{row.get('source_key', '')}\0"
+        f"{row.get('start_ns', '')}\0{row.get('end_ns', '')}\0{row.get('stream_id', '')}\0{row.get('label', '')}"
+    )
+
+
+def _symbol_rows_from_main_events(main_events: Sequence[MainEvent]) -> List[Dict[str, object]]:
+    symbol_rows_by_symbol: Dict[str, Dict[str, object]] = {}
+    for item in main_events:
+        ev = item.event
+        row = symbol_rows_by_symbol.setdefault(
+            item.symbol,
+            {
+                "symbol": item.symbol,
+                "role": item.role,
+                "category": ev.category,
+                "task_type": ev.task_type,
+                "label": ev.label,
+                "family": _label_family(ev.label, ev.category),
+                "window_count": 0,
+                "total_us": 0.0,
+                "prelude_total_us_avg": 0.0,
+                "prelude_comm_us_avg": 0.0,
+                "prelude_wait_us_avg": 0.0,
+                "source_event_count": 0,
+            },
+        )
+        row["window_count"] = int(row["window_count"]) + 1
+        row["total_us"] = round(float(row["total_us"]) + ev.dur_ns / 1000.0, 3)
+        row["source_event_count"] = int(row["source_event_count"]) + len(_source_global_task_ids(item))
+    return list(symbol_rows_by_symbol.values())
 
 
 def _collective_episode_key(ev: StreamEvent) -> Tuple[str, str]:
@@ -528,6 +571,8 @@ def _default_anchor_compute_reason(item: MainEvent) -> str:
     if item.role != "compute":
         return ""
     ev = item.event
+    if _normalize_task_key(ev.task_type) in {"ACL_GRAPH_REPLAY", "ACL_GRAPH_EXECUTE", "ACL_GRAPH_ACTIVITY_SEGMENT"}:
+        return "anchor_aclgraph_atom"
     if _normalize_task_key(ev.task_type) in {"HIP_KERNEL", "ROCPROF_KERNEL"}:
         return "anchor_hygon_kernel"
     if _normalize_task_key(ev.task_type) == "CUDA_GRAPH_TRACE":
@@ -592,13 +637,19 @@ def _apply_kernel_roles(
     step_rows: List[Dict[str, object]],
     symbol_rows: List[Dict[str, object]],
     overrides: Sequence[KernelRoleOverride],
+    forced_roles_by_source_key: Dict[str, Tuple[str, str]] | None = None,
 ) -> Tuple[List[str], List[str], List[Dict[str, object]]]:
     semantic_roles: List[str] = []
     semantic_reasons: List[str] = []
     role_by_symbol: Dict[str, Counter[str]] = {}
     reason_by_symbol: Dict[str, Counter[str]] = {}
+    forced_roles_by_source_key = forced_roles_by_source_key or {}
     for idx, item in enumerate(main_events):
-        role, reason = _classify_kernel_role(item, overrides)
+        forced = forced_roles_by_source_key.get(_main_event_source_key(item))
+        if forced is not None:
+            role, reason = forced
+        else:
+            role, reason = _classify_kernel_role(item, overrides)
         semantic_roles.append(role)
         semantic_reasons.append(reason)
 
@@ -774,30 +825,253 @@ def _build_main_events(
     if cfg.max_main_events_per_device > 0:
         main_events = main_events[: cfg.max_main_events_per_device]
 
-    symbol_rows_by_symbol: Dict[str, Dict[str, object]] = {}
+    return main_events, _symbol_rows_from_main_events(main_events)
+
+
+def _aclgraph_atom_main_events(replay_rows: Sequence[Dict[str, object]]) -> List[MainEvent]:
+    out: List[MainEvent] = []
+    for row in replay_rows:
+        if str(row.get("graph_provider", "")) != "aclgraph":
+            continue
+        replay_idx = _safe_int(row.get("graph_event_idx"))
+        graph_symbol = str(row.get("graph_type_symbol", "") or f"G{replay_idx:03d}")
+        label = str(row.get("graph_type_label", "") or f"ACLGraphType {graph_symbol}")
+        source_key = str(row.get("source_key", "") or f"provider=aclgraph;replay_idx={replay_idx}")
+        streams = tuple(_expand_compact_ints(str(row.get("raw_child_streams", ""))))
+        ev = StreamEvent(
+            start_ns=_safe_int(row.get("start_ns")),
+            end_ns=_safe_int(row.get("end_ns")),
+            device_id=_safe_int(row.get("device_id")),
+            stream_id=_safe_int(row.get("stream_id")),
+            task_id=-10_000 - replay_idx,
+            global_task_id=-10_000 - replay_idx,
+            connection_id=-1,
+            task_type=str(row.get("task_type", "") or "ACL_GRAPH_REPLAY"),
+            label=label,
+            category="graph",
+            source_table=str(row.get("source_table", "") or "ACLGRAPH_REPLAY"),
+            source_key=source_key,
+        )
+        out.append(
+            MainEvent(
+                event=ev,
+                role="compute",
+                symbol=graph_symbol,
+                source_global_task_ids=(),
+                source_stream_ids=streams,
+            )
+        )
+    out.sort(key=lambda item: (item.event.start_ns, item.event.end_ns, item.event.stream_id, item.symbol))
+    return out
+
+
+def _expand_compact_ints(text: str) -> List[int]:
+    out: List[int] = []
+    for part in re.split(r"[,\s]+", text.strip()):
+        if not part:
+            continue
+        if ".." in part:
+            left, _sep, right = part.partition("..")
+            start = _safe_int(left)
+            end = _safe_int(right)
+            if start <= end:
+                out.extend(range(start, end + 1))
+            elif start:
+                out.append(start)
+            continue
+        value = _safe_int(part)
+        if value:
+            out.append(value)
+    return out
+
+
+def _merge_aclgraph_atoms_with_main_events(
+    main_events: Sequence[MainEvent],
+    graph_events: Sequence[MainEvent],
+) -> Tuple[List[MainEvent], set[str], List[Dict[str, object]]]:
+    if not graph_events:
+        return list(main_events), set(), []
+
+    covered: set[str] = set()
+    diagnostics: List[Dict[str, object]] = []
+    graph_windows = [
+        (
+            graph.event.start_ns,
+            graph.event.end_ns,
+            graph.symbol,
+            graph.event.source_key,
+        )
+        for graph in graph_events
+        if graph.event.end_ns > graph.event.start_ns
+    ]
+
+    kept: List[MainEvent] = []
     for item in main_events:
         ev = item.event
-        row = symbol_rows_by_symbol.setdefault(
-            item.symbol,
-            {
-                "symbol": item.symbol,
-                "role": item.role,
-                "category": ev.category,
-                "task_type": ev.task_type,
-                "label": ev.label,
-                "family": _label_family(ev.label, ev.category),
-                "window_count": 0,
-                "total_us": 0.0,
-                "prelude_total_us_avg": 0.0,
-                "prelude_comm_us_avg": 0.0,
-                "prelude_wait_us_avg": 0.0,
-                "source_event_count": 0,
-            },
-        )
-        row["window_count"] = int(row["window_count"]) + 1
-        row["total_us"] = round(float(row["total_us"]) + ev.dur_ns / 1000.0, 3)
-        row["source_event_count"] = int(row["source_event_count"]) + len(_source_global_task_ids(item))
-    return main_events, list(symbol_rows_by_symbol.values())
+        key = _main_event_source_key(item)
+        full_cover = None
+        partial = []
+        for graph_start, graph_end, graph_symbol, graph_source_key in graph_windows:
+            if ev.end_ns <= graph_start or ev.start_ns >= graph_end:
+                continue
+            if ev.start_ns >= graph_start and ev.end_ns <= graph_end:
+                full_cover = (graph_symbol, graph_source_key)
+                break
+            partial.append((graph_symbol, graph_source_key))
+        if full_cover is not None:
+            covered.add(key)
+            diagnostics.append(
+                {
+                    "event_source_key": ev.source_key,
+                    "event_label": ev.label,
+                    "event_start_ns": ev.start_ns,
+                    "event_end_ns": ev.end_ns,
+                    "graph_symbol": full_cover[0],
+                    "graph_source_key": full_cover[1],
+                    "relation": "covered",
+                }
+            )
+            continue
+        if partial:
+            diagnostics.append(
+                {
+                    "event_source_key": ev.source_key,
+                    "event_label": ev.label,
+                    "event_start_ns": ev.start_ns,
+                    "event_end_ns": ev.end_ns,
+                    "graph_symbol": ",".join(symbol for symbol, _source in partial),
+                    "graph_source_key": ",".join(source for _symbol, source in partial),
+                    "relation": "partial_overlap_kept",
+                }
+            )
+        kept.append(item)
+
+    merged = kept + list(graph_events)
+    merged.sort(key=lambda item: (item.event.start_ns, item.event.end_ns, item.event.stream_id, item.symbol))
+    return merged, covered, diagnostics
+
+
+def _augment_aclgraph_atom_step_rows(
+    step_rows: List[Dict[str, object]],
+    replay_rows: Sequence[Dict[str, object]],
+) -> None:
+    replay_by_source = {str(row.get("source_key", "")): row for row in replay_rows}
+    for row in step_rows:
+        if str(row.get("source_table", "")) != "ACLGRAPH_REPLAY":
+            continue
+        replay = replay_by_source.get(str(row.get("source_key", "")))
+        if not replay:
+            continue
+        for key in (
+            "graph_provider",
+            "graph_kind",
+            "graph_event_idx",
+            "graph_type_symbol",
+            "graph_type_label",
+            "graph_body_hash",
+            "graph_envelope_hash",
+            "graph_body_token_count",
+            "graph_control_signature",
+            "raw_child_task_count",
+            "raw_child_stream_count",
+            "raw_child_streams",
+            "raw_control_task_count",
+            "raw_control_tasks",
+            "raw_task_types",
+            "raw_top_ops",
+            "enclosed_event_count",
+            "enclosed_event_us",
+            "enclosed_kernel_count",
+            "enclosed_kernel_us",
+            "visible_envelope_event_count",
+            "visible_envelope_event_us",
+            "visible_envelope_top_labels",
+        ):
+            row[key] = replay.get(key, "")
+        row["source_event_count"] = replay.get("raw_child_task_count", row.get("source_event_count", 0))
+        row["source_streams"] = " ".join(str(value) for value in _expand_compact_ints(str(replay.get("raw_child_streams", ""))))
+
+
+def _augment_aclgraph_symbol_rows(
+    symbol_rows: List[Dict[str, object]],
+    replay_rows: Sequence[Dict[str, object]],
+) -> None:
+    by_symbol: Dict[str, List[Dict[str, object]]] = {}
+    for row in replay_rows:
+        symbol = str(row.get("graph_type_symbol", ""))
+        if symbol:
+            by_symbol.setdefault(symbol, []).append(row)
+    for row in symbol_rows:
+        symbol = str(row.get("symbol", ""))
+        rows = by_symbol.get(symbol)
+        if not rows:
+            continue
+        first = rows[0]
+        row["family"] = "aclgraph"
+        row["graph_type_symbol"] = symbol
+        row["graph_body_hash"] = first.get("graph_body_hash", "")
+        row["graph_envelope_hash"] = first.get("graph_envelope_hash", "")
+        row["graph_occurrence_count"] = len(rows)
+        row["raw_control_tasks"] = first.get("raw_control_tasks", "")
+        row["raw_top_ops"] = first.get("raw_top_ops", "")
+
+
+def _remap_aclgraph_step_indices(
+    *,
+    replay_rows: Sequence[Dict[str, object]],
+    envelope_rows: Sequence[Dict[str, object]],
+    graph_step_rows: Sequence[Dict[str, object]],
+    normal_old_to_new_step: Dict[int, int],
+) -> None:
+    graph_step_by_source = {
+        str(row.get("source_key", "")): _safe_int(row.get("step_idx"))
+        for row in graph_step_rows
+        if str(row.get("source_table", "")) == "ACLGRAPH_REPLAY"
+    }
+    graph_old_to_new: Dict[int, int] = {}
+    graph_idx_to_new: Dict[int, int] = {}
+    for row in replay_rows:
+        old_step = _safe_int(row.get("step_idx"))
+        new_step = graph_step_by_source.get(str(row.get("source_key", "")))
+        if not new_step:
+            continue
+        graph_old_to_new[old_step] = new_step
+        graph_idx_to_new[_safe_int(row.get("graph_event_idx"))] = new_step
+        row["step_idx"] = new_step
+    for row in envelope_rows:
+        graph_step = _safe_int(row.get("graph_step_idx"))
+        graph_idx = _safe_int(row.get("graph_event_idx"))
+        if graph_step in graph_old_to_new:
+            row["graph_step_idx"] = graph_old_to_new[graph_step]
+        elif graph_idx in graph_idx_to_new:
+            row["graph_step_idx"] = graph_idx_to_new[graph_idx]
+        child_step = _safe_int(row.get("child_step_idx"))
+        if child_step in normal_old_to_new_step:
+            row["child_step_idx"] = normal_old_to_new_step[child_step]
+
+
+def _graph_internal_step_rows(
+    *,
+    preliminary_step_rows: Sequence[Dict[str, object]],
+    covered_source_keys: set[str],
+    first_step_idx: int,
+) -> Tuple[List[Dict[str, object]], Dict[int, int]]:
+    rows: List[Dict[str, object]] = []
+    old_to_new: Dict[int, int] = {}
+    next_step = first_step_idx
+    for old in preliminary_step_rows:
+        if _step_row_source_key(old) not in covered_source_keys:
+            continue
+        row = dict(old)
+        old_step = _safe_int(row.get("step_idx"))
+        row["step_idx"] = next_step
+        row["semantic_role"] = "graph_internal"
+        row["semantic_role_reason"] = "covered_by_aclgraph_atom"
+        row["graph_internal"] = 1
+        rows.append(row)
+        old_to_new[old_step] = next_step
+        next_step += 1
+    return rows, old_to_new
 
 
 def _top_counts(counter: Dict[str, float], limit: int) -> str:
@@ -3412,7 +3686,43 @@ def _render_tree_payload_readable(payload: Dict[str, object]) -> str:
     lines.append("")
     lines.append("No macro definitions in readable view; macro refs were inlined.")
     lines.append("")
+    graph_lines = _render_graph_type_rows(payload.get("symbol_table", []))
+    if graph_lines:
+        lines.extend(graph_lines)
+        lines.append("")
     return "\n".join(lines)
+
+
+def _render_graph_type_rows(symbol_table: object) -> List[str]:
+    if not isinstance(symbol_table, list):
+        return []
+    graph_rows = [
+        row
+        for row in symbol_table
+        if isinstance(row, dict)
+        and (str(row.get("family", "")) == "aclgraph" or str(row.get("category", "")) == "graph")
+    ]
+    if not graph_rows:
+        return []
+    graph_rows.sort(key=lambda row: str(row.get("symbol", "")))
+    lines: List[str] = []
+    lines.append("## Graph Types")
+    lines.append("")
+    lines.append("| graph | occurrences | total_us | body_hash | envelope_hash | controls | top_ops |")
+    lines.append("| --- | ---: | ---: | --- | --- | --- | --- |")
+    for row in graph_rows:
+        body_hash = str(row.get("graph_body_hash", ""))
+        envelope_hash = str(row.get("graph_envelope_hash", ""))
+        controls = str(row.get("raw_control_tasks", "")).replace("|", "\\|")
+        top_ops = str(row.get("raw_top_ops", "")).replace("|", "\\|")
+        lines.append(
+            (
+                f"| {row.get('symbol', '')} | {row.get('window_count', 0)} "
+                f"| {row.get('total_us', 0.0)} | `{body_hash[:16]}` "
+                f"| `{envelope_hash[:16]}` | `{controls}` | `{top_ops}` |"
+            )
+        )
+    return lines
 
 
 def _render_root_item_metrics(rows: Sequence[Dict[str, object]]) -> List[str]:
@@ -4160,12 +4470,41 @@ def run_compute_prelude_timeline(
             device_events, stream_stats = _load_device_events(selection.db_path, selection.device_id)
             communication_op_events = _load_communication_op_events(selection.db_path, selection.device_id)
         collective_anchor_source = "communication_op" if communication_op_events else "task_coalesced"
-        main_events, symbol_rows = _build_main_events(
+        normal_main_events, _normal_symbol_rows = _build_main_events(
             device_events=device_events,
             communication_op_events=communication_op_events,
             stream_stats=stream_stats,
             cfg=cfg,
         )
+        preliminary_step_rows = _build_steps(
+            db_idx=selection.db_idx,
+            db_path=selection.db_path,
+            device_id=selection.device_id,
+            device_events=device_events,
+            main_events=normal_main_events,
+            cfg=cfg,
+        )
+        if not is_hygon_profile(selection.db_path) and not is_cuda_profile(selection.db_path):
+            aclgraph_analysis = analyze_aclgraph_for_device(
+                db_path=selection.db_path,
+                db_idx=selection.db_idx,
+                global_rank=selection.global_rank,
+                device_id=selection.device_id,
+                visible_step_rows=preliminary_step_rows,
+                first_step_idx=len(preliminary_step_rows) + 1,
+                gap_us=cfg.collective_episode_gap_us,
+            )
+        else:
+            aclgraph_analysis = AclGraphAnalysis([], [], [], [], [], [], {})
+        aclgraph_analyses.append(aclgraph_analysis)
+
+        graph_main_events = _aclgraph_atom_main_events(aclgraph_analysis.replay_rows)
+        main_events, covered_graph_internal_keys, _graph_projection_rows = _merge_aclgraph_atoms_with_main_events(
+            normal_main_events,
+            graph_main_events,
+        )
+        symbol_rows = _symbol_rows_from_main_events(main_events)
+        _augment_aclgraph_symbol_rows(symbol_rows, aclgraph_analysis.replay_rows)
         step_rows = _build_steps(
             db_idx=selection.db_idx,
             db_path=selection.db_path,
@@ -4174,7 +4513,9 @@ def run_compute_prelude_timeline(
             main_events=main_events,
             cfg=cfg,
         )
+        _augment_aclgraph_atom_step_rows(step_rows, aclgraph_analysis.replay_rows)
         symbol_rows = _augment_symbol_rows(symbol_rows, step_rows)
+        _augment_aclgraph_symbol_rows(symbol_rows, aclgraph_analysis.replay_rows)
         semantic_roles, _semantic_reasons, kernel_role_rows = _apply_kernel_roles(
             main_events=main_events,
             step_rows=step_rows,
@@ -4447,19 +4788,6 @@ def run_compute_prelude_timeline(
             cuda_graph_event_rows,
             cuda_graph_envelope_rows,
         )
-        if not is_hygon_profile(selection.db_path) and not is_cuda_profile(selection.db_path):
-            aclgraph_analysis = analyze_aclgraph_for_device(
-                db_path=selection.db_path,
-                db_idx=selection.db_idx,
-                global_rank=selection.global_rank,
-                device_id=selection.device_id,
-                visible_step_rows=step_rows,
-                first_step_idx=len(step_rows) + 1,
-                gap_us=cfg.collective_episode_gap_us,
-            )
-        else:
-            aclgraph_analysis = AclGraphAnalysis([], [], [], [], [], [], {})
-        aclgraph_analyses.append(aclgraph_analysis)
         for row in aclgraph_analysis.replay_rows:
             row["cuda_graph_events_file"] = str(cuda_graph_events_path.relative_to(out_dir))
             row["aclgraph_events_file"] = "aclgraph_events.csv"
@@ -4476,21 +4804,31 @@ def run_compute_prelude_timeline(
             row["anchor_tree_readable_file"] = str(anchor_readable_path.relative_to(out_dir))
         graph_event_rows = cuda_graph_event_rows + aclgraph_analysis.replay_rows
         graph_envelope_rows = cuda_graph_envelope_rows + aclgraph_analysis.envelope_rows
-        step_rows_with_aclgraph = step_rows + aclgraph_analysis.step_rows
-        graph_node_rows = _attach_aclgraph_replay_nodes(
-            anchor_tree_payload,
-            node_metric_rows=anchor_node_metric_rows,
-            node_anchor_link_rows=anchor_node_link_rows,
-            replay_rows=aclgraph_analysis.replay_rows,
-            anchor_step_rows=anchor_step_rows,
+        preliminary_by_source = {
+            _step_row_source_key(row): _safe_int(row.get("step_idx"))
+            for row in preliminary_step_rows
+        }
+        normal_old_to_new_step = {
+            preliminary_by_source[_step_row_source_key(row)]: _safe_int(row.get("step_idx"))
+            for row in step_rows
+            if str(row.get("source_table", "")) != "ACLGRAPH_REPLAY"
+            and _step_row_source_key(row) in preliminary_by_source
+        }
+        graph_internal_step_rows, graph_internal_old_to_new = _graph_internal_step_rows(
+            preliminary_step_rows=preliminary_step_rows,
+            covered_source_keys=covered_graph_internal_keys,
+            first_step_idx=len(step_rows) + 1,
         )
-        if graph_node_rows:
-            anchor_tree_readable = _render_tree_payload_readable(anchor_tree_payload)
-            tree_payload = copy.deepcopy(anchor_tree_payload)
-            tree_payload["schema_version"] = "compute_prelude_tree_v1"
-            tree_payload["semantic_projection"] = "anchor_compute_collective_only"
-            tree_payload["view"] = f"semantic_anchor_readable_{cfg.readable_macro_mode}"
-            tree_readable = _render_tree_payload_readable(tree_payload)
+        normal_old_to_new_step.update(graph_internal_old_to_new)
+        _remap_aclgraph_step_indices(
+            replay_rows=aclgraph_analysis.replay_rows,
+            envelope_rows=aclgraph_analysis.envelope_rows,
+            graph_step_rows=step_rows,
+            normal_old_to_new_step=normal_old_to_new_step,
+        )
+        graph_event_rows = cuda_graph_event_rows + aclgraph_analysis.replay_rows
+        graph_envelope_rows = cuda_graph_envelope_rows + aclgraph_analysis.envelope_rows
+        step_rows_with_aclgraph = step_rows + graph_internal_step_rows
         anchor_loop_cost_rows = _loop_cost_rows(
             selection=selection,
             node_metric_rows=anchor_node_metric_rows,
@@ -4757,7 +5095,9 @@ def run_compute_prelude_timeline(
                 "cuda_graph_envelope_event_count": len(graph_envelope_rows),
                 "aclgraph_replay_event_count": len(aclgraph_analysis.replay_rows),
                 "aclgraph_envelope_event_count": len(aclgraph_analysis.envelope_rows),
-                "aclgraph_tree_node_count": len(graph_node_rows),
+                "aclgraph_tree_node_count": len(graph_main_events),
+                "aclgraph_graph_atom_count": len(graph_main_events),
+                "aclgraph_graph_internal_step_count": len(graph_internal_step_rows),
                 "aclgraph_semantic_task_count": int(aclgraph_analysis.summary.get("semantic_task_count", 0) or 0),
                 "aclgraph_capture_stream_count": int(aclgraph_analysis.summary.get("capture_stream_count", 0) or 0),
                 "cuda_graph_events_file": str(cuda_graph_events_path.relative_to(out_dir)),

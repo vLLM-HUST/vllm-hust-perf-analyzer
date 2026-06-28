@@ -106,10 +106,11 @@ the raw databases look like real inference profiler output rather than a tidy
 synthetic kernel sequence.
 
 For a fuller Ascend graph-mode showcase with complete Huawei `msprof` package
-layout, TraceLoom full output, reconstructed ACLGraph replay intervals, and a
-ready-to-open Perfetto/Chrome timeline, use the data-plane package documented
-at `data/experiment-results/ascend_tp2_graph_showcase/`. The archive includes
-`derived/traceloom/aclgraph_summary.md` and `derived/perfetto/trace_timeline.json.gz`.
+layout, TraceLoom full output, reconstructed ACLGraph replay intervals modeled
+as graph atoms, and a ready-to-open Perfetto/Chrome timeline, use the data-plane
+package documented at `data/experiment-results/ascend_tp2_graph_showcase/`.
+The archive includes `derived/traceloom/aclgraph_summary.md` and
+`derived/perfetto/trace_timeline.json.gz`.
 
 TraceLoom compresses the two raw device traces into comparable Pattern
 Compression Trees. The showcase result is that both devices expose the same

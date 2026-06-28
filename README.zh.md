@@ -93,7 +93,7 @@ TraceLoom 将两张卡的 raw trace 压缩成可并排比较的 Pattern Compress
 如何把 raw timeline 压成结构化诊断，再分析自己的 workload。
 
 如果要看更完整的 Ascend graph-mode 样例，包含完整华为 `msprof` 包、
-TraceLoom full 输出、显式 ACLGraph replay 重建以及可直接打开的
+TraceLoom full 输出、作为外层 graph atom 建模的 ACLGraph replay 以及可直接打开的
 Perfetto/Chrome timeline，可以使用
 `data/experiment-results/ascend_tp2_graph_showcase/` 下的数据包。包里包含
 `derived/traceloom/aclgraph_summary.md` 和

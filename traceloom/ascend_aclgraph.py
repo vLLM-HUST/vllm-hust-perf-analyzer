@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import re
 import sqlite3
@@ -225,6 +226,7 @@ def _build_replay_rows(
     step_rows: list[dict[str, object]] = []
     replay_rows: list[dict[str, object]] = []
     top_op_rows: list[dict[str, object]] = []
+    graph_type_by_hash: dict[str, str] = {}
     for replay_idx, segment in enumerate(segments, start=1):
         start_ns = min(int(row["start_ns"]) for row in segment)
         end_ns = max(int(row["end_ns"]) for row in segment)
@@ -234,6 +236,7 @@ def _build_replay_rows(
         stream_dur: Counter[int] = Counter()
         kernel_count = 0
         kernel_us = 0.0
+        body_tokens: list[str] = []
         for row in segment:
             dur_ns = max(0, int(row["end_ns"]) - int(row["start_ns"]))
             stream_dur[int(row["stream_id"])] += dur_ns
@@ -241,6 +244,7 @@ def _build_replay_rows(
             op = info.get("op_type") or info.get("op_name") or str(row["task_label"])
             op_counter[op] += 1
             task_type_counter[str(row["task_label"])] += 1
+            body_tokens.append(_canonical_graph_body_token(row, info))
             if info.get("op_type") or "AI_CORE" in str(row["task_label"]).upper():
                 kernel_count += 1
                 kernel_us += dur_ns / 1000.0
@@ -250,6 +254,14 @@ def _build_replay_rows(
             if int(row["end_ns"]) >= start_ns and int(row["start_ns"]) <= end_ns
         ]
         control_counter = Counter(str(row["task_label"]) for row in controls)
+        body_signature = "\n".join(body_tokens)
+        control_signature = "\n".join(f"{name}:{count}" for name, count in sorted(control_counter.items()))
+        body_hash = _stable_hash(body_signature)
+        envelope_hash = _stable_hash(f"{body_hash}\n{control_signature}\nstreams={_compact_ints(streams)}")
+        graph_type_symbol = graph_type_by_hash.get(body_hash)
+        if graph_type_symbol is None:
+            graph_type_symbol = f"G{len(graph_type_by_hash) + 1:03d}"
+            graph_type_by_hash[body_hash] = graph_type_symbol
         step_idx = first_step_idx + replay_idx - 1
         primary_stream = max(stream_dur.items(), key=lambda item: (item[1], -item[0]))[0] if stream_dur else -1
         source_key = f"provider=aclgraph;replay_idx={replay_idx};streams={_compact_ints(streams)}"
@@ -266,6 +278,12 @@ def _build_replay_rows(
             "semantic_role": "graph",
             "semantic_role_reason": "aclgraph_replay",
             "label": f"ACLGraph Replay {replay_idx}",
+            "graph_type_symbol": graph_type_symbol,
+            "graph_type_label": f"ACLGraphType {graph_type_symbol}",
+            "graph_body_hash": body_hash,
+            "graph_envelope_hash": envelope_hash,
+            "graph_body_token_count": len(body_tokens),
+            "graph_control_signature": control_signature,
             "task_type": "ACL_GRAPH_REPLAY",
             "source_table": "ACLGRAPH_REPLAY",
             "source_key": source_key,
@@ -317,6 +335,18 @@ def _build_replay_rows(
                 }
             )
     return step_rows, replay_rows, top_op_rows
+
+
+def _stable_hash(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _canonical_graph_body_token(row: dict[str, Any], info: dict[str, str]) -> str:
+    op = info.get("op_type") or info.get("op_name") or str(row.get("task_label", ""))
+    task = str(row.get("task_label", ""))
+    # Keep this intentionally free of timestamps, generated ids, and stream ids.
+    # Shape/dtype can be added here later when msprof exposes enough metadata.
+    return f"{task}|{op}"
 
 
 def _build_envelope_rows(
