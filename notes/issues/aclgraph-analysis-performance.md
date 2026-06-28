@@ -55,6 +55,229 @@ Make modern report generation predictable on multi-GB msprof artifacts.
 5. report generation is all-or-nothing: users get no readable report until
    expensive graph reconstruction finishes.
 
+Observed scale from archived follow-up profiles:
+
+| profile | TASK rows | capture streams | semantic tasks | MODEL_EXECUTE | mapped timed tasks | activity segments | naive segment x semantic |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| P0 graph | 13,990 | 58 | 1,823 | 569 | 5,398 | 3 | 5,469 |
+| exp_001 overload | 415,516 | 319 | 37,095 | 11,565 | 152,166 | 469 | 17,397,555 |
+| exp_002 overload | 325,889 | 319 | 32,297 | 10,111 | 130,651 | 401 | 12,951,097 |
+| exp010 hot profiler | 2,098,879 | 87 | 276,399 | 92,075 | 1,052,745 | 326 | 90,106,074 |
+
+The P0 case is tiny enough that the naive algorithm looks fine. The large D1
+case pushes the same pattern into tens of millions of repeated overlap checks,
+and each check currently performs string normalization on the hot path.
+
+There are also secondary quadratic-ish scans:
+
+- `_summarize_model_streams()` scans all `task_rows` once per mapped stream.
+  For exp010 hot, this is roughly `87 x 2.1M` row checks before any graph
+  typing.
+- `_build_replay_rows()` scans all semantic tasks again for each replay segment
+  to build control counters.
+- `_build_envelope_rows()` checks every visible step against every replay
+  interval.
+
+These are algorithmic issues inside the current single-process design. They
+should be fixed before introducing a heavier execution framework.
+
+## Flat Timeline Constraint
+
+TraceLoom cannot simply analyze each stream independently and stop there. The
+primary product is a flattened, globally ordered device timeline:
+
+```text
+normal event, normal event, graph atom, normal event, repeated graph atom, ...
+```
+
+ACLGraph evidence is also cross-stream by nature:
+
+- replayed kernels live on graph model streams;
+- `MODEL_EXECUTE` / `NOTIFY_WAIT` controls live on control streams;
+- visible main events may overlap graph replay intervals on other streams;
+- loop-tree mining consumes the final global sequence, not per-stream
+  fragments.
+
+So the right decomposition is not "per-stream analysis as the final answer".
+The right shape is:
+
+```text
+map per-stream/per-table evidence
+  -> reduce into global time intervals and normalized event rows
+  -> emit one flat, stable, globally ordered timeline
+```
+
+Per-stream partitioning is still useful as an implementation detail, because it
+lets us sort and summarize locally. But every partition result must be reduced
+through a global time merge before tree compression or report generation.
+
+## Original-Algorithm Optimization Plan
+
+### 1. Build Stream Buckets Once
+
+Current pattern:
+
+```text
+for each mapped stream:
+    scan all task rows
+```
+
+Replace with one pass:
+
+```text
+rows_by_stream[stream_id].append(task)
+semantic_by_key[task_key].append(task)
+mapped_model_tasks.append(task)
+```
+
+This preserves all raw events and avoids multiplying `TASK` rows by capture
+stream count.
+
+### 2. Segment Graph Activity By Global Time Merge
+
+The current `_segment_tasks()` globally sorts all mapped model-stream tasks.
+That preserves semantics, but it materializes and sorts the full list.
+
+A scalable equivalent is:
+
+```text
+map:
+  each model stream emits sorted timed task intervals
+
+reduce:
+  k-way merge all model-stream intervals by start time
+  build union-like activity segments using the gap threshold
+```
+
+This is still a global timeline algorithm. It is not per-stream finalization.
+It just avoids unnecessary repeated scans and makes streaming/chunking possible.
+
+### 3. Replace Segment x Semantic Scans With A Sweep Join
+
+Current pattern:
+
+```text
+for segment in segments:
+    for semantic_task in semantic_tasks:
+        if overlaps(segment, semantic_task):
+            ...
+```
+
+Replacement:
+
+```text
+segments = sorted by start_ns
+model_execs = sorted semantic_by_key["MODEL_EXECUTE"] by start_ns
+
+walk both lists once:
+  expire controls whose end < segment.start
+  add controls whose start <= segment.end
+  current active controls are the overlap candidates
+```
+
+This produces the same cross-stream overlap relation because it uses global
+time intervals. Complexity becomes roughly:
+
+```text
+O(num_segments + num_model_execute + overlaps)
+```
+
+instead of:
+
+```text
+O(num_segments * num_semantic_tasks)
+```
+
+The same indexed/sweep result should be reused by:
+
+- wave-size inference;
+- segment splitting;
+- replay row control counters.
+
+### 4. Split Segments Using Precomputed Control Lists
+
+`_split_one_segment_by_model_execute_wave()` should receive the segment's
+already-computed `MODEL_EXECUTE` rows instead of calling
+`_model_execute_controls_for_segment()` again.
+
+This also makes the semantics clearer:
+
+```text
+MODEL_EXECUTE is the boundary/control signal for slicing a graph activity
+interval into smaller replay waves.
+```
+
+### 5. Aggregate Graph Body While Assigning Tasks To Segments
+
+After segments are known, each mapped model-stream task should be assigned to a
+segment once, using the same global ordered walk. During that assignment,
+compute:
+
+- top op counters;
+- task type counters;
+- body signature counters;
+- body noise counters;
+- kernel count and kernel time;
+- stream duration counters.
+
+Then `_build_replay_rows()` no longer needs to iterate full child lists for
+every downstream purpose. It can consume compact `GraphSegmentAccumulator`
+objects.
+
+The flat timeline is not lost: each accumulator still has `start_ns`, `end_ns`,
+child evidence references/counters, and emits one graph atom event into the
+global sequence.
+
+### 6. Build Envelope Rows With Interval Join
+
+Current pattern:
+
+```text
+for replay in replay_rows:
+    for visible_step in visible_step_rows:
+        if overlaps(...):
+            emit envelope
+```
+
+Replacement:
+
+```text
+sort replay intervals
+sort visible steps
+sweep by time
+```
+
+This matters for large traces even when graph count is moderate, because
+visible steps are the same rows the report later uses for tree construction.
+
+### 7. Keep Final Projection As A Stable Global Merge
+
+After graph atoms are produced, final timeline projection should still be:
+
+```text
+normal main events + graph atom events
+  -> remove fully covered events when graph-as-atom view is requested
+  -> stable sort by (start_ns, end_ns, stream_id, symbol/source)
+```
+
+This is the correctness boundary. All map/reduce optimizations are internal
+ways to produce the same event set and graph links faster.
+
+## Immediate Low-Risk Patch Candidate
+
+The first patch does not need DuckDB or a new IR. It can stay in Python and
+change only `ascend_aclgraph.py`:
+
+1. Add `task_key` to semantic rows.
+2. Build `semantic_by_key`.
+3. Precompute `model_execs_by_segment` with a sorted interval overlap helper.
+4. Reuse those lists for wave-size inference and splitting.
+5. Build all-control overlaps once and pass them into `_build_replay_rows()`.
+6. Group `task_rows` by stream once for `_summarize_model_streams()`.
+
+Expected benefit: remove the largest repeated scans while preserving current
+outputs and the global flat timeline.
+
 ## Proposed Fixes
 
 ### P0: Reframe Large DB Analysis As A Map/Reduce Pipeline
