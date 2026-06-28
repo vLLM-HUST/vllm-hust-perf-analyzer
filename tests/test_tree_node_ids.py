@@ -1,13 +1,45 @@
 import re
 import unittest
+from pathlib import Path
 
 from traceloom.compute_prelude_timeline import (
+    DeviceSelection,
     _augment_tree_node_cost_metrics,
+    _report_filename_map,
     _render_tree_payload_readable,
 )
 
 
 class TreeNodeIdTests(unittest.TestCase):
+    def test_report_filename_prefers_short_device_name(self) -> None:
+        names = _report_filename_map(
+            [
+                DeviceSelection(
+                    global_rank=2,
+                    db_idx=1,
+                    db_path=Path("/tmp/db1.sqlite"),
+                    device_id=2,
+                    main_event_count=1,
+                    exec_us=1.0,
+                    data_move_us=0.0,
+                    total_main_us=1.0,
+                ),
+                DeviceSelection(
+                    global_rank=1,
+                    db_idx=2,
+                    db_path=Path("/tmp/db2.sqlite"),
+                    device_id=3,
+                    main_event_count=1,
+                    exec_us=1.0,
+                    data_move_us=0.0,
+                    total_main_us=1.0,
+                ),
+            ]
+        )
+
+        self.assertEqual(names[(1, 2)], "report_dev2.md")
+        self.assertEqual(names[(2, 3)], "report_dev3.md")
+
     def test_readable_tree_uses_cost_metric_node_ids(self) -> None:
         payload = {
             "root": {

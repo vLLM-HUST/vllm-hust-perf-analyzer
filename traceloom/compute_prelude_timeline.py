@@ -3618,10 +3618,15 @@ def _render_compute_readable(
     selection: DeviceSelection,
     step_rows: Sequence[Dict[str, object]],
 ) -> str:
-    lines = [
-        "- stream_scope: `device_compute_sequence`" if line == "- stream_id: `-1`" else line
-        for line in tree_readable.splitlines()
-    ]
+    lines: List[str] = []
+    for line in tree_readable.splitlines():
+        if line == "- stream_id: `-1`":
+            lines.append("- stream_scope: `device_compute_sequence`")
+            lines.append(f"- db_idx: `{selection.db_idx}`")
+            lines.append(f"- global_rank: `{selection.global_rank}`")
+            lines.append("- report_view: `semantic_anchor_cost_tree`")
+            continue
+        lines.append(line)
     lines.append("")
     lines.append("## Compute Prelude Summary")
     lines.append("")
@@ -4357,14 +4362,14 @@ def _build_run_summary_markdown(
                 )
         else:
             lines.append(
-                "| rank | db | device | augmented_db | anchors | used_total_us | prelude_gap_us | prelude_comm_us | prelude_idle_us |"
+                "| rank | db | device | report | augmented_db | anchors | used_total_us | prelude_gap_us | prelude_comm_us | prelude_idle_us |"
             )
-            lines.append("| ---: | --- | ---: | --- | ---: | ---: | ---: | ---: | ---: |")
+            lines.append("| ---: | --- | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: |")
             for row in summary_rows:
                 lines.append(
                     (
                         f"| {row.get('global_rank','')} | db{int(row.get('db_idx',0)):02d} | {row.get('device_id','')} "
-                        f"| {row.get('augmented_db_file','')} | {row.get('anchor_event_count',0)} "
+                        f"| {row.get('anchor_tree_readable_file','')} | {row.get('augmented_db_file','')} | {row.get('anchor_event_count',0)} "
                         f"| {row.get('used_total_main_us',0.0)} | {row.get('prelude_gap_us',0.0)} "
                         f"| {row.get('prelude_comm_us',0.0)} | {row.get('prelude_idle_us',0.0)} |"
                     )
@@ -4455,6 +4460,7 @@ def _build_run_summary_markdown(
     lines.append("## Main Files")
     lines.append("")
     lines.append("- `dbNN.traceloom_augmented.db`")
+    lines.append("- `report_devN.md`")
     lines.append("- `README.md`")
     lines.append("- `queries/*.sql`")
     lines.append("- `tree-map.md`")
@@ -4577,6 +4583,7 @@ def _format_console_summary(meta: Dict[str, object]) -> str:
         f"output_mode: {meta.get('output_mode', 'bundle')}",
         f"devices: {meta.get('device_count', 0)} / dbs: {meta.get('db_count', 0)}",
         f"summary: {_relpath_or_self(str(meta.get('run_summary_file', '')), out_dir)}",
+        f"reports: {', '.join(_relpath_or_self(str(p), out_dir) for p in meta.get('report_files', []))}",
         f"augmented_dbs: {', '.join(_relpath_or_self(str(p), out_dir) for p in meta.get('augmented_db_files', []))}",
     ]
     if meta.get("output_mode") == "full":
@@ -4617,6 +4624,7 @@ def _write_output_readme(
     out_dir: Path,
     raw_dir: Path,
     augmented_db_paths: Sequence[Path],
+    report_files: Sequence[str],
     query_files: Sequence[str],
     output_mode: str,
 ) -> Path:
@@ -4629,6 +4637,8 @@ def _write_output_readme(
         "## Primary Outputs",
         "",
     ]
+    for report in report_files:
+        lines.append(f"- `{report}`: primary readable cost tree report.")
     for path in augmented_db_paths:
         lines.append(f"- `{path.relative_to(out_dir)}`: copied msprof SQLite DB with TraceLoom `traceloom_*` tables and views.")
     lines.extend(
@@ -4660,6 +4670,13 @@ def _write_output_readme(
     return path
 
 
+def _report_filename_map(selections: Sequence[DeviceSelection]) -> Dict[Tuple[int, int], str]:
+    out: Dict[Tuple[int, int], str] = {}
+    for selection in selections:
+        out[(selection.db_idx, selection.device_id)] = f"report_dev{selection.device_id}.md"
+    return out
+
+
 def run_compute_prelude_timeline(
     *,
     run_dir: Path,
@@ -4684,6 +4701,7 @@ def run_compute_prelude_timeline(
         for db_idx, db_path in enumerate(db_paths, start=1)
     }
     role_overrides = _load_kernel_role_overrides(cfg.kernel_role_file)
+    report_filenames = _report_filename_map(selections)
     summary_rows: List[Dict[str, object]] = []
     all_step_rows: List[Dict[str, object]] = []
     all_symbol_rows: List[Dict[str, object]] = []
@@ -5013,7 +5031,7 @@ def run_compute_prelude_timeline(
         anchor_loop_costs_path = out_dir / f"{stem}.anchor.loop_costs.csv"
         anchor_macro_loop_chains_path = out_dir / f"{stem}.anchor.macro_loop_chains.csv"
         anchor_tree_path = out_dir / f"{stem}.anchor.tree.json"
-        anchor_readable_path = out_dir / f"{stem}.anchor.tree.readable.md"
+        anchor_readable_path = out_dir / report_filenames[(selection.db_idx, selection.device_id)]
         cuda_graph_events_path = out_dir / f"{stem}.cuda_graph_events.csv"
         cuda_graph_envelope_path = out_dir / f"{stem}.cuda_graph_envelope_events.csv"
         cuda_graph_event_rows = _cuda_graph_event_rows(
@@ -5079,6 +5097,21 @@ def run_compute_prelude_timeline(
             node_metric_rows=anchor_node_metric_rows,
             anchor_tree_readable_file=str(anchor_readable_path.relative_to(out_dir)),
         )
+        anchor_report_text = _render_anchor_readable(
+            anchor_tree_readable,
+            selection=selection,
+            anchor_step_rows=anchor_step_rows,
+            kernel_role_rows=kernel_role_rows,
+            aux_slot_rows=anchor_aux_slot_rows,
+            aux_symbol_rows=anchor_aux_symbol_rows,
+            aux_macro_rows=anchor_macro_aux_metric_rows,
+            node_metric_rows=anchor_node_metric_rows,
+            root_item_metric_rows=anchor_root_item_metric_rows,
+            macro_loop_chain_rows=anchor_macro_loop_chain_rows,
+            loop_cost_rows=anchor_loop_cost_rows,
+            loop_summary_limit=cfg.summary_top_loops,
+        )
+        anchor_readable_path.write_text(anchor_report_text, encoding="utf-8")
         augmented_db_path = augmented_db_paths[selection.db_idx]
         append_device_analysis(
             augmented_db=augmented_db_path,
@@ -5139,23 +5172,6 @@ def run_compute_prelude_timeline(
             readable_path.write_text(
                 _render_anchor_readable(
                     tree_readable,
-                    selection=selection,
-                    anchor_step_rows=anchor_step_rows,
-                    kernel_role_rows=kernel_role_rows,
-                    aux_slot_rows=anchor_aux_slot_rows,
-                    aux_symbol_rows=anchor_aux_symbol_rows,
-                    aux_macro_rows=anchor_macro_aux_metric_rows,
-                    node_metric_rows=anchor_node_metric_rows,
-                    root_item_metric_rows=anchor_root_item_metric_rows,
-                    macro_loop_chain_rows=anchor_macro_loop_chain_rows,
-                    loop_cost_rows=anchor_loop_cost_rows,
-                    loop_summary_limit=cfg.summary_top_loops,
-                ),
-                encoding="utf-8",
-            )
-            anchor_readable_path.write_text(
-                _render_anchor_readable(
-                    anchor_tree_readable,
                     selection=selection,
                     anchor_step_rows=anchor_step_rows,
                     kernel_role_rows=kernel_role_rows,
@@ -5434,6 +5450,7 @@ def run_compute_prelude_timeline(
         "aclgraph_capture_stream_count": aclgraph_meta.get("capture_stream_count", 0),
         "aclgraph_quality": aclgraph_meta.get("quality", ""),
         "augmented_db_files": [str(path) for path in sorted(augmented_db_paths.values())],
+        "report_files": [str(out_dir / str(row.get("anchor_tree_readable_file", ""))) for row in summary_rows],
     }
     summary_text = _build_run_summary_markdown(
         summary_rows=summary_rows,
@@ -5462,6 +5479,7 @@ def run_compute_prelude_timeline(
         out_dir=out_dir,
         raw_dir=raw_dir,
         augmented_db_paths=sorted(augmented_db_paths.values()),
+        report_files=[str(row.get("anchor_tree_readable_file", "")) for row in summary_rows],
         query_files=query_files,
         output_mode=cfg.output_mode,
     )
