@@ -8,6 +8,7 @@ import re
 import sqlite3
 from collections import Counter
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -167,17 +168,23 @@ def analyze_aclgraph_for_device(
     if not ascend_task_paths:
         ascend_task_paths = sorted(prof_dir.glob("device_*/sqlite/ascend_task.db"))
 
+    capture_streams = _load_capture_streams(stream_info_path, device_id=device_id)
+    mapped_stream_ids = {int(row["model_stream_id"]) for row in capture_streams}
+    original_stream_ids = {int(row["original_stream_id"]) for row in capture_streams}
     with sqlite3.connect(str(db_path)) as conn:
         conn.row_factory = sqlite3.Row
         if not _table_exists(conn, "TASK") or not _table_exists(conn, "STRING_IDS"):
             return _empty_analysis(db_path, stream_info_path, device_id, db_idx, gap_us)
         strings = _load_string_ids(conn)
         compute = _load_compute_info(conn, strings)
-        task_rows = _load_tasks(conn, strings, device_id=device_id)
-
-    capture_streams = _load_capture_streams(stream_info_path, device_id=device_id)
-    mapped_stream_ids = {int(row["model_stream_id"]) for row in capture_streams}
-    original_stream_ids = {int(row["original_stream_id"]) for row in capture_streams}
+        graph_task_type_ids = _task_type_ids_for_keys(strings, GRAPH_TASK_KEYS)
+        task_rows = _load_tasks(
+            conn,
+            strings,
+            device_id=device_id,
+            stream_ids=mapped_stream_ids,
+            task_type_ids=graph_task_type_ids,
+        )
     rows_by_stream = _bucket_rows_by_stream(task_rows)
     graph_model_tasks = [
         row
@@ -470,8 +477,18 @@ def _stable_hash(value: str) -> str:
 
 def _canonical_graph_body_token(row: dict[str, Any], info: dict[str, str]) -> str:
     raw_op = info.get("op_type") or info.get("op_name") or str(row.get("task_label", ""))
-    op = canonical_device_label(str(raw_op), str(info.get("op_type", "")), category="exec")
     task = str(row.get("task_label", ""))
+    return _canonical_graph_body_token_from_labels(task, str(raw_op), str(info.get("op_type", "")))
+
+
+@lru_cache(maxsize=65536)
+def _canonical_graph_body_token_from_labels(task: str, raw_op: str, op_type: str) -> str:
+    # Graph body hashing used to classify every child task independently even
+    # though graph replays contain long repetitions of the same task/op labels.
+    # Cache the pure label-to-token lowering so the replay scan still visits
+    # every child for counts, but expensive canonicalization scales with the
+    # number of distinct graph operator labels instead of child task count.
+    op = canonical_device_label(raw_op, op_type, category="exec")
     task_key = _normalize_key(task)
     family = _graph_body_family(op)
     low = f"{op} {task} {family}".lower()
@@ -488,8 +505,13 @@ def _canonical_graph_body_token(row: dict[str, Any], info: dict[str, str]) -> st
 
 def _canonical_graph_noise_token(row: dict[str, Any], info: dict[str, str]) -> str:
     raw_op = info.get("op_type") or info.get("op_name") or str(row.get("task_label", ""))
-    op = canonical_device_label(str(raw_op), str(info.get("op_type", "")), category="exec")
     task = str(row.get("task_label", ""))
+    return _canonical_graph_noise_token_from_labels(task, str(raw_op), str(info.get("op_type", "")))
+
+
+@lru_cache(maxsize=65536)
+def _canonical_graph_noise_token_from_labels(task: str, raw_op: str, op_type: str) -> str:
+    op = canonical_device_label(raw_op, op_type, category="exec")
     task_key = _normalize_key(task)
     if task_key in GRAPH_BODY_EXCLUDED_KEYS:
         return f"control_or_transfer:{task_key.lower()}"
@@ -503,6 +525,7 @@ def _canonical_graph_noise_token(row: dict[str, Any], info: dict[str, str]) -> s
     return f"non_anchor_task:{task_key.lower() or 'unknown'}"
 
 
+@lru_cache(maxsize=65536)
 def _graph_body_family(label: str) -> str:
     low = (label or "").strip().lower()
     if not low:
@@ -684,16 +707,51 @@ def _load_compute_info(conn: sqlite3.Connection, strings: dict[int, str]) -> dic
     return out
 
 
-def _load_tasks(conn: sqlite3.Connection, strings: dict[int, str], *, device_id: int) -> list[dict[str, Any]]:
+def _task_type_ids_for_keys(strings: dict[int, str], keys: set[str]) -> set[int]:
+    return {
+        int(task_type_id)
+        for task_type_id, value in strings.items()
+        if _normalize_key(value) in keys
+    }
+
+
+def _load_tasks(
+    conn: sqlite3.Connection,
+    strings: dict[int, str],
+    *,
+    device_id: int,
+    stream_ids: set[int] | None = None,
+    task_type_ids: set[int] | None = None,
+) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
+    filters = ["deviceId = ?"]
+    params: list[object] = [device_id]
+    scoped_filters: list[str] = []
+    if stream_ids:
+        placeholders = ",".join("?" for _ in stream_ids)
+        scoped_filters.append(f"streamId IN ({placeholders})")
+        params.extend(sorted(stream_ids))
+    if task_type_ids:
+        placeholders = ",".join("?" for _ in task_type_ids)
+        scoped_filters.append(f"taskType IN ({placeholders})")
+        params.extend(sorted(task_type_ids))
+    if scoped_filters:
+        # ACLGraph used to load every TASK row for the selected device and then
+        # discard rows that were neither on mapped graph streams nor graph
+        # semantic controls.  Large device traces can have millions of unrelated
+        # rows, so push that same relevance predicate into SQLite: model-stream
+        # rows are needed for graph bodies, and GRAPH_TASK_KEYS rows are needed
+        # for MODEL_EXECUTE/NOTIFY control semantics.  This keeps raw TASK
+        # evidence intact while avoiding Python objects for irrelevant rows.
+        filters.append("(" + " OR ".join(scoped_filters) + ")")
     query = """
         SELECT startNs, endNs, deviceId, connectionId, globalTaskId, streamId,
                taskId, taskType, modelId
         FROM TASK
-        WHERE deviceId = ?
+        WHERE {where_clause}
         ORDER BY startNs, endNs, streamId, taskId
-    """
-    for row in conn.execute(query, (device_id,)):
+    """.format(where_clause=" AND ".join(filters))
+    for row in conn.execute(query, params):
         task_type_id = int(row["taskType"]) if row["taskType"] is not None else -1
         task_label = strings.get(task_type_id, str(task_type_id))
         rows.append(
@@ -1156,7 +1214,13 @@ def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
     ).fetchone() is not None
 
 
+@lru_cache(maxsize=8192)
 def _normalize_key(value: str) -> str:
+    # ACLGraph uses normalized keys for task-label membership tests.  The naive
+    # version ran the regex pair for every TASK row and every graph child token;
+    # msprof traces repeat a small set of task labels, so memoizing this pure
+    # normalization removes millions of duplicate regex calls without changing
+    # the key format.
     s = (value or "").strip().upper()
     s = re.sub(r"[^A-Z0-9]+", "_", s)
     return re.sub(r"_+", "_", s).strip("_")

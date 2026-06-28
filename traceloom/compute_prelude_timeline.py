@@ -12,6 +12,7 @@ import sqlite3
 import time
 from collections import Counter
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Dict, Iterable, List, Sequence, Tuple
 
@@ -240,7 +241,13 @@ def _is_collective_like(ev: StreamEvent) -> bool:
     ) or _is_alltoall_label(low) or _is_device_allreduce_kernel_label(low)
 
 
+@lru_cache(maxsize=65536)
 def _label_family(label: str, category: str) -> str:
+    # Loop-tree mining asks for the semantic family of the same labels in many
+    # phases: main-event projection, prelude/cost accounting, and report rows.
+    # The naive implementation re-ran canonicalization and keyword checks per
+    # event occurrence; caching keeps the global flat timeline semantics while
+    # making this string lowering proportional to distinct labels.
     label = _canonical_label(label, category=category)
     low = label.lower()
     if category == "graph" or low.startswith("aclgraph"):

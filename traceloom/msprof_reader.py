@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import sqlite3
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
 
@@ -68,17 +69,24 @@ class StreamSelection:
     stats: Dict[str, object]
 
 
+@lru_cache(maxsize=8192)
 def _normalize_task_type(name: str) -> str:
     return re.sub(r"\s+", " ", (name or "").strip()).upper().replace("_", " ")
 
 
+@lru_cache(maxsize=8192)
 def _normalize_task_key(name: str) -> str:
+    # The naive reader normalized task labels every time a TASK row was
+    # classified or projected into a main event.  Large msprof packages repeat a
+    # tiny vocabulary of task types millions of times, so cache the pure string
+    # normalization and keep regex work proportional to distinct labels.
     s = (name or "").strip().upper()
     s = re.sub(r"[^A-Z0-9]+", "_", s)
     s = re.sub(r"_+", "_", s).strip("_")
     return s
 
 
+@lru_cache(maxsize=65536)
 def _canonical_label(label: str, *, category: str) -> str:
     s = (label or "").strip()
     if not s:
@@ -96,6 +104,7 @@ def _canonical_label(label: str, *, category: str) -> str:
     return s
 
 
+@lru_cache(maxsize=65536)
 def canonical_device_label(raw_label: str, op_type: str = "", *, category: str = "exec") -> str:
     """Return the user-facing device semantic label while preserving raw labels elsewhere."""
     if category != "exec":
