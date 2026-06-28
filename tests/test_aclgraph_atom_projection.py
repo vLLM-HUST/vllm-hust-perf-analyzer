@@ -6,7 +6,11 @@ from traceloom.compute_prelude_timeline import (
     _main_event_source_key,
     _merge_aclgraph_atoms_with_main_events,
 )
-from traceloom.ascend_aclgraph import _canonical_graph_body_token, _canonical_graph_noise_token
+from traceloom.ascend_aclgraph import (
+    _canonical_graph_body_token,
+    _canonical_graph_noise_token,
+    _overlap_rows_by_interval,
+)
 from traceloom.msprof_reader import StreamEvent, canonical_device_label
 
 
@@ -90,6 +94,39 @@ class AclGraphAtomProjectionTests(unittest.TestCase):
         self.assertIn("partial_overlap_kept", {row["relation"] for row in diagnostics})
         self.assertEqual(graph_events[0].event.category, "graph")
         self.assertEqual(graph_events[0].source_stream_ids, (7, 8))
+
+    def test_interval_sweep_matches_naive_overlap_semantics(self) -> None:
+        intervals = [(10, 20), (30, 40), (15, 15)]
+        rows = [
+            {"start_ns": 0, "end_ns": 9, "stream_id": 1, "label": "before"},
+            {"start_ns": 5, "end_ns": 10, "stream_id": 2, "label": "touch_start"},
+            {"start_ns": 15, "end_ns": 16, "stream_id": 1, "label": "inside"},
+            {"start_ns": 20, "end_ns": 25, "stream_id": 3, "label": "touch_end"},
+            {"start_ns": 25, "end_ns": 35, "stream_id": 1, "label": "second"},
+            {"start_ns": 40, "end_ns": 45, "stream_id": 1, "label": "half_open_touch"},
+        ]
+
+        closed = _overlap_rows_by_interval(intervals, rows, touching_overlaps=True)
+        closed_naive = [
+            [
+                row
+                for row in sorted(rows, key=lambda item: (item["start_ns"], item["end_ns"], item["stream_id"]))
+                if row["start_ns"] <= end and row["end_ns"] >= start
+            ]
+            for start, end in intervals
+        ]
+        self.assertEqual(closed, closed_naive)
+
+        half_open = _overlap_rows_by_interval(intervals, rows, touching_overlaps=False)
+        half_open_naive = [
+            [
+                row
+                for row in sorted(rows, key=lambda item: (item["start_ns"], item["end_ns"], item["stream_id"]))
+                if row["start_ns"] < end and row["end_ns"] > start
+            ]
+            for start, end in intervals
+        ]
+        self.assertEqual(half_open, half_open_naive)
 
 
 if __name__ == "__main__":

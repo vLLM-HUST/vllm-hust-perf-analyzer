@@ -178,26 +178,37 @@ def analyze_aclgraph_for_device(
     capture_streams = _load_capture_streams(stream_info_path, device_id=device_id)
     mapped_stream_ids = {int(row["model_stream_id"]) for row in capture_streams}
     original_stream_ids = {int(row["original_stream_id"]) for row in capture_streams}
+    rows_by_stream = _bucket_rows_by_stream(task_rows)
     graph_model_tasks = [
         row
-        for row in task_rows
-        if row["stream_id"] in mapped_stream_ids and row["end_ns"] > row["start_ns"]
+        for stream_id in sorted(mapped_stream_ids)
+        for row in rows_by_stream.get(stream_id, ())
+        if row["end_ns"] > row["start_ns"]
     ]
     semantic_tasks = _semantic_task_rows(task_rows, db_idx=db_idx)
+    semantic_by_key = _semantic_rows_by_key(semantic_tasks)
     model_stream_rows = _summarize_model_streams(
-        task_rows=task_rows,
+        rows_by_stream=rows_by_stream,
         mapped_stream_ids=mapped_stream_ids,
         capture_streams=capture_streams,
         compute=compute,
         db_idx=db_idx,
     )
     activity_segments = _segment_tasks(graph_model_tasks, gap_ns=int(gap_us * 1000.0))
-    wave_size = _infer_model_execute_wave_size(activity_segments, semantic_tasks=semantic_tasks)
+    model_execs_by_activity_segment = _model_execute_controls_by_segment(
+        activity_segments,
+        semantic_by_key=semantic_by_key,
+    )
+    wave_size = _infer_model_execute_wave_size(
+        activity_segments,
+        model_execs_by_segment=model_execs_by_activity_segment,
+    )
     segments = _split_segments_by_model_execute_wave(
         activity_segments,
-        semantic_tasks=semantic_tasks,
+        model_execs_by_segment=model_execs_by_activity_segment,
         wave_size=wave_size,
     )
+    controls_by_segment = _graph_controls_by_segment(segments, semantic_by_key=semantic_by_key)
     step_rows, replay_rows, top_op_rows = _build_replay_rows(
         db_path=db_path,
         db_idx=db_idx,
@@ -205,7 +216,7 @@ def analyze_aclgraph_for_device(
         device_id=device_id,
         first_step_idx=first_step_idx,
         segments=segments,
-        semantic_tasks=semantic_tasks,
+        controls_by_segment=controls_by_segment,
         compute=compute,
     )
     envelope_rows = _build_envelope_rows(
@@ -327,7 +338,7 @@ def _build_replay_rows(
     device_id: int,
     first_step_idx: int,
     segments: Sequence[Sequence[dict[str, Any]]],
-    semantic_tasks: Sequence[dict[str, object]],
+    controls_by_segment: Sequence[Sequence[dict[str, object]]],
     compute: dict[int, dict[str, str]],
 ) -> tuple[list[dict[str, object]], list[dict[str, object]], list[dict[str, object]]]:
     step_rows: list[dict[str, object]] = []
@@ -360,11 +371,11 @@ def _build_replay_rows(
             if info.get("op_type") or "AI_CORE" in str(row["task_label"]).upper():
                 kernel_count += 1
                 kernel_us += dur_ns / 1000.0
-        controls = [
-            row
-            for row in semantic_tasks
-            if int(row["end_ns"]) >= start_ns and int(row["start_ns"]) <= end_ns
-        ]
+        controls = (
+            list(controls_by_segment[replay_idx - 1])
+            if replay_idx - 1 < len(controls_by_segment)
+            else []
+        )
         control_counter = Counter(str(row["task_label"]) for row in controls)
         body_signature = "\n".join(f"{name}:{count}" for name, count in sorted(body_counter.items()))
         body_noise_signature = "\n".join(f"{name}:{count}" for name, count in sorted(body_noise_counter.items()))
@@ -548,17 +559,30 @@ def _build_envelope_rows(
         if str(row.get("source_table", "")) != "ACLGRAPH_REPLAY"
         and _safe_int(row.get("end_ns")) > _safe_int(row.get("start_ns"))
     ]
-    for replay in replay_rows:
+    replay_bounds = [
+        (_safe_int(replay.get("start_ns")), _safe_int(replay.get("end_ns")))
+        for replay in replay_rows
+    ]
+    # The envelope used to be a direct replay x visible-event scan.  That was
+    # acceptable for smoke traces, but a long decode run may contain hundreds of
+    # graph replays and many visible events.  Reuse the same interval sweep as
+    # semantic control matching, with half-open overlap semantics to preserve the
+    # previous boundary behavior for envelope rows.
+    candidates_by_replay = _overlap_rows_by_interval(
+        replay_bounds,
+        candidates,
+        touching_overlaps=False,
+    )
+    for replay_idx, replay in enumerate(replay_rows):
         graph_start = _safe_int(replay.get("start_ns"))
         graph_end = _safe_int(replay.get("end_ns"))
         graph_step_idx = _safe_int(replay.get("step_idx"))
         if graph_end <= graph_start:
             continue
-        for child in candidates:
+        replay_candidates = candidates_by_replay[replay_idx] if replay_idx < len(candidates_by_replay) else ()
+        for child in replay_candidates:
             child_start = _safe_int(child.get("start_ns"))
             child_end = _safe_int(child.get("end_ns"))
-            if child_end <= graph_start or child_start >= graph_end:
-                continue
             envelope_idx += 1
             contained = child_start >= graph_start and child_end <= graph_end
             rows.append(
@@ -690,6 +714,14 @@ def _load_tasks(conn: sqlite3.Connection, strings: dict[int, str], *, device_id:
     return rows
 
 
+def _bucket_rows_by_stream(task_rows: Sequence[dict[str, Any]]) -> dict[int, list[dict[str, Any]]]:
+    """Index TASK rows once so per-stream summaries do not rescan the whole table."""
+    out: dict[int, list[dict[str, Any]]] = {}
+    for row in task_rows:
+        out.setdefault(int(row["stream_id"]), []).append(row)
+    return out
+
+
 def _load_capture_streams(path: Path, *, device_id: int) -> list[dict[str, int]]:
     if not path.exists():
         return []
@@ -764,6 +796,7 @@ def _semantic_task_rows(task_rows: Sequence[dict[str, Any]], *, db_idx: int) -> 
                 "connection_id": row["connection_id"],
                 "task_type_id": row["task_type_id"],
                 "task_label": row["task_label"],
+                "task_key": row["task_key"],
                 "start_ns": row["start_ns"],
                 "end_ns": row["end_ns"],
                 "duration_us": round(max(0, row["end_ns"] - row["start_ns"]) / 1000.0, 3),
@@ -791,15 +824,128 @@ def _segment_tasks(tasks: Sequence[dict[str, Any]], *, gap_ns: int) -> list[list
     return segments
 
 
+def _semantic_rows_by_key(semantic_tasks: Sequence[dict[str, object]]) -> dict[str, list[dict[str, object]]]:
+    out: dict[str, list[dict[str, object]]] = {}
+    for row in semantic_tasks:
+        key = str(row.get("task_key", "")) or _normalize_key(str(row.get("task_label", "")))
+        out.setdefault(key, []).append(row)
+    return out
+
+
+def _segment_bounds(segments: Sequence[Sequence[dict[str, Any]]]) -> list[tuple[int, int]]:
+    bounds: list[tuple[int, int]] = []
+    for segment in segments:
+        if not segment:
+            bounds.append((0, 0))
+            continue
+        bounds.append(
+            (
+                min(int(row["start_ns"]) for row in segment),
+                max(int(row["end_ns"]) for row in segment),
+            )
+        )
+    return bounds
+
+
+def _overlap_rows_by_interval(
+    intervals: Sequence[tuple[int, int]],
+    rows: Sequence[dict[str, object]],
+    *,
+    touching_overlaps: bool,
+) -> list[list[dict[str, object]]]:
+    """Join timeline intervals with rows using one sweep instead of a nested scan.
+
+    The naive ACLGraph implementation did this work as:
+    ``for graph_segment: for semantic_task: check_time_overlap``.  That is easy
+    to read, but on long decode traces it becomes tens of millions of overlap
+    checks and repeats label normalization in the inner loop.  The sweep below
+    preserves the same flat-timeline overlap semantics while walking the sorted
+    semantic rows once and keeping only rows that can still overlap the current
+    graph interval.
+    """
+    out: list[list[dict[str, object]]] = [[] for _ in intervals]
+    if not intervals or not rows:
+        return out
+
+    ordered_intervals = sorted(
+        enumerate(intervals),
+        key=lambda item: (item[1][0], item[1][1], item[0]),
+    )
+    ordered_rows = sorted(
+        (
+            (int(row.get("start_ns", 0)), int(row.get("end_ns", 0)), int(row.get("stream_id", -1)), row)
+            for row in rows
+        ),
+        key=lambda item: (item[0], item[1], item[2]),
+    )
+
+    cursor = 0
+    active: list[tuple[int, int, int, dict[str, object]]] = []
+    for interval_idx, (start_ns, end_ns) in ordered_intervals:
+        if touching_overlaps:
+            while cursor < len(ordered_rows) and ordered_rows[cursor][0] <= end_ns:
+                active.append(ordered_rows[cursor])
+                cursor += 1
+            active = [item for item in active if item[1] >= start_ns]
+            matches = [
+                row
+                for row_start, row_end, _stream_id, row in active
+                if row_start <= end_ns and row_end >= start_ns
+            ]
+        else:
+            while cursor < len(ordered_rows) and ordered_rows[cursor][0] < end_ns:
+                active.append(ordered_rows[cursor])
+                cursor += 1
+            active = [item for item in active if item[1] > start_ns]
+            matches = [
+                row
+                for row_start, row_end, _stream_id, row in active
+                if row_start < end_ns and row_end > start_ns
+            ]
+        matches.sort(
+            key=lambda row: (
+                int(row.get("start_ns", 0)),
+                int(row.get("end_ns", 0)),
+                int(row.get("stream_id", -1)),
+            )
+        )
+        out[interval_idx] = matches
+    return out
+
+
+def _graph_controls_by_segment(
+    segments: Sequence[Sequence[dict[str, Any]]],
+    *,
+    semantic_by_key: dict[str, Sequence[dict[str, object]]],
+) -> list[list[dict[str, object]]]:
+    rows: list[dict[str, object]] = []
+    for key in sorted(GRAPH_TASK_KEYS):
+        rows.extend(semantic_by_key.get(key, ()))
+    return _overlap_rows_by_interval(
+        _segment_bounds(segments),
+        rows,
+        touching_overlaps=True,
+    )
+
+
+def _model_execute_controls_by_segment(
+    segments: Sequence[Sequence[dict[str, Any]]],
+    *,
+    semantic_by_key: dict[str, Sequence[dict[str, object]]],
+) -> list[list[dict[str, object]]]:
+    return _overlap_rows_by_interval(
+        _segment_bounds(segments),
+        semantic_by_key.get("MODEL_EXECUTE", ()),
+        touching_overlaps=True,
+    )
+
+
 def _infer_model_execute_wave_size(
     segments: Sequence[Sequence[dict[str, Any]]],
     *,
-    semantic_tasks: Sequence[dict[str, object]],
+    model_execs_by_segment: Sequence[Sequence[dict[str, object]]],
 ) -> int:
-    counts = [
-        len(_model_execute_controls_for_segment(segment, semantic_tasks))
-        for segment in segments
-    ]
+    counts = [len(rows) for rows in model_execs_by_segment[: len(segments)]]
     counts = [count for count in counts if count > 0]
     if not counts:
         return 0
@@ -812,17 +958,17 @@ def _infer_model_execute_wave_size(
 def _split_segments_by_model_execute_wave(
     segments: Sequence[Sequence[dict[str, Any]]],
     *,
-    semantic_tasks: Sequence[dict[str, object]],
+    model_execs_by_segment: Sequence[Sequence[dict[str, object]]],
     wave_size: int,
 ) -> list[list[dict[str, Any]]]:
     if wave_size <= 1:
         return [list(segment) for segment in segments]
     out: list[list[dict[str, Any]]] = []
-    for segment in segments:
+    for idx, segment in enumerate(segments):
         out.extend(
             _split_one_segment_by_model_execute_wave(
                 segment,
-                semantic_tasks=semantic_tasks,
+                model_execs=model_execs_by_segment[idx] if idx < len(model_execs_by_segment) else (),
                 wave_size=wave_size,
             )
         )
@@ -832,11 +978,10 @@ def _split_segments_by_model_execute_wave(
 def _split_one_segment_by_model_execute_wave(
     segment: Sequence[dict[str, Any]],
     *,
-    semantic_tasks: Sequence[dict[str, object]],
+    model_execs: Sequence[dict[str, object]],
     wave_size: int,
 ) -> list[list[dict[str, Any]]]:
     rows = sorted(segment, key=lambda row: (row["start_ns"], row["end_ns"], row["stream_id"], row["task_id"]))
-    model_execs = _model_execute_controls_for_segment(rows, semantic_tasks)
     if not rows or len(model_execs) <= wave_size or len(model_execs) % wave_size != 0:
         return [list(rows)]
 
@@ -859,28 +1004,9 @@ def _split_one_segment_by_model_execute_wave(
     return waves
 
 
-def _model_execute_controls_for_segment(
-    segment: Sequence[dict[str, Any]],
-    semantic_tasks: Sequence[dict[str, object]],
-) -> list[dict[str, object]]:
-    if not segment:
-        return []
-    start_ns = min(int(row["start_ns"]) for row in segment)
-    end_ns = max(int(row["end_ns"]) for row in segment)
-    rows = [
-        row
-        for row in semantic_tasks
-        if _normalize_key(str(row.get("task_label", ""))) == "MODEL_EXECUTE"
-        and int(row.get("end_ns", 0)) >= start_ns
-        and int(row.get("start_ns", 0)) <= end_ns
-    ]
-    rows.sort(key=lambda row: (int(row.get("start_ns", 0)), int(row.get("end_ns", 0)), int(row.get("stream_id", -1))))
-    return rows
-
-
 def _summarize_model_streams(
     *,
-    task_rows: Sequence[dict[str, Any]],
+    rows_by_stream: dict[int, Sequence[dict[str, Any]]],
     mapped_stream_ids: set[int],
     capture_streams: Sequence[dict[str, int]],
     compute: dict[int, dict[str, str]],
@@ -889,7 +1015,10 @@ def _summarize_model_streams(
     capture_by_stream = {row["model_stream_id"]: row for row in capture_streams}
     out: list[dict[str, object]] = []
     for stream_id in sorted(mapped_stream_ids):
-        rows = [row for row in task_rows if row["stream_id"] == stream_id]
+        # This replaces the original per-stream full-table scan.  On traces with
+        # dozens of captured graph streams and millions of TASK rows, the naive
+        # version was O(stream_count * task_count); the bucket keeps it O(task_count).
+        rows = list(rows_by_stream.get(stream_id, ()))
         valid = [row for row in rows if row["end_ns"] > row["start_ns"]]
         ops = Counter(
             compute.get(row["global_task_id"], {}).get("op_type", "") or row["task_label"]
