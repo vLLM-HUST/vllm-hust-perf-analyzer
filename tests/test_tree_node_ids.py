@@ -70,9 +70,12 @@ class TreeNodeIdTests(unittest.TestCase):
         readable_ids = set(re.findall(r"\bN\d{3}\b", readable))
 
         self.assertEqual(readable_ids, metric_ids)
-        self.assertIn("N003 Repeat x2", readable)
-        self.assertNotIn("N020 Repeat x2", readable)
+        self.assertIn("N003 Rep x2", readable)
+        self.assertNotIn("N020 Rep x2", readable)
         self.assertNotIn("N030 Seq", readable)
+        self.assertIn("op", readable)
+        self.assertIn("avg_idle", readable)
+        self.assertNotIn("Atom A", readable)
 
 
 if __name__ == "__main__":

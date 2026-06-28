@@ -3640,10 +3640,10 @@ def _render_compute_readable(
     return "\n".join(lines) + "\n"
 
 
-def _render_inline_ast_lines(
+def _render_inline_ast_rows(
     node: Dict[str, object],
     *,
-    out: List[str],
+    out: List[Tuple[str, str]],
     indent: str = "",
     prefix: str = "",
 ) -> None:
@@ -3656,7 +3656,7 @@ def _render_inline_ast_lines(
                 continue
             child = item.get("node", {})
             if isinstance(child, dict):
-                _render_inline_ast_lines(
+                _render_inline_ast_rows(
                     child,
                     out=out,
                     indent=next_indent,
@@ -3667,7 +3667,7 @@ def _render_inline_ast_lines(
     node_id = str(node.get("node_id", "")).strip()
     node_prefix = f"{node_id} " if node_id else ""
     if t == "Seq":
-        out.append(f"{indent}{prefix}{node_prefix}Seq")
+        out.append((f"{indent}{prefix}{node_prefix}Seq", node_id))
         items = node.get("items", [])
         if isinstance(items, list):
             for idx, it in enumerate(items, start=1):
@@ -3675,7 +3675,7 @@ def _render_inline_ast_lines(
                     continue
                 child = it.get("node", {})
                 if isinstance(child, dict):
-                    _render_inline_ast_lines(
+                    _render_inline_ast_rows(
                         child,
                         out=out,
                         indent=indent + "  ",
@@ -3685,7 +3685,7 @@ def _render_inline_ast_lines(
         return
 
     if t == "Repeat":
-        out.append(f"{indent}{prefix}{node_prefix}Repeat x{int(node.get('count', 1))}")
+        out.append((f"{indent}{prefix}{node_prefix}Rep x{int(node.get('count', 1))}", node_id))
         body = node.get("body", {})
         if isinstance(body, dict):
             if str(body.get("type", "")) == "Seq":
@@ -3696,21 +3696,19 @@ def _render_inline_ast_lines(
                             continue
                         child = it.get("node", {})
                         if isinstance(child, dict):
-                            _render_inline_ast_lines(
+                            _render_inline_ast_rows(
                                 child,
                                 out=out,
                                 indent=indent + "  ",
                                 prefix=f"[{idx}] ",
                             )
             else:
-                _render_inline_ast_lines(body, out=out, indent=indent + "  ")
+                _render_inline_ast_rows(body, out=out, indent=indent + "  ")
         render_overlays(indent + "  ")
         return
 
     if t == "Atom":
-        out.append(
-            f"{indent}{prefix}{node_prefix}Atom {node.get('symbol','')} | {node.get('op_label','')} | {node.get('category','')}"
-        )
+        out.append((f"{indent}{prefix}{node_id or 'Atom'} | {node.get('op_label','')} | {node.get('category','')}", node_id))
         render_overlays(indent + "  ")
         return
 
@@ -3724,16 +3722,109 @@ def _render_inline_ast_lines(
             f"{node.get('dur_us', 0.0)} us",
             f"tasks {node.get('raw_child_task_count', 0)}",
         ]
-        out.append(" | ".join(parts))
+        out.append((" | ".join(parts), node_id))
         return
 
     if t == "MacroRef":
-        out.append(f"{indent}{prefix}{node_prefix}MacroRef {node.get('name', '')}")
+        out.append((f"{indent}{prefix}{node_prefix}MacroRef {node.get('name', '')}", node_id))
         render_overlays(indent + "  ")
         return
 
-    out.append(f"{indent}{prefix}{node_prefix}{t}")
+    out.append((f"{indent}{prefix}{node_prefix}{t}", node_id))
     render_overlays(indent + "  ")
+
+
+def _render_inline_ast_lines(
+    node: Dict[str, object],
+    *,
+    out: List[str],
+    indent: str = "",
+    prefix: str = "",
+) -> None:
+    rows: List[Tuple[str, str]] = []
+    _render_inline_ast_rows(node, out=rows, indent=indent, prefix=prefix)
+    out.extend(line for line, _node_id in rows)
+
+
+def _format_tree_cost_value(value: object) -> str:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return ""
+    if abs(number) >= 1000:
+        return f"{number:.0f}"
+    if abs(number) >= 10:
+        return f"{number:.1f}"
+    return f"{number:.2f}"
+
+
+def _tree_cost_by_node(payload: Dict[str, object]) -> Dict[str, Dict[str, object]]:
+    rows = payload.get("node_cost_metrics", [])
+    if not isinstance(rows, list):
+        return {}
+    return {
+        str(row.get("node_id", "")): row
+        for row in rows
+        if isinstance(row, dict) and str(row.get("node_id", "")).strip()
+    }
+
+
+def _split_tree_display_columns(line: str) -> Tuple[str, str, str]:
+    parts = line.split(" | ")
+    if len(parts) == 3:
+        return parts[0], parts[1], parts[2]
+    return line, "", ""
+
+
+def _clip_tree_cell(text: str, width: int) -> str:
+    if len(text) <= width:
+        return text
+    if width <= 1:
+        return text[:width]
+    return text[: width - 1] + "~"
+
+
+def _render_root_tree_rows_with_costs(root: Dict[str, object], cost_by_node: Dict[str, Dict[str, object]]) -> List[str]:
+    rows: List[Tuple[str, str]] = []
+    _render_inline_ast_rows(root, out=rows)
+    if not rows or not cost_by_node:
+        return [line for line, _node_id in rows]
+
+    display_rows = [
+        (_split_tree_display_columns(line), node_id)
+        for line, node_id in rows
+    ]
+    node_width = max(28, min(48, max(len(cols[0]) for cols, _node_id in display_rows)))
+    op_width = max(8, min(24, max(len(cols[1]) for cols, _node_id in display_rows)))
+    cat_width = max(5, min(8, max(len(cols[2]) for cols, _node_id in display_rows)))
+    header = (
+        f"{'node':<{node_width}}  {'op':<{op_width}}  {'cat':<{cat_width}}"
+        f"  | {'occ':>4} {'total_us':>10} {'avg_us':>9} {'avg_idle':>9} {'avg_aux':>8} {'avg_self':>8}"
+    )
+    sep = (
+        f"{'-' * node_width}  {'-' * op_width}  {'-' * cat_width}"
+        f"  | {'-' * 4} {'-' * 10} {'-' * 9} {'-' * 9} {'-' * 8} {'-' * 8}"
+    )
+    out = [header, sep]
+    for (node_text, op_text, cat_text), node_id in display_rows:
+        row = cost_by_node.get(node_id, {})
+        if row:
+            cost = (
+                f"{int(row.get('occurrence_count', 0) or 0):>4} "
+                f"{_format_tree_cost_value(row.get('total_us', 0.0)):>10} "
+                f"{_format_tree_cost_value(row.get('avg_total_us', 0.0)):>9} "
+                f"{_format_tree_cost_value(row.get('avg_idle_us', 0.0)):>9} "
+                f"{_format_tree_cost_value(row.get('avg_aux_us', 0.0)):>8}"
+                f" {_format_tree_cost_value(row.get('avg_self_us', 0.0)):>8}"
+            )
+        else:
+            cost = f"{'':>4} {'':>10} {'':>9} {'':>9} {'':>8} {'':>8}"
+        out.append(
+            f"{_clip_tree_cell(node_text, node_width):<{node_width}}  "
+            f"{_clip_tree_cell(op_text, op_width):<{op_width}}  "
+            f"{_clip_tree_cell(cat_text, cat_width):<{cat_width}}  | {cost}"
+        )
+    return out
 
 
 def _renumber_seq_items(items: Sequence[Dict[str, object]]) -> List[Dict[str, object]]:
@@ -3829,7 +3920,7 @@ def _render_tree_payload_readable(payload: Dict[str, object]) -> str:
     lines.append("```")
     root = payload.get("root", {})
     if isinstance(root, dict):
-        _render_inline_ast_lines(root, out=lines)
+        lines.extend(_render_root_tree_rows_with_costs(root, _tree_cost_by_node(payload)))
     lines.append("```")
     lines.append("")
     lines.append("## Macro Subtrees")
@@ -4108,8 +4199,6 @@ def _render_anchor_readable(
     role_counts = Counter(str(row.get("semantic_role", "")) for row in kernel_role_rows)
     lines = text.splitlines()
     lines.append("")
-    lines.extend(_render_node_cost_metrics(node_metric_rows))
-    lines.append("")
     lines.extend(_render_graph_replay_node_summary(node_metric_rows))
     lines.append("")
     lines.extend(_render_loop_cost_summary(loop_cost_rows, limit=loop_summary_limit))
@@ -4117,6 +4206,7 @@ def _render_anchor_readable(
     lines.append("## Anchor View Summary")
     lines.append("")
     lines.append("- view: `hybrid_anchor_sequence`")
+    lines.append("- lookup: `Nxxx` node ids join through `*.anchor.node_metrics.csv`, `*.anchor.node_anchor_links.csv`, and `*.anchor.steps.csv` for symbols and raw labels.")
     lines.append(f"- anchor_events: `{len(anchor_step_rows)}`")
     lines.append(f"- aux_slots: `{len(aux_slot_rows)}`")
     lines.append(
