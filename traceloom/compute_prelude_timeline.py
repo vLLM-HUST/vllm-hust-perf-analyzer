@@ -276,6 +276,21 @@ def _label_family(label: str, category: str) -> str:
     return label[:64].strip().lower().replace(" ", "_")
 
 
+def _display_collective_label(label: str) -> str:
+    family = _label_family(label, "comm")
+    if family == "allreduce":
+        return "AllReduce"
+    if family == "allgather":
+        return "AllGather"
+    if family == "alltoall":
+        return "AllToAll"
+    if family == "reducescatter":
+        return "ReduceScatter"
+    if family == "broadcast":
+        return "Broadcast"
+    return _canonical_label(label, category="comm")
+
+
 def _main_event_key(ev: StreamEvent, role: str) -> Tuple[str, str, str]:
     family = _label_family(ev.label, ev.category)
     if family == "aclgraph":
@@ -359,6 +374,8 @@ def _step_row_source_key(row: Dict[str, object]) -> str:
 
 def _symbol_rows_from_main_events(main_events: Sequence[MainEvent]) -> List[Dict[str, object]]:
     symbol_rows_by_symbol: Dict[str, Dict[str, object]] = {}
+    raw_label_counts_by_symbol: Dict[str, Counter[str]] = {}
+    op_type_counts_by_symbol: Dict[str, Counter[str]] = {}
     for item in main_events:
         ev = item.event
         row = symbol_rows_by_symbol.setdefault(
@@ -369,6 +386,9 @@ def _symbol_rows_from_main_events(main_events: Sequence[MainEvent]) -> List[Dict
                 "category": ev.category,
                 "task_type": ev.task_type,
                 "label": ev.label,
+                "raw_label": ev.raw_label,
+                "op_type": ev.op_type,
+                "compute_task_type": ev.compute_task_type,
                 "family": _label_family(ev.label, ev.category),
                 "window_count": 0,
                 "total_us": 0.0,
@@ -381,6 +401,13 @@ def _symbol_rows_from_main_events(main_events: Sequence[MainEvent]) -> List[Dict
         row["window_count"] = int(row["window_count"]) + 1
         row["total_us"] = round(float(row["total_us"]) + ev.dur_ns / 1000.0, 3)
         row["source_event_count"] = int(row["source_event_count"]) + len(_source_global_task_ids(item))
+        if ev.raw_label:
+            raw_label_counts_by_symbol.setdefault(item.symbol, Counter())[ev.raw_label] += 1
+        if ev.op_type:
+            op_type_counts_by_symbol.setdefault(item.symbol, Counter())[ev.op_type] += 1
+    for symbol, row in symbol_rows_by_symbol.items():
+        row["raw_top_labels"] = _format_counter(raw_label_counts_by_symbol.get(symbol, Counter()), limit=8)
+        row["op_type_counts"] = _format_counter(op_type_counts_by_symbol.get(symbol, Counter()), limit=8)
     return list(symbol_rows_by_symbol.values())
 
 
@@ -430,6 +457,7 @@ def _coalesce_collective_episodes(
         primary_stream = max(stream_dur.items(), key=lambda kv: (kv[1], -kv[0]))[0]
         source_ids = tuple(sorted({ev.global_task_id for ev in group if ev.global_task_id >= 0}))
         source_streams = tuple(sorted({ev.stream_id for ev in group}))
+        label = _display_collective_label(first_comm.label)
         synthetic = StreamEvent(
             start_ns=start_ns,
             end_ns=end_ns,
@@ -439,7 +467,8 @@ def _coalesce_collective_episodes(
             global_task_id=min(source_ids) if source_ids else first_comm.global_task_id,
             connection_id=first_comm.connection_id,
             task_type="COLLECTIVE_EPISODE",
-            label=first_comm.label,
+            label=label,
+            raw_label=first_comm.raw_label or first_comm.label,
             category="comm",
         )
         out.append((synthetic, source_ids, source_streams, len(group)))
@@ -726,8 +755,8 @@ def _load_communication_op_events(
             connection_id = int(connection_raw if connection_raw is not None else -1)
             op_id = int(op_id_raw if op_id_raw is not None else -1)
             label_raw = sid_to_value.get(int(op_name_id), str(op_name_id))
-            label = _canonical_label(label_raw, category="comm")
-            family = _label_family(label, "comm")
+            label = _display_collective_label(label_raw)
+            family = _label_family(label_raw, "comm")
             if family not in COLLECTIVE_FAMILIES:
                 continue
 
@@ -771,6 +800,7 @@ def _load_communication_op_events(
                 connection_id=connection_id,
                 task_type="COMMUNICATION_OP",
                 label=label,
+                raw_label=label_raw,
                 category="comm",
             )
             out.append((synthetic, tuple(sorted(source_ids)), tuple(sorted(source_streams)), source_event_count))
@@ -883,6 +913,22 @@ def _expand_compact_ints(text: str) -> List[int]:
         if value:
             out.append(value)
     return out
+
+
+def _compact_ints(values: Iterable[int]) -> str:
+    xs = sorted({int(value) for value in values})
+    if not xs:
+        return ""
+    ranges: List[str] = []
+    start = prev = xs[0]
+    for value in xs[1:]:
+        if value == prev + 1:
+            prev = value
+            continue
+        ranges.append(f"{start}..{prev}" if start != prev else str(start))
+        start = prev = value
+    ranges.append(f"{start}..{prev}" if start != prev else str(start))
+    return ",".join(ranges)
 
 
 def _merge_aclgraph_atoms_with_main_events(
@@ -1314,6 +1360,9 @@ def _build_steps(
                 "stream_id": ev.stream_id,
                 "task_type": ev.task_type,
                 "label": ev.label,
+                "raw_label": ev.raw_label,
+                "op_type": ev.op_type,
+                "compute_task_type": ev.compute_task_type,
                 "family": _label_family(ev.label, ev.category),
                 "source_table": ev.source_table,
                 "source_key": ev.source_key,
@@ -2858,6 +2907,73 @@ def _augment_tree_node_cost_metrics(
     tree_payload["node_anchor_link_count"] = len(link_rows)
     tree_payload["node_cost_metrics_unconsumed_anchors"] = max(0, len(step_rows) - consumed)
     return metric_rows, link_rows
+
+
+def _parse_count_hint(text: str) -> Dict[str, float]:
+    out: Dict[str, float] = {}
+    for part in re.split(r"\s*;\s*", text.strip()):
+        if not part or ":" not in part:
+            continue
+        name, _sep, value_text = part.rpartition(":")
+        try:
+            value = float(value_text.strip())
+        except ValueError:
+            continue
+        name = name.strip()
+        if name:
+            out[name] = out.get(name, 0.0) + value
+    if out:
+        return out
+    return _parse_duration_hint(text)
+
+
+def _merge_count_hints(rows: Sequence[Dict[str, object]], key: str, *, limit: int) -> str:
+    counts: Dict[str, float] = {}
+    for row in rows:
+        for name, value in _parse_count_hint(str(row.get(key, ""))).items():
+            counts[name] = counts.get(name, 0.0) + value
+    parts: List[str] = []
+    for name, value in sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:limit]:
+        shown_value: int | float = int(value) if float(value).is_integer() else round(value, 3)
+        parts.append(f"{name}:{shown_value}")
+    return "; ".join(parts)
+
+
+def _backfill_aclgraph_node_metrics(
+    node_metric_rows: List[Dict[str, object]],
+    *,
+    step_rows: Sequence[Dict[str, object]],
+) -> None:
+    for row in node_metric_rows:
+        if str(row.get("kind", "")) != "graph" and str(row.get("category", "")) != "graph":
+            continue
+        first_anchor_idx = _safe_int(row.get("first_anchor_idx"))
+        last_anchor_idx = _safe_int(row.get("last_anchor_idx"))
+        if first_anchor_idx <= 0 or last_anchor_idx < first_anchor_idx:
+            continue
+        graph_steps = [
+            step_rows[idx - 1]
+            for idx in range(first_anchor_idx, min(last_anchor_idx, len(step_rows)) + 1)
+            if str(step_rows[idx - 1].get("graph_provider", "")) == "aclgraph"
+        ]
+        if not graph_steps:
+            continue
+        providers = sorted({str(item.get("graph_provider", "")) for item in graph_steps if item.get("graph_provider", "")})
+        kinds = sorted({str(item.get("graph_kind", "")) for item in graph_steps if item.get("graph_kind", "")})
+        graph_indices = [_safe_int(item.get("graph_event_idx")) for item in graph_steps if _safe_int(item.get("graph_event_idx"))]
+        row["graph_provider"] = ",".join(providers)
+        row["graph_kind"] = ",".join(kinds)
+        row["graph_event_idx"] = _compact_ints(graph_indices)
+        row["graph_step_idx"] = _compact_ints(_safe_int(item.get("step_idx")) for item in graph_steps if _safe_int(item.get("step_idx")))
+        row["graph_type_symbol"] = str(graph_steps[0].get("graph_type_symbol", row.get("symbol", "")) or row.get("symbol", ""))
+        row["graph_body_hash"] = str(graph_steps[0].get("graph_body_hash", ""))
+        row["graph_envelope_hash"] = str(graph_steps[0].get("graph_envelope_hash", ""))
+        row["start_ns"] = min(_safe_int(item.get("start_ns")) for item in graph_steps)
+        row["end_ns"] = max(_safe_int(item.get("end_ns")) for item in graph_steps)
+        row["raw_child_task_count"] = int(sum(_safe_int(item.get("raw_child_task_count")) for item in graph_steps))
+        row["visible_envelope_event_count"] = int(sum(_safe_int(item.get("visible_envelope_event_count")) for item in graph_steps))
+        row["raw_control_tasks"] = _merge_count_hints(graph_steps, "raw_control_tasks", limit=8)
+        row["raw_top_ops"] = _merge_count_hints(graph_steps, "raw_top_ops", limit=10)
 
 
 def _remap_tree_payload_node_ids(tree_payload: Dict[str, object], id_map: Dict[str, str]) -> None:
@@ -4697,6 +4813,7 @@ def run_compute_prelude_timeline(
             aux_slot_rows=anchor_grammar_aux_slot_rows,
             macro_def_tokens=anchor_tree_macro_def_tokens,
         )
+        _backfill_aclgraph_node_metrics(anchor_node_metric_rows, step_rows=anchor_grammar_step_rows)
         if cfg.readable_macro_mode == "inline":
             anchor_tree_readable = _render_tree_payload_readable(anchor_tree_payload)
         anchor_root_item_metric_rows = _augment_root_item_metrics(

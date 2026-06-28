@@ -2,9 +2,14 @@ from pathlib import Path
 import unittest
 
 from traceloom.collective_tag import LoopNode, _assign_loop_pairs, _loop_signature, run_collective_tag
+from traceloom.compute_prelude_timeline import _display_collective_label
 
 
 class CollectiveTagTests(unittest.TestCase):
+    def test_collective_labels_are_displayed_semantically(self) -> None:
+        self.assertEqual(_display_collective_label("hcom_allReduce__123_456_789"), "AllReduce")
+        self.assertEqual(_display_collective_label("hcom_allGather__123_456_789"), "AllGather")
+
     def test_expected_world_size_must_be_positive(self) -> None:
         with self.assertRaisesRegex(ValueError, "positive integer"):
             run_collective_tag(analysis_dir=Path("/does/not/matter"), expected_world_size=0)

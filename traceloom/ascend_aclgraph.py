@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
 
+from .msprof_reader import canonical_device_label
+
 
 GRAPH_TASK_KEYS = {
     "MODEL_EXECUTE",
@@ -40,10 +42,22 @@ GRAPH_BODY_EXCLUDED_KEYS = {
 
 GRAPH_BODY_ANCHOR_FAMILIES = {
     "attention",
+    "cast",
+    "compare",
+    "concat",
+    "div",
+    "elemwise",
+    "fill",
+    "index",
     "matmul",
     "norm",
+    "pow",
+    "quant",
+    "range",
     "rope",
+    "shape",
     "swiglu",
+    "trig",
 }
 
 GRAPH_BODY_ANCHOR_KEYWORDS = (
@@ -444,7 +458,8 @@ def _stable_hash(value: str) -> str:
 
 
 def _canonical_graph_body_token(row: dict[str, Any], info: dict[str, str]) -> str:
-    op = info.get("op_type") or info.get("op_name") or str(row.get("task_label", ""))
+    raw_op = info.get("op_type") or info.get("op_name") or str(row.get("task_label", ""))
+    op = canonical_device_label(str(raw_op), str(info.get("op_type", "")), category="exec")
     task = str(row.get("task_label", ""))
     task_key = _normalize_key(task)
     family = _graph_body_family(op)
@@ -455,11 +470,14 @@ def _canonical_graph_body_token(row: dict[str, Any], info: dict[str, str]) -> st
         # Keep this intentionally free of timestamps, generated ids, and stream ids.
         # Shape/dtype can be added here later when msprof exposes enough metadata.
         return f"{family}|{op or task}"
+    if family and family not in {"data_move"}:
+        return f"{family}|{op or task}"
     return ""
 
 
 def _canonical_graph_noise_token(row: dict[str, Any], info: dict[str, str]) -> str:
-    op = info.get("op_type") or info.get("op_name") or str(row.get("task_label", ""))
+    raw_op = info.get("op_type") or info.get("op_name") or str(row.get("task_label", ""))
+    op = canonical_device_label(str(raw_op), str(info.get("op_type", "")), category="exec")
     task = str(row.get("task_label", ""))
     task_key = _normalize_key(task)
     if task_key in GRAPH_BODY_EXCLUDED_KEYS:
@@ -488,6 +506,30 @@ def _graph_body_family(label: str) -> str:
         return "swiglu"
     if "rope" in low or "rotary" in low:
         return "rope"
+    if "cast" in low:
+        return "cast"
+    if "fill" in low or "zeroslike" in low or "oneslike" in low:
+        return "fill"
+    if "shape" in low or "reshape" in low or "transpose" in low or "slice" in low or "tile" in low or "broadcastto" in low or "expand" in low:
+        return "shape"
+    if "index" in low or "gather" in low or "scatter" in low:
+        return "index"
+    if "range" in low or "arange" in low:
+        return "range"
+    if "div" in low or "reciprocal" in low:
+        return "div"
+    if "pow" in low:
+        return "pow"
+    if "trig" in low or "cos" in low or "sin" in low:
+        return "trig"
+    if "concat" in low or low == "cat":
+        return "concat"
+    if "quant" in low:
+        return "quant"
+    if "compare" in low or "greaterequal" in low or "less" in low or "logical" in low or "bitwise" in low:
+        return "compare"
+    if "elemwise" in low or low in {"add", "sub", "mul"}:
+        return "elemwise"
     if "copy" in low or "memcpy" in low or "tensor move" in low:
         return "data_move"
     return low[:64].strip().replace(" ", "_")

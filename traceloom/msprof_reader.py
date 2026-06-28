@@ -48,6 +48,9 @@ class StreamEvent:
     category: str
     source_table: str = "TASK"
     source_key: str = ""
+    raw_label: str = ""
+    op_type: str = ""
+    compute_task_type: str = ""
 
     @property
     def dur_ns(self) -> int:
@@ -93,6 +96,58 @@ def _canonical_label(label: str, *, category: str) -> str:
     return s
 
 
+def canonical_device_label(raw_label: str, op_type: str = "", *, category: str = "exec") -> str:
+    """Return the user-facing device semantic label while preserving raw labels elsewhere."""
+    if category != "exec":
+        return _canonical_label(raw_label or op_type, category=category)
+
+    source = (op_type or raw_label or "").strip()
+    low = source.lower()
+    compact = re.sub(r"[^a-z0-9]+", "", low)
+
+    if "matmul" in compact or "gemm" in compact:
+        return "MatMul"
+    if "fusedinferattentionscore" in compact or "pagedattention" in compact or "attention" in compact:
+        return "Attention"
+    if "addrmsnormbias" in compact or "rmsnorm" in compact:
+        return "RmsNorm"
+    if "layernorm" in compact:
+        return "LayerNorm"
+    if "swiglu" in compact or "siluandmul" in compact:
+        return "SwiGlu"
+    if "tritonrope" in compact or "rope" in compact or "rotary" in compact:
+        return "Rope"
+    if "reshapeandcache" in compact or ("kv" in compact and "cache" in compact):
+        return "KVCache"
+    if "cast" in compact:
+        return "Cast"
+    if "fill" in compact or "zeroslike" in compact or "oneslike" in compact:
+        return "Fill"
+    if any(name in compact for name in ("arange", "range")):
+        return "Range"
+    if any(name in compact for name in ("reshape", "transpose", "slice", "tile", "broadcastto", "expand")):
+        return "Shape"
+    if any(name in compact for name in ("gather", "scatter", "index")):
+        return "Index"
+    if any(name in compact for name in ("realdiv", "reciprocal", "div")):
+        return "Div"
+    if "pow" in compact:
+        return "Pow"
+    if any(name in compact for name in ("cos", "sin")):
+        return "Trig"
+    if any(name in compact for name in ("concat", "cat")):
+        return "Concat"
+    if "quant" in compact:
+        return "Quant"
+    if any(name in compact for name in ("greaterequal", "less", "logical", "bitwise")):
+        return "Compare"
+    if any(name in compact for name in ("argmax", "topk", "reducesum", "logsoftmax", "softmax")):
+        return _canonical_label(source, category=category)
+    if compact in {"add", "sub", "mul"} or any(name in compact for name in ("addtensor", "subtensor", "muls")):
+        return "Elemwise"
+    return _canonical_label(source, category=category)
+
+
 def _classify_task(task_type: str) -> str:
     k = _normalize_task_key(task_type)
     if "WAIT" in k:
@@ -117,14 +172,15 @@ def _load_string_ids(conn: sqlite3.Connection) -> Dict[int, str]:
 
 def _load_global_task_names(
     conn: sqlite3.Connection,
-) -> Tuple[Dict[int, str], Dict[int, str], Dict[int, str]]:
+) -> Tuple[Dict[int, str], Dict[int, str], Dict[int, str], Dict[int, str]]:
     compute: Dict[int, str] = {}
     compute_optype: Dict[int, str] = {}
+    compute_task_type: Dict[int, str] = {}
     if conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='COMPUTE_TASK_INFO'"
     ).fetchone():
-        for gid, name_id, op_type_id in conn.execute(
-            "SELECT globalTaskId, name, opType FROM COMPUTE_TASK_INFO"
+        for gid, name_id, op_type_id, compute_task_type_id in conn.execute(
+            "SELECT globalTaskId, name, opType, taskType FROM COMPUTE_TASK_INFO"
         ):
             if gid is None or name_id is None:
                 pass
@@ -132,6 +188,8 @@ def _load_global_task_names(
                 compute[int(gid)] = str(name_id)
             if gid is not None and op_type_id is not None:
                 compute_optype[int(gid)] = str(op_type_id)
+            if gid is not None and compute_task_type_id is not None:
+                compute_task_type[int(gid)] = str(compute_task_type_id)
 
     comm: Dict[int, str] = {}
     if conn.execute(
@@ -143,7 +201,7 @@ def _load_global_task_names(
             if gid is None or name_id is None:
                 continue
             comm[int(gid)] = str(name_id)
-    return compute, compute_optype, comm
+    return compute, compute_optype, compute_task_type, comm
 
 
 def _load_comm_connection_ids(conn: sqlite3.Connection) -> set[int]:
@@ -159,7 +217,16 @@ def _load_comm_connection_ids(conn: sqlite3.Connection) -> set[int]:
     return out
 
 
-def _resolve_label(
+def _decode_string_id(sid_to_value: Dict[int, str], raw_id: str | None) -> str:
+    if raw_id is None:
+        return ""
+    try:
+        return sid_to_value.get(int(raw_id), "")
+    except ValueError:
+        return ""
+
+
+def _resolve_labels(
     *,
     global_task_id: int,
     task_type: str,
@@ -167,32 +234,20 @@ def _resolve_label(
     sid_to_value: Dict[int, str],
     compute_name_ids: Dict[int, str],
     compute_optype_ids: Dict[int, str],
+    compute_task_type_ids: Dict[int, str],
     comm_name_ids: Dict[int, str],
-) -> str:
-    label_raw = ""
-    compute_name_id = compute_name_ids.get(global_task_id)
-    if compute_name_id is not None:
-        try:
-            label_raw = sid_to_value.get(int(compute_name_id), "")
-        except ValueError:
-            label_raw = ""
-    if not label_raw:
-        compute_op_type_id = compute_optype_ids.get(global_task_id)
-        if compute_op_type_id is not None:
-            try:
-                label_raw = sid_to_value.get(int(compute_op_type_id), "")
-            except ValueError:
-                label_raw = ""
-    if not label_raw:
-        comm_name_id = comm_name_ids.get(global_task_id)
-        if comm_name_id is not None:
-            try:
-                label_raw = sid_to_value.get(int(comm_name_id), "")
-            except ValueError:
-                label_raw = ""
-    if not label_raw:
-        label_raw = task_type
-    return _canonical_label(label_raw, category=category)
+) -> Tuple[str, str, str, str]:
+    raw_label = _decode_string_id(sid_to_value, compute_name_ids.get(global_task_id))
+    op_type = _decode_string_id(sid_to_value, compute_optype_ids.get(global_task_id))
+    compute_task_type = _decode_string_id(sid_to_value, compute_task_type_ids.get(global_task_id))
+    if not raw_label:
+        raw_label = op_type
+    if not raw_label:
+        raw_label = _decode_string_id(sid_to_value, comm_name_ids.get(global_task_id))
+    if not raw_label:
+        raw_label = task_type
+    label = canonical_device_label(raw_label, op_type, category=category)
+    return label, raw_label, op_type, compute_task_type
 
 
 def _task_row_to_stream_event(
@@ -208,6 +263,7 @@ def _task_row_to_stream_event(
     sid_to_value: Dict[int, str],
     compute_name_ids: Dict[int, str],
     compute_optype_ids: Dict[int, str],
+    compute_task_type_ids: Dict[int, str],
     comm_name_ids: Dict[int, str],
     comm_connection_ids: set[int],
 ) -> StreamEvent | None:
@@ -223,13 +279,14 @@ def _task_row_to_stream_event(
     if category not in {"wait", "comm", "exec"}:
         return None
 
-    label = _resolve_label(
+    label, raw_label, op_type, compute_task_type = _resolve_labels(
         global_task_id=global_task_id,
         task_type=task_type_norm,
         category=category,
         sid_to_value=sid_to_value,
         compute_name_ids=compute_name_ids,
         compute_optype_ids=compute_optype_ids,
+        compute_task_type_ids=compute_task_type_ids,
         comm_name_ids=comm_name_ids,
     )
     return StreamEvent(
@@ -243,6 +300,9 @@ def _task_row_to_stream_event(
         task_type=task_type_norm,
         label=label,
         category=category,
+        raw_label=raw_label,
+        op_type=op_type,
+        compute_task_type=compute_task_type,
     )
 
 
@@ -253,7 +313,7 @@ def _load_stream_events(
     out: Dict[Tuple[int, int], List[StreamEvent]] = {}
     with sqlite3.connect(str(db_path)) as conn:
         sid_to_value = _load_string_ids(conn)
-        compute_name_ids, compute_optype_ids, comm_name_ids = _load_global_task_names(conn)
+        compute_name_ids, compute_optype_ids, compute_task_type_ids, comm_name_ids = _load_global_task_names(conn)
         comm_connection_ids = _load_comm_connection_ids(conn)
 
         query = (
@@ -278,6 +338,7 @@ def _load_stream_events(
                 sid_to_value=sid_to_value,
                 compute_name_ids=compute_name_ids,
                 compute_optype_ids=compute_optype_ids,
+                compute_task_type_ids=compute_task_type_ids,
                 comm_name_ids=comm_name_ids,
                 comm_connection_ids=comm_connection_ids,
             )
@@ -293,7 +354,7 @@ def _load_device_events(db_path: Path, device_id: int) -> Tuple[List[StreamEvent
 
     with sqlite3.connect(str(db_path)) as conn:
         sid_to_value = _load_string_ids(conn)
-        compute_name_ids, compute_optype_ids, comm_name_ids = _load_global_task_names(conn)
+        compute_name_ids, compute_optype_ids, compute_task_type_ids, comm_name_ids = _load_global_task_names(conn)
         comm_connection_ids = _load_comm_connection_ids(conn)
 
         query = (
@@ -316,6 +377,7 @@ def _load_device_events(db_path: Path, device_id: int) -> Tuple[List[StreamEvent
                 sid_to_value=sid_to_value,
                 compute_name_ids=compute_name_ids,
                 compute_optype_ids=compute_optype_ids,
+                compute_task_type_ids=compute_task_type_ids,
                 comm_name_ids=comm_name_ids,
                 comm_connection_ids=comm_connection_ids,
             )

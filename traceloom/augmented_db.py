@@ -218,6 +218,9 @@ def _initialize_schema(conn: sqlite3.Connection) -> None:
             semantic_role_reason TEXT,
             symbol TEXT,
             label TEXT,
+            raw_label TEXT,
+            op_type TEXT,
+            compute_task_type TEXT,
             family TEXT,
             task_type TEXT,
             raw_json TEXT
@@ -901,6 +904,9 @@ def _insert_events(conn: sqlite3.Connection, *, db_idx: int, device_id: int, row
                 str(row.get("semantic_role_reason", "")),
                 str(row.get("symbol", "")),
                 str(row.get("label", "")),
+                str(row.get("raw_label", "")),
+                str(row.get("op_type", "")),
+                str(row.get("compute_task_type", "")),
                 str(row.get("family", "")),
                 str(row.get("task_type", "")),
                 _json_value(row),
@@ -923,8 +929,9 @@ def _insert_events(conn: sqlite3.Connection, *, db_idx: int, device_id: int, row
         INSERT OR REPLACE INTO traceloom_event(
             event_id, db_idx, device_id, step_idx, source_table, source_key,
             stream_id, start_ns, end_ns, dur_us, category, role, semantic_role,
-            semantic_role_reason, symbol, label, family, task_type, raw_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            semantic_role_reason, symbol, label, raw_label, op_type,
+            compute_task_type, family, task_type, raw_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         values,
     )
