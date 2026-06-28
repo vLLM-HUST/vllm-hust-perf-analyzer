@@ -1,4 +1,6 @@
 select
+  g.graph_provider,
+  g.graph_kind,
   g.graph_event_idx,
   g.anchor_idx,
   g.graph_exec_id,

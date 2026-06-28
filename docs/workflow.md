@@ -50,6 +50,8 @@ Start with:
 
 - `summary.md`: selected devices and top repeated loop costs;
 - `tree-map.md`: readable map of repeated nodes and cost columns;
+- `aclgraph_summary.md`: Ascend ACLGraph replay reconstruction, when the input
+  profile contains `CaptureStreamInfo` and graph semantic TASK rows;
 - generated bundle `README.md`: local inspection commands.
 
 Use the report to identify the main loops, dominant kernel families, and
@@ -75,6 +77,8 @@ Typical drill-down questions:
 - Which anchors are covered by this node?
 - Which auxiliary events are attached to the following anchor?
 - Does communication cost cluster near a specific repeated pattern?
+- Do reconstructed ACLGraph replay intervals overlap the kernels or collectives
+  being inspected?
 
 ## 5. Attribute Hotspots
 
@@ -99,3 +103,24 @@ For a useful performance report, share:
 - a clear statement of assumptions and unsupported trace fields.
 
 Avoid committing large raw `msprof` databases to the repository.
+
+## 7. Try The Ascend ACLGraph Showcase
+
+The repository data plane includes a curated Ascend graph-mode sample at:
+
+```text
+data/experiment-results/ascend_tp2_graph_showcase/showcase.tar.zst
+```
+
+It contains raw Huawei `msprof` DBs, TraceLoom full output, ACLGraph
+reconstruction files, and a ready-to-open Perfetto/Chrome trace. After unpacking
+the archive, inspect:
+
+- `derived/traceloom/summary.md`
+- `derived/traceloom/aclgraph_summary.md`
+- `derived/traceloom/dbNN.traceloom_augmented.db`
+- `derived/perfetto/trace_timeline.json.gz`
+
+In the augmented DB, ACLGraph replay intervals appear as normalized events with
+`source_table='ACLGRAPH_REPLAY'` and graph rows with
+`graph_provider='aclgraph'`.

@@ -99,11 +99,17 @@ TraceLoom compression
 This bundle is committed under [examples/kickstart_smoke](examples/kickstart_smoke).
 It is a real two-device Ascend/CANN `msprof` capture collected on an Ascend
 910B3 machine from a short vLLM-Ascend generation run. The workload loads
-`Qwen2.5-0.5B-Instruct` with tensor parallelism across two NPUs and generates
+  `Qwen2.5-0.5B-Instruct` with tensor parallelism across two NPUs and generates
 12 tokens for one prompt. The profile intentionally includes engine
 initialization, HCCL setup, ACL graph capture/replay, prefill, and decode, so
 the raw databases look like real inference profiler output rather than a tidy
 synthetic kernel sequence.
+
+For a fuller Ascend graph-mode showcase with complete Huawei `msprof` package
+layout, TraceLoom full output, reconstructed ACLGraph replay intervals, and a
+ready-to-open Perfetto/Chrome timeline, use the data-plane package documented
+at `data/experiment-results/ascend_tp2_graph_showcase/`. The archive includes
+`derived/traceloom/aclgraph_summary.md` and `derived/perfetto/trace_timeline.json.gz`.
 
 TraceLoom compresses the two raw device traces into comparable Pattern
 Compression Trees. The showcase result is that both devices expose the same
@@ -158,6 +164,10 @@ thousands of low-level rows become a small, comparable execution structure.
   and SQL views.
 - HCCL, communication, and synchronization bottleneck detection through
   collective anchors and auxiliary cost attribution.
+- Ascend ACLGraph reconstruction from device-side `CaptureStreamInfo`, `TASK`,
+  and `ascend_task.db` evidence. Replays are emitted as normalized
+  `ACLGRAPH_REPLAY` timeline events and graph rows with
+  `graph_provider='aclgraph'`.
 - Source/operator attribution through normalized kernel symbols, role
   classification, and optional kernel-role overrides.
 - Human-readable report generation for top kernels, repeated patterns, and
@@ -327,6 +337,8 @@ The default bundle is intentionally small:
 - `summary.md`: selected devices and top loop costs.
 - `tree-map.md`: readable node-cost map. Copy a node id such as `N027` into
   SQL queries for drill-down.
+- `aclgraph_summary.md`: Ascend ACLGraph reconstruction summary when the input
+  profile contains graph capture stream metadata and graph semantic TASK rows.
 - `queries/*.sql`: starter report queries.
 - `meta.json`: analyzer parameters and generated paths.
 
@@ -353,6 +365,8 @@ Useful query surfaces include:
 - `traceloom_tree_node_occurrence`: expanded occurrences of each tree node.
 - `traceloom_tree_node_anchor`: links from node occurrences back to anchors and
   source events.
+- `traceloom_v_cuda_graph_replay`: graph replay evidence. CUDA and ACLGraph
+  rows share this view; use `graph_provider` to distinguish them.
 
 See [docs/output-schema.md](docs/output-schema.md) and
 [docs/augmented-db-schema.md](docs/augmented-db-schema.md).

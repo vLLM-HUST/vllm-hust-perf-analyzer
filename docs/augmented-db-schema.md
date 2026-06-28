@@ -66,31 +66,37 @@ Important columns:
 
 ### `traceloom_cuda_graph_replay`
 
-CUDA Graph replay evidence. Each row corresponds to a normalized
-`CudaGraphReplay` event backed by `CUPTI_ACTIVITY_KIND_GRAPH_TRACE`.
+Graph replay evidence. CUDA rows correspond to normalized `CudaGraphReplay`
+events backed by `CUPTI_ACTIVITY_KIND_GRAPH_TRACE`. Ascend rows correspond to
+synthetic `ACL_GRAPH_REPLAY` events reconstructed from device-side
+`CaptureStreamInfo`, `TASK`, and `ascend_task.db` evidence.
 
 Important columns:
 
 - `graph_event_id` / `event_id`: stable TraceLoom event key for the replay.
+- `graph_provider`: `cuda` or `aclgraph`.
+- `graph_kind`: provider-specific replay kind.
 - `correlation_id`, `graph_id`, `graph_exec_id`, `context_id`: parsed Nsight
-  graph identity fields.
+  graph identity fields; for ACLGraph these are best-effort synthetic graph
+  identifiers.
 - `start_ns`, `end_ns`, `dur_us`.
 - `enclosed_event_count`, `enclosed_kernel_count`: best-effort envelope counts.
 
 ### `traceloom_cuda_graph_envelope`
 
-Best-effort links from a CUDA Graph replay event to CUDA activity events
-associated with the replay. TraceLoom first uses direct time containment. Some
-Nsight exports summarize replay as a graph launch interval and emit the GPU
-activity immediately after it; for those profiles TraceLoom falls back to a
-same-stream `post_replay_segment`, bounded by the next graph replay on the same
-stream or a short tail window for the final replay.
+Best-effort links from a graph replay event to visible TraceLoom events
+associated with the replay. CUDA rows first use direct time containment, with a
+same-stream `post_replay_segment` fallback for Nsight exports that emit GPU
+activity immediately after the graph trace interval. ACLGraph rows use
+device-time overlap between the reconstructed replay interval and normalized
+TraceLoom events.
 
 Important columns:
 
 - `graph_event_id`: replay event id.
 - `child_event_id`: contained CUDA activity event id.
-- `relation`: `time_contained` or `post_replay_segment`.
+- `graph_provider`: `cuda` or `aclgraph`.
+- `relation`: `time_contained`, `time_overlap`, or `post_replay_segment`.
 - `start_offset_us`, `end_offset_us`: child timing relative to graph replay
   start.
 
@@ -104,10 +110,16 @@ formal nodes so users can query loop structure directly.
 Important columns:
 
 - `node_id`: stable TraceLoom node key.
-- `local_node_id`: node id used inside the tree JSON, such as `N004`.
+- `local_node_id`: user-facing node id used inside the readable tree, tree
+  JSON, cost tables, and SQL drill-down views, such as `N004`. The same
+  `Nxxx` value must name the same node everywhere in one report.
+- `raw_node_id`: when present inside node JSON payloads, this is the builder's
+  pre-normalization id. It is provenance only and is not the SQL/report key.
 - `view_name`: currently `anchor_tree`.
 - `node_type`: `Seq`, `Repeat`, `Atom`, `MacroRef`, etc.
-- `kind`: cost kind, such as `seq`, `repeat`, `exec`, `comm`.
+- `kind`: cost kind, such as `seq`, `repeat`, `exec`, `comm`, or `graph`.
+  `kind='graph'` rows are device-side graph replay overlays such as Ascend
+  ACLGraph replay intervals.
 - `level`: displayed tree level.
 - `repeat_count`: parsed repeat factor, when available.
 - cost columns copied from node metrics: `total_us`, `compute_us`, `comm_us`,
@@ -142,6 +154,8 @@ Important columns:
 
 - `node_id`: stable node key; intentionally matches `traceloom_viz_node.node_id`
   for the same local node.
+- `local_node_id`: same user-facing `Nxxx` namespace as the readable tree and
+  cost tables.
 - `parent_node_id`, `preorder_idx`, `sibling_order`, `path`: tree structure.
 - `node_type`: `Seq`, `Repeat`, `Atom`, etc.
 - `semantic_kind`, `label`, `symbol`, `category`: recovered behavior label.

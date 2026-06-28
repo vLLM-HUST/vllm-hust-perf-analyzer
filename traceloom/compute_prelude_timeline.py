@@ -6,6 +6,7 @@ import copy
 import csv
 import json
 import math
+import re
 import shutil
 import sqlite3
 import time
@@ -14,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Sequence, Tuple
 
+from .ascend_aclgraph import AclGraphAnalysis, analyze_aclgraph_for_device, write_aclgraph_outputs
 from .augmented_db import append_device_analysis, prepare_augmented_db
 from .cuda_reader import is_cuda_profile, load_cuda_device_events, rank_cuda_streams_global
 from .hygon_reader import is_hygon_profile, load_hygon_device_events, rank_hygon_streams_global
@@ -126,6 +128,8 @@ def _write_csv(
 
 
 CUDA_GRAPH_ENVELOPE_FIELDS = [
+    "graph_provider",
+    "graph_kind",
     "envelope_idx",
     "db_idx",
     "db",
@@ -1046,6 +1050,8 @@ def _cuda_graph_event_rows(
         rows.append(
             {
                 "graph_event_idx": event_idx,
+                "graph_provider": "cuda",
+                "graph_kind": "cuda_graph_replay",
                 "db_idx": selection.db_idx,
                 "db": str(selection.db_path),
                 "global_rank": selection.global_rank,
@@ -1122,6 +1128,8 @@ def _cuda_graph_envelope_rows(
         rows.append(
             {
                 "envelope_idx": envelope_idx,
+                "graph_provider": "cuda",
+                "graph_kind": "cuda_graph_replay",
                 "db_idx": selection.db_idx,
                 "db": str(selection.db_path),
                 "global_rank": selection.global_rank,
@@ -2185,6 +2193,8 @@ def _node_label(node: Dict[str, object]) -> str:
     if node_type == "Seq":
         items = node.get("items", [])
         return f"Seq[{len(items) if isinstance(items, list) else 0}]"
+    if node_type == "GraphReplay":
+        return str(node.get("label", "") or "GraphReplay")
     return node_type
 
 
@@ -2243,6 +2253,8 @@ def _node_display_label(node: Dict[str, object]) -> str:
     if node_type == "Seq":
         items = node.get("items", [])
         return f"Seq[{len(items) if isinstance(items, list) else 0}]"
+    if node_type == "GraphReplay":
+        return str(node.get("label", "") or "GraphReplay")
     return node_type or "node"
 
 
@@ -2261,6 +2273,8 @@ def _node_cost_kind(node: Dict[str, object]) -> str:
         return "macro"
     if node_type == "Seq":
         return "seq"
+    if node_type == "GraphReplay":
+        return "graph"
     return node_type.lower() or "node"
 
 
@@ -2334,6 +2348,7 @@ def _augment_tree_node_cost_metrics(
         display_depth = max(0, depth - path.split(".").count("body"))
         node["tree_path"] = path
         node["tree_depth"] = depth
+        node["structural_alias"] = structural_alias
         if node_id not in node_records:
             node_records[node_id] = {
                 "node_id": node_id,
@@ -2527,10 +2542,259 @@ def _augment_tree_node_cost_metrics(
         row["node_id"] = id_map.get(raw_node_id, raw_node_id)
         row["repeat_context"] = _remap_repeat_context(str(row.get("repeat_context", "")), id_map)
 
+    _remap_tree_payload_node_ids(tree_payload, id_map)
     tree_payload["node_cost_metrics"] = metric_rows
+    tree_payload["node_id_namespace"] = "local_node_id"
+    tree_payload["raw_node_id_namespace"] = "builder_node_id"
+    tree_payload["node_id_map"] = id_map
     tree_payload["node_anchor_link_count"] = len(link_rows)
     tree_payload["node_cost_metrics_unconsumed_anchors"] = max(0, len(step_rows) - consumed)
     return metric_rows, link_rows
+
+
+def _remap_tree_payload_node_ids(tree_payload: Dict[str, object], id_map: Dict[str, str]) -> None:
+    """Make displayed tree node ids match the SQL/cost local_node_id namespace."""
+
+    def visit(node: object) -> None:
+        if not isinstance(node, dict):
+            return
+        raw_node_id = str(node.get("node_id", "")).strip()
+        if raw_node_id:
+            node["raw_node_id"] = raw_node_id
+            local_node_id = id_map.get(raw_node_id)
+            if local_node_id:
+                node["node_id"] = local_node_id
+                node["node_id_namespace"] = "local_node_id"
+            else:
+                node.pop("node_id", None)
+                node["node_id_namespace"] = "builder_node_id_hidden"
+        node_type = str(node.get("type", ""))
+        if node_type == "Seq":
+            items = node.get("items", [])
+            if isinstance(items, list):
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    visit(item.get("node"))
+        elif node_type == "Repeat":
+            visit(node.get("body"))
+        overlays = node.get("overlays", [])
+        if isinstance(overlays, list):
+            for item in overlays:
+                if isinstance(item, dict):
+                    visit(item.get("node"))
+
+    visit(tree_payload.get("root"))
+
+
+def _attach_aclgraph_replay_nodes(
+    tree_payload: Dict[str, object],
+    *,
+    node_metric_rows: List[Dict[str, object]],
+    node_anchor_link_rows: List[Dict[str, object]],
+    replay_rows: Sequence[Dict[str, object]],
+    anchor_step_rows: Sequence[Dict[str, object]],
+) -> List[Dict[str, object]]:
+    root = tree_payload.get("root", {})
+    if not isinstance(root, dict) or not replay_rows:
+        return []
+
+    max_node_order = max((_node_display_order(str(row.get("node_id", ""))) for row in node_metric_rows), default=0)
+    metric_by_node = {str(row.get("node_id", "")): row for row in node_metric_rows}
+    node_by_id: Dict[str, Dict[str, object]] = {}
+
+    def collect_nodes(node: object) -> None:
+        if not isinstance(node, dict):
+            return
+        node_id = str(node.get("node_id", "")).strip()
+        if node_id:
+            node_by_id[node_id] = node
+        node_type = str(node.get("type", ""))
+        if node_type == "Seq":
+            items = node.get("items", [])
+            if isinstance(items, list):
+                for item in items:
+                    if isinstance(item, dict):
+                        collect_nodes(item.get("node"))
+        elif node_type == "Repeat":
+            collect_nodes(node.get("body"))
+        overlays = node.get("overlays", [])
+        if isinstance(overlays, list):
+            for item in overlays:
+                if isinstance(item, dict):
+                    collect_nodes(item.get("node"))
+
+    collect_nodes(root)
+
+    def anchor_span_for_replay(replay: Dict[str, object]) -> Tuple[int | None, int | None, int]:
+        graph_start = _safe_int(replay.get("start_ns"))
+        graph_end = _safe_int(replay.get("end_ns"))
+        overlapping: List[int] = []
+        trace_anchor_count = 0
+        for idx, row in enumerate(anchor_step_rows, start=1):
+            start_ns = _safe_int(row.get("start_ns"))
+            end_ns = _safe_int(row.get("end_ns"))
+            if end_ns <= graph_start or start_ns >= graph_end:
+                continue
+            overlapping.append(idx)
+            trace_anchor_count += int(float(row.get("trace_anchor_count", 1) or 1))
+        if not overlapping:
+            return None, None, 0
+        return min(overlapping), max(overlapping), trace_anchor_count
+
+    def covering_parent(anchor_start: int | None, anchor_end: int | None) -> Tuple[str, Dict[str, object] | None]:
+        if anchor_start is None or anchor_end is None:
+            root_id = str(root.get("node_id", ""))
+            return root_id, metric_by_node.get(root_id)
+        candidates: List[Dict[str, object]] = []
+        for row in node_metric_rows:
+            first = _safe_int(row.get("first_anchor_idx"))
+            last = _safe_int(row.get("last_anchor_idx"))
+            if first <= 0 or last <= 0:
+                continue
+            if first <= anchor_start and last >= anchor_end:
+                candidates.append(row)
+        if not candidates:
+            root_id = str(root.get("node_id", ""))
+            return root_id, metric_by_node.get(root_id)
+        best = max(
+            candidates,
+            key=lambda row: (
+                int(row.get("display_depth", row.get("depth", 0)) or 0),
+                -int(row.get("anchor_count", 0) or 0),
+                _node_display_order(str(row.get("node_id", ""))),
+            ),
+        )
+        return str(best.get("node_id", "")), best
+
+    graph_rows: List[Dict[str, object]] = []
+    for replay in sorted(replay_rows, key=lambda row: (_safe_int(row.get("start_ns")), _safe_int(row.get("graph_event_idx")))):
+        if str(replay.get("graph_provider", "")) != "aclgraph":
+            continue
+        max_node_order += 1
+        local_node_id = f"N{max_node_order:03d}"
+        anchor_start, anchor_end, trace_anchor_count = anchor_span_for_replay(replay)
+        parent_node_id, parent_row = covering_parent(anchor_start, anchor_end)
+        parent_node = node_by_id.get(parent_node_id, root)
+        parent_path = str(parent_row.get("path", "root") if parent_row else "root")
+        parent_depth = int(parent_row.get("depth", 0) if parent_row else 0)
+        parent_display_depth = int(parent_row.get("display_depth", parent_depth) if parent_row else 0)
+        replay_idx = _safe_int(replay.get("graph_event_idx"))
+        duration_us = round(float(replay.get("dur_us", 0.0) or 0.0), 3)
+        kernel_us = round(float(replay.get("enclosed_kernel_us", 0.0) or 0.0), 3)
+        visible_us = round(float(replay.get("visible_envelope_event_us", 0.0) or 0.0), 3)
+        graph_node = {
+            "type": "GraphReplay",
+            "node_id": local_node_id,
+            "raw_node_id": f"ACLGRAPH_REPLAY:{replay_idx}",
+            "node_id_namespace": "local_node_id",
+            "graph_provider": "aclgraph",
+            "graph_kind": str(replay.get("graph_kind", "aclgraph_replay")),
+            "graph_event_idx": replay_idx,
+            "label": str(replay.get("label", f"ACLGraph Replay {replay_idx}")),
+            "symbol": "ACLGRAPH",
+            "category": "graph",
+            "start_ns": replay.get("start_ns", ""),
+            "end_ns": replay.get("end_ns", ""),
+            "dur_us": duration_us,
+            "anchor_start_idx": anchor_start or "",
+            "anchor_end_idx": anchor_end or "",
+            "raw_child_task_count": replay.get("raw_child_task_count", 0),
+            "raw_control_tasks": replay.get("raw_control_tasks", ""),
+            "raw_top_ops": replay.get("raw_top_ops", ""),
+        }
+        overlays = parent_node.setdefault("overlays", [])
+        if isinstance(overlays, list):
+            overlays.append({"ord": len(overlays) + 1, "node": graph_node})
+        path = f"{parent_path}.graph{len(overlays) if isinstance(overlays, list) else replay_idx}"
+        row = {
+            "node_id": local_node_id,
+            "raw_node_id": graph_node["raw_node_id"],
+            "path": path,
+            "depth": parent_depth + 1,
+            "display_depth": parent_display_depth + 1,
+            "loop_depth": int(parent_row.get("loop_depth", 0) if parent_row else 0),
+            "structural_alias": False,
+            "kind": "graph",
+            "type": "GraphReplay",
+            "symbol": "ACLGRAPH",
+            "label": graph_node["label"],
+            "category": "graph",
+            "repeat": "",
+            "occurrence_count": 1,
+            "anchor_count": trace_anchor_count,
+            "anchors_per_occurrence": trace_anchor_count,
+            "first_anchor_idx": anchor_start or "",
+            "last_anchor_idx": anchor_end or "",
+            "start_ns": replay.get("start_ns", ""),
+            "end_ns": replay.get("end_ns", ""),
+            "compute_us": kernel_us,
+            "comm_us": 0.0,
+            "idle_us": round(max(0.0, duration_us - kernel_us), 3),
+            "total_us": duration_us,
+            "avg_compute_us": kernel_us,
+            "avg_comm_us": 0.0,
+            "avg_idle_us": round(max(0.0, duration_us - kernel_us), 3),
+            "avg_total_us": duration_us,
+            "comm_pct": 0.0,
+            "idle_pct": round(max(0.0, duration_us - kernel_us) / duration_us, 6) if duration_us else 0.0,
+            "self_us": 0.0,
+            "self_exec_us": 0.0,
+            "self_comm_us": 0.0,
+            "avg_self_us": 0.0,
+            "avg_self_exec_us": 0.0,
+            "avg_self_comm_us": 0.0,
+            "aux_events": replay.get("visible_envelope_event_count", 0),
+            "aux_us": visible_us,
+            "avg_aux_events": replay.get("visible_envelope_event_count", 0),
+            "avg_aux_us": visible_us,
+            "graph_provider": "aclgraph",
+            "graph_kind": graph_node["graph_kind"],
+            "graph_event_idx": replay_idx,
+            "graph_step_idx": replay.get("step_idx", ""),
+            "raw_child_task_count": replay.get("raw_child_task_count", 0),
+            "raw_child_stream_count": replay.get("raw_child_stream_count", 0),
+            "raw_child_streams": replay.get("raw_child_streams", ""),
+            "raw_control_task_count": replay.get("raw_control_task_count", 0),
+            "raw_control_tasks": replay.get("raw_control_tasks", ""),
+            "raw_top_ops": replay.get("raw_top_ops", ""),
+            "visible_envelope_event_count": replay.get("visible_envelope_event_count", 0),
+            "visible_envelope_event_us": visible_us,
+            "visible_envelope_top_labels": replay.get("visible_envelope_top_labels", ""),
+        }
+        node_metric_rows.append(row)
+        graph_rows.append(row)
+        if anchor_start is not None and anchor_end is not None:
+            node_anchor_link_rows.append(
+                {
+                    "node_id": local_node_id,
+                    "raw_node_id": graph_node["raw_node_id"],
+                    "path": path,
+                    "kind": "graph",
+                    "symbol": "ACLGRAPH",
+                    "label": graph_node["label"],
+                    "occurrence_idx": 1,
+                    "repeat_context": "",
+                    "anchor_start_idx": anchor_start,
+                    "anchor_end_idx": anchor_end,
+                    "anchor_count": anchor_end - anchor_start + 1,
+                    "trace_anchor_count": trace_anchor_count,
+                }
+            )
+    if graph_rows:
+        tree_payload["graph_replay_node_count"] = len(graph_rows)
+        tree_payload["graph_replay_nodes"] = [
+            {
+                "node_id": row.get("node_id", ""),
+                "graph_provider": row.get("graph_provider", ""),
+                "graph_event_idx": row.get("graph_event_idx", ""),
+                "first_anchor_idx": row.get("first_anchor_idx", ""),
+                "last_anchor_idx": row.get("last_anchor_idx", ""),
+                "total_us": row.get("total_us", 0.0),
+            }
+            for row in graph_rows
+        ]
+    return graph_rows
 
 
 def _remap_repeat_context(context: str, id_map: Dict[str, str]) -> str:
@@ -2959,6 +3223,22 @@ def _render_inline_ast_lines(
     indent: str = "",
     prefix: str = "",
 ) -> None:
+    def render_overlays(next_indent: str) -> None:
+        overlays = node.get("overlays", [])
+        if not isinstance(overlays, list):
+            return
+        for idx, item in enumerate(overlays, start=1):
+            if not isinstance(item, dict):
+                continue
+            child = item.get("node", {})
+            if isinstance(child, dict):
+                _render_inline_ast_lines(
+                    child,
+                    out=out,
+                    indent=next_indent,
+                    prefix=f"[graph {idx}] ",
+                )
+
     t = str(node.get("type", ""))
     node_id = str(node.get("node_id", "")).strip()
     node_prefix = f"{node_id} " if node_id else ""
@@ -2977,6 +3257,7 @@ def _render_inline_ast_lines(
                         indent=indent + "  ",
                         prefix=f"[{idx}] ",
                     )
+        render_overlays(indent + "  ")
         return
 
     if t == "Repeat":
@@ -2999,19 +3280,36 @@ def _render_inline_ast_lines(
                             )
             else:
                 _render_inline_ast_lines(body, out=out, indent=indent + "  ")
+        render_overlays(indent + "  ")
         return
 
     if t == "Atom":
         out.append(
             f"{indent}{prefix}{node_prefix}Atom {node.get('symbol','')} | {node.get('op_label','')} | {node.get('category','')}"
         )
+        render_overlays(indent + "  ")
+        return
+
+    if t == "GraphReplay":
+        anchor_start = str(node.get("anchor_start_idx", "")).strip()
+        anchor_end = str(node.get("anchor_end_idx", "")).strip()
+        anchor_label = f"{anchor_start}..{anchor_end}" if anchor_start and anchor_end else "no-visible-anchor"
+        parts = [
+            f"{indent}{prefix}{node_prefix}GraphReplay {node.get('label', '')}",
+            f"anchors {anchor_label}",
+            f"{node.get('dur_us', 0.0)} us",
+            f"tasks {node.get('raw_child_task_count', 0)}",
+        ]
+        out.append(" | ".join(parts))
         return
 
     if t == "MacroRef":
         out.append(f"{indent}{prefix}{node_prefix}MacroRef {node.get('name', '')}")
+        render_overlays(indent + "  ")
         return
 
     out.append(f"{indent}{prefix}{node_prefix}{t}")
+    render_overlays(indent + "  ")
 
 
 def _renumber_seq_items(items: Sequence[Dict[str, object]]) -> List[Dict[str, object]]:
@@ -3273,6 +3571,36 @@ def _render_loop_cost_summary(rows: Sequence[Dict[str, object]], *, limit: int) 
     return lines
 
 
+def _render_graph_replay_node_summary(rows: Sequence[Dict[str, object]]) -> List[str]:
+    graph_rows = [row for row in rows if str(row.get("kind", "")) == "graph"]
+    lines: List[str] = []
+    lines.append("## Graph Replay Nodes")
+    lines.append("")
+    if not graph_rows:
+        lines.append("No graph replay nodes were attached to the readable tree.")
+        return lines
+    lines.append(
+        "| node | provider | replay | depth | anchors | start_ns | end_ns | device_us | raw_tasks | visible_events | controls | top_ops |"
+    )
+    lines.append("| --- | --- | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |")
+    for row in sorted(graph_rows, key=lambda item: _node_display_order(str(item.get("node_id", "")))):
+        anchor_start = str(row.get("first_anchor_idx", "")).strip()
+        anchor_end = str(row.get("last_anchor_idx", "")).strip()
+        anchors = f"{anchor_start}..{anchor_end}" if anchor_start and anchor_end else "no-visible-anchor"
+        lines.append(
+            (
+                f"| {row.get('node_id','')} | {row.get('graph_provider','')} "
+                f"| {row.get('graph_event_idx','')} "
+                f"| {row.get('display_depth', row.get('depth',0))} | {anchors} "
+                f"| {row.get('start_ns','')} | {row.get('end_ns','')} "
+                f"| {row.get('total_us',0.0)} | {row.get('raw_child_task_count',0)} "
+                f"| {row.get('visible_envelope_event_count',0)} "
+                f"| `{row.get('raw_control_tasks','')}` | `{row.get('raw_top_ops','')}` |"
+            )
+        )
+    return lines
+
+
 def _render_macro_loop_chains(rows: Sequence[Dict[str, object]]) -> List[str]:
     lines: List[str] = []
     lines.append("## Macro Loop Chains")
@@ -3317,6 +3645,8 @@ def _render_anchor_readable(
     lines = text.splitlines()
     lines.append("")
     lines.extend(_render_node_cost_metrics(node_metric_rows))
+    lines.append("")
+    lines.extend(_render_graph_replay_node_summary(node_metric_rows))
     lines.append("")
     lines.extend(_render_loop_cost_summary(loop_cost_rows, limit=loop_summary_limit))
     lines.append("")
@@ -3442,6 +3772,7 @@ def _build_run_summary_markdown(
     summary_rows: Sequence[Dict[str, object]],
     loop_cost_rows: Sequence[Dict[str, object]],
     cuda_graph_event_rows: Sequence[Dict[str, object]],
+    aclgraph_summary: Dict[str, object],
     out_dir: Path,
     top_loops: int,
     output_mode: str,
@@ -3518,7 +3849,7 @@ def _build_run_summary_markdown(
     else:
         lines.append("No repeat nodes were detected in the selected anchor timelines.")
     lines.append("")
-    lines.append("## CUDA Graph Replay")
+    lines.append("## Graph Replay")
     lines.append("")
     if cuda_graph_event_rows:
         total_graph_us = round(sum(float(row.get("dur_us", 0.0) or 0.0) for row in cuda_graph_event_rows), 3)
@@ -3530,6 +3861,8 @@ def _build_run_summary_markdown(
         lines.append(f"- enclosed_events: `{enclosed_events}`")
         lines.append(f"- enclosed_kernels: `{enclosed_kernels}`")
         lines.append(f"- enclosed_kernel_us: `{enclosed_kernel_us}`")
+        by_provider = Counter(str(row.get("graph_provider", "cuda") or "cuda") for row in cuda_graph_event_rows)
+        lines.append(f"- providers: `{', '.join(f'{key}:{value}' for key, value in sorted(by_provider.items()))}`")
         if output_mode == "full":
             lines.append("- file: `cuda_graph_events.csv`")
             lines.append("- envelope_file: `cuda_graph_envelope_events.csv`")
@@ -3545,7 +3878,25 @@ def _build_run_summary_markdown(
         for graph_exec_id, bucket in sorted(by_exec.items(), key=lambda item: item[1]["total_us"], reverse=True)[:10]:
             lines.append(f"| {graph_exec_id} | {int(bucket['events'])} | {round(bucket['total_us'], 3)} |")
     else:
-        lines.append("No CUDA Graph replay events were found in the selected timelines.")
+        lines.append("No graph replay events were found in the selected timelines.")
+    lines.append("")
+    lines.append("## ACLGraph Device Reconstruction")
+    lines.append("")
+    replay_count = int(aclgraph_summary.get("replay_segment_count", 0) or 0)
+    if replay_count:
+        lines.append(f"- quality: `{aclgraph_summary.get('quality', '')}`")
+        lines.append(f"- replay_segments: `{replay_count}`")
+        lines.append(f"- replay_total_device_us: `{aclgraph_summary.get('replay_total_device_us', 0.0)}`")
+        lines.append(f"- replay_child_task_count: `{aclgraph_summary.get('replay_child_task_count', 0)}`")
+        lines.append(f"- semantic_task_count: `{aclgraph_summary.get('semantic_task_count', 0)}`")
+        lines.append(f"- capture_stream_count: `{aclgraph_summary.get('capture_stream_count', 0)}`")
+        lines.append("- summary_file: `aclgraph_summary.md`")
+        if output_mode == "full":
+            lines.append("- events_file: `aclgraph_events.csv`")
+            lines.append("- envelope_file: `aclgraph_envelope_events.csv`")
+            lines.append("- semantic_tasks_file: `aclgraph_semantic_tasks.csv`")
+    else:
+        lines.append("No Ascend ACLGraph device-side replay segments were found.")
     lines.append("")
     lines.append("## Main Files")
     lines.append("")
@@ -3562,6 +3913,9 @@ def _build_run_summary_markdown(
         lines.append("- `compute_anchor_aux_slots.csv`")
         lines.append("- `cuda_graph_events.csv`")
         lines.append("- `cuda_graph_envelope_events.csv`")
+        lines.append("- `aclgraph_summary.md`")
+        lines.append("- `aclgraph_events.csv`")
+        lines.append("- `aclgraph_envelope_events.csv`")
     return "\n".join(lines) + "\n"
 
 
@@ -3648,8 +4002,11 @@ def _node_display_order(local_node_id: str) -> int:
 
 
 def _safe_int(value: object) -> int:
+    text = str(value).strip()
+    if re.fullmatch(r"[+-]?\d+(?:\.0+)?", text):
+        return int(text.split(".", 1)[0])
     try:
-        return int(float(str(value)))
+        return int(float(text))
     except (TypeError, ValueError):
         return 0
 
@@ -3675,11 +4032,15 @@ def _format_console_summary(meta: Dict[str, object]) -> str:
                 f"node_metrics: {_relpath_or_self(str(meta.get('anchor_node_metrics_file', '')), out_dir)}",
                 f"cuda_graph_events: {_relpath_or_self(str(meta.get('cuda_graph_events_file', '')), out_dir)}",
                 f"cuda_graph_envelope: {_relpath_or_self(str(meta.get('cuda_graph_envelope_file', '')), out_dir)}",
+                f"aclgraph_summary: {_relpath_or_self(str(meta.get('aclgraph_summary_markdown_file', '')), out_dir)}",
             ]
         )
     if int(meta.get("cuda_graph_event_count", 0) or 0):
         lines.append(f"cuda_graph_event_count: {meta.get('cuda_graph_event_count', 0)}")
         lines.append(f"cuda_graph_envelope_event_count: {meta.get('cuda_graph_envelope_event_count', 0)}")
+    if int(meta.get("aclgraph_replay_event_count", 0) or 0):
+        lines.append(f"aclgraph_replay_event_count: {meta.get('aclgraph_replay_event_count', 0)}")
+        lines.append(f"aclgraph_quality: {meta.get('aclgraph_quality', '')}")
     return "\n".join(lines)
 
 
@@ -3786,6 +4147,7 @@ def run_compute_prelude_timeline(
     all_anchor_loop_cost_rows: List[Dict[str, object]] = []
     all_cuda_graph_event_rows: List[Dict[str, object]] = []
     all_cuda_graph_envelope_rows: List[Dict[str, object]] = []
+    aclgraph_analyses: List[AclGraphAnalysis] = []
 
     for selection in selections:
         if is_hygon_profile(selection.db_path):
@@ -4085,6 +4447,50 @@ def run_compute_prelude_timeline(
             cuda_graph_event_rows,
             cuda_graph_envelope_rows,
         )
+        if not is_hygon_profile(selection.db_path) and not is_cuda_profile(selection.db_path):
+            aclgraph_analysis = analyze_aclgraph_for_device(
+                db_path=selection.db_path,
+                db_idx=selection.db_idx,
+                global_rank=selection.global_rank,
+                device_id=selection.device_id,
+                visible_step_rows=step_rows,
+                first_step_idx=len(step_rows) + 1,
+                gap_us=cfg.collective_episode_gap_us,
+            )
+        else:
+            aclgraph_analysis = AclGraphAnalysis([], [], [], [], [], [], {})
+        aclgraph_analyses.append(aclgraph_analysis)
+        for row in aclgraph_analysis.replay_rows:
+            row["cuda_graph_events_file"] = str(cuda_graph_events_path.relative_to(out_dir))
+            row["aclgraph_events_file"] = "aclgraph_events.csv"
+            row["anchor_tree_readable_file"] = str(anchor_readable_path.relative_to(out_dir))
+        for row in aclgraph_analysis.envelope_rows:
+            row["cuda_graph_events_file"] = str(cuda_graph_events_path.relative_to(out_dir))
+            row["cuda_graph_envelope_file"] = str(cuda_graph_envelope_path.relative_to(out_dir))
+            row["aclgraph_events_file"] = "aclgraph_events.csv"
+            row["aclgraph_envelope_file"] = "aclgraph_envelope_events.csv"
+            row["anchor_tree_readable_file"] = str(anchor_readable_path.relative_to(out_dir))
+        for row in aclgraph_analysis.step_rows:
+            row["aclgraph_events_file"] = "aclgraph_events.csv"
+            row["tree_readable_file"] = str(readable_path.relative_to(out_dir))
+            row["anchor_tree_readable_file"] = str(anchor_readable_path.relative_to(out_dir))
+        graph_event_rows = cuda_graph_event_rows + aclgraph_analysis.replay_rows
+        graph_envelope_rows = cuda_graph_envelope_rows + aclgraph_analysis.envelope_rows
+        step_rows_with_aclgraph = step_rows + aclgraph_analysis.step_rows
+        graph_node_rows = _attach_aclgraph_replay_nodes(
+            anchor_tree_payload,
+            node_metric_rows=anchor_node_metric_rows,
+            node_anchor_link_rows=anchor_node_link_rows,
+            replay_rows=aclgraph_analysis.replay_rows,
+            anchor_step_rows=anchor_step_rows,
+        )
+        if graph_node_rows:
+            anchor_tree_readable = _render_tree_payload_readable(anchor_tree_payload)
+            tree_payload = copy.deepcopy(anchor_tree_payload)
+            tree_payload["schema_version"] = "compute_prelude_tree_v1"
+            tree_payload["semantic_projection"] = "anchor_compute_collective_only"
+            tree_payload["view"] = f"semantic_anchor_readable_{cfg.readable_macro_mode}"
+            tree_readable = _render_tree_payload_readable(tree_payload)
         anchor_loop_cost_rows = _loop_cost_rows(
             selection=selection,
             node_metric_rows=anchor_node_metric_rows,
@@ -4098,18 +4504,18 @@ def run_compute_prelude_timeline(
             global_rank=selection.global_rank,
             stem=stem,
             view_name="anchor_tree",
-            step_rows=step_rows,
+            step_rows=step_rows_with_aclgraph,
             anchor_step_rows=anchor_step_rows,
             aux_slot_rows=anchor_aux_slot_rows,
             node_metric_rows=anchor_node_metric_rows,
             node_anchor_link_rows=anchor_node_link_rows,
             loop_cost_rows=anchor_loop_cost_rows,
-            cuda_graph_event_rows=cuda_graph_event_rows,
-            cuda_graph_envelope_rows=cuda_graph_envelope_rows,
+            cuda_graph_event_rows=graph_event_rows,
+            cuda_graph_envelope_rows=graph_envelope_rows,
             tree_payload=anchor_tree_payload,
         )
         if write_full_outputs:
-            _write_csv(steps_path, step_rows)
+            _write_csv(steps_path, step_rows_with_aclgraph)
             _write_csv(symbols_path, symbol_rows)
             _write_csv(kernel_roles_path, kernel_role_rows)
             _write_csv(macros_path, anchor_macro_rows)
@@ -4134,10 +4540,10 @@ def run_compute_prelude_timeline(
             _write_csv(anchor_node_links_path, anchor_node_link_rows)
             _write_csv(anchor_loop_costs_path, anchor_loop_cost_rows)
             _write_csv(anchor_macro_loop_chains_path, anchor_macro_loop_chain_rows)
-            _write_csv(cuda_graph_events_path, cuda_graph_event_rows)
+            _write_csv(cuda_graph_events_path, graph_event_rows)
             _write_csv(
                 cuda_graph_envelope_path,
-                cuda_graph_envelope_rows,
+                graph_envelope_rows,
                 fieldnames=CUDA_GRAPH_ENVELOPE_FIELDS,
             )
             tree_path.write_text(json.dumps(tree_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -4198,7 +4604,7 @@ def run_compute_prelude_timeline(
                 encoding="utf-8",
             )
 
-        for row in step_rows:
+        for row in step_rows_with_aclgraph:
             row = dict(row)
             row["steps_file"] = str(steps_path.relative_to(out_dir))
             row["tree_readable_file"] = str(readable_path.relative_to(out_dir))
@@ -4304,8 +4710,8 @@ def run_compute_prelude_timeline(
             row["anchor_macro_loop_chains_file"] = str(anchor_macro_loop_chains_path.relative_to(out_dir))
             row["anchor_tree_readable_file"] = str(anchor_readable_path.relative_to(out_dir))
             all_anchor_macro_loop_chain_rows.append(row)
-        all_cuda_graph_event_rows.extend(cuda_graph_event_rows)
-        all_cuda_graph_envelope_rows.extend(cuda_graph_envelope_rows)
+        all_cuda_graph_event_rows.extend(graph_event_rows)
+        all_cuda_graph_envelope_rows.extend(graph_envelope_rows)
 
         summary = _device_summary_row(selection, step_rows)
         summary.update(
@@ -4347,8 +4753,13 @@ def run_compute_prelude_timeline(
                 "anchor_node_links_file": str(anchor_node_links_path.relative_to(out_dir)),
                 "anchor_loop_costs_file": str(anchor_loop_costs_path.relative_to(out_dir)),
                 "anchor_macro_loop_chains_file": str(anchor_macro_loop_chains_path.relative_to(out_dir)),
-                "cuda_graph_event_count": len(cuda_graph_event_rows),
-                "cuda_graph_envelope_event_count": len(cuda_graph_envelope_rows),
+                "cuda_graph_event_count": len(graph_event_rows),
+                "cuda_graph_envelope_event_count": len(graph_envelope_rows),
+                "aclgraph_replay_event_count": len(aclgraph_analysis.replay_rows),
+                "aclgraph_envelope_event_count": len(aclgraph_analysis.envelope_rows),
+                "aclgraph_tree_node_count": len(graph_node_rows),
+                "aclgraph_semantic_task_count": int(aclgraph_analysis.summary.get("semantic_task_count", 0) or 0),
+                "aclgraph_capture_stream_count": int(aclgraph_analysis.summary.get("capture_stream_count", 0) or 0),
                 "cuda_graph_events_file": str(cuda_graph_events_path.relative_to(out_dir)),
                 "cuda_graph_envelope_file": str(cuda_graph_envelope_path.relative_to(out_dir)),
                 "anchor_tree_file": str(anchor_tree_path.relative_to(out_dir)),
@@ -4380,6 +4791,12 @@ def run_compute_prelude_timeline(
             fieldnames=CUDA_GRAPH_ENVELOPE_FIELDS,
         )
         _write_csv(out_dir / "device_summary.csv", summary_rows)
+
+    aclgraph_meta = write_aclgraph_outputs(
+        out_dir=out_dir,
+        analyses=aclgraph_analyses,
+        write_csv_outputs=write_full_outputs,
+    )
 
     meta = {
         "version": "compute_prelude_timeline_v1",
@@ -4422,12 +4839,22 @@ def run_compute_prelude_timeline(
         "cuda_graph_envelope_file": str(out_dir / "cuda_graph_envelope_events.csv") if write_full_outputs else "",
         "cuda_graph_event_count": len(all_cuda_graph_event_rows),
         "cuda_graph_envelope_event_count": len(all_cuda_graph_envelope_rows),
+        "aclgraph_summary_file": aclgraph_meta.get("aclgraph_summary_file", ""),
+        "aclgraph_summary_markdown_file": aclgraph_meta.get("aclgraph_summary_markdown_file", ""),
+        "aclgraph_events_file": aclgraph_meta.get("aclgraph_events_file", ""),
+        "aclgraph_envelope_file": aclgraph_meta.get("aclgraph_envelope_file", ""),
+        "aclgraph_replay_event_count": aclgraph_meta.get("replay_segment_count", 0),
+        "aclgraph_envelope_event_count": sum(len(analysis.envelope_rows) for analysis in aclgraph_analyses),
+        "aclgraph_semantic_task_count": aclgraph_meta.get("semantic_task_count", 0),
+        "aclgraph_capture_stream_count": aclgraph_meta.get("capture_stream_count", 0),
+        "aclgraph_quality": aclgraph_meta.get("quality", ""),
         "augmented_db_files": [str(path) for path in sorted(augmented_db_paths.values())],
     }
     summary_text = _build_run_summary_markdown(
         summary_rows=summary_rows,
         loop_cost_rows=all_anchor_loop_cost_rows,
         cuda_graph_event_rows=all_cuda_graph_event_rows,
+        aclgraph_summary=aclgraph_meta,
         out_dir=out_dir,
         top_loops=cfg.summary_top_loops,
         output_mode=cfg.output_mode,

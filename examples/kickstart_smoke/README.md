@@ -22,6 +22,12 @@ msprof_raw/
   PROF_000001_20260609064648547_OEJLKCHMOPRFGKIB/msprof_20260609064834.db
 ```
 
+This kickstart profile includes ACL graph semantic task names, but it is not
+the best fixture for validating native ACLGraph reconstruction because it does
+not include the full `host/sqlite/stream_info.db` `CaptureStreamInfo` package
+shape. For that, use the curated package under
+`data/experiment-results/ascend_tp2_graph_showcase/`.
+
 ## Try It
 
 From the repository root:

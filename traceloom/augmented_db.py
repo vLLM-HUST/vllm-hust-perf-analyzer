@@ -90,6 +90,12 @@ def append_device_analysis(
             view_name=view_name,
             rows=node_metric_rows,
         )
+        _validate_node_id_namespace(
+            tree_payload=tree_payload,
+            node_rows=node_metric_rows,
+            node_anchor_rows=node_anchor_link_rows,
+            loop_rows=loop_cost_rows,
+        )
         _insert_edges(
             conn,
             db_idx=db_idx,
@@ -124,6 +130,67 @@ def append_device_analysis(
         )
         _insert_anchor_primary_nodes(conn, db_idx=db_idx, device_id=device_id, view_name=view_name)
         conn.commit()
+
+
+def _validate_node_id_namespace(
+    *,
+    tree_payload: Row,
+    node_rows: Sequence[Row],
+    node_anchor_rows: Sequence[Row],
+    loop_rows: Sequence[Row],
+) -> None:
+    """Reject reports whose visible tree ids do not match augmented-DB keys."""
+
+    node_ids = [str(row.get("node_id", "")).strip() for row in node_rows]
+    node_ids = [node_id for node_id in node_ids if node_id]
+    node_id_set = set(node_ids)
+    if len(node_ids) != len(node_id_set):
+        raise ValueError("duplicate node_id values in node metrics")
+
+    tree_ids: List[str] = []
+
+    def visit(node: object) -> None:
+        if not isinstance(node, dict):
+            return
+        node_id = str(node.get("node_id", "")).strip()
+        if node_id:
+            tree_ids.append(node_id)
+            if node_id not in node_id_set:
+                raise ValueError(
+                    f"tree payload node_id {node_id!r} is not present in node metrics; "
+                    "visible node ids must use the augmented-DB local_node_id namespace"
+                )
+        node_type = str(node.get("type", ""))
+        if node_type == "Seq":
+            for item in node.get("items", []):
+                if isinstance(item, dict):
+                    visit(item.get("node"))
+        elif node_type == "Repeat":
+            visit(node.get("body"))
+        overlays = node.get("overlays", [])
+        if isinstance(overlays, list):
+            for item in overlays:
+                if isinstance(item, dict):
+                    visit(item.get("node"))
+
+    visit(tree_payload.get("root"))
+    missing_tree_ids = sorted(node_id_set - set(tree_ids))
+    if missing_tree_ids:
+        preview = ", ".join(missing_tree_ids[:8])
+        raise ValueError(f"node metrics contain ids missing from tree payload: {preview}")
+
+    for source_name, rows in (("node-anchor links", node_anchor_rows), ("loop costs", loop_rows)):
+        unknown = sorted(
+            {
+                node_id
+                for row in rows
+                for node_id in [str(row.get("node_id", "")).strip()]
+                if node_id and node_id not in node_id_set
+            }
+        )
+        if unknown:
+            preview = ", ".join(unknown[:8])
+            raise ValueError(f"{source_name} reference unknown local_node_id values: {preview}")
 
 
 def _initialize_schema(conn: sqlite3.Connection) -> None:
@@ -217,6 +284,8 @@ def _initialize_schema(conn: sqlite3.Connection) -> None:
             graph_event_id TEXT PRIMARY KEY,
             db_idx INTEGER NOT NULL,
             device_id INTEGER NOT NULL,
+            graph_provider TEXT DEFAULT 'cuda',
+            graph_kind TEXT DEFAULT 'cuda_graph_replay',
             graph_event_idx INTEGER NOT NULL,
             event_id TEXT NOT NULL,
             step_idx INTEGER NOT NULL,
@@ -240,6 +309,8 @@ def _initialize_schema(conn: sqlite3.Connection) -> None:
             envelope_id TEXT PRIMARY KEY,
             db_idx INTEGER NOT NULL,
             device_id INTEGER NOT NULL,
+            graph_provider TEXT DEFAULT 'cuda',
+            graph_kind TEXT DEFAULT 'cuda_graph_replay',
             envelope_idx INTEGER NOT NULL,
             graph_event_id TEXT NOT NULL,
             child_event_id TEXT NOT NULL,
@@ -916,6 +987,8 @@ def _insert_cuda_graph_replays(
                 event_id,
                 db_idx,
                 device_id,
+                str(row.get("graph_provider", "cuda") or "cuda"),
+                str(row.get("graph_kind", "cuda_graph_replay") or "cuda_graph_replay"),
                 _as_int(row.get("graph_event_idx")),
                 event_id,
                 step_idx,
@@ -937,12 +1010,12 @@ def _insert_cuda_graph_replays(
     conn.executemany(
         """
         INSERT OR REPLACE INTO traceloom_cuda_graph_replay(
-            graph_event_id, db_idx, device_id, graph_event_idx, event_id,
-            step_idx, stream_id, correlation_id, graph_id, graph_exec_id,
+            graph_event_id, db_idx, device_id, graph_provider, graph_kind,
+            graph_event_idx, event_id, step_idx, stream_id, correlation_id, graph_id, graph_exec_id,
             context_id, start_ns, end_ns, dur_us, enclosed_event_count,
             enclosed_event_us, enclosed_kernel_count, enclosed_kernel_us,
             raw_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         values,
     )
@@ -965,6 +1038,8 @@ def _insert_cuda_graph_envelopes(
                 f"db{db_idx:02d}:dev{device_id}:cuda_graph_envelope{envelope_idx}",
                 db_idx,
                 device_id,
+                str(row.get("graph_provider", "cuda") or "cuda"),
+                str(row.get("graph_kind", "cuda_graph_replay") or "cuda_graph_replay"),
                 envelope_idx,
                 _event_id(db_idx, device_id, graph_step_idx),
                 _event_id(db_idx, device_id, child_step_idx),
@@ -988,12 +1063,12 @@ def _insert_cuda_graph_envelopes(
     conn.executemany(
         """
         INSERT OR REPLACE INTO traceloom_cuda_graph_envelope(
-            envelope_id, db_idx, device_id, envelope_idx, graph_event_id,
-            child_event_id, graph_step_idx, child_step_idx, relation,
+            envelope_id, db_idx, device_id, graph_provider, graph_kind,
+            envelope_idx, graph_event_id, child_event_id, graph_step_idx, child_step_idx, relation,
             stream_relation, graph_id, graph_exec_id, graph_correlation_id,
             graph_start_ns, graph_end_ns, child_start_ns, child_end_ns,
             start_offset_us, end_offset_us, child_dur_us, raw_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         values,
     )
@@ -1179,6 +1254,13 @@ def _insert_edges(
             body = node.get("body")
             if isinstance(body, dict):
                 visit(body, current_parent_id, 1)
+        overlays = node.get("overlays", [])
+        if isinstance(overlays, list):
+            for idx, item in enumerate(overlays, start=1):
+                if isinstance(item, dict):
+                    child = item.get("node")
+                    if isinstance(child, dict):
+                        visit(child, current_parent_id, 100000 + idx)
 
     visit(root)
     conn.executemany(
@@ -1266,13 +1348,14 @@ def _insert_semantic_tree(
     edge_values: List[Tuple[object, ...]] = []
 
     def row_for_node(node: Row) -> Row | None:
-        raw_id = str(node.get("node_id", "")).strip()
-        if raw_id in node_by_raw_id:
-            return node_by_raw_id[raw_id]
+        local_id = str(node.get("node_id", "")).strip()
+        if local_id in node_by_local_id:
+            return node_by_local_id[local_id]
+        raw_id = str(node.get("raw_node_id", "") or local_id).strip()
         if has_distinct_raw_ids:
-            return None
-        local_id = raw_to_local_id.get(raw_id, raw_id)
-        return node_by_local_id.get(local_id)
+            return node_by_raw_id.get(raw_id)
+        mapped_local_id = raw_to_local_id.get(raw_id, raw_id)
+        return node_by_local_id.get(mapped_local_id)
 
     def visit(
         node: object,
@@ -1338,6 +1421,17 @@ def _insert_semantic_tree(
                 depth=depth + 1,
                 path=f"{path}.body" if path else "body",
             )
+        overlays = node.get("overlays", [])
+        if isinstance(overlays, list):
+            for idx, item in enumerate(overlays, start=1):
+                child = item.get("node") if isinstance(item, dict) else None
+                visit(
+                    child,
+                    parent_local_id=current_parent,
+                    sibling_order=100000 + idx,
+                    depth=depth + 1,
+                    path=f"{path}.graph{idx}" if path else f"graph{idx}",
+                )
         return current_parent
 
     visit(root, parent_local_id=None, sibling_order=1, depth=0, path="root")
@@ -1384,6 +1478,14 @@ def _insert_semantic_tree(
         repeat_count = _parse_repeat_count(repeat_label) or _parse_repeat_count(str(row.get("label", "")))
         aux_events = _nullable_float(row.get("aux_events"))
         aux_us = _nullable_float(row.get("aux_us"))
+        row_start_ns = _nullable_int(row.get("start_ns"))
+        row_end_ns = _nullable_int(row.get("end_ns"))
+        if str(row.get("kind", "")) == "graph":
+            start_ns = row_start_ns
+            end_ns = row_end_ns
+        else:
+            start_ns = _nullable_int(span.get("start_ns")) or row_start_ns
+            end_ns = _nullable_int(span.get("end_ns")) or row_end_ns
         node_values.append(
             (
                 node_id,
@@ -1411,8 +1513,8 @@ def _insert_semantic_tree(
                 _nullable_int(row.get("anchor_count")),
                 _nullable_int(row.get("first_anchor_idx")) or _nullable_int(span.get("first_anchor_idx")),
                 _nullable_int(row.get("last_anchor_idx")) or _nullable_int(span.get("last_anchor_idx")),
-                _nullable_int(span.get("start_ns")),
-                _nullable_int(span.get("end_ns")),
+                start_ns,
+                end_ns,
                 _nullable_float(row.get("compute_us")),
                 _nullable_float(row.get("comm_us")),
                 _nullable_float(row.get("idle_us")),
@@ -1649,8 +1751,11 @@ def _as_int(value: object) -> int:
 def _nullable_int(value: object) -> int | None:
     if value is None or value == "":
         return None
+    text = str(value).strip()
+    if re.fullmatch(r"[+-]?\d+(?:\.0+)?", text):
+        return int(text.split(".", 1)[0])
     try:
-        return int(float(str(value)))
+        return int(float(text))
     except (TypeError, ValueError):
         return None
 

@@ -92,6 +92,13 @@ TraceLoom 将两张卡的 raw trace 压缩成可并排比较的 Pattern Compress
 这就是推荐的第一步体验：先直接跑仓库里的真实 profile 数据库，看 TraceLoom
 如何把 raw timeline 压成结构化诊断，再分析自己的 workload。
 
+如果要看更完整的 Ascend graph-mode 样例，包含完整华为 `msprof` 包、
+TraceLoom full 输出、显式 ACLGraph replay 重建以及可直接打开的
+Perfetto/Chrome timeline，可以使用
+`data/experiment-results/ascend_tp2_graph_showcase/` 下的数据包。包里包含
+`derived/traceloom/aclgraph_summary.md` 和
+`derived/perfetto/trace_timeline.json.gz`。
+
 ## 示例发现
 
 对这份 kickstart bundle，TraceLoom 能直接给出几类判断：
@@ -130,6 +137,9 @@ TraceLoom 在原始 profile 数据库之上增加一层可分析的结构：
 - 读取 Ascend/CANN `msprof_*.db`，保留原始 profiler 表作为证据。
 - 规范化低层事件，建立统一的 event、anchor、symbol 和 source link。
 - 从 compute kernel、HCCL/collective、数据搬运和同步事件中抽取语义 anchor。
+- 从 device-side `CaptureStreamInfo`、`TASK` 和 `ascend_task.db` 中重建
+  Ascend ACLGraph replay，把它们写成 `ACLGRAPH_REPLAY` timeline event，
+  并在 graph replay 表中标记 `graph_provider='aclgraph'`。
 - 在 anchor 序列上发现重复执行模式，压缩成 Pattern Compression Tree。
 - 区分主干 anchor kernel 与 auxiliary / prelude 事件，把等待、准备、通信碎片等成本归因到相邻结构。
 - 生成增强 SQLite 数据库、可读 Markdown 报告和可复用 SQL 查询。
@@ -253,6 +263,9 @@ traceloom/
 
 - `summary.md`：概览分析了哪些 DB、哪些 device，以及最高成本结构。
 - `tree-map.md`：第一眼应该看的性能地图，突出重复结构、热点节点和成本列。
+- `aclgraph_summary.md`：当 profile 里有 ACLGraph 捕获流和图语义 TASK 时，
+  这里会总结 replay 区间、model stream、`MODEL_EXECUTE`/`NOTIFY_WAIT`
+  等 device-side 图行为。
 
 `tree-map.md` 中的 `node` 编号可以直接用于 SQL 下钻，例如 `N027`、`N060`。
 
@@ -315,6 +328,8 @@ traceloom report /path/to/db01.traceloom_augmented.db \
 - `traceloom_tree_node_occurrence`：每个 node 的展开出现次数。
 - `traceloom_tree_node_anchor`：node occurrence 到 anchor 事件的链接。
 - `traceloom_anchor` / `traceloom_event`：更底层的语义事件和 profiler 事件。
+- `traceloom_v_cuda_graph_replay`：graph replay 证据视图。CUDA 和
+  ACLGraph 共用这张视图，用 `graph_provider` 区分来源。
 
 ## 推荐工作流
 
