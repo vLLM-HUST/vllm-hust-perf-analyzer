@@ -971,6 +971,8 @@ def _augment_aclgraph_atom_step_rows(
             "graph_body_hash",
             "graph_envelope_hash",
             "graph_body_token_count",
+            "graph_body_noise_signature",
+            "graph_body_hash_policy",
             "graph_control_signature",
             "raw_child_task_count",
             "raw_child_stream_count",
@@ -996,6 +998,12 @@ def _augment_aclgraph_symbol_rows(
     symbol_rows: List[Dict[str, object]],
     replay_rows: Sequence[Dict[str, object]],
 ) -> None:
+    def merge_counts(rows: Sequence[Dict[str, object]], key: str, *, limit: int) -> str:
+        counter: Counter[str] = Counter()
+        for source in rows:
+            counter.update(_parse_counter_text(str(source.get(key, ""))))
+        return _format_counter(counter, limit=limit)
+
     by_symbol: Dict[str, List[Dict[str, object]]] = {}
     for row in replay_rows:
         symbol = str(row.get("graph_type_symbol", ""))
@@ -1011,9 +1019,35 @@ def _augment_aclgraph_symbol_rows(
         row["graph_type_symbol"] = symbol
         row["graph_body_hash"] = first.get("graph_body_hash", "")
         row["graph_envelope_hash"] = first.get("graph_envelope_hash", "")
+        row["graph_body_noise_signature"] = merge_counts(rows, "graph_body_noise_signature", limit=16)
+        row["graph_body_noise_variant_count"] = len({str(item.get("graph_body_noise_signature", "")) for item in rows})
+        row["graph_body_hash_policy"] = first.get("graph_body_hash_policy", "")
         row["graph_occurrence_count"] = len(rows)
-        row["raw_control_tasks"] = first.get("raw_control_tasks", "")
-        row["raw_top_ops"] = first.get("raw_top_ops", "")
+        row["raw_control_tasks"] = merge_counts(rows, "raw_control_tasks", limit=8)
+        row["raw_control_variant_count"] = len({str(item.get("raw_control_tasks", "")) for item in rows})
+        row["raw_top_ops"] = merge_counts(rows, "raw_top_ops", limit=10)
+
+
+def _parse_counter_text(text: str) -> Counter[str]:
+    counter: Counter[str] = Counter()
+    for part in re.split(r"[;\n]+", text):
+        token = part.strip()
+        if not token or ":" not in token:
+            continue
+        name, _, count_text = token.rpartition(":")
+        name = name.strip()
+        if not name:
+            continue
+        try:
+            count = int(float(count_text.strip()))
+        except ValueError:
+            count = 1
+        counter[name] += count
+    return counter
+
+
+def _format_counter(counter: Counter[str], *, limit: int) -> str:
+    return "; ".join(f"{key}:{count}" for key, count in counter.most_common(limit))
 
 
 def _remap_aclgraph_step_indices(
@@ -3708,18 +3742,22 @@ def _render_graph_type_rows(symbol_table: object) -> List[str]:
     lines: List[str] = []
     lines.append("## Graph Types")
     lines.append("")
-    lines.append("| graph | occurrences | total_us | body_hash | envelope_hash | controls | top_ops |")
-    lines.append("| --- | ---: | ---: | --- | --- | --- | --- |")
+    lines.append(
+        "| graph | occurrences | total_us | body_hash | envelope_hash | control_variants | noise_variants | controls | body_noise | top_ops |"
+    )
+    lines.append("| --- | ---: | ---: | --- | --- | ---: | ---: | --- | --- | --- |")
     for row in graph_rows:
         body_hash = str(row.get("graph_body_hash", ""))
         envelope_hash = str(row.get("graph_envelope_hash", ""))
         controls = str(row.get("raw_control_tasks", "")).replace("|", "\\|")
+        body_noise = str(row.get("graph_body_noise_signature", "")).replace("|", "\\|").replace("\n", "; ")
         top_ops = str(row.get("raw_top_ops", "")).replace("|", "\\|")
         lines.append(
             (
                 f"| {row.get('symbol', '')} | {row.get('window_count', 0)} "
                 f"| {row.get('total_us', 0.0)} | `{body_hash[:16]}` "
-                f"| `{envelope_hash[:16]}` | `{controls}` | `{top_ops}` |"
+                f"| `{envelope_hash[:16]}` | {row.get('raw_control_variant_count', 0)} "
+                f"| {row.get('graph_body_noise_variant_count', 0)} | `{controls}` | `{body_noise}` | `{top_ops}` |"
             )
         )
     return lines

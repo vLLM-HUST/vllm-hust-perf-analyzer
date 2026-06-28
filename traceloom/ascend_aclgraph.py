@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import math
 import re
 import sqlite3
 from collections import Counter
@@ -18,6 +19,90 @@ GRAPH_TASK_KEYS = {
     "NOTIFY_WAIT",
     "NOTIFY_RECORD",
 }
+
+GRAPH_BODY_EXCLUDED_KEYS = {
+    "AI_CORE",
+    "CAPTURE_RECORD",
+    "CAPTURE_WAIT",
+    "EVENT_RECORD",
+    "MEM_WRITE_VALUE",
+    "MEMCPY",
+    "MEMCPY_ASYNC",
+    "MODEL_EXECUTE",
+    "MODEL_MAINTAINCE",
+    "MODEL_MAINTENANCE",
+    "NOTIFY",
+    "NOTIFY_RECORD",
+    "NOTIFY_WAIT",
+    "SDMA",
+    "WRITE_VALUE",
+}
+
+GRAPH_BODY_ANCHOR_FAMILIES = {
+    "attention",
+    "matmul",
+    "norm",
+    "rope",
+    "swiglu",
+}
+
+GRAPH_BODY_ANCHOR_KEYWORDS = (
+    "matmul",
+    "batchmatmul",
+    "gemm",
+    "conv",
+    "flashattention",
+    "fusedinferattention",
+    "pagedattention",
+    "attention",
+    "rmsnorm",
+    "layernorm",
+    "swiglu",
+    "siluandmul",
+    "moe",
+    "ffn",
+    "rotary",
+    "rope",
+)
+
+GRAPH_BODY_AUX_KEYWORDS = (
+    "memcpy",
+    "tensorcopy",
+    "copy",
+    "fill",
+    "zeroslike",
+    "zero",
+    "oneslike",
+    "one_",
+    "cast",
+    "slice",
+    "tile",
+    "gather",
+    "scatter",
+    "reshape",
+    "transpose",
+    "expand",
+    "broadcastto",
+    "arange",
+    "range",
+    "realdiv",
+    "div",
+    "pow",
+    "reciprocal",
+    "cos",
+    "sin",
+    "concat",
+    "cat",
+    "quant",
+    "add",
+    "sub",
+    "greaterequal",
+    "less",
+    "logical",
+    "bitwise",
+    "index",
+    "argmax",
+)
 
 ZERO_PRELUDE = {
     "prev_compute_overlap_us": 0.0,
@@ -92,7 +177,13 @@ def analyze_aclgraph_for_device(
         compute=compute,
         db_idx=db_idx,
     )
-    segments = _segment_tasks(graph_model_tasks, gap_ns=int(gap_us * 1000.0))
+    activity_segments = _segment_tasks(graph_model_tasks, gap_ns=int(gap_us * 1000.0))
+    wave_size = _infer_model_execute_wave_size(activity_segments, semantic_tasks=semantic_tasks)
+    segments = _split_segments_by_model_execute_wave(
+        activity_segments,
+        semantic_tasks=semantic_tasks,
+        wave_size=wave_size,
+    )
     step_rows, replay_rows, top_op_rows = _build_replay_rows(
         db_path=db_path,
         db_idx=db_idx,
@@ -123,6 +214,8 @@ def analyze_aclgraph_for_device(
         "active_model_streams": _compact_ints({row["stream_id"] for row in graph_model_tasks}),
         "active_model_stream_count": len({row["stream_id"] for row in graph_model_tasks}),
         "replay_segment_count": len(replay_rows),
+        "activity_segment_count": len(activity_segments),
+        "model_execute_wave_size": wave_size,
         "replay_total_device_us": round(sum(float(row["dur_us"] or 0.0) for row in replay_rows), 3),
         "replay_child_task_count": sum(int(row.get("raw_child_task_count", 0) or 0) for row in replay_rows),
         "semantic_task_count": len(semantic_tasks),
@@ -236,7 +329,8 @@ def _build_replay_rows(
         stream_dur: Counter[int] = Counter()
         kernel_count = 0
         kernel_us = 0.0
-        body_tokens: list[str] = []
+        body_counter: Counter[str] = Counter()
+        body_noise_counter: Counter[str] = Counter()
         for row in segment:
             dur_ns = max(0, int(row["end_ns"]) - int(row["start_ns"]))
             stream_dur[int(row["stream_id"])] += dur_ns
@@ -244,7 +338,11 @@ def _build_replay_rows(
             op = info.get("op_type") or info.get("op_name") or str(row["task_label"])
             op_counter[op] += 1
             task_type_counter[str(row["task_label"])] += 1
-            body_tokens.append(_canonical_graph_body_token(row, info))
+            body_token = _canonical_graph_body_token(row, info)
+            if body_token:
+                body_counter[body_token] += 1
+            else:
+                body_noise_counter[_canonical_graph_noise_token(row, info)] += 1
             if info.get("op_type") or "AI_CORE" in str(row["task_label"]).upper():
                 kernel_count += 1
                 kernel_us += dur_ns / 1000.0
@@ -254,7 +352,8 @@ def _build_replay_rows(
             if int(row["end_ns"]) >= start_ns and int(row["start_ns"]) <= end_ns
         ]
         control_counter = Counter(str(row["task_label"]) for row in controls)
-        body_signature = "\n".join(body_tokens)
+        body_signature = "\n".join(f"{name}:{count}" for name, count in sorted(body_counter.items()))
+        body_noise_signature = "\n".join(f"{name}:{count}" for name, count in sorted(body_noise_counter.items()))
         control_signature = "\n".join(f"{name}:{count}" for name, count in sorted(control_counter.items()))
         body_hash = _stable_hash(body_signature)
         envelope_hash = _stable_hash(f"{body_hash}\n{control_signature}\nstreams={_compact_ints(streams)}")
@@ -267,7 +366,7 @@ def _build_replay_rows(
         source_key = f"provider=aclgraph;replay_idx={replay_idx};streams={_compact_ints(streams)}"
         common = {
             "graph_provider": "aclgraph",
-            "graph_kind": "aclgraph_replay",
+            "graph_kind": "aclgraph_execute",
             "graph_event_idx": replay_idx,
             "db_idx": db_idx,
             "db": str(db_path),
@@ -276,15 +375,18 @@ def _build_replay_rows(
             "step_idx": step_idx,
             "symbol": "ACLGRAPH",
             "semantic_role": "graph",
-            "semantic_role_reason": "aclgraph_replay",
-            "label": f"ACLGraph Replay {replay_idx}",
+            "semantic_role_reason": "aclgraph_execute",
+            "label": f"ACLGraph Execute {replay_idx}",
             "graph_type_symbol": graph_type_symbol,
             "graph_type_label": f"ACLGraphType {graph_type_symbol}",
             "graph_body_hash": body_hash,
             "graph_envelope_hash": envelope_hash,
-            "graph_body_token_count": len(body_tokens),
+            "graph_body_token_count": sum(body_counter.values()),
+            "graph_body_signature": body_signature,
+            "graph_body_noise_signature": body_noise_signature,
+            "graph_body_hash_policy": "anchor_compute_body_v1",
             "graph_control_signature": control_signature,
-            "task_type": "ACL_GRAPH_REPLAY",
+            "task_type": "ACL_GRAPH_EXECUTE",
             "source_table": "ACLGRAPH_REPLAY",
             "source_key": source_key,
             "stream_id": primary_stream,
@@ -344,9 +446,51 @@ def _stable_hash(value: str) -> str:
 def _canonical_graph_body_token(row: dict[str, Any], info: dict[str, str]) -> str:
     op = info.get("op_type") or info.get("op_name") or str(row.get("task_label", ""))
     task = str(row.get("task_label", ""))
-    # Keep this intentionally free of timestamps, generated ids, and stream ids.
-    # Shape/dtype can be added here later when msprof exposes enough metadata.
-    return f"{task}|{op}"
+    task_key = _normalize_key(task)
+    family = _graph_body_family(op)
+    low = f"{op} {task} {family}".lower()
+    if task_key in GRAPH_BODY_EXCLUDED_KEYS:
+        return ""
+    if family in GRAPH_BODY_ANCHOR_FAMILIES or any(keyword in low for keyword in GRAPH_BODY_ANCHOR_KEYWORDS):
+        # Keep this intentionally free of timestamps, generated ids, and stream ids.
+        # Shape/dtype can be added here later when msprof exposes enough metadata.
+        return f"{family}|{op or task}"
+    return ""
+
+
+def _canonical_graph_noise_token(row: dict[str, Any], info: dict[str, str]) -> str:
+    op = info.get("op_type") or info.get("op_name") or str(row.get("task_label", ""))
+    task = str(row.get("task_label", ""))
+    task_key = _normalize_key(task)
+    if task_key in GRAPH_BODY_EXCLUDED_KEYS:
+        return f"control_or_transfer:{task_key.lower()}"
+    family = _graph_body_family(op)
+    low = f"{op} {task} {family}".lower()
+    for keyword in GRAPH_BODY_AUX_KEYWORDS:
+        if keyword in low:
+            return f"aux_keyword:{keyword}"
+    if family:
+        return f"non_anchor_family:{family}"
+    return f"non_anchor_task:{task_key.lower() or 'unknown'}"
+
+
+def _graph_body_family(label: str) -> str:
+    low = (label or "").strip().lower()
+    if not low:
+        return ""
+    if "matmul" in low or "gemm" in low:
+        return "matmul"
+    if "rmsnorm" in low or "rms_norm" in low or "layernorm" in low or "layer_norm" in low:
+        return "norm"
+    if "pagedattention" in low or "paged_attention" in low or "attention" in low:
+        return "attention"
+    if "swiglu" in low:
+        return "swiglu"
+    if "rope" in low or "rotary" in low:
+        return "rope"
+    if "copy" in low or "memcpy" in low or "tensor move" in low:
+        return "data_move"
+    return low[:64].strip().replace(" ", "_")
 
 
 def _build_envelope_rows(
@@ -603,6 +747,93 @@ def _segment_tasks(tasks: Sequence[dict[str, Any]], *, gap_ns: int) -> list[list
         last_end = max(last_end, int(row["end_ns"]))
     segments.append(current)
     return segments
+
+
+def _infer_model_execute_wave_size(
+    segments: Sequence[Sequence[dict[str, Any]]],
+    *,
+    semantic_tasks: Sequence[dict[str, object]],
+) -> int:
+    counts = [
+        len(_model_execute_controls_for_segment(segment, semantic_tasks))
+        for segment in segments
+    ]
+    counts = [count for count in counts if count > 0]
+    if not counts:
+        return 0
+    wave_size = counts[0]
+    for count in counts[1:]:
+        wave_size = math.gcd(wave_size, count)
+    return wave_size if wave_size > 1 else 0
+
+
+def _split_segments_by_model_execute_wave(
+    segments: Sequence[Sequence[dict[str, Any]]],
+    *,
+    semantic_tasks: Sequence[dict[str, object]],
+    wave_size: int,
+) -> list[list[dict[str, Any]]]:
+    if wave_size <= 1:
+        return [list(segment) for segment in segments]
+    out: list[list[dict[str, Any]]] = []
+    for segment in segments:
+        out.extend(
+            _split_one_segment_by_model_execute_wave(
+                segment,
+                semantic_tasks=semantic_tasks,
+                wave_size=wave_size,
+            )
+        )
+    return out
+
+
+def _split_one_segment_by_model_execute_wave(
+    segment: Sequence[dict[str, Any]],
+    *,
+    semantic_tasks: Sequence[dict[str, object]],
+    wave_size: int,
+) -> list[list[dict[str, Any]]]:
+    rows = sorted(segment, key=lambda row: (row["start_ns"], row["end_ns"], row["stream_id"], row["task_id"]))
+    model_execs = _model_execute_controls_for_segment(rows, semantic_tasks)
+    if not rows or len(model_execs) <= wave_size or len(model_execs) % wave_size != 0:
+        return [list(rows)]
+
+    wave_count = len(model_execs) // wave_size
+    boundaries: list[int] = [int(rows[0]["start_ns"])]
+    for wave_idx in range(1, wave_count):
+        boundaries.append(int(model_execs[wave_idx * wave_size]["start_ns"]))
+    boundaries.append(max(int(row["end_ns"]) for row in rows) + 1)
+
+    waves: list[list[dict[str, Any]]] = [[] for _ in range(wave_count)]
+    cursor = 0
+    for row in rows:
+        start_ns = int(row["start_ns"])
+        while cursor + 1 < wave_count and start_ns >= boundaries[cursor + 1]:
+            cursor += 1
+        waves[cursor].append(row)
+
+    if any(not wave for wave in waves):
+        return [list(rows)]
+    return waves
+
+
+def _model_execute_controls_for_segment(
+    segment: Sequence[dict[str, Any]],
+    semantic_tasks: Sequence[dict[str, object]],
+) -> list[dict[str, object]]:
+    if not segment:
+        return []
+    start_ns = min(int(row["start_ns"]) for row in segment)
+    end_ns = max(int(row["end_ns"]) for row in segment)
+    rows = [
+        row
+        for row in semantic_tasks
+        if _normalize_key(str(row.get("task_label", ""))) == "MODEL_EXECUTE"
+        and int(row.get("end_ns", 0)) >= start_ns
+        and int(row.get("start_ns", 0)) <= end_ns
+    ]
+    rows.sort(key=lambda row: (int(row.get("start_ns", 0)), int(row.get("end_ns", 0)), int(row.get("stream_id", -1))))
+    return rows
 
 
 def _summarize_model_streams(

@@ -6,6 +6,7 @@ from traceloom.compute_prelude_timeline import (
     _main_event_source_key,
     _merge_aclgraph_atoms_with_main_events,
 )
+from traceloom.ascend_aclgraph import _canonical_graph_body_token, _canonical_graph_noise_token
 from traceloom.msprof_reader import StreamEvent
 
 
@@ -28,6 +29,23 @@ def _event(start: int, end: int, label: str) -> MainEvent:
 
 
 class AclGraphAtomProjectionTests(unittest.TestCase):
+    def test_aclgraph_body_hash_uses_anchor_compute_tokens(self) -> None:
+        matmul = {"task_label": "KERNEL_AICORE"}
+        notify = {"task_label": "NOTIFY_RECORD"}
+        cast = {"task_label": "KERNEL_AIVEC"}
+
+        self.assertEqual(
+            _canonical_graph_body_token(matmul, {"op_type": "MatMulV2"}),
+            "matmul|MatMulV2",
+        )
+        self.assertEqual(_canonical_graph_body_token(notify, {}), "")
+        self.assertEqual(_canonical_graph_body_token(cast, {"op_type": "Cast"}), "")
+        self.assertEqual(
+            _canonical_graph_noise_token(notify, {}),
+            "control_or_transfer:notify_record",
+        )
+        self.assertEqual(_canonical_graph_noise_token(cast, {"op_type": "Cast"}), "aux_keyword:cast")
+
     def test_graph_atom_replaces_fully_covered_outer_events(self) -> None:
         partial = _event(0, 12, "A")
         covered = _event(14, 18, "B")
@@ -65,4 +83,3 @@ class AclGraphAtomProjectionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

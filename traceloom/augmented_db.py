@@ -895,7 +895,7 @@ def _insert_events(conn: sqlite3.Connection, *, db_idx: int, device_id: int, row
                 _nullable_int(row.get("start_ns")),
                 _nullable_int(row.get("end_ns")),
                 _nullable_float(row.get("dur_us")),
-                _event_category(role),
+                _event_category(row, role),
                 role,
                 str(row.get("semantic_role", "")),
                 str(row.get("semantic_role_reason", "")),
@@ -1709,7 +1709,14 @@ def _source_key(row: Row, step_idx: int) -> str:
     return f"step={step_idx};stream={stream_id};start_ns={start_ns}"
 
 
-def _event_category(role: str) -> str:
+def _event_category(row: Row, role: str) -> str:
+    explicit = str(row.get("category", "")).strip().lower()
+    if explicit == "graph":
+        return "graph"
+    task_type = str(row.get("task_type", "")).strip().upper()
+    source_table = str(row.get("source_table", "")).strip().upper()
+    if task_type in {"ACL_GRAPH_REPLAY", "ACL_GRAPH_EXECUTE", "ACL_GRAPH_ACTIVITY_SEGMENT"} or source_table == "ACLGRAPH_REPLAY":
+        return "graph"
     if role == "compute":
         return "exec"
     if role in {"collective", "data_move"}:
