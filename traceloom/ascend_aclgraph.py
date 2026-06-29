@@ -149,6 +149,8 @@ class AclGraphAnalysis:
     semantic_task_rows: list[dict[str, object]]
     model_stream_rows: list[dict[str, object]]
     top_op_rows: list[dict[str, object]]
+    capture_slot_rows: list[dict[str, object]]
+    capture_dictionary_rows: list[dict[str, object]]
     summary: dict[str, object]
 
 
@@ -177,6 +179,8 @@ def analyze_aclgraph_for_device(
             return _empty_analysis(db_path, stream_info_path, device_id, db_idx, gap_us)
         strings = _load_string_ids(conn)
         compute = _load_compute_info(conn, strings)
+        capture_slot_rows = _load_capture_slot_rows(conn, strings, db_idx=db_idx, device_id=device_id)
+        capture_dictionary_rows = _build_capture_dictionary_rows(capture_slot_rows, db_idx=db_idx, device_id=device_id)
         graph_task_type_ids = _task_type_ids_for_keys(strings, GRAPH_TASK_KEYS)
         task_rows = _load_tasks(
             conn,
@@ -226,6 +230,7 @@ def analyze_aclgraph_for_device(
         segment_metadata=segment_metadata,
         controls_by_segment=controls_by_segment,
         compute=compute,
+        capture_dictionary_rows=capture_dictionary_rows,
     )
     envelope_rows = _build_envelope_rows(
         replay_rows=replay_rows,
@@ -251,6 +256,11 @@ def analyze_aclgraph_for_device(
         "replay_activity_count": len(activity_segments),
         "replay_unit_count": len(replay_rows),
         "model_execute_wave_size": wave_size,
+        "capture_slot_count": len(capture_slot_rows),
+        "capture_group_size": _common_int(capture_slot_rows, "capture_group_size"),
+        "capture_group_count": _common_int(capture_slot_rows, "capture_group_count"),
+        "capture_dictionary_kind_count": len(capture_dictionary_rows),
+        "capture_dictionary": capture_dictionary_rows,
         "replay_total_device_us": round(sum(float(row["dur_us"] or 0.0) for row in replay_rows), 3),
         "replay_child_task_count": sum(int(row.get("raw_child_task_count", 0) or 0) for row in replay_rows),
         "semantic_task_count": len(semantic_tasks),
@@ -275,6 +285,8 @@ def analyze_aclgraph_for_device(
         semantic_task_rows=semantic_tasks,
         model_stream_rows=model_stream_rows,
         top_op_rows=top_op_rows,
+        capture_slot_rows=capture_slot_rows,
+        capture_dictionary_rows=capture_dictionary_rows,
         summary=summary,
     )
 
@@ -290,6 +302,8 @@ def write_aclgraph_outputs(
     semantic_rows = _merge_rows(analyses, "semantic_task_rows")
     model_stream_rows = _merge_rows(analyses, "model_stream_rows")
     top_op_rows = _merge_rows(analyses, "top_op_rows")
+    capture_slot_rows = _merge_rows(analyses, "capture_slot_rows")
+    capture_dictionary_rows = _merge_rows(analyses, "capture_dictionary_rows")
     summary = _merge_summaries([analysis.summary for analysis in analyses])
 
     summary_json = out_dir / "aclgraph_summary.json"
@@ -309,6 +323,8 @@ def write_aclgraph_outputs(
                 "aclgraph_semantic_tasks_file": str(out_dir / "aclgraph_semantic_tasks.csv"),
                 "aclgraph_model_streams_file": str(out_dir / "aclgraph_model_streams.csv"),
                 "aclgraph_top_ops_file": str(out_dir / "aclgraph_top_ops.csv"),
+                "aclgraph_capture_slots_file": str(out_dir / "aclgraph_capture_slots.csv"),
+                "aclgraph_capture_dictionary_file": str(out_dir / "aclgraph_capture_dictionary.csv"),
             }
         )
         _write_csv(out_dir / "aclgraph_events.csv", replay_rows)
@@ -316,6 +332,8 @@ def write_aclgraph_outputs(
         _write_csv(out_dir / "aclgraph_semantic_tasks.csv", semantic_rows)
         _write_csv(out_dir / "aclgraph_model_streams.csv", model_stream_rows)
         _write_csv(out_dir / "aclgraph_top_ops.csv", top_op_rows)
+        _write_csv(out_dir / "aclgraph_capture_slots.csv", capture_slot_rows)
+        _write_csv(out_dir / "aclgraph_capture_dictionary.csv", capture_dictionary_rows)
     return {**summary, **files}
 
 
@@ -337,7 +355,7 @@ def _empty_analysis(db_path: Path, stream_info_path: Path, device_id: int, db_id
         "gap_us": gap_us,
         "quality": "insufficient_aclgraph_signal",
     }
-    return AclGraphAnalysis([], [], [], [], [], [], summary)
+    return AclGraphAnalysis([], [], [], [], [], [], [], [], summary)
 
 
 def _build_replay_rows(
@@ -351,12 +369,14 @@ def _build_replay_rows(
     segment_metadata: Sequence[dict[str, object]],
     controls_by_segment: Sequence[Sequence[dict[str, object]]],
     compute: dict[int, dict[str, str]],
+    capture_dictionary_rows: Sequence[dict[str, object]],
 ) -> tuple[list[dict[str, object]], list[dict[str, object]], list[dict[str, object]]]:
     step_rows: list[dict[str, object]] = []
     replay_rows: list[dict[str, object]] = []
     top_op_rows: list[dict[str, object]] = []
     graph_type_by_hash: dict[str, str] = {}
     graph_template_by_hash: dict[str, str] = {}
+    graph_tiling_by_sequence: dict[str, str] = {}
     for replay_idx, segment in enumerate(segments, start=1):
         metadata = segment_metadata[replay_idx - 1] if replay_idx - 1 < len(segment_metadata) else {}
         start_ns = min(int(row["start_ns"]) for row in segment)
@@ -394,11 +414,20 @@ def _build_replay_rows(
         body_noise_signature = _format_signature(body_noise_counter)
         control_signature = _format_signature(control_counter)
         replay_unit_count, replay_unit_source = _infer_graph_replay_unit_count(body_counter, control_counter)
+        template_vocabulary_signature = _format_template_vocabulary_signature(segment, compute)
+        template_sequence_signature = _format_template_sequence_signature(segment, compute)
         template_signature = _format_template_signature(segment, compute) or _format_unit_signature(
             body_counter,
             replay_unit_count,
         )
+        replay_tiling = _match_replay_segment_to_capture_dictionary(
+            segment,
+            compute=compute,
+            capture_dictionary_rows=capture_dictionary_rows,
+        )
         body_hash = _stable_hash(body_signature)
+        template_vocabulary_hash = _stable_hash(template_vocabulary_signature) if template_vocabulary_signature else ""
+        template_sequence_hash = _stable_hash(template_sequence_signature) if template_sequence_signature else ""
         template_hash = _stable_hash(template_signature)
         envelope_hash = _stable_hash(f"{body_hash}\n{control_signature}\nstreams={_compact_ints(streams)}")
         graph_type_symbol = graph_type_by_hash.get(body_hash)
@@ -409,6 +438,16 @@ def _build_replay_rows(
         if graph_template_symbol is None:
             graph_template_symbol = f"T{len(graph_template_by_hash) + 1:03d}"
             graph_template_by_hash[template_hash] = graph_template_symbol
+        tiling_sequence = str(replay_tiling.get("sequence", ""))
+        if tiling_sequence:
+            graph_tiling_symbol = graph_tiling_by_sequence.get(tiling_sequence)
+            if graph_tiling_symbol is None:
+                graph_tiling_symbol = f"D{len(graph_tiling_by_sequence) + 1:03d}"
+                graph_tiling_by_sequence[tiling_sequence] = graph_tiling_symbol
+            graph_tiling_label = f"ACLGraph H/L/T {tiling_sequence}"
+        else:
+            graph_tiling_symbol = ""
+            graph_tiling_label = ""
         graph_replay_symbol = f"{graph_template_symbol}x{replay_unit_count}"
         graph_replay_hash = _stable_hash(f"{template_hash}\nunit_count={replay_unit_count}")
         step_idx = first_step_idx + replay_idx - 1
@@ -444,7 +483,26 @@ def _build_replay_rows(
             "graph_template_label": f"ACLGraphTemplate {graph_template_symbol}",
             "graph_template_hash": template_hash,
             "graph_template_signature": template_signature,
-            "graph_template_hash_policy": "anchor_compute_unit_vocabulary_v3",
+            "graph_template_hash_policy": "anchor_compute_body_multiset_v1",
+            "graph_template_vocabulary_hash": template_vocabulary_hash,
+            "graph_template_vocabulary_signature": template_vocabulary_signature,
+            "graph_template_vocabulary_hash_policy": "anchor_compute_unit_vocabulary_v3",
+            "graph_template_sequence_hash": template_sequence_hash,
+            "graph_template_sequence_signature": template_sequence_signature,
+            "graph_template_sequence_hash_policy": "diagnostic_compute_unit_sequence_v1",
+            "graph_tiling_symbol": graph_tiling_symbol,
+            "graph_tiling_label": graph_tiling_label,
+            "graph_tiling_hash": _stable_hash(tiling_sequence) if tiling_sequence else "",
+            "graph_tiling_hash_policy": "capture_dictionary_tiling_sequence_v1",
+            "replay_tiling_policy": replay_tiling.get("policy", ""),
+            "replay_tiling_subslot_count": replay_tiling.get("subslot_count", 0),
+            "replay_tiling_sequence": replay_tiling.get("sequence", ""),
+            "replay_tiling_coverage": replay_tiling.get("coverage", ""),
+            "replay_tiling_matched_count": replay_tiling.get("matched_count", 0),
+            "replay_tiling_unmatched_count": replay_tiling.get("unmatched_count", 0),
+            "replay_tiling_score": replay_tiling.get("score", 0.0),
+            "replay_tiling_top_mismatches": replay_tiling.get("top_mismatches", ""),
+            "replay_tiling_subslots_json": replay_tiling.get("subslots_json", ""),
             "graph_replay_symbol": graph_replay_symbol,
             "graph_replay_label": f"ACLGraph {graph_template_symbol} x{replay_unit_count}",
             "graph_replay_hash": graph_replay_hash,
@@ -514,7 +572,51 @@ def _format_signature(counter: Counter[str]) -> str:
     return "\n".join(f"{name}:{count}" for name, count in sorted(counter.items()))
 
 
-def _format_template_signature(rows: Sequence[dict[str, Any]], compute: dict[int, dict[str, str]]) -> str:
+def _format_template_signature(
+    rows: Sequence[dict[str, Any]],
+    compute: dict[int, dict[str, str]],
+) -> str:
+    body_counter = _graph_body_counter(rows, compute)
+    if not body_counter:
+        return ""
+    return "\n".join(
+        [
+            "body_multiset_v1:",
+            *[f"- {token}:{body_counter[token]}" for token in sorted(body_counter)],
+        ]
+    )
+
+
+def _format_template_sequence_signature(
+    rows: Sequence[dict[str, Any]],
+    compute: dict[int, dict[str, str]],
+) -> str:
+    ordered_rows = sorted(rows, key=lambda row: (row["start_ns"], row["end_ns"], row["stream_id"], row["task_id"]))
+    stream_slots = {
+        stream_id: idx
+        for idx, stream_id in enumerate(sorted({int(row["stream_id"]) for row in ordered_rows}))
+    }
+    sequence: list[str] = []
+    tokens: set[str] = set()
+    for row in ordered_rows:
+        token = _canonical_graph_body_token(row, compute.get(int(row["global_task_id"]), {}))
+        if token:
+            tokens.add(token)
+            sequence.append(f"s{stream_slots[int(row['stream_id'])]:02d}:{token}")
+    if not sequence:
+        return ""
+    lines = [
+        "body_sequence_v1:",
+        f"stream_count: {len(stream_slots)}",
+        "body_tokens:",
+        *[f"- {token}" for token in _run_length_encode(sequence)],
+        "body_vocabulary:",
+        *[f"- {token}" for token in sorted(tokens)],
+    ]
+    return "\n".join(lines)
+
+
+def _format_template_vocabulary_signature(rows: Sequence[dict[str, Any]], compute: dict[int, dict[str, str]]) -> str:
     ordered_rows = sorted(rows, key=lambda row: (row["start_ns"], row["end_ns"], row["stream_id"], row["task_id"]))
     tokens: set[str] = set()
     for row in ordered_rows:
@@ -526,10 +628,27 @@ def _format_template_signature(rows: Sequence[dict[str, Any]], compute: dict[int
     return "\n".join(["body_tokens:", *[f"- {token}" for token in sorted(tokens)]])
 
 
+def _run_length_encode(tokens: Sequence[str]) -> list[str]:
+    if not tokens:
+        return []
+    encoded: list[str] = []
+    prev = tokens[0]
+    count = 1
+    for token in tokens[1:]:
+        if token == prev:
+            count += 1
+            continue
+        encoded.append(f"{prev}*{count}" if count > 1 else prev)
+        prev = token
+        count = 1
+    encoded.append(f"{prev}*{count}" if count > 1 else prev)
+    return encoded
+
+
 def _format_unit_signature(counter: Counter[str], unit_count: int) -> str:
-    # Template identity is intentionally coarser than exact graph body identity:
-    # dynamic decode lengths change the multiplicity of the same body tokens,
-    # but they should not produce distinct timeline anchors.
+    # Fallback only. Normal replay units use the ordered discrete body sequence
+    # above so graph units with different internal structure become distinct
+    # anchors without using timing or cost features.
     return "\n".join(name for name, count in sorted(counter.items()) if int(count) > 0)
 
 
@@ -779,6 +898,431 @@ def _augment_replay_rows(
         )
         out.append(row)
     return out
+
+
+def _load_capture_slot_rows(
+    conn: sqlite3.Connection,
+    strings: dict[int, str],
+    *,
+    db_idx: int,
+    device_id: int,
+) -> list[dict[str, object]]:
+    if not _table_exists(conn, "CANN_API"):
+        return []
+    begin_ids = {sid for sid, value in strings.items() if value == "aclmdlRICaptureBegin"}
+    end_ids = {sid for sid, value in strings.items() if value == "aclmdlRICaptureEnd"}
+    if not begin_ids or not end_ids:
+        return []
+
+    begin_placeholders = ",".join("?" for _ in begin_ids)
+    end_placeholders = ",".join("?" for _ in end_ids)
+    begin_rows = [
+        (int(row["startNs"] or 0), int(row["endNs"] or 0))
+        for row in conn.execute(
+            f"""
+            SELECT startNs, endNs
+            FROM CANN_API
+            WHERE name IN ({begin_placeholders})
+            ORDER BY startNs, endNs, connectionId
+            """,
+            sorted(begin_ids),
+        )
+    ]
+    end_rows = [
+        (int(row["startNs"] or 0), int(row["endNs"] or 0))
+        for row in conn.execute(
+            f"""
+            SELECT startNs, endNs
+            FROM CANN_API
+            WHERE name IN ({end_placeholders})
+            ORDER BY startNs, endNs, connectionId
+            """,
+            sorted(end_ids),
+        )
+    ]
+    pairs = [
+        (begin_start, begin_end, end_start, end_end)
+        for (begin_start, begin_end), (end_start, end_end) in zip(begin_rows, end_rows)
+        if begin_start <= end_end and begin_start > 0 and end_end > 0
+    ]
+    if not pairs:
+        return []
+
+    capture_group_size = _infer_capture_group_size(pairs)
+    capture_group_count = math.ceil(len(pairs) / capture_group_size) if capture_group_size else 1
+    capture_start = min(pair[0] for pair in pairs)
+    capture_end = max(pair[3] for pair in pairs)
+    api_rows = [
+        {
+            "start_ns": int(row["startNs"] or 0),
+            "end_ns": int(row["endNs"] or 0),
+            "api_name": strings.get(int(row["name"]), "") if row["name"] is not None else "",
+        }
+        for row in conn.execute(
+            """
+            SELECT startNs, endNs, name
+            FROM CANN_API
+            WHERE startNs >= ? AND startNs <= ?
+            ORDER BY startNs, endNs, connectionId
+            """,
+            (capture_start, capture_end),
+        )
+    ]
+
+    out: list[dict[str, object]] = []
+    cursor = 0
+    for capture_idx, (begin_start, _begin_end, _end_start, end_end) in enumerate(pairs, start=1):
+        api_counter: Counter[str] = Counter()
+        token_counter: Counter[str] = Counter()
+        sequence: list[str] = []
+        while cursor < len(api_rows) and int(api_rows[cursor]["start_ns"]) < begin_start:
+            cursor += 1
+        scan = cursor
+        while scan < len(api_rows) and int(api_rows[scan]["start_ns"]) <= end_end:
+            api = api_rows[scan]
+            scan += 1
+            if int(api["end_ns"]) > end_end:
+                continue
+            api_name = str(api["api_name"])
+            if api_name in {"aclmdlRICaptureBegin", "aclmdlRICaptureEnd", "aclmdlRICaptureGetInfo"}:
+                continue
+            token = _canonical_capture_api_token(api_name)
+            if not token:
+                continue
+            api_counter[api_name] += 1
+            token_counter[token] += 1
+            sequence.append(token)
+
+        slot_idx = ((capture_idx - 1) % capture_group_size) + 1 if capture_group_size else capture_idx
+        group_idx = ((capture_idx - 1) // capture_group_size) + 1 if capture_group_size else 1
+        match_counter = _match_feature_counter(token_counter)
+        kind = _infer_capture_slot_kind(
+            slot_idx=slot_idx,
+            group_size=capture_group_size,
+            counter=match_counter,
+        )
+        signature = _format_signature(token_counter)
+        sequence_signature = "\n".join(_run_length_encode(sequence))
+        out.append(
+            {
+                "db_idx": db_idx,
+                "device_id": device_id,
+                "capture_slot_idx": capture_idx,
+                "capture_group_idx": group_idx,
+                "capture_group_count": capture_group_count,
+                "capture_group_size": capture_group_size,
+                "capture_slot_in_group": slot_idx,
+                "capture_dictionary_kind": kind,
+                "capture_dictionary_symbol": _capture_kind_symbol(kind),
+                "start_ns": begin_start,
+                "end_ns": end_end,
+                "duration_us": round((end_end - begin_start) / 1000.0, 3),
+                "body_api_count": sum(api_counter.values()),
+                "body_token_count": sum(token_counter.values()),
+                "body_signature": signature,
+                "body_match_signature": _format_signature(match_counter),
+                "body_sequence_signature": sequence_signature,
+                "body_hash": _stable_hash(signature) if signature else "",
+                "top_apis": _format_counter(api_counter, limit=10),
+            }
+        )
+    return out
+
+
+def _infer_capture_group_size(pairs: Sequence[tuple[int, int, int, int]]) -> int:
+    if len(pairs) <= 1:
+        return len(pairs)
+    gaps = [
+        max(0, int(pairs[idx][0]) - int(pairs[idx - 1][3]))
+        for idx in range(1, len(pairs))
+    ]
+    positive = sorted(gap for gap in gaps if gap > 0)
+    if positive:
+        median_gap = positive[len(positive) // 2]
+        threshold = max(median_gap * 10, 10_000_000)
+        boundaries = [idx + 1 for idx, gap in enumerate(gaps) if gap >= threshold]
+        if boundaries:
+            sizes: list[int] = []
+            prev = 0
+            for boundary in boundaries:
+                sizes.append(boundary - prev)
+                prev = boundary
+            sizes.append(len(pairs) - prev)
+            if sizes and len(set(sizes)) == 1 and sizes[0] > 0:
+                return sizes[0]
+    return len(pairs)
+
+
+def _canonical_capture_api_token(api_name: str) -> str:
+    low = (api_name or "").strip().lower()
+    if not low:
+        return ""
+    if "workspace" in low or low in {"aclmdlricapturebegin", "aclmdlricaptureend", "aclmdlricapturegetinfo"}:
+        return ""
+    if not (low.startswith("aclnn") or "tiling" in low):
+        return ""
+    if low in {"aclnnmm", "aclnnaddmm"} or "matmul" in low or "gemm" in low:
+        return "matmul|MatMul"
+    if "addrmsnormbias" in low or "rmsnorm" in low or "layernorm" in low:
+        return "norm|RmsNorm"
+    if "swiglu" in low:
+        return "swiglu|SwiGlu"
+    if "rotary" in low or "rope" in low:
+        return "rope|Rope"
+    if "embedding" in low:
+        return "index|Embedding"
+    if "gather" in low or "scatter" in low or "index" in low:
+        return "index|Index"
+    if "cast" in low:
+        return "cast|Cast"
+    if any(keyword in low for keyword in ("slice", "reshape", "transpose", "tile", "broadcast", "expand")):
+        return "shape|Shape"
+    if "attention" in low:
+        return "attention|Attention"
+    if "fill" in low or "inplacecopy" in low or "copy" in low:
+        return ""
+    label = canonical_device_label(api_name, "", category="exec")
+    family = _graph_body_family(label)
+    if family in {"matmul", "norm", "swiglu", "rope", "index", "attention", "cast", "shape"}:
+        return f"{family}|{label}"
+    return ""
+
+
+def _infer_capture_slot_kind(*, slot_idx: int, group_size: int, counter: Counter[str]) -> str:
+    if group_size > 2:
+        if slot_idx == 1:
+            return "head"
+        if slot_idx == group_size:
+            return "tail"
+        return "layer"
+    families = {token.split("|", 1)[0] for token in counter}
+    matmul_count = sum(count for token, count in counter.items() if token.startswith("matmul|"))
+    if "index" in families:
+        return "head"
+    if "rope" not in families and matmul_count >= 2:
+        return "tail"
+    return "layer"
+
+
+def _capture_kind_symbol(kind: str) -> str:
+    return {"head": "H", "layer": "L", "tail": "T"}.get(kind, "?")
+
+
+def _build_capture_dictionary_rows(
+    capture_slot_rows: Sequence[dict[str, object]],
+    *,
+    db_idx: int,
+    device_id: int,
+) -> list[dict[str, object]]:
+    by_kind: dict[str, list[dict[str, object]]] = {}
+    for row in capture_slot_rows:
+        kind = str(row.get("capture_dictionary_kind", ""))
+        if kind:
+            by_kind.setdefault(kind, []).append(row)
+    rows: list[dict[str, object]] = []
+    for dictionary_idx, kind in enumerate(["head", "layer", "tail"], start=1):
+        slots = by_kind.get(kind, [])
+        if not slots:
+            continue
+        signature_counts = Counter(str(row.get("body_match_signature", "")) for row in slots)
+        representative_signature, representative_count = signature_counts.most_common(1)[0]
+        token_counter = _parse_signature(representative_signature)
+        full_signature_counts = Counter(str(row.get("body_signature", "")) for row in slots)
+        representative_full_signature, _full_count = full_signature_counts.most_common(1)[0]
+        slot_indices = [int(row.get("capture_slot_in_group", 0) or 0) for row in slots]
+        rows.append(
+            {
+                "db_idx": db_idx,
+                "device_id": device_id,
+                "capture_dictionary_idx": dictionary_idx,
+                "capture_dictionary_kind": kind,
+                "capture_dictionary_symbol": _capture_kind_symbol(kind),
+                "capture_slot_count": len(slots),
+                "capture_slot_indices": _compact_ints(slot_indices),
+                "capture_group_count": _common_int(slots, "capture_group_count"),
+                "body_token_count_min": min(int(row.get("body_token_count", 0) or 0) for row in slots),
+                "body_token_count_max": max(int(row.get("body_token_count", 0) or 0) for row in slots),
+                "unique_match_signature_count": len(signature_counts),
+                "representative_match_count": representative_count,
+                "capture_match_signature": representative_signature,
+                "capture_signature": representative_full_signature,
+                "capture_template_hash": _stable_hash(representative_signature),
+                "capture_match_tokens": _format_signature(token_counter),
+            }
+        )
+    return rows
+
+
+def _match_replay_segment_to_capture_dictionary(
+    segment: Sequence[dict[str, Any]],
+    *,
+    compute: dict[int, dict[str, str]],
+    capture_dictionary_rows: Sequence[dict[str, object]],
+) -> dict[str, object]:
+    dictionary = [
+        (
+            str(row.get("capture_dictionary_kind", "")),
+            str(row.get("capture_dictionary_symbol", "")),
+            _parse_signature(str(row.get("capture_match_signature", ""))),
+        )
+        for row in capture_dictionary_rows
+        if str(row.get("capture_dictionary_kind", "")) and str(row.get("capture_match_signature", ""))
+    ]
+    if not dictionary:
+        return {
+            "policy": "",
+            "subslot_count": 0,
+            "sequence": "",
+            "coverage": "",
+            "matched_count": 0,
+            "unmatched_count": 0,
+            "score": 0.0,
+            "top_mismatches": "",
+            "subslots_json": "",
+        }
+
+    subslots = _replay_stream_subslots(segment, compute=compute)
+    symbols: list[str] = []
+    matched_count = 0
+    score_total = 0.0
+    mismatches: Counter[str] = Counter()
+    subslot_details: list[dict[str, object]] = []
+    for subslot_idx, subslot in enumerate(subslots, start=1):
+        counter = subslot["counter"]
+        match_counter = _match_feature_counter(counter)
+        best_kind = ""
+        best_symbol = "?"
+        best_score = float("inf")
+        best_norm = 0
+        for kind, symbol, template_counter in dictionary:
+            score = _counter_distance(match_counter, template_counter)
+            norm = sum(max(int(match_counter.get(token, 0)), int(template_counter.get(token, 0))) for token in set(match_counter) | set(template_counter))
+            if score < best_score:
+                best_kind = kind
+                best_symbol = symbol
+                best_score = score
+                best_norm = norm
+        threshold = max(4.0, best_norm * 0.6)
+        score_total += best_score if math.isfinite(best_score) else 0.0
+        if best_score <= threshold:
+            matched_count += 1
+            symbols.append(best_symbol)
+            matched = True
+        else:
+            symbols.append(best_symbol)
+            mismatches[best_kind or "unknown"] += 1
+            matched = False
+        subslot_details.append(
+            {
+                "subslot_idx": subslot_idx,
+                "stream_id": subslot["stream_id"],
+                "start_ns": subslot["start_ns"],
+                "end_ns": subslot["end_ns"],
+                "duration_us": round((int(subslot["end_ns"]) - int(subslot["start_ns"])) / 1000.0, 3),
+                "symbol": best_symbol,
+                "kind": best_kind,
+                "matched": int(matched),
+                "score": round(best_score, 3) if math.isfinite(best_score) else "",
+                "threshold": round(threshold, 3),
+                "raw_child_task_count": subslot["raw_child_task_count"],
+                "raw_top_ops": subslot["raw_top_ops"],
+                "body_match_signature": _format_signature(match_counter),
+            }
+        )
+    subslot_count = len(subslots)
+    unmatched_count = subslot_count - matched_count
+    sequence = ",".join(_run_length_encode(symbols))
+    return {
+        "policy": "capture_dictionary_stream_subslot_nearest_v2",
+        "subslot_count": subslot_count,
+        "sequence": sequence,
+        "coverage": f"{matched_count}/{subslot_count}" if subslot_count else "",
+        "matched_count": matched_count,
+        "unmatched_count": unmatched_count,
+        "score": round(score_total, 3),
+        "top_mismatches": _format_counter(mismatches, limit=5),
+        "subslots_json": json.dumps(subslot_details, separators=(",", ":")),
+    }
+
+
+def _replay_stream_subslots(
+    segment: Sequence[dict[str, Any]],
+    *,
+    compute: dict[int, dict[str, str]],
+) -> list[dict[str, object]]:
+    by_stream: dict[int, list[dict[str, Any]]] = {}
+    for row in segment:
+        token = _canonical_graph_body_token(row, compute.get(int(row["global_task_id"]), {}))
+        if not token:
+            continue
+        by_stream.setdefault(int(row["stream_id"]), []).append(row)
+    subslots: list[dict[str, object]] = []
+    for stream_id, rows in by_stream.items():
+        counter = _graph_body_counter(rows, compute)
+        if not counter:
+            continue
+        first_start = min(int(row["start_ns"]) for row in rows)
+        last_end = max(int(row["end_ns"]) for row in rows)
+        first_task = min(int(row["task_id"]) for row in rows)
+        op_counter = Counter(
+            (
+                compute.get(int(row["global_task_id"]), {}).get("op_type")
+                or compute.get(int(row["global_task_id"]), {}).get("op_name")
+                or str(row["task_label"])
+            )
+            for row in rows
+        )
+        subslots.append(
+            {
+                "stream_id": stream_id,
+                "counter": counter,
+                "start_ns": first_start,
+                "end_ns": last_end,
+                "first_task_id": first_task,
+                "raw_child_task_count": len(rows),
+                "raw_top_ops": _format_counter(op_counter, limit=10),
+            }
+        )
+    subslots.sort(key=lambda item: (int(item["start_ns"]), int(item["first_task_id"]), int(item["stream_id"])))
+    return subslots
+
+
+def _match_feature_counter(counter: Counter[str]) -> Counter[str]:
+    out: Counter[str] = Counter()
+    for token, count in counter.items():
+        family = token.split("|", 1)[0]
+        if family not in {"matmul", "norm", "swiglu", "rope", "index", "attention", "cast", "shape"}:
+            continue
+        out[token] += int(count)
+    return out
+
+
+def _parse_signature(signature: str) -> Counter[str]:
+    counter: Counter[str] = Counter()
+    for line in str(signature or "").splitlines():
+        text = line.strip()
+        if not text or ":" not in text:
+            continue
+        key, value = text.rsplit(":", 1)
+        try:
+            count = int(value.strip())
+        except ValueError:
+            continue
+        if count:
+            counter[key.strip()] += count
+    return counter
+
+
+def _counter_distance(left: Counter[str], right: Counter[str]) -> float:
+    score = 0.0
+    for token in set(left) | set(right):
+        score += abs(int(left.get(token, 0)) - int(right.get(token, 0)))
+    return score
+
+
+def _common_int(rows: Sequence[dict[str, object]], key: str) -> int:
+    values = {int(row.get(key, 0) or 0) for row in rows if int(row.get(key, 0) or 0) > 0}
+    return values.pop() if len(values) == 1 else 0
 
 
 def _load_string_ids(conn: sqlite3.Connection) -> dict[int, str]:
@@ -1458,22 +2002,28 @@ def _merge_summaries(summaries: Sequence[dict[str, object]]) -> dict[str, object
     semantic_counts: Counter[str] = Counter()
     timed_counts: Counter[str] = Counter()
     ascend_task_summary: list[dict[str, Any]] = []
+    capture_dictionary: list[dict[str, object]] = []
     for summary in summaries:
         semantic_counts.update(dict(summary.get("semantic_task_count_by_label", {})))
         timed_counts.update(dict(summary.get("semantic_timed_task_count_by_label", {})))
         ascend_task_summary.extend(list(summary.get("ascend_task_summary", [])))
+        capture_dictionary.extend(list(summary.get("capture_dictionary", [])))
     replay_segment_count = sum(int(summary.get("replay_segment_count", 0) or 0) for summary in summaries)
     replay_activity_count = sum(int(summary.get("replay_activity_count", summary.get("activity_segment_count", 0)) or 0) for summary in summaries)
     replay_unit_count = sum(int(summary.get("replay_unit_count", summary.get("replay_segment_count", 0)) or 0) for summary in summaries)
     replay_child_task_count = sum(int(summary.get("replay_child_task_count", 0) or 0) for summary in summaries)
     active_model_stream_count = sum(int(summary.get("active_model_stream_count", 0) or 0) for summary in summaries)
     capture_stream_count = sum(int(summary.get("capture_stream_count", 0) or 0) for summary in summaries)
+    capture_slot_count = sum(int(summary.get("capture_slot_count", 0) or 0) for summary in summaries)
     semantic_task_count = sum(int(summary.get("semantic_task_count", 0) or 0) for summary in summaries)
     return {
         "schema": "aclgraph.msprof.device_timeline.v1",
         "db_count": len(summaries),
         "msprof_dbs": [summary.get("msprof_db", "") for summary in summaries],
         "capture_stream_count": capture_stream_count,
+        "capture_slot_count": capture_slot_count,
+        "capture_dictionary_kind_count": len(capture_dictionary),
+        "capture_dictionary": capture_dictionary,
         "active_model_stream_count": active_model_stream_count,
         "replay_segment_count": replay_segment_count,
         "replay_activity_count": replay_activity_count,
@@ -1505,6 +2055,8 @@ def _summary_markdown(summary: dict[str, object], replay_rows: Sequence[dict[str
         f"- quality: `{summary.get('quality', '')}`",
         f"- db_count: `{summary.get('db_count', 0)}`",
         f"- capture_stream_count: `{summary.get('capture_stream_count', 0)}`",
+        f"- capture_slot_count: `{summary.get('capture_slot_count', 0)}`",
+        f"- capture_dictionary_kind_count: `{summary.get('capture_dictionary_kind_count', 0)}`",
         f"- active_model_stream_count: `{summary.get('active_model_stream_count', 0)}`",
         f"- replay_segment_count: `{summary.get('replay_segment_count', 0)}`",
         f"- replay_activity_count: `{summary.get('replay_activity_count', 0)}`",
@@ -1523,16 +2075,32 @@ def _summary_markdown(summary: dict[str, object], replay_rows: Sequence[dict[str
             lines.append(f"- `{label}`: {count} rows, {timed.get(label, 0)} timed rows")
     else:
         lines.append("No ACLGraph semantic task rows were found.")
+    lines.extend(["", "## Capture Dictionary", ""])
+    capture_dictionary = list(summary.get("capture_dictionary", []))
+    if capture_dictionary:
+        lines.append("| kind | symbol | slots | slot_indices | signature_variants | match_signature |")
+        lines.append("| --- | --- | ---: | --- | ---: | --- |")
+        for row in capture_dictionary:
+            match_signature = str(row.get("capture_match_signature", "")).replace("\n", "; ")
+            lines.append(
+                "| "
+                f"{row.get('capture_dictionary_kind', '')} | `{row.get('capture_dictionary_symbol', '')}` | "
+                f"{row.get('capture_slot_count', '')} | `{row.get('capture_slot_indices', '')}` | "
+                f"{row.get('unique_match_signature_count', '')} | `{match_signature}` |"
+            )
+    else:
+        lines.append("No ACLGraph capture dictionary entries were found.")
     lines.extend(["", "## Replay Segments", ""])
     if replay_rows:
-        lines.append("| replay | db | device | duration_us | raw_child_tasks | visible_events | streams | controls | top_ops |")
-        lines.append("| ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |")
+        lines.append("| replay | db | device | duration_us | raw_child_tasks | tiling | coverage | streams | controls | top_ops |")
+        lines.append("| ---: | ---: | ---: | ---: | ---: | --- | ---: | --- | --- | --- |")
         for row in replay_rows:
             lines.append(
                 "| "
                 f"{row.get('graph_event_idx', '')} | {row.get('db_idx', '')} | {row.get('device_id', '')} | "
                 f"{row.get('dur_us', '')} | {row.get('raw_child_task_count', '')} | "
-                f"{row.get('visible_envelope_event_count', 0)} | `{row.get('raw_child_streams', '')}` | "
+                f"`{row.get('replay_tiling_sequence', '')}` | `{row.get('replay_tiling_coverage', '')}` | "
+                f"`{row.get('raw_child_streams', '')}` | "
                 f"`{row.get('raw_control_tasks', '')}` | `{row.get('raw_top_ops', '')}` |"
             )
     else:

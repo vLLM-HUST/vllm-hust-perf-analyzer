@@ -151,10 +151,15 @@ class TreeNodeIdTests(unittest.TestCase):
 
         summary = "\n".join(_render_graph_replay_type_summary(graph_rows))
 
-        self.assertIn("| T001 | 2 | `T001x4:2` | `4:2` | 8 | 25.0 | 12.5 | 25 |", summary)
+        self.assertIn(
+            "| hlt_symbol | anchor_symbol | anchors | diagnostic_templates | replay_unit_counts | total_units |",
+            summary,
+        )
+        self.assertIn("| `` | T001 | 2 | `T001:2` | `4:2` | 8 | 25.0 | 12.5 | 25 |", summary)
         self.assertIn("`G010:2`", summary)
+        self.assertIn("`hash-a:2`", summary)
         self.assertIn("`MatMul:17`", summary)
-        self.assertIn("| T002 | 1 | `T002x1:1` | `1:1` | 1 | 5.0 | 5.0 | 3 |", summary)
+        self.assertIn("| `` | T002 | 1 | `T002:1` | `1:1` | 1 | 5.0 | 5.0 | 3 |", summary)
 
 
 if __name__ == "__main__":

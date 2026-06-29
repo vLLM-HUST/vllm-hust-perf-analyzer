@@ -9,22 +9,26 @@ from traceloom.compute_prelude_timeline import (
     _merge_aclgraph_atoms_with_main_events,
 )
 from traceloom.ascend_aclgraph import (
+    _build_capture_dictionary_rows,
     _canonical_graph_body_token,
     _canonical_graph_noise_token,
+    _canonical_capture_api_token,
+    _format_template_sequence_signature,
     _format_template_signature,
     _infer_graph_replay_unit_count,
+    _match_replay_segment_to_capture_dictionary,
     _overlap_rows_by_interval,
     _split_segments_into_replay_units,
 )
 from traceloom.msprof_reader import StreamEvent, canonical_device_label
 
 
-def _event(start: int, end: int, label: str) -> MainEvent:
+def _event(start: int, end: int, label: str, *, stream_id: int = 1) -> MainEvent:
     ev = StreamEvent(
         start_ns=start,
         end_ns=end,
         device_id=0,
-        stream_id=1,
+        stream_id=stream_id,
         task_id=start,
         global_task_id=start,
         connection_id=-1,
@@ -77,7 +81,7 @@ class AclGraphAtomProjectionTests(unittest.TestCase):
             "control_or_transfer:notify_record",
         )
 
-    def test_aclgraph_template_signature_ignores_repetition_counts(self) -> None:
+    def test_aclgraph_template_signature_keeps_discrete_repetition_counts(self) -> None:
         short_segment = [_task(0, 5, 1), _task(10, 15, 2), _task(20, 25, 3)]
         long_segment = [
             _task(0, 5, 1),
@@ -101,11 +105,12 @@ class AclGraphAtomProjectionTests(unittest.TestCase):
             6: {"op_type": "MatMulV2"},
         }
 
-        self.assertEqual(
+        self.assertNotEqual(
             _format_template_signature(short_segment, short_compute),
             _format_template_signature(long_segment, long_compute),
         )
-        self.assertNotIn(":2", _format_template_signature(long_segment, long_compute))
+        self.assertIn("body_multiset_v1", _format_template_signature(long_segment, long_compute))
+        self.assertNotIn("us", _format_template_signature(long_segment, long_compute))
 
     def test_aclgraph_template_signature_ignores_execution_order(self) -> None:
         first = [_task(0, 5, 1), _task(10, 15, 2), _task(20, 25, 3)]
@@ -128,6 +133,51 @@ class AclGraphAtomProjectionTests(unittest.TestCase):
                     3: {"op_type": "RmsNorm"},
                 },
             ),
+        )
+
+    def test_aclgraph_template_sequence_signature_keeps_execution_order_for_diagnostics(self) -> None:
+        first = [_task(0, 5, 1), _task(10, 15, 2), _task(20, 25, 3)]
+        second = [_task(0, 5, 1), _task(10, 15, 2), _task(20, 25, 3)]
+
+        self.assertNotEqual(
+            _format_template_sequence_signature(
+                first,
+                {
+                    1: {"op_type": "MatMulV2"},
+                    2: {"op_type": "Cast"},
+                    3: {"op_type": "RmsNorm"},
+                },
+            ),
+            _format_template_sequence_signature(
+                second,
+                {
+                    1: {"op_type": "Cast"},
+                    2: {"op_type": "MatMulV2"},
+                    3: {"op_type": "RmsNorm"},
+                },
+            ),
+        )
+
+    def test_aclgraph_template_signature_normalizes_absolute_stream_ids(self) -> None:
+        first = [
+            {**_task(0, 5, 1), "stream_id": 36},
+            {**_task(10, 15, 2), "stream_id": 54},
+            {**_task(20, 25, 3), "stream_id": 36},
+        ]
+        second = [
+            {**_task(100, 105, 1), "stream_id": 53},
+            {**_task(110, 115, 2), "stream_id": 94},
+            {**_task(120, 125, 3), "stream_id": 53},
+        ]
+        compute = {
+            1: {"op_type": "MatMulV2"},
+            2: {"op_type": "Cast"},
+            3: {"op_type": "RmsNorm"},
+        }
+
+        self.assertEqual(
+            _format_template_signature(first, compute),
+            _format_template_signature(second, compute),
         )
 
     def test_aclgraph_template_signature_keeps_token_vocabulary(self) -> None:
@@ -153,10 +203,154 @@ class AclGraphAtomProjectionTests(unittest.TestCase):
             ),
         )
 
+    def test_capture_api_tokens_share_replay_vocabulary(self) -> None:
+        self.assertEqual(_canonical_capture_api_token("aclnnMm"), "matmul|MatMul")
+        self.assertEqual(_canonical_capture_api_token("aclnnAddmm"), "matmul|MatMul")
+        self.assertEqual(_canonical_capture_api_token("aclnnAddRmsNormBias"), "norm|RmsNorm")
+        self.assertEqual(_canonical_capture_api_token("aclnnSwiGlu"), "swiglu|SwiGlu")
+        self.assertEqual(_canonical_capture_api_token("aclnnInnerApplyRotaryPosEmb"), "rope|Rope")
+        self.assertEqual(_canonical_capture_api_token("aclnnEmbedding"), "index|Embedding")
+        self.assertEqual(_canonical_capture_api_token("Slice_Tiling"), "shape|Shape")
+
+    def test_capture_dictionary_clusters_head_layer_tail_slots(self) -> None:
+        slots = [
+            {
+                "capture_dictionary_kind": "head",
+                "capture_slot_in_group": 1,
+                "capture_group_count": 3,
+                "body_token_count": 4,
+                "body_match_signature": "index|Embedding:1\nmatmul|MatMul:1\nnorm|RmsNorm:1\nrope|Rope:1",
+                "body_signature": "index|Embedding:1\nmatmul|MatMul:1\nnorm|RmsNorm:1\nrope|Rope:1",
+            },
+            {
+                "capture_dictionary_kind": "layer",
+                "capture_slot_in_group": 2,
+                "capture_group_count": 3,
+                "body_token_count": 8,
+                "body_match_signature": "matmul|MatMul:4\nnorm|RmsNorm:2\nrope|Rope:1\nswiglu|SwiGlu:1",
+                "body_signature": "matmul|MatMul:4\nnorm|RmsNorm:2\nrope|Rope:1\nswiglu|SwiGlu:1",
+            },
+            {
+                "capture_dictionary_kind": "tail",
+                "capture_slot_in_group": 29,
+                "capture_group_count": 3,
+                "body_token_count": 6,
+                "body_match_signature": "matmul|MatMul:3\nnorm|RmsNorm:2\nswiglu|SwiGlu:1",
+                "body_signature": "matmul|MatMul:3\nnorm|RmsNorm:2\nswiglu|SwiGlu:1",
+            },
+        ]
+
+        dictionary = _build_capture_dictionary_rows(slots, db_idx=1, device_id=0)
+
+        self.assertEqual([row["capture_dictionary_symbol"] for row in dictionary], ["H", "L", "T"])
+        self.assertEqual([row["capture_slot_indices"] for row in dictionary], ["1", "2", "29"])
+
+    def test_replay_tiling_matches_stream_subslots_to_capture_dictionary(self) -> None:
+        dictionary = _build_capture_dictionary_rows(
+            [
+                {
+                    "capture_dictionary_kind": "head",
+                    "capture_slot_in_group": 1,
+                    "capture_group_count": 1,
+                    "body_token_count": 4,
+                    "body_match_signature": "index|Embedding:1\nmatmul|MatMul:1\nnorm|RmsNorm:1\nrope|Rope:1",
+                    "body_signature": "index|Embedding:1\nmatmul|MatMul:1\nnorm|RmsNorm:1\nrope|Rope:1",
+                },
+                {
+                    "capture_dictionary_kind": "layer",
+                    "capture_slot_in_group": 2,
+                    "capture_group_count": 1,
+                    "body_token_count": 8,
+                    "body_match_signature": "matmul|MatMul:4\nnorm|RmsNorm:2\nrope|Rope:1\nswiglu|SwiGlu:1",
+                    "body_signature": "matmul|MatMul:4\nnorm|RmsNorm:2\nrope|Rope:1\nswiglu|SwiGlu:1",
+                },
+                {
+                    "capture_dictionary_kind": "tail",
+                    "capture_slot_in_group": 3,
+                    "capture_group_count": 1,
+                    "body_token_count": 6,
+                    "body_match_signature": "matmul|MatMul:3\nnorm|RmsNorm:2\nswiglu|SwiGlu:1",
+                    "body_signature": "matmul|MatMul:3\nnorm|RmsNorm:2\nswiglu|SwiGlu:1",
+                },
+            ],
+            db_idx=1,
+            device_id=0,
+        )
+        segment = [
+            {**_task(0, 1, 1), "stream_id": 10},
+            {**_task(2, 3, 2), "stream_id": 10},
+            {**_task(4, 5, 3), "stream_id": 10},
+            {**_task(6, 7, 4), "stream_id": 10},
+            {**_task(10, 11, 5), "stream_id": 11},
+            {**_task(12, 13, 6), "stream_id": 11},
+            {**_task(14, 15, 7), "stream_id": 11},
+            {**_task(16, 17, 8), "stream_id": 11},
+            {**_task(18, 19, 9), "stream_id": 11},
+            {**_task(20, 21, 10), "stream_id": 11},
+            {**_task(22, 23, 11), "stream_id": 11},
+            {**_task(24, 25, 12), "stream_id": 11},
+            {**_task(30, 31, 13), "stream_id": 12},
+            {**_task(32, 33, 14), "stream_id": 12},
+            {**_task(34, 35, 15), "stream_id": 12},
+            {**_task(36, 37, 16), "stream_id": 12},
+            {**_task(38, 39, 17), "stream_id": 12},
+            {**_task(40, 41, 18), "stream_id": 12},
+        ]
+        compute = {
+            1: {"op_type": "GatherV2"},
+            2: {"op_type": "MatMulV2"},
+            3: {"op_type": "RmsNorm"},
+            4: {"op_type": "ApplyRotaryPosEmb"},
+            5: {"op_type": "MatMulV2"},
+            6: {"op_type": "MatMulV2"},
+            7: {"op_type": "MatMulV2"},
+            8: {"op_type": "MatMulV2"},
+            9: {"op_type": "AddRmsNormBias"},
+            10: {"op_type": "AddRmsNormBias"},
+            11: {"op_type": "SwiGlu"},
+            12: {"op_type": "ApplyRotaryPosEmb"},
+            13: {"op_type": "MatMulV2"},
+            14: {"op_type": "MatMulV2"},
+            15: {"op_type": "MatMulV2"},
+            16: {"op_type": "AddRmsNormBias"},
+            17: {"op_type": "AddRmsNormBias"},
+            18: {"op_type": "SwiGlu"},
+        }
+
+        tiling = _match_replay_segment_to_capture_dictionary(segment, compute=compute, capture_dictionary_rows=dictionary)
+
+        self.assertEqual(tiling["coverage"], "3/3")
+        self.assertEqual(tiling["sequence"], "H,L,T")
+
+    def test_replay_tiling_attributes_low_confidence_subslots_to_nearest_symbol(self) -> None:
+        dictionary = _build_capture_dictionary_rows(
+            [
+                {
+                    "capture_dictionary_kind": "layer",
+                    "capture_slot_in_group": 2,
+                    "capture_group_count": 1,
+                    "body_token_count": 8,
+                    "body_match_signature": "matmul|MatMul:4\nnorm|RmsNorm:2\nrope|Rope:1\nswiglu|SwiGlu:1",
+                    "body_signature": "matmul|MatMul:4\nnorm|RmsNorm:2\nrope|Rope:1\nswiglu|SwiGlu:1",
+                },
+            ],
+            db_idx=1,
+            device_id=0,
+        )
+        segment = [{**_task(idx * 2, idx * 2 + 1, idx + 1), "stream_id": 10} for idx in range(20)]
+        compute = {idx + 1: {"op_type": "MatMulV2"} for idx in range(20)}
+
+        tiling = _match_replay_segment_to_capture_dictionary(segment, compute=compute, capture_dictionary_rows=dictionary)
+
+        self.assertEqual(tiling["coverage"], "0/1")
+        self.assertEqual(tiling["sequence"], "L")
+        self.assertEqual(tiling["top_mismatches"], "layer:1")
+
     def test_graph_atom_replaces_fully_covered_outer_events(self) -> None:
-        partial = _event(0, 12, "A")
-        covered = _event(14, 18, "B")
-        outside = _event(30, 40, "C")
+        partial = _event(0, 12, "A", stream_id=7)
+        covered = _event(14, 18, "B", stream_id=7)
+        outside = _event(30, 40, "C", stream_id=7)
+        other_stream = _event(14, 18, "D", stream_id=1)
         graph_rows = [
             {
                 "graph_provider": "aclgraph",
@@ -187,6 +381,13 @@ class AclGraphAtomProjectionTests(unittest.TestCase):
         self.assertEqual(graph_events[0].event.category, "graph")
         self.assertEqual(graph_events[0].source_stream_ids, (7, 8))
 
+        merged, covered_keys, _diagnostics = _merge_aclgraph_atoms_with_main_events(
+            [other_stream],
+            graph_events,
+        )
+        self.assertEqual([item.symbol for item in merged], ["G001", "D"])
+        self.assertNotIn(_main_event_source_key(other_stream), covered_keys)
+
     def test_aclgraph_atom_prefers_template_symbol_when_present(self) -> None:
         graph_events = _aclgraph_atom_main_events(
             [
@@ -211,6 +412,31 @@ class AclGraphAtomProjectionTests(unittest.TestCase):
 
         self.assertEqual(graph_events[0].symbol, "T001")
         self.assertEqual(graph_events[0].event.label, "ACLGraphTemplate T001")
+
+    def test_aclgraph_atom_prefers_tiling_symbol_when_present(self) -> None:
+        graph_events = _aclgraph_atom_main_events(
+            [
+                {
+                    "graph_provider": "aclgraph",
+                    "graph_event_idx": 1,
+                    "graph_type_symbol": "G005",
+                    "graph_type_label": "ACLGraphType G005",
+                    "graph_template_symbol": "T001",
+                    "graph_template_label": "ACLGraphTemplate T001",
+                    "graph_tiling_symbol": "D001",
+                    "graph_tiling_label": "ACLGraph H/L/T H,L,T",
+                    "source_key": "provider=aclgraph;replay_idx=1",
+                    "source_table": "ACLGRAPH_REPLAY",
+                    "device_id": 0,
+                    "stream_id": 7,
+                    "start_ns": 10,
+                    "end_ns": 20,
+                }
+            ]
+        )
+
+        self.assertEqual(graph_events[0].symbol, "D001")
+        self.assertEqual(graph_events[0].event.label, "ACLGraph H/L/T H,L,T")
 
     def test_aclgraph_replay_unit_classifies_as_anchor(self) -> None:
         graph_events = _aclgraph_atom_main_events(

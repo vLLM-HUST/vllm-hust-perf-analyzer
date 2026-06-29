@@ -61,6 +61,23 @@ LOOP_PROMOTION_METHODS = [
 # Nsight can report graph replay as a launch interval and emit the replayed GPU
 # work immediately after it. The tail only applies to the last graph on a stream.
 CUDA_GRAPH_POST_REPLAY_TAIL_NS = 5_000_000
+GRAPH_COMPOSITION_SUMMARY_LIMIT = 40
+GRAPH_REPLAY_NODE_SUMMARY_LIMIT = 80
+PAIR_GRAMMAR_FULL_DISCOVERY_MAX_TOKENS = 50_000
+ZERO_PRELUDE = {
+    "prelude_gap_us": 0.0,
+    "prelude_active_union_us": 0.0,
+    "prelude_idle_us": 0.0,
+    "prelude_wait_us": 0.0,
+    "prelude_comm_us": 0.0,
+    "prelude_exec_aux_us": 0.0,
+    "prelude_memcpy_us": 0.0,
+    "prelude_event_count": 0,
+    "prelude_stream_count": 0,
+    "prelude_top_streams": "",
+    "prelude_top_labels": "",
+    "prelude_collective_hint": "",
+}
 
 
 @dataclass(frozen=True)
@@ -657,7 +674,7 @@ def _classify_kernel_role(
         return "aux", "aux_hygon_lifted"
     if item.role == "collective":
         return "anchor", "anchor_collective"
-    if task_key == "ACL_GRAPH_REPLAY_UNIT":
+    if task_key in {"ACL_GRAPH_REPLAY_UNIT", "ACL_GRAPH_HLT_ANCHOR"}:
         return "anchor", "anchor_aclgraph_replay_unit"
     if item.event.category == "graph" or task_key.startswith("ACL_GRAPH"):
         return "graph", "graph_launch_or_envelope"
@@ -688,11 +705,14 @@ def _apply_kernel_roles(
     reason_by_symbol: Dict[str, Counter[str]] = {}
     forced_roles_by_source_key = forced_roles_by_source_key or {}
     for idx, item in enumerate(main_events):
-        forced = forced_roles_by_source_key.get(_main_event_source_key(item))
-        if forced is not None:
-            role, reason = forced
+        if _normalize_task_key(item.event.task_type) == "ACL_GRAPH_HLT_ANCHOR":
+            role, reason = "anchor", "anchor_aclgraph_hlt_anchor"
         else:
-            role, reason = _classify_kernel_role(item, overrides)
+            forced = forced_roles_by_source_key.get(_main_event_source_key(item))
+            if forced is not None:
+                role, reason = forced
+            else:
+                role, reason = _classify_kernel_role(item, overrides)
         semantic_roles.append(role)
         semantic_reasons.append(reason)
 
@@ -879,13 +899,15 @@ def _aclgraph_atom_main_events(replay_rows: Sequence[Dict[str, object]]) -> List
             continue
         replay_idx = _safe_int(row.get("graph_event_idx"))
         graph_symbol = str(
-            row.get("graph_template_symbol", "")
+            row.get("graph_tiling_symbol", "")
+            or row.get("graph_template_symbol", "")
             or row.get("graph_replay_symbol", "")
             or row.get("graph_type_symbol", "")
             or f"G{replay_idx:03d}"
         )
         label = str(
-            row.get("graph_template_label", "")
+            row.get("graph_tiling_label", "")
+            or row.get("graph_template_label", "")
             or row.get("graph_replay_label", "")
             or row.get("graph_type_label", "")
             or f"ACLGraph {graph_symbol}"
@@ -916,6 +938,98 @@ def _aclgraph_atom_main_events(replay_rows: Sequence[Dict[str, object]]) -> List
             )
         )
     out.sort(key=lambda item: (item.event.start_ns, item.event.end_ns, item.event.stream_id, item.symbol))
+    return out
+
+
+def _aclgraph_hlt_anchor_rows(replay_rows: Sequence[Dict[str, object]]) -> List[Dict[str, object]]:
+    symbol_by_slot = {"H": "ACLH", "L": "ACLL", "T": "ACLT"}
+    out: List[Dict[str, object]] = []
+    for replay in replay_rows:
+        raw = str(replay.get("replay_tiling_subslots_json", "") or "")
+        if not raw:
+            continue
+        try:
+            subslots = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(subslots, list):
+            continue
+        parent_idx = _safe_int(replay.get("graph_event_idx"))
+        parent_source_key = str(replay.get("source_key", "") or f"provider=aclgraph;replay_idx={parent_idx}")
+        for item in subslots:
+            if not isinstance(item, dict):
+                continue
+            slot_symbol = str(item.get("symbol", "") or "")
+            graph_symbol = symbol_by_slot.get(slot_symbol)
+            if not graph_symbol:
+                continue
+            start_ns = _safe_int(item.get("start_ns"))
+            end_ns = _safe_int(item.get("end_ns"))
+            if start_ns <= 0 or end_ns <= start_ns:
+                continue
+            subslot_idx = _safe_int(item.get("subslot_idx"))
+            matched = _safe_int(item.get("matched")) > 0
+            mismatch = "" if matched else f"{item.get('kind', 'unknown')}:1"
+            graph_event_idx = parent_idx * 1000 + subslot_idx if parent_idx else subslot_idx
+            row = dict(replay)
+            row.update(
+                {
+                    "graph_kind": "aclgraph_hlt_anchor",
+                    "graph_event_idx": graph_event_idx,
+                    "graph_replay_window_idx": parent_idx,
+                    "graph_replay_subslot_idx": subslot_idx,
+                    "graph_replay_subslot_symbol": slot_symbol,
+                    "graph_replay_subslot_kind": item.get("kind", ""),
+                    "graph_replay_subslot_matched": int(matched),
+                    "graph_replay_subslot_score": item.get("score", ""),
+                    "graph_replay_subslot_threshold": item.get("threshold", ""),
+                    "graph_template_signature": "",
+                    "graph_template_vocabulary_signature": "",
+                    "graph_template_sequence_signature": "",
+                    "graph_body_signature": "",
+                    "graph_body_noise_signature": "",
+                    "graph_control_signature": "",
+                    "graph_tiling_symbol": graph_symbol,
+                    "graph_tiling_label": f"ACLGraph H/L/T {slot_symbol}",
+                    "replay_window_tiling_symbol": replay.get("graph_tiling_symbol", ""),
+                    "replay_window_tiling_label": replay.get("graph_tiling_label", ""),
+                    "replay_window_tiling_sequence": replay.get("replay_tiling_sequence", ""),
+                    "replay_tiling_subslots_json": "",
+                    "replay_tiling_sequence": slot_symbol,
+                    "replay_tiling_coverage": "1/1" if matched else "0/1",
+                    "replay_tiling_subslot_count": 1,
+                    "replay_tiling_matched_count": 1 if matched else 0,
+                    "replay_tiling_unmatched_count": 0 if matched else 1,
+                    "replay_tiling_score": item.get("score", ""),
+                    "replay_tiling_top_mismatches": mismatch,
+                    "symbol": graph_symbol,
+                    "semantic_role": "anchor",
+                    "semantic_role_reason": "aclgraph_hlt_anchor",
+                    "label": f"ACLGraph H/L/T {slot_symbol}",
+                    "task_type": "ACL_GRAPH_HLT_ANCHOR",
+                    "source_key": f"{parent_source_key};hlt_anchor={subslot_idx:03d}",
+                    "stream_id": _safe_int(item.get("stream_id")),
+                    "start_ns": start_ns,
+                    "end_ns": end_ns,
+                    "dur_us": round((end_ns - start_ns) / 1000.0, 3),
+                    "raw_child_task_count": item.get("raw_child_task_count", 0),
+                    "raw_child_stream_count": 1,
+                    "raw_child_streams": str(item.get("stream_id", "")),
+                    "raw_control_task_count": 0,
+                    "raw_control_tasks": "",
+                    "raw_top_ops": item.get("raw_top_ops", ""),
+                    "enclosed_event_count": item.get("raw_child_task_count", 0),
+                    "enclosed_event_us": round((end_ns - start_ns) / 1000.0, 3),
+                    "enclosed_kernel_count": item.get("raw_child_task_count", 0),
+                    "enclosed_kernel_us": round((end_ns - start_ns) / 1000.0, 3),
+                    "visible_envelope_event_count": 0,
+                    "visible_envelope_event_us": 0.0,
+                    "visible_envelope_top_labels": "",
+                    "graph_exec_id": f"aclgraph:hlt:{parent_idx}:{subslot_idx}",
+                }
+            )
+            out.append(row)
+    out.sort(key=lambda row: (_safe_int(row.get("start_ns")), _safe_int(row.get("end_ns")), _safe_int(row.get("stream_id"))))
     return out
 
 
@@ -958,22 +1072,41 @@ def _compact_ints(values: Iterable[int]) -> str:
 def _merge_aclgraph_atoms_with_main_events(
     main_events: Sequence[MainEvent],
     graph_events: Sequence[MainEvent],
+    *,
+    cover_internal_events: bool = True,
 ) -> Tuple[List[MainEvent], set[str], List[Dict[str, object]]]:
     if not graph_events:
         return list(main_events), set(), []
 
     covered: set[str] = set()
     diagnostics: List[Dict[str, object]] = []
-    graph_windows = [
-        (
-            graph.event.start_ns,
-            graph.event.end_ns,
-            graph.symbol,
-            graph.event.source_key,
-        )
-        for graph in graph_events
-        if graph.event.end_ns > graph.event.start_ns
-    ]
+    graph_windows_by_stream: Dict[int, List[Tuple[int, int, str, str]]] = {}
+    for graph in graph_events:
+        if graph.event.end_ns <= graph.event.start_ns:
+            continue
+        streams = graph.source_stream_ids or (graph.event.stream_id,)
+        for stream_id in streams:
+            graph_windows_by_stream.setdefault(int(stream_id), []).append(
+                (
+                    graph.event.start_ns,
+                    graph.event.end_ns,
+                    graph.symbol,
+                    graph.event.source_key,
+                )
+            )
+    graph_starts_by_stream: Dict[int, List[int]] = {}
+    for stream_id, windows in graph_windows_by_stream.items():
+        windows.sort(key=lambda item: (item[0], item[1], item[2]))
+        graph_starts_by_stream[stream_id] = [start for start, _end, _symbol, _source in windows]
+
+    def candidate_windows(ev: StreamEvent) -> List[Tuple[int, int, str, str]]:
+        windows = graph_windows_by_stream.get(int(ev.stream_id), [])
+        if not windows:
+            return []
+        starts = graph_starts_by_stream.get(int(ev.stream_id), [])
+        right = bisect.bisect_left(starts, ev.end_ns)
+        left = max(0, bisect.bisect_right(starts, ev.start_ns) - 2)
+        return windows[left:right]
 
     kept: List[MainEvent] = []
     for item in main_events:
@@ -981,14 +1114,14 @@ def _merge_aclgraph_atoms_with_main_events(
         key = _main_event_source_key(item)
         full_cover = None
         partial = []
-        for graph_start, graph_end, graph_symbol, graph_source_key in graph_windows:
+        for graph_start, graph_end, graph_symbol, graph_source_key in candidate_windows(ev):
             if ev.end_ns <= graph_start or ev.start_ns >= graph_end:
                 continue
             if ev.start_ns >= graph_start and ev.end_ns <= graph_end:
                 full_cover = (graph_symbol, graph_source_key)
                 break
             partial.append((graph_symbol, graph_source_key))
-        if full_cover is not None:
+        if full_cover is not None and cover_internal_events:
             covered.add(key)
             diagnostics.append(
                 {
@@ -1002,6 +1135,18 @@ def _merge_aclgraph_atoms_with_main_events(
                 }
             )
             continue
+        if full_cover is not None:
+            diagnostics.append(
+                {
+                    "event_source_key": ev.source_key,
+                    "event_label": ev.label,
+                    "event_start_ns": ev.start_ns,
+                    "event_end_ns": ev.end_ns,
+                    "graph_symbol": full_cover[0],
+                    "graph_source_key": full_cover[1],
+                    "relation": "covered_overlap_kept",
+                }
+            )
         if partial:
             diagnostics.append(
                 {
@@ -1045,6 +1190,13 @@ def _augment_aclgraph_atom_step_rows(
             "graph_activity_split_source",
             "graph_activity_start_ns",
             "graph_activity_end_ns",
+            "graph_replay_window_idx",
+            "graph_replay_subslot_idx",
+            "graph_replay_subslot_symbol",
+            "graph_replay_subslot_kind",
+            "graph_replay_subslot_matched",
+            "graph_replay_subslot_score",
+            "graph_replay_subslot_threshold",
             "graph_type_symbol",
             "graph_type_label",
             "graph_exact_type_symbol",
@@ -1054,6 +1206,28 @@ def _augment_aclgraph_atom_step_rows(
             "graph_template_hash",
             "graph_template_signature",
             "graph_template_hash_policy",
+            "graph_template_vocabulary_hash",
+            "graph_template_vocabulary_signature",
+            "graph_template_vocabulary_hash_policy",
+            "graph_template_sequence_hash",
+            "graph_template_sequence_signature",
+            "graph_template_sequence_hash_policy",
+            "graph_tiling_symbol",
+            "graph_tiling_label",
+            "graph_tiling_hash",
+            "graph_tiling_hash_policy",
+            "replay_tiling_policy",
+            "replay_tiling_subslot_count",
+            "replay_tiling_sequence",
+            "replay_tiling_coverage",
+            "replay_tiling_matched_count",
+            "replay_tiling_unmatched_count",
+            "replay_tiling_score",
+            "replay_tiling_top_mismatches",
+            "replay_tiling_subslots_json",
+            "replay_window_tiling_symbol",
+            "replay_window_tiling_label",
+            "replay_window_tiling_sequence",
             "graph_replay_symbol",
             "graph_replay_label",
             "graph_replay_hash",
@@ -1098,7 +1272,8 @@ def _augment_aclgraph_symbol_rows(
     by_symbol: Dict[str, List[Dict[str, object]]] = {}
     for row in replay_rows:
         symbol = str(
-            row.get("graph_template_symbol", "")
+            row.get("graph_tiling_symbol", "")
+            or row.get("graph_template_symbol", "")
             or row.get("graph_replay_symbol", "")
             or row.get("graph_type_symbol", "")
         )
@@ -1112,18 +1287,31 @@ def _augment_aclgraph_symbol_rows(
         first = rows[0]
         row["family"] = "aclgraph"
         row["graph_type_symbol"] = first.get("graph_type_symbol", "")
-        row["graph_template_symbol"] = symbol
+        row["graph_tiling_symbol"] = symbol
+        row["graph_tiling_label"] = first.get("graph_tiling_label", "")
+        row["graph_tiling_hash"] = first.get("graph_tiling_hash", "")
+        row["graph_tiling_hash_policy"] = first.get("graph_tiling_hash_policy", "")
+        row["graph_template_symbol"] = first.get("graph_template_symbol", "")
         row["graph_replay_symbol"] = first.get("graph_replay_symbol", "")
         replay_symbols = Counter(str(item.get("graph_replay_symbol", "")) for item in rows if item.get("graph_replay_symbol", ""))
+        template_symbols = Counter(str(item.get("graph_template_symbol", "")) for item in rows if item.get("graph_template_symbol", ""))
         replay_unit_counts = Counter(
             str(item.get("graph_replay_unit_count", "")) for item in rows if item.get("graph_replay_unit_count", "")
         )
         replay_unit_sources = Counter(
             str(item.get("graph_replay_unit_source", "")) for item in rows if item.get("graph_replay_unit_source", "")
         )
+        replay_tiling_sequences = Counter(
+            str(item.get("replay_tiling_sequence", "")) for item in rows if item.get("replay_tiling_sequence", "")
+        )
         row["graph_replay_symbols"] = _format_counter(replay_symbols, limit=8)
+        row["graph_template_symbols"] = _format_counter(template_symbols, limit=8)
+        row["graph_template_symbol_variant_count"] = len(template_symbols)
         row["graph_replay_unit_counts"] = _format_counter(replay_unit_counts, limit=8)
         row["graph_replay_unit_sources"] = _format_counter(replay_unit_sources, limit=8)
+        row["replay_tiling_sequences"] = _format_counter(replay_tiling_sequences, limit=8)
+        row["replay_tiling_sequence_variant_count"] = len(replay_tiling_sequences)
+        row["replay_tiling_policy"] = first.get("replay_tiling_policy", "")
         row["graph_replay_label"] = first.get("graph_replay_label", "")
         row["graph_replay_unit_count"] = first.get("graph_replay_unit_count", "")
         row["graph_replay_unit_source"] = first.get("graph_replay_unit_source", "")
@@ -1131,6 +1319,13 @@ def _augment_aclgraph_symbol_rows(
         row["graph_template_label"] = first.get("graph_template_label", "")
         row["graph_template_hash"] = first.get("graph_template_hash", "")
         row["graph_template_signature"] = first.get("graph_template_signature", "")
+        row["graph_template_hash_policy"] = first.get("graph_template_hash_policy", "")
+        row["graph_template_vocabulary_hash"] = first.get("graph_template_vocabulary_hash", "")
+        row["graph_template_vocabulary_signature"] = first.get("graph_template_vocabulary_signature", "")
+        row["graph_template_vocabulary_hash_policy"] = first.get("graph_template_vocabulary_hash_policy", "")
+        row["graph_template_sequence_hash"] = first.get("graph_template_sequence_hash", "")
+        row["graph_template_sequence_signature"] = first.get("graph_template_sequence_signature", "")
+        row["graph_template_sequence_hash_policy"] = first.get("graph_template_sequence_hash_policy", "")
         row["graph_exact_type_symbol"] = first.get("graph_exact_type_symbol", first.get("graph_type_symbol", ""))
         row["graph_body_hash"] = first.get("graph_body_hash", "")
         row["graph_envelope_hash"] = first.get("graph_envelope_hash", "")
@@ -1450,6 +1645,78 @@ def _build_steps(
     return rows
 
 
+def _aclgraph_anchor_step_row(row: Dict[str, object]) -> Dict[str, object]:
+    start_ns = _safe_int(row.get("start_ns"))
+    end_ns = _safe_int(row.get("end_ns"))
+    return {
+        **dict(row),
+        "step_idx": 0,
+        "symbol": row.get("symbol", row.get("graph_tiling_symbol", "")),
+        "role": "compute",
+        "stream_id": _safe_int(row.get("stream_id")),
+        "task_type": row.get("task_type", "ACL_GRAPH_HLT_ANCHOR"),
+        "label": row.get("label", row.get("graph_tiling_label", "")),
+        "raw_label": row.get("label", row.get("graph_tiling_label", "")),
+        "op_type": row.get("graph_replay_subslot_symbol", row.get("replay_tiling_sequence", "")),
+        "compute_task_type": "ACL_GRAPH",
+        "family": "aclgraph",
+        "source_table": row.get("source_table", "ACLGRAPH_REPLAY"),
+        "source_key": row.get("source_key", ""),
+        "source_event_count": row.get("raw_child_task_count", 0),
+        "source_streams": str(row.get("stream_id", "")),
+        "start_ns": start_ns,
+        "end_ns": end_ns,
+        "dur_us": row.get("dur_us", round((end_ns - start_ns) / 1000.0, 3)),
+        "prev_compute_overlap_us": 0.0,
+        "prelude_idle_ratio": 0.0,
+        "prelude_comm_ratio": 0.0,
+        "prelude_wait_ratio": 0.0,
+        **ZERO_PRELUDE,
+        "prelude_start_ns": start_ns,
+        "prelude_end_ns": start_ns,
+    }
+
+
+def _build_steps_with_aclgraph_anchors(
+    *,
+    db_idx: int,
+    db_path: Path,
+    device_id: int,
+    device_events: Sequence[StreamEvent],
+    main_events: Sequence[MainEvent],
+    aclgraph_anchor_rows: Sequence[Dict[str, object]],
+    cfg: ComputePreludeConfig,
+) -> List[Dict[str, object]]:
+    aclgraph_by_source = {
+        str(row.get("source_key", "")): _aclgraph_anchor_step_row(row)
+        for row in aclgraph_anchor_rows
+        if str(row.get("source_key", ""))
+    }
+    normal_events = [
+        item for item in main_events if str(item.event.source_key) not in aclgraph_by_source
+    ]
+    normal_steps = _build_steps(
+        db_idx=db_idx,
+        db_path=db_path,
+        device_id=device_id,
+        device_events=device_events,
+        main_events=normal_events,
+        cfg=cfg,
+    )
+    normal_by_source = {str(row.get("source_key", "")): row for row in normal_steps}
+
+    rows: List[Dict[str, object]] = []
+    for item in main_events:
+        key = str(item.event.source_key)
+        source = aclgraph_by_source.get(key) or normal_by_source.get(key)
+        if not source:
+            continue
+        row = dict(source)
+        row["step_idx"] = len(rows) + 1
+        rows.append(row)
+    return rows
+
+
 def _parse_source_key(source_key: object) -> Dict[str, str]:
     fields: Dict[str, str] = {}
     for part in str(source_key or "").split(";"):
@@ -1698,28 +1965,56 @@ def _augment_cuda_graph_event_rows_with_envelope(
 
 
 def _augment_symbol_rows(symbol_rows: List[Dict[str, object]], step_rows: Sequence[Dict[str, object]]) -> List[Dict[str, object]]:
-    by_symbol: Dict[str, List[Dict[str, object]]] = {}
+    by_symbol: Dict[str, Dict[str, object]] = {}
     for row in step_rows:
-        by_symbol.setdefault(str(row["symbol"]), []).append(row)
+        symbol = str(row["symbol"])
+        bucket = by_symbol.setdefault(
+            symbol,
+            {
+                "count": 0,
+                "prelude_gap_us": 0.0,
+                "prelude_comm_us": 0.0,
+                "prelude_wait_us": 0.0,
+                "prelude_idle_us": 0.0,
+                "gap_values": [],
+                "streams": set(),
+            },
+        )
+        bucket["count"] = int(bucket["count"]) + 1
+        gap = float(row.get("prelude_gap_us", 0.0) or 0.0)
+        bucket["prelude_gap_us"] = float(bucket["prelude_gap_us"]) + gap
+        bucket["prelude_comm_us"] = float(bucket["prelude_comm_us"]) + float(row.get("prelude_comm_us", 0.0) or 0.0)
+        bucket["prelude_wait_us"] = float(bucket["prelude_wait_us"]) + float(row.get("prelude_wait_us", 0.0) or 0.0)
+        bucket["prelude_idle_us"] = float(bucket["prelude_idle_us"]) + float(row.get("prelude_idle_us", 0.0) or 0.0)
+        gap_values = bucket["gap_values"]
+        if isinstance(gap_values, list):
+            gap_values.append(gap)
+        streams = bucket["streams"]
+        if isinstance(streams, set):
+            raw_streams = str(row.get("source_streams", "")).strip()
+            if raw_streams:
+                for part in raw_streams.split():
+                    value = _safe_int(part)
+                    if value:
+                        streams.add(value)
+            else:
+                value = _safe_int(row.get("stream_id"))
+                if value:
+                    streams.add(value)
 
     out: List[Dict[str, object]] = []
     for row in symbol_rows:
-        rows = by_symbol.get(str(row["symbol"]), [])
+        bucket = by_symbol.get(str(row["symbol"]), {})
+        count = int(bucket.get("count", 0) or 0)
+        gap_values = bucket.get("gap_values", [])
+        streams = bucket.get("streams", set())
         row = dict(row)
-        row["prelude_total_us_avg"] = round(_mean([float(r["prelude_gap_us"]) for r in rows]), 3)
-        row["prelude_total_us_p95"] = round(_q95([float(r["prelude_gap_us"]) for r in rows]), 3)
-        row["prelude_comm_us_avg"] = round(_mean([float(r["prelude_comm_us"]) for r in rows]), 3)
-        row["prelude_wait_us_avg"] = round(_mean([float(r["prelude_wait_us"]) for r in rows]), 3)
-        row["prelude_idle_us_avg"] = round(_mean([float(r["prelude_idle_us"]) for r in rows]), 3)
-        streams: set[int] = set()
-        for r in rows:
-            raw_streams = str(r.get("source_streams", "")).strip()
-            if raw_streams:
-                for part in raw_streams.split():
-                    streams.add(int(part))
-            else:
-                streams.add(int(r["stream_id"]))
-        row["streams"] = " ".join(str(s) for s in sorted(streams)[:8])
+        row["prelude_total_us_avg"] = round(float(bucket.get("prelude_gap_us", 0.0) or 0.0) / count, 3) if count else 0.0
+        row["prelude_total_us_p95"] = round(_q95(gap_values if isinstance(gap_values, list) else []), 3)
+        row["prelude_comm_us_avg"] = round(float(bucket.get("prelude_comm_us", 0.0) or 0.0) / count, 3) if count else 0.0
+        row["prelude_wait_us_avg"] = round(float(bucket.get("prelude_wait_us", 0.0) or 0.0) / count, 3) if count else 0.0
+        row["prelude_idle_us_avg"] = round(float(bucket.get("prelude_idle_us", 0.0) or 0.0) / count, 3) if count else 0.0
+        row["streams"] = " ".join(str(s) for s in sorted(streams)[:8]) if isinstance(streams, set) else ""
         out.append(row)
     return out
 
@@ -2054,6 +2349,8 @@ def _discover_pair_grammar_macros(
         defs,
         macro_id=macro_id,
     )
+    if len(seq_tokens) > PAIR_GRAMMAR_FULL_DISCOVERY_MAX_TOKENS:
+        return [token.name for token in seq_tokens], defs, []
     seq_tokens, macro_id = _fold_adjacent_repeated_blocks(
         seq_tokens,
         defs,
@@ -3034,6 +3331,11 @@ def _backfill_aclgraph_node_metrics(
         row["graph_kind"] = ",".join(kinds)
         row["graph_event_idx"] = _compact_ints(graph_indices)
         row["graph_step_idx"] = _compact_ints(_safe_int(item.get("step_idx")) for item in graph_steps if _safe_int(item.get("step_idx")))
+        row["graph_tiling_symbol"] = str(graph_steps[0].get("graph_tiling_symbol", ""))
+        row["graph_tiling_label"] = str(graph_steps[0].get("graph_tiling_label", ""))
+        row["graph_tiling_hash"] = str(graph_steps[0].get("graph_tiling_hash", ""))
+        row["replay_tiling_sequence"] = str(graph_steps[0].get("replay_tiling_sequence", ""))
+        row["replay_tiling_coverage"] = str(graph_steps[0].get("replay_tiling_coverage", ""))
         row["graph_type_symbol"] = str(graph_steps[0].get("graph_type_symbol", row.get("symbol", "")) or row.get("symbol", ""))
         row["graph_exact_type_symbol"] = str(graph_steps[0].get("graph_exact_type_symbol", graph_steps[0].get("graph_type_symbol", "")) or "")
         row["graph_template_symbol"] = str(graph_steps[0].get("graph_template_symbol", ""))
@@ -3191,8 +3493,12 @@ def _attach_aclgraph_replay_nodes(
             "graph_provider": "aclgraph",
             "graph_kind": str(replay.get("graph_kind", "aclgraph_replay")),
             "graph_event_idx": replay_idx,
-            "label": str(replay.get("graph_replay_label", "") or replay.get("label", f"ACLGraph Replay {replay_idx}")),
-            "symbol": str(replay.get("graph_replay_symbol", "") or "ACLGRAPH"),
+            "label": str(
+                replay.get("graph_tiling_label", "")
+                or replay.get("graph_replay_label", "")
+                or replay.get("label", f"ACLGraph Replay {replay_idx}")
+            ),
+            "symbol": str(replay.get("graph_tiling_symbol", "") or replay.get("graph_replay_symbol", "") or "ACLGRAPH"),
             "category": "graph",
             "start_ns": replay.get("start_ns", ""),
             "end_ns": replay.get("end_ns", ""),
@@ -3205,6 +3511,10 @@ def _attach_aclgraph_replay_nodes(
             "graph_activity_idx": replay.get("graph_activity_idx", ""),
             "graph_activity_unit_idx": replay.get("graph_activity_unit_idx", ""),
             "graph_activity_unit_count": replay.get("graph_activity_unit_count", ""),
+            "graph_tiling_symbol": replay.get("graph_tiling_symbol", ""),
+            "graph_tiling_label": replay.get("graph_tiling_label", ""),
+            "replay_tiling_sequence": replay.get("replay_tiling_sequence", ""),
+            "replay_tiling_coverage": replay.get("replay_tiling_coverage", ""),
             "graph_template_symbol": replay.get("graph_template_symbol", ""),
             "graph_replay_symbol": replay.get("graph_replay_symbol", ""),
         }
@@ -3222,7 +3532,7 @@ def _attach_aclgraph_replay_nodes(
             "structural_alias": False,
             "kind": "graph",
             "type": "GraphReplay",
-            "symbol": "ACLGRAPH",
+            "symbol": graph_node["symbol"],
             "label": graph_node["label"],
             "category": "graph",
             "repeat": "",
@@ -3257,6 +3567,12 @@ def _attach_aclgraph_replay_nodes(
             "graph_kind": graph_node["graph_kind"],
             "graph_event_idx": replay_idx,
             "graph_step_idx": replay.get("step_idx", ""),
+            "graph_tiling_symbol": replay.get("graph_tiling_symbol", ""),
+            "graph_tiling_label": replay.get("graph_tiling_label", ""),
+            "replay_tiling_sequence": replay.get("replay_tiling_sequence", ""),
+            "replay_tiling_coverage": replay.get("replay_tiling_coverage", ""),
+            "graph_template_symbol": replay.get("graph_template_symbol", ""),
+            "graph_replay_symbol": replay.get("graph_replay_symbol", ""),
             "raw_child_task_count": replay.get("raw_child_task_count", 0),
             "raw_child_stream_count": replay.get("raw_child_stream_count", 0),
             "raw_child_streams": replay.get("raw_child_streams", ""),
@@ -3276,7 +3592,7 @@ def _attach_aclgraph_replay_nodes(
                     "raw_node_id": graph_node["raw_node_id"],
                     "path": path,
                     "kind": "graph",
-                    "symbol": "ACLGRAPH",
+                    "symbol": graph_node["symbol"],
                     "label": graph_node["label"],
                     "occurrence_idx": 1,
                     "repeat_context": "",
@@ -3293,6 +3609,13 @@ def _attach_aclgraph_replay_nodes(
                 "node_id": row.get("node_id", ""),
                 "graph_provider": row.get("graph_provider", ""),
                 "graph_event_idx": row.get("graph_event_idx", ""),
+                "symbol": row.get("symbol", ""),
+                "label": row.get("label", ""),
+                "graph_tiling_symbol": row.get("graph_tiling_symbol", ""),
+                "replay_tiling_sequence": row.get("replay_tiling_sequence", ""),
+                "replay_tiling_coverage": row.get("replay_tiling_coverage", ""),
+                "graph_template_symbol": row.get("graph_template_symbol", ""),
+                "graph_replay_symbol": row.get("graph_replay_symbol", ""),
                 "first_anchor_idx": row.get("first_anchor_idx", ""),
                 "last_anchor_idx": row.get("last_anchor_idx", ""),
                 "total_us": row.get("total_us", 0.0),
@@ -4031,46 +4354,56 @@ def _render_graph_type_rows(symbol_table: object) -> List[str]:
     ]
     if not graph_rows:
         return []
-    graph_rows.sort(key=lambda row: str(row.get("symbol", "")))
+    graph_rows.sort(key=lambda row: float(row.get("total_us", 0.0) or 0.0), reverse=True)
     lines: List[str] = []
-    lines.append("## Graph Types")
+    lines.append("## ACLGraph H/L/T Anchor Composition Summary")
     lines.append("")
     lines.append(
-        "| template | replay_symbols | replay_units | unit_sources | occurrences | total_us | body_hash | envelope_hash | control_variants | noise_variants | controls | body_noise | top_ops |"
+        "- grouped by flattened capture-dictionary H/L/T anchors. Replay-window membership and template ids are diagnostics, not primary report boundaries."
     )
-    lines.append("| --- | --- | --- | --- | ---: | ---: | --- | --- | ---: | ---: | --- | --- | --- |")
-    for row in graph_rows:
-        body_hash = str(row.get("graph_body_hash", ""))
-        envelope_hash = str(row.get("graph_envelope_hash", ""))
+    lines.append("")
+    lines.append(
+        "| hlt_symbol | anchor_symbol | diagnostic_templates | replay_unit_counts | unit_sources | anchors | total_us | control_variants | noise_variants | controls | top_ops |"
+    )
+    lines.append("| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- |")
+    for row in graph_rows[:GRAPH_COMPOSITION_SUMMARY_LIMIT]:
         controls = str(row.get("raw_control_tasks", "")).replace("|", "\\|")
-        body_noise = str(row.get("graph_body_noise_signature", "")).replace("|", "\\|").replace("\n", "; ")
         top_ops = str(row.get("raw_top_ops", "")).replace("|", "\\|")
         lines.append(
             (
-                f"| {row.get('symbol', '')} | `{row.get('graph_replay_symbols', row.get('graph_replay_symbol', ''))}` "
+                f"| `{row.get('replay_tiling_sequences', row.get('replay_tiling_sequence', ''))}` "
+                f"| {row.get('symbol', '')} "
+                f"| `{row.get('graph_template_symbols', row.get('graph_template_symbol', ''))}` "
                 f"| `{row.get('graph_replay_unit_counts', row.get('graph_replay_unit_count', ''))}` "
                 f"| `{row.get('graph_replay_unit_sources', row.get('graph_replay_unit_source', ''))}` "
                 f"| {row.get('window_count', 0)} "
-                f"| {row.get('total_us', 0.0)} | `{body_hash[:16]}` "
-                f"| `{envelope_hash[:16]}` | {row.get('raw_control_variant_count', 0)} "
-                f"| {row.get('graph_body_noise_variant_count', 0)} | `{controls}` | `{body_noise}` | `{top_ops}` |"
+                f"| {row.get('total_us', 0.0)} | {row.get('raw_control_variant_count', 0)} "
+                f"| {row.get('graph_body_noise_variant_count', 0)} | `{controls}` | `{top_ops}` |"
             )
+        )
+    if len(graph_rows) > GRAPH_COMPOSITION_SUMMARY_LIMIT:
+        remaining = graph_rows[GRAPH_COMPOSITION_SUMMARY_LIMIT:]
+        remaining_occurrences = sum(_safe_int(row.get("window_count")) for row in remaining)
+        remaining_us = round(sum(float(row.get("total_us", 0.0) or 0.0) for row in remaining), 3)
+        lines.append(
+            f"| `{len(remaining)} more low-frequency H/L/T compositions` |  |  |  |  | {remaining_occurrences} | {remaining_us} |  |  |  |  |"
         )
     return lines
 
 
 def _render_graph_replay_type_summary(graph_step_rows: Sequence[Dict[str, object]]) -> List[str]:
     lines: List[str] = []
-    lines.append("## Graph Replay Type Summary")
+    lines.append("## ACLGraph H/L/T Anchor Type Summary")
     lines.append("")
     if not graph_step_rows:
-        lines.append("No ACLGraph replay unit events were found.")
+        lines.append("No ACLGraph H/L/T anchor events were found.")
         return lines
 
     buckets: Dict[str, Dict[str, object]] = {}
     for row in graph_step_rows:
         symbol = str(
-            row.get("graph_template_symbol", "")
+            row.get("graph_tiling_symbol", "")
+            or row.get("graph_template_symbol", "")
             or row.get("graph_replay_symbol", "")
             or row.get("graph_type_symbol", "")
             or row.get("symbol", "")
@@ -4081,7 +4414,7 @@ def _render_graph_replay_type_summary(graph_step_rows: Sequence[Dict[str, object
             symbol,
             {
                 "symbol": symbol,
-                "launches": 0,
+                "anchors": 0,
                 "total_us": 0.0,
                 "unit_counts": Counter(),
                 "unit_sources": Counter(),
@@ -4092,9 +4425,10 @@ def _render_graph_replay_type_summary(graph_step_rows: Sequence[Dict[str, object
                 "raw_child_task_count": 0,
                 "raw_top_ops": Counter(),
                 "raw_control_tasks": Counter(),
+                "tiling_sequences": Counter(),
             },
         )
-        bucket["launches"] = int(bucket["launches"]) + 1
+        bucket["anchors"] = int(bucket["anchors"]) + 1
         bucket["total_us"] = round(float(bucket["total_us"]) + float(row.get("dur_us", 0.0) or 0.0), 3)
         unit_count = _safe_int(row.get("graph_replay_unit_count"))
         if unit_count:
@@ -4117,29 +4451,33 @@ def _render_graph_replay_type_summary(graph_step_rows: Sequence[Dict[str, object
         bucket["raw_child_task_count"] = int(bucket["raw_child_task_count"]) + _safe_int(row.get("raw_child_task_count"))
         bucket["raw_top_ops"].update(_parse_counter_text(str(row.get("raw_top_ops", ""))))
         bucket["raw_control_tasks"].update(_parse_counter_text(str(row.get("raw_control_tasks", ""))))
+        tiling_sequence = str(row.get("replay_tiling_sequence", ""))
+        if tiling_sequence:
+            bucket["tiling_sequences"][tiling_sequence] += 1
 
     if not buckets:
-        lines.append("No ACLGraph replay type metadata was available.")
+        lines.append("No ACLGraph H/L/T anchor metadata was available.")
         return lines
 
     lines.append(
-        "- grouped by template identity, so non-adjacent launches of the same graph template are counted together."
+        "- grouped by flattened capture-dictionary H/L/T anchors; replay-window and old template symbols remain as diagnostics."
     )
     lines.append("")
     lines.append(
-        "| template | launches | replay_symbols | replay_units | total_units | total_us | avg_us | raw_tasks | exact_types | body_hashes | unit_source | controls | top_ops |"
+        "| hlt_symbol | anchor_symbol | anchors | diagnostic_templates | replay_unit_counts | total_units | total_us | avg_us | raw_tasks | diagnostic_exact_types | body_hashes | unit_source | controls | top_ops |"
     )
-    lines.append("| --- | ---: | --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |")
-    for bucket in sorted(buckets.values(), key=lambda item: (float(item["total_us"]), int(item["launches"])), reverse=True):
-        launches = int(bucket["launches"])
+    lines.append("| --- | --- | ---: | --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |")
+    sorted_buckets = sorted(buckets.values(), key=lambda item: (float(item["total_us"]), int(item["anchors"])), reverse=True)
+    for bucket in sorted_buckets[:GRAPH_COMPOSITION_SUMMARY_LIMIT]:
+        anchors = int(bucket["anchors"])
         unit_counts = bucket["unit_counts"]
         total_units = sum(int(count) * occurrences for count, occurrences in unit_counts.items())
         lines.append(
             (
-                f"| {bucket['symbol']} | {launches} "
-                f"| `{_format_counter(bucket['replay_symbols'], limit=6)}` "
+                f"| `{_format_counter(bucket['tiling_sequences'], limit=4)}` | {bucket['symbol']} | {anchors} "
+                f"| `{_format_counter(bucket['templates'], limit=6)}` "
                 f"| `{_format_counter(unit_counts, limit=4)}` | {total_units} "
-                f"| {bucket['total_us']} | {round(float(bucket['total_us']) / launches, 3) if launches else 0.0} "
+                f"| {bucket['total_us']} | {round(float(bucket['total_us']) / anchors, 3) if anchors else 0.0} "
                 f"| {bucket['raw_child_task_count']} "
                 f"| `{_format_counter(bucket['exact_types'], limit=6)}` "
                 f"| `{_format_counter(bucket['body_hashes'], limit=3)}` "
@@ -4147,6 +4485,14 @@ def _render_graph_replay_type_summary(graph_step_rows: Sequence[Dict[str, object
                 f"| `{_format_counter(bucket['raw_control_tasks'], limit=6)}` "
                 f"| `{_format_counter(bucket['raw_top_ops'], limit=8)}` |"
             )
+        )
+    if len(sorted_buckets) > GRAPH_COMPOSITION_SUMMARY_LIMIT:
+        remaining = sorted_buckets[GRAPH_COMPOSITION_SUMMARY_LIMIT:]
+        anchors = sum(int(bucket["anchors"]) for bucket in remaining)
+        total_us = round(sum(float(bucket["total_us"]) for bucket in remaining), 3)
+        raw_tasks = sum(int(bucket["raw_child_task_count"]) for bucket in remaining)
+        lines.append(
+            f"| `{len(remaining)} more low-frequency H/L/T anchor groups` |  | {anchors} |  |  |  | {total_us} |  | {raw_tasks} |  |  |  |  |"
         )
     return lines
 
@@ -4157,14 +4503,14 @@ def _render_graph_unit_view(
     graph_step_rows: Sequence[Dict[str, object]],
 ) -> List[str]:
     lines: List[str] = []
-    lines.append("## Graph Unit View")
+    lines.append("## ACLGraph H/L/T Anchor View")
     lines.append("")
-    lines.append("- view: `aclgraph_replay_unit_sequence`")
-    lines.append("- scope: replay-unit anchors only; non-replay graph events are ignored in this supplemental view.")
-    lines.append(f"- graph_unit_events: `{len(graph_step_rows)}`")
+    lines.append("- view: `aclgraph_hlt_anchor_sequence`")
+    lines.append("- scope: flattened H/L/T anchors inferred from capture-dictionary replay tiling; replay launch windows are diagnostic metadata only.")
+    lines.append(f"- hlt_anchor_events: `{len(graph_step_rows)}`")
     lines.append("")
     if not graph_step_rows:
-        lines.append("No ACLGraph replay unit events were found.")
+        lines.append("No ACLGraph H/L/T anchor events were found.")
         return lines
     lines.extend(_render_graph_replay_type_summary(graph_step_rows))
     lines.append("")
@@ -4177,6 +4523,27 @@ def _render_graph_unit_view(
     graph_lines = _render_graph_type_rows(graph_tree_payload.get("symbol_table", []))
     if graph_lines:
         lines.extend(graph_lines)
+    return lines
+
+
+def _render_main_event_sequence_view(
+    main_tree_payload: Dict[str, object],
+    *,
+    main_step_rows: Sequence[Dict[str, object]],
+) -> List[str]:
+    lines: List[str] = []
+    lines.append("## Main Event Sequence View")
+    lines.append("")
+    lines.append("- view: `main_event_sequence_with_hlt_anchors`")
+    lines.append("- scope: regular main events plus flattened ACLGraph H/L/T anchors in timestamp order.")
+    lines.append(f"- events: `{len(main_step_rows)}`")
+    lines.append("")
+    lines.append("```")
+    root = main_tree_payload.get("root", {})
+    if isinstance(root, dict):
+        lines.extend(_render_root_tree_rows_with_costs(root, _tree_cost_by_node(main_tree_payload)))
+    lines.append("```")
+    lines.append("")
     return lines
 
 
@@ -4339,30 +4706,36 @@ def _render_loop_cost_summary(rows: Sequence[Dict[str, object]], *, limit: int) 
 def _render_graph_replay_node_summary(rows: Sequence[Dict[str, object]]) -> List[str]:
     graph_rows = [row for row in rows if str(row.get("kind", "")) == "graph"]
     lines: List[str] = []
-    lines.append("## Graph Replay Nodes")
+    lines.append("## ACLGraph H/L/T Anchor Nodes")
     lines.append("")
     if not graph_rows:
-        lines.append("No graph replay nodes were attached to the readable tree.")
+        lines.append("No ACLGraph H/L/T anchor nodes were attached to the readable tree.")
         return lines
     lines.append(
-        "| node | provider | replay | depth | anchors | start_ns | end_ns | device_us | raw_tasks | visible_events | controls | top_ops |"
+        "| node | hlt_symbol | anchor_symbol | diagnostic_template | hlt_anchor_id | depth | anchor_span | device_us | raw_tasks | controls | top_ops |"
     )
-    lines.append("| --- | --- | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |")
-    for row in sorted(graph_rows, key=lambda item: _node_display_order(str(item.get("node_id", "")))):
+    lines.append("| --- | --- | --- | --- | ---: | ---: | --- | ---: | ---: | --- | --- |")
+    sorted_rows = sorted(graph_rows, key=lambda item: _node_display_order(str(item.get("node_id", ""))))
+    for row in sorted_rows[:GRAPH_REPLAY_NODE_SUMMARY_LIMIT]:
         anchor_start = str(row.get("first_anchor_idx", "")).strip()
         anchor_end = str(row.get("last_anchor_idx", "")).strip()
         anchors = f"{anchor_start}..{anchor_end}" if anchor_start and anchor_end else "no-visible-anchor"
         lines.append(
             (
-                f"| {row.get('node_id','')} | {row.get('graph_provider','')} "
+                f"| {row.get('node_id','')} | `{row.get('replay_tiling_sequence','')}` "
+                f"| `{row.get('graph_tiling_symbol','') or row.get('symbol','')}` "
+                f"| `{row.get('graph_template_symbol','')}` "
                 f"| {row.get('graph_event_idx','')} "
                 f"| {row.get('display_depth', row.get('depth',0))} | {anchors} "
-                f"| {row.get('start_ns','')} | {row.get('end_ns','')} "
                 f"| {row.get('total_us',0.0)} | {row.get('raw_child_task_count',0)} "
-                f"| {row.get('visible_envelope_event_count',0)} "
                 f"| `{row.get('raw_control_tasks','')}` | `{row.get('raw_top_ops','')}` |"
             )
         )
+    if len(sorted_rows) > GRAPH_REPLAY_NODE_SUMMARY_LIMIT:
+        remaining = sorted_rows[GRAPH_REPLAY_NODE_SUMMARY_LIMIT:]
+        total_us = round(sum(float(row.get("total_us", 0.0) or 0.0) for row in remaining), 3)
+        raw_tasks = sum(_safe_int(row.get("raw_child_task_count")) for row in remaining)
+        lines.append(f"| {len(remaining)} more H/L/T anchor nodes |  |  |  |  |  |  | {total_us} | {raw_tasks} |  |  |")
     return lines
 
 
@@ -4391,6 +4764,8 @@ def _render_anchor_readable(
     *,
     selection: DeviceSelection,
     anchor_step_rows: Sequence[Dict[str, object]],
+    main_tree_payload: Dict[str, object],
+    main_step_rows: Sequence[Dict[str, object]],
     graph_unit_tree_payload: Dict[str, object],
     graph_unit_step_rows: Sequence[Dict[str, object]],
     kernel_role_rows: Sequence[Dict[str, object]],
@@ -4410,6 +4785,8 @@ def _render_anchor_readable(
     )
     role_counts = Counter(str(row.get("semantic_role", "")) for row in kernel_role_rows)
     lines = text.splitlines()
+    lines.append("")
+    lines.extend(_render_main_event_sequence_view(main_tree_payload, main_step_rows=main_step_rows))
     lines.append("")
     lines.extend(_render_graph_unit_view(graph_unit_tree_payload, graph_step_rows=graph_unit_step_rows))
     lines.append("")
@@ -4966,27 +5343,30 @@ def run_compute_prelude_timeline(
                 gap_us=cfg.collective_episode_gap_us,
             )
         else:
-            aclgraph_analysis = AclGraphAnalysis([], [], [], [], [], [], {})
+            aclgraph_analysis = AclGraphAnalysis([], [], [], [], [], [], [], [], {})
         aclgraph_analyses.append(aclgraph_analysis)
+        aclgraph_hlt_anchor_rows = _aclgraph_hlt_anchor_rows(aclgraph_analysis.replay_rows)
 
-        graph_main_events = _aclgraph_atom_main_events(aclgraph_analysis.replay_rows)
+        graph_main_events = _aclgraph_atom_main_events(aclgraph_hlt_anchor_rows)
         main_events, covered_graph_internal_keys, _graph_projection_rows = _merge_aclgraph_atoms_with_main_events(
             normal_main_events,
             graph_main_events,
+            cover_internal_events=not bool(aclgraph_hlt_anchor_rows),
         )
         symbol_rows = _symbol_rows_from_main_events(main_events)
-        _augment_aclgraph_symbol_rows(symbol_rows, aclgraph_analysis.replay_rows)
-        step_rows = _build_steps(
+        _augment_aclgraph_symbol_rows(symbol_rows, aclgraph_hlt_anchor_rows)
+        step_rows = _build_steps_with_aclgraph_anchors(
             db_idx=selection.db_idx,
             db_path=selection.db_path,
             device_id=selection.device_id,
             device_events=device_events,
             main_events=main_events,
+            aclgraph_anchor_rows=aclgraph_hlt_anchor_rows,
             cfg=cfg,
         )
-        _augment_aclgraph_atom_step_rows(step_rows, aclgraph_analysis.replay_rows)
+        _augment_aclgraph_atom_step_rows(step_rows, aclgraph_hlt_anchor_rows)
         symbol_rows = _augment_symbol_rows(symbol_rows, step_rows)
-        _augment_aclgraph_symbol_rows(symbol_rows, aclgraph_analysis.replay_rows)
+        _augment_aclgraph_symbol_rows(symbol_rows, aclgraph_hlt_anchor_rows)
         semantic_roles, _semantic_reasons, kernel_role_rows = _apply_kernel_roles(
             main_events=main_events,
             step_rows=step_rows,
@@ -4997,8 +5377,10 @@ def run_compute_prelude_timeline(
             item for item, semantic_role in zip(main_events, semantic_roles) if semantic_role != "transparent"
         ]
         transparent_main_event_count = len(main_events) - len(projected_main_events)
+        projected_step_rows = [row for row in step_rows if row.get("semantic_role") != "transparent"]
         symbol_seq = [item.symbol for item in projected_main_events]
         atom_windows = [(item.event.start_ns, item.event.end_ns) for item in projected_main_events]
+        main_grammar_step_rows = projected_step_rows
         final_expr_tokens, l1_defs, l2_defs = _discover_pair_grammar_macros(
             symbol_seq,
             atom_windows,
@@ -5009,7 +5391,7 @@ def run_compute_prelude_timeline(
         macro_edge_rows = _macro_edge_rows(macro_defs)
         macro_metric_rows = _macro_metric_rows(
             macro_defs=macro_defs,
-            step_rows=step_rows,
+            step_rows=main_grammar_step_rows,
         )
         (
             view_final_expr_tokens,
@@ -5103,6 +5485,13 @@ def run_compute_prelude_timeline(
         )
         if cfg.readable_macro_mode == "inline":
             tree_payload = _inline_tree_payload_macro_refs(tree_payload)
+        _augment_tree_node_cost_metrics(
+            tree_payload,
+            step_rows=main_grammar_step_rows,
+            aux_slot_rows=[],
+            macro_def_tokens=tree_macro_def_tokens,
+        )
+        if cfg.readable_macro_mode == "inline":
             tree_readable = _render_tree_payload_readable(tree_payload)
         anchor_tree_expr_tokens = (
             anchor_final_expr_tokens if cfg.readable_macro_mode == "inline" else anchor_view_final_expr_tokens
@@ -5142,28 +5531,27 @@ def run_compute_prelude_timeline(
         graph_unit_step_rows = [
             row
             for row in step_rows
-            if str(row.get("task_type", "")) == "ACL_GRAPH_REPLAY_UNIT"
-            or str(row.get("graph_kind", "")) == "aclgraph_replay_unit"
+            if str(row.get("task_type", "")) == "ACL_GRAPH_HLT_ANCHOR"
+            or str(row.get("graph_kind", "")) == "aclgraph_hlt_anchor"
         ]
         graph_unit_symbol_rows = [
             row
             for row in anchor_symbol_rows
-            if str(row.get("task_type", "")) == "ACL_GRAPH_REPLAY_UNIT"
-            or str(row.get("graph_kind", "")) == "aclgraph_replay_unit"
+            if str(row.get("task_type", "")) == "ACL_GRAPH_HLT_ANCHOR"
+            or str(row.get("graph_kind", "")) == "aclgraph_hlt_anchor"
         ]
         if not graph_unit_symbol_rows:
             graph_unit_symbol_rows = [
                 row
                 for row in symbol_rows
-                if str(row.get("task_type", "")) == "ACL_GRAPH_REPLAY_UNIT"
-                or str(row.get("graph_kind", "")) == "aclgraph_replay_unit"
+                if str(row.get("task_type", "")) == "ACL_GRAPH_HLT_ANCHOR"
+                or str(row.get("graph_kind", "")) == "aclgraph_hlt_anchor"
             ]
-        graph_unit_symbol_seq = [
-            str(row.get("graph_template_symbol", "") or row.get("symbol", "")) for row in graph_unit_step_rows
-        ]
+        graph_unit_symbol_seq = [str(row.get("symbol", "")) for row in graph_unit_step_rows]
         graph_unit_windows = [
             (_safe_int(row.get("start_ns")), _safe_int(row.get("end_ns"))) for row in graph_unit_step_rows
         ]
+        graph_unit_tree_step_rows = graph_unit_step_rows
         graph_unit_final_expr_tokens, graph_unit_l1_defs, graph_unit_l2_defs = _discover_pair_grammar_macros(
             graph_unit_symbol_seq,
             graph_unit_windows,
@@ -5203,7 +5591,7 @@ def run_compute_prelude_timeline(
             graph_unit_tree_payload = _inline_tree_payload_macro_refs(graph_unit_tree_payload)
         _augment_tree_node_cost_metrics(
             graph_unit_tree_payload,
-            step_rows=graph_unit_step_rows,
+            step_rows=graph_unit_tree_step_rows,
             aux_slot_rows=[],
             macro_def_tokens=graph_unit_tree_macro_def_tokens,
         )
@@ -5381,6 +5769,8 @@ def run_compute_prelude_timeline(
             anchor_tree_readable,
             selection=selection,
             anchor_step_rows=anchor_step_rows,
+            main_tree_payload=tree_payload,
+            main_step_rows=main_grammar_step_rows,
             graph_unit_tree_payload=graph_unit_tree_payload,
             graph_unit_step_rows=graph_unit_step_rows,
             kernel_role_rows=kernel_role_rows,
@@ -5456,6 +5846,8 @@ def run_compute_prelude_timeline(
                     tree_readable,
                     selection=selection,
                     anchor_step_rows=anchor_step_rows,
+                    main_tree_payload=tree_payload,
+                    main_step_rows=main_grammar_step_rows,
                     graph_unit_tree_payload=graph_unit_tree_payload,
                     graph_unit_step_rows=graph_unit_step_rows,
                     kernel_role_rows=kernel_role_rows,
