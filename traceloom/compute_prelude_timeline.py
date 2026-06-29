@@ -497,6 +497,8 @@ def _normalize_kernel_role(role: str) -> str:
     low = role.strip().lower().replace("-", "_")
     if low in {"main", "primary", "compute", "reliable", "anchor"}:
         return "anchor"
+    if low in {"graph", "graph_replay", "aclgraph"}:
+        return "graph"
     if low in {"helper", "semi_noise", "semi_noise_aux", "auxiliary", "aux"}:
         return "aux"
     if low in {"noise", "control", "ignore", "transparent"}:
@@ -650,12 +652,15 @@ def _classify_kernel_role(
     for override in overrides:
         if _match_kernel_role_override(item, override):
             return override.role, "override"
-    if _normalize_task_key(item.event.task_type) == "HIP_KERNEL_AUX":
+    task_key = _normalize_task_key(item.event.task_type)
+    if task_key == "HIP_KERNEL_AUX":
         return "aux", "aux_hygon_lifted"
     if item.role == "collective":
         return "anchor", "anchor_collective"
-    if item.event.category == "graph" or _normalize_task_key(item.event.task_type).startswith("ACL_GRAPH"):
-        return "anchor", "anchor_graph_replay_unit"
+    if task_key == "ACL_GRAPH_REPLAY_UNIT":
+        return "anchor", "anchor_aclgraph_replay_unit"
+    if item.event.category == "graph" or task_key.startswith("ACL_GRAPH"):
+        return "graph", "graph_launch_or_envelope"
     if _is_transparent_main_event(item):
         return "transparent", "transparent_model_maintenance"
     anchor_reason = _default_anchor_compute_reason(item)
@@ -874,11 +879,17 @@ def _aclgraph_atom_main_events(replay_rows: Sequence[Dict[str, object]]) -> List
             continue
         replay_idx = _safe_int(row.get("graph_event_idx"))
         graph_symbol = str(
-            row.get("graph_replay_symbol", "")
+            row.get("graph_template_symbol", "")
+            or row.get("graph_replay_symbol", "")
             or row.get("graph_type_symbol", "")
             or f"G{replay_idx:03d}"
         )
-        label = str(row.get("graph_replay_label", "") or row.get("graph_type_label", "") or f"ACLGraph {graph_symbol}")
+        label = str(
+            row.get("graph_template_label", "")
+            or row.get("graph_replay_label", "")
+            or row.get("graph_type_label", "")
+            or f"ACLGraph {graph_symbol}"
+        )
         source_key = str(row.get("source_key", "") or f"provider=aclgraph;replay_idx={replay_idx}")
         streams = tuple(_expand_compact_ints(str(row.get("raw_child_streams", ""))))
         ev = StreamEvent(
@@ -1086,7 +1097,11 @@ def _augment_aclgraph_symbol_rows(
 
     by_symbol: Dict[str, List[Dict[str, object]]] = {}
     for row in replay_rows:
-        symbol = str(row.get("graph_replay_symbol", "") or row.get("graph_type_symbol", ""))
+        symbol = str(
+            row.get("graph_template_symbol", "")
+            or row.get("graph_replay_symbol", "")
+            or row.get("graph_type_symbol", "")
+        )
         if symbol:
             by_symbol.setdefault(symbol, []).append(row)
     for row in symbol_rows:
@@ -1097,12 +1112,23 @@ def _augment_aclgraph_symbol_rows(
         first = rows[0]
         row["family"] = "aclgraph"
         row["graph_type_symbol"] = first.get("graph_type_symbol", "")
-        row["graph_replay_symbol"] = symbol
+        row["graph_template_symbol"] = symbol
+        row["graph_replay_symbol"] = first.get("graph_replay_symbol", "")
+        replay_symbols = Counter(str(item.get("graph_replay_symbol", "")) for item in rows if item.get("graph_replay_symbol", ""))
+        replay_unit_counts = Counter(
+            str(item.get("graph_replay_unit_count", "")) for item in rows if item.get("graph_replay_unit_count", "")
+        )
+        replay_unit_sources = Counter(
+            str(item.get("graph_replay_unit_source", "")) for item in rows if item.get("graph_replay_unit_source", "")
+        )
+        row["graph_replay_symbols"] = _format_counter(replay_symbols, limit=8)
+        row["graph_replay_unit_counts"] = _format_counter(replay_unit_counts, limit=8)
+        row["graph_replay_unit_sources"] = _format_counter(replay_unit_sources, limit=8)
         row["graph_replay_label"] = first.get("graph_replay_label", "")
         row["graph_replay_unit_count"] = first.get("graph_replay_unit_count", "")
         row["graph_replay_unit_source"] = first.get("graph_replay_unit_source", "")
         row["graph_activity_split_source"] = first.get("graph_activity_split_source", "")
-        row["graph_template_symbol"] = first.get("graph_template_symbol", "")
+        row["graph_template_label"] = first.get("graph_template_label", "")
         row["graph_template_hash"] = first.get("graph_template_hash", "")
         row["graph_template_signature"] = first.get("graph_template_signature", "")
         row["graph_exact_type_symbol"] = first.get("graph_exact_type_symbol", first.get("graph_type_symbol", ""))
@@ -4010,9 +4036,9 @@ def _render_graph_type_rows(symbol_table: object) -> List[str]:
     lines.append("## Graph Types")
     lines.append("")
     lines.append(
-        "| graph | occurrences | total_us | body_hash | envelope_hash | control_variants | noise_variants | controls | body_noise | top_ops |"
+        "| template | replay_symbols | replay_units | unit_sources | occurrences | total_us | body_hash | envelope_hash | control_variants | noise_variants | controls | body_noise | top_ops |"
     )
-    lines.append("| --- | ---: | ---: | --- | --- | ---: | ---: | --- | --- | --- |")
+    lines.append("| --- | --- | --- | --- | ---: | ---: | --- | --- | ---: | ---: | --- | --- | --- |")
     for row in graph_rows:
         body_hash = str(row.get("graph_body_hash", ""))
         envelope_hash = str(row.get("graph_envelope_hash", ""))
@@ -4021,10 +4047,105 @@ def _render_graph_type_rows(symbol_table: object) -> List[str]:
         top_ops = str(row.get("raw_top_ops", "")).replace("|", "\\|")
         lines.append(
             (
-                f"| {row.get('symbol', '')} | {row.get('window_count', 0)} "
+                f"| {row.get('symbol', '')} | `{row.get('graph_replay_symbols', row.get('graph_replay_symbol', ''))}` "
+                f"| `{row.get('graph_replay_unit_counts', row.get('graph_replay_unit_count', ''))}` "
+                f"| `{row.get('graph_replay_unit_sources', row.get('graph_replay_unit_source', ''))}` "
+                f"| {row.get('window_count', 0)} "
                 f"| {row.get('total_us', 0.0)} | `{body_hash[:16]}` "
                 f"| `{envelope_hash[:16]}` | {row.get('raw_control_variant_count', 0)} "
                 f"| {row.get('graph_body_noise_variant_count', 0)} | `{controls}` | `{body_noise}` | `{top_ops}` |"
+            )
+        )
+    return lines
+
+
+def _render_graph_replay_type_summary(graph_step_rows: Sequence[Dict[str, object]]) -> List[str]:
+    lines: List[str] = []
+    lines.append("## Graph Replay Type Summary")
+    lines.append("")
+    if not graph_step_rows:
+        lines.append("No ACLGraph replay unit events were found.")
+        return lines
+
+    buckets: Dict[str, Dict[str, object]] = {}
+    for row in graph_step_rows:
+        symbol = str(
+            row.get("graph_template_symbol", "")
+            or row.get("graph_replay_symbol", "")
+            or row.get("graph_type_symbol", "")
+            or row.get("symbol", "")
+        )
+        if not symbol:
+            continue
+        bucket = buckets.setdefault(
+            symbol,
+            {
+                "symbol": symbol,
+                "launches": 0,
+                "total_us": 0.0,
+                "unit_counts": Counter(),
+                "unit_sources": Counter(),
+                "templates": Counter(),
+                "replay_symbols": Counter(),
+                "exact_types": Counter(),
+                "body_hashes": Counter(),
+                "raw_child_task_count": 0,
+                "raw_top_ops": Counter(),
+                "raw_control_tasks": Counter(),
+            },
+        )
+        bucket["launches"] = int(bucket["launches"]) + 1
+        bucket["total_us"] = round(float(bucket["total_us"]) + float(row.get("dur_us", 0.0) or 0.0), 3)
+        unit_count = _safe_int(row.get("graph_replay_unit_count"))
+        if unit_count:
+            bucket["unit_counts"][str(unit_count)] += 1
+        unit_source = str(row.get("graph_replay_unit_source", ""))
+        if unit_source:
+            bucket["unit_sources"][unit_source] += 1
+        template = str(row.get("graph_template_symbol", ""))
+        if template:
+            bucket["templates"][template] += 1
+        replay_symbol = str(row.get("graph_replay_symbol", ""))
+        if replay_symbol:
+            bucket["replay_symbols"][replay_symbol] += 1
+        exact_type = str(row.get("graph_exact_type_symbol", "") or row.get("graph_type_symbol", ""))
+        if exact_type:
+            bucket["exact_types"][exact_type] += 1
+        body_hash = str(row.get("graph_body_hash", ""))
+        if body_hash:
+            bucket["body_hashes"][body_hash] += 1
+        bucket["raw_child_task_count"] = int(bucket["raw_child_task_count"]) + _safe_int(row.get("raw_child_task_count"))
+        bucket["raw_top_ops"].update(_parse_counter_text(str(row.get("raw_top_ops", ""))))
+        bucket["raw_control_tasks"].update(_parse_counter_text(str(row.get("raw_control_tasks", ""))))
+
+    if not buckets:
+        lines.append("No ACLGraph replay type metadata was available.")
+        return lines
+
+    lines.append(
+        "- grouped by template identity, so non-adjacent launches of the same graph template are counted together."
+    )
+    lines.append("")
+    lines.append(
+        "| template | launches | replay_symbols | replay_units | total_units | total_us | avg_us | raw_tasks | exact_types | body_hashes | unit_source | controls | top_ops |"
+    )
+    lines.append("| --- | ---: | --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |")
+    for bucket in sorted(buckets.values(), key=lambda item: (float(item["total_us"]), int(item["launches"])), reverse=True):
+        launches = int(bucket["launches"])
+        unit_counts = bucket["unit_counts"]
+        total_units = sum(int(count) * occurrences for count, occurrences in unit_counts.items())
+        lines.append(
+            (
+                f"| {bucket['symbol']} | {launches} "
+                f"| `{_format_counter(bucket['replay_symbols'], limit=6)}` "
+                f"| `{_format_counter(unit_counts, limit=4)}` | {total_units} "
+                f"| {bucket['total_us']} | {round(float(bucket['total_us']) / launches, 3) if launches else 0.0} "
+                f"| {bucket['raw_child_task_count']} "
+                f"| `{_format_counter(bucket['exact_types'], limit=6)}` "
+                f"| `{_format_counter(bucket['body_hashes'], limit=3)}` "
+                f"| `{_format_counter(bucket['unit_sources'], limit=4)}` "
+                f"| `{_format_counter(bucket['raw_control_tasks'], limit=6)}` "
+                f"| `{_format_counter(bucket['raw_top_ops'], limit=8)}` |"
             )
         )
     return lines
@@ -4039,12 +4160,14 @@ def _render_graph_unit_view(
     lines.append("## Graph Unit View")
     lines.append("")
     lines.append("- view: `aclgraph_replay_unit_sequence`")
-    lines.append("- scope: graph replay units only; non-graph anchors are ignored in this view.")
+    lines.append("- scope: replay-unit anchors only; non-replay graph events are ignored in this supplemental view.")
     lines.append(f"- graph_unit_events: `{len(graph_step_rows)}`")
     lines.append("")
     if not graph_step_rows:
-        lines.append("No ACLGraph replay unit anchors were found.")
+        lines.append("No ACLGraph replay unit events were found.")
         return lines
+    lines.extend(_render_graph_replay_type_summary(graph_step_rows))
+    lines.append("")
     lines.append("```")
     root = graph_tree_payload.get("root", {})
     if isinstance(root, dict):
@@ -5017,16 +5140,27 @@ def run_compute_prelude_timeline(
             macro_def_tokens=anchor_tree_macro_def_tokens,
         )
         graph_unit_step_rows = [
-            row for row in anchor_step_rows if str(row.get("task_type", "")) == "ACL_GRAPH_REPLAY_UNIT"
+            row
+            for row in step_rows
+            if str(row.get("task_type", "")) == "ACL_GRAPH_REPLAY_UNIT"
+            or str(row.get("graph_kind", "")) == "aclgraph_replay_unit"
         ]
         graph_unit_symbol_rows = [
             row
             for row in anchor_symbol_rows
-            if str(row.get("category", "")) == "graph"
-            or str(row.get("task_type", "")) == "ACL_GRAPH_REPLAY_UNIT"
-            or str(row.get("family", "")) == "aclgraph"
+            if str(row.get("task_type", "")) == "ACL_GRAPH_REPLAY_UNIT"
+            or str(row.get("graph_kind", "")) == "aclgraph_replay_unit"
         ]
-        graph_unit_symbol_seq = [str(row.get("symbol", "")) for row in graph_unit_step_rows]
+        if not graph_unit_symbol_rows:
+            graph_unit_symbol_rows = [
+                row
+                for row in symbol_rows
+                if str(row.get("task_type", "")) == "ACL_GRAPH_REPLAY_UNIT"
+                or str(row.get("graph_kind", "")) == "aclgraph_replay_unit"
+            ]
+        graph_unit_symbol_seq = [
+            str(row.get("graph_template_symbol", "") or row.get("symbol", "")) for row in graph_unit_step_rows
+        ]
         graph_unit_windows = [
             (_safe_int(row.get("start_ns")), _safe_int(row.get("end_ns"))) for row in graph_unit_step_rows
         ]

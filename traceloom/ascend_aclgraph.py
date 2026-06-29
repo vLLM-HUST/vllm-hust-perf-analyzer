@@ -394,7 +394,10 @@ def _build_replay_rows(
         body_noise_signature = _format_signature(body_noise_counter)
         control_signature = _format_signature(control_counter)
         replay_unit_count, replay_unit_source = _infer_graph_replay_unit_count(body_counter, control_counter)
-        template_signature = _format_unit_signature(body_counter, replay_unit_count)
+        template_signature = _format_template_signature(segment, compute) or _format_unit_signature(
+            body_counter,
+            replay_unit_count,
+        )
         body_hash = _stable_hash(body_signature)
         template_hash = _stable_hash(template_signature)
         envelope_hash = _stable_hash(f"{body_hash}\n{control_signature}\nstreams={_compact_ints(streams)}")
@@ -441,7 +444,7 @@ def _build_replay_rows(
             "graph_template_label": f"ACLGraphTemplate {graph_template_symbol}",
             "graph_template_hash": template_hash,
             "graph_template_signature": template_signature,
-            "graph_template_hash_policy": "anchor_compute_unit_body_v1",
+            "graph_template_hash_policy": "anchor_compute_unit_vocabulary_v3",
             "graph_replay_symbol": graph_replay_symbol,
             "graph_replay_label": f"ACLGraph {graph_template_symbol} x{replay_unit_count}",
             "graph_replay_hash": graph_replay_hash,
@@ -511,12 +514,23 @@ def _format_signature(counter: Counter[str]) -> str:
     return "\n".join(f"{name}:{count}" for name, count in sorted(counter.items()))
 
 
+def _format_template_signature(rows: Sequence[dict[str, Any]], compute: dict[int, dict[str, str]]) -> str:
+    ordered_rows = sorted(rows, key=lambda row: (row["start_ns"], row["end_ns"], row["stream_id"], row["task_id"]))
+    tokens: set[str] = set()
+    for row in ordered_rows:
+        token = _canonical_graph_body_token(row, compute.get(int(row["global_task_id"]), {}))
+        if token:
+            tokens.add(token)
+    if not tokens:
+        return ""
+    return "\n".join(["body_tokens:", *[f"- {token}" for token in sorted(tokens)]])
+
+
 def _format_unit_signature(counter: Counter[str], unit_count: int) -> str:
-    unit_count = max(1, int(unit_count))
-    return "\n".join(
-        f"{name}:{_format_unit_count(count, unit_count)}"
-        for name, count in sorted(counter.items())
-    )
+    # Template identity is intentionally coarser than exact graph body identity:
+    # dynamic decode lengths change the multiplicity of the same body tokens,
+    # but they should not produce distinct timeline anchors.
+    return "\n".join(name for name, count in sorted(counter.items()) if int(count) > 0)
 
 
 def _format_unit_count(count: int, unit_count: int) -> str:

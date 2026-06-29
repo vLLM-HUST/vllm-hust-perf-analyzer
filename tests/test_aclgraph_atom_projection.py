@@ -4,12 +4,14 @@ from collections import Counter
 from traceloom.compute_prelude_timeline import (
     MainEvent,
     _aclgraph_atom_main_events,
+    _classify_kernel_role,
     _main_event_source_key,
     _merge_aclgraph_atoms_with_main_events,
 )
 from traceloom.ascend_aclgraph import (
     _canonical_graph_body_token,
     _canonical_graph_noise_token,
+    _format_template_signature,
     _infer_graph_replay_unit_count,
     _overlap_rows_by_interval,
     _split_segments_into_replay_units,
@@ -75,6 +77,82 @@ class AclGraphAtomProjectionTests(unittest.TestCase):
             "control_or_transfer:notify_record",
         )
 
+    def test_aclgraph_template_signature_ignores_repetition_counts(self) -> None:
+        short_segment = [_task(0, 5, 1), _task(10, 15, 2), _task(20, 25, 3)]
+        long_segment = [
+            _task(0, 5, 1),
+            _task(6, 9, 2),
+            _task(10, 15, 3),
+            _task(16, 19, 4),
+            _task(20, 25, 5),
+            _task(26, 29, 6),
+        ]
+        short_compute = {
+            1: {"op_type": "MatMulV2"},
+            2: {"op_type": "Cast"},
+            3: {"op_type": "MatMulV2"},
+        }
+        long_compute = {
+            1: {"op_type": "MatMulV2"},
+            2: {"op_type": "MatMulV2"},
+            3: {"op_type": "Cast"},
+            4: {"op_type": "Cast"},
+            5: {"op_type": "MatMulV2"},
+            6: {"op_type": "MatMulV2"},
+        }
+
+        self.assertEqual(
+            _format_template_signature(short_segment, short_compute),
+            _format_template_signature(long_segment, long_compute),
+        )
+        self.assertNotIn(":2", _format_template_signature(long_segment, long_compute))
+
+    def test_aclgraph_template_signature_ignores_execution_order(self) -> None:
+        first = [_task(0, 5, 1), _task(10, 15, 2), _task(20, 25, 3)]
+        second = [_task(0, 5, 1), _task(10, 15, 2), _task(20, 25, 3)]
+
+        self.assertEqual(
+            _format_template_signature(
+                first,
+                {
+                    1: {"op_type": "MatMulV2"},
+                    2: {"op_type": "Cast"},
+                    3: {"op_type": "RmsNorm"},
+                },
+            ),
+            _format_template_signature(
+                second,
+                {
+                    1: {"op_type": "Cast"},
+                    2: {"op_type": "MatMulV2"},
+                    3: {"op_type": "RmsNorm"},
+                },
+            ),
+        )
+
+    def test_aclgraph_template_signature_keeps_token_vocabulary(self) -> None:
+        first = [_task(0, 5, 1), _task(10, 15, 2), _task(20, 25, 3)]
+        second = [_task(0, 5, 1), _task(10, 15, 2), _task(20, 25, 3)]
+
+        self.assertNotEqual(
+            _format_template_signature(
+                first,
+                {
+                    1: {"op_type": "MatMulV2"},
+                    2: {"op_type": "Cast"},
+                    3: {"op_type": "RmsNorm"},
+                },
+            ),
+            _format_template_signature(
+                second,
+                {
+                    1: {"op_type": "MatMulV2"},
+                    2: {"op_type": "SwiGlu"},
+                    3: {"op_type": "RmsNorm"},
+                },
+            ),
+        )
+
     def test_graph_atom_replaces_fully_covered_outer_events(self) -> None:
         partial = _event(0, 12, "A")
         covered = _event(14, 18, "B")
@@ -109,7 +187,7 @@ class AclGraphAtomProjectionTests(unittest.TestCase):
         self.assertEqual(graph_events[0].event.category, "graph")
         self.assertEqual(graph_events[0].source_stream_ids, (7, 8))
 
-    def test_aclgraph_atom_prefers_replay_unit_symbol_when_present(self) -> None:
+    def test_aclgraph_atom_prefers_template_symbol_when_present(self) -> None:
         graph_events = _aclgraph_atom_main_events(
             [
                 {
@@ -117,6 +195,8 @@ class AclGraphAtomProjectionTests(unittest.TestCase):
                     "graph_event_idx": 1,
                     "graph_type_symbol": "G005",
                     "graph_type_label": "ACLGraphType G005",
+                    "graph_template_symbol": "T001",
+                    "graph_template_label": "ACLGraphTemplate T001",
                     "graph_replay_symbol": "T001x4",
                     "graph_replay_label": "ACLGraph T001 x4",
                     "source_key": "provider=aclgraph;replay_idx=1",
@@ -129,8 +209,56 @@ class AclGraphAtomProjectionTests(unittest.TestCase):
             ]
         )
 
-        self.assertEqual(graph_events[0].symbol, "T001x4")
-        self.assertEqual(graph_events[0].event.label, "ACLGraph T001 x4")
+        self.assertEqual(graph_events[0].symbol, "T001")
+        self.assertEqual(graph_events[0].event.label, "ACLGraphTemplate T001")
+
+    def test_aclgraph_replay_unit_classifies_as_anchor(self) -> None:
+        graph_events = _aclgraph_atom_main_events(
+            [
+                {
+                    "graph_provider": "aclgraph",
+                    "graph_event_idx": 1,
+                    "graph_template_symbol": "T001",
+                    "graph_template_label": "ACLGraphTemplate T001",
+                    "source_key": "provider=aclgraph;replay_idx=1",
+                    "source_table": "ACLGRAPH_REPLAY",
+                    "task_type": "ACL_GRAPH_REPLAY_UNIT",
+                    "device_id": 0,
+                    "stream_id": 7,
+                    "start_ns": 10,
+                    "end_ns": 20,
+                }
+            ]
+        )
+
+        role, reason = _classify_kernel_role(graph_events[0], [])
+
+        self.assertEqual(role, "anchor")
+        self.assertEqual(reason, "anchor_aclgraph_replay_unit")
+
+    def test_aclgraph_launch_classifies_as_graph_not_anchor(self) -> None:
+        graph_events = _aclgraph_atom_main_events(
+            [
+                {
+                    "graph_provider": "aclgraph",
+                    "graph_event_idx": 1,
+                    "graph_template_symbol": "T001",
+                    "graph_template_label": "ACLGraphTemplate T001",
+                    "source_key": "provider=aclgraph;replay_idx=1",
+                    "source_table": "ACLGRAPH_REPLAY",
+                    "task_type": "ACL_GRAPH_REPLAY",
+                    "device_id": 0,
+                    "stream_id": 7,
+                    "start_ns": 10,
+                    "end_ns": 20,
+                }
+            ]
+        )
+
+        role, reason = _classify_kernel_role(graph_events[0], [])
+
+        self.assertEqual(role, "graph")
+        self.assertEqual(reason, "graph_launch_or_envelope")
 
     def test_aclgraph_replay_unit_count_prefers_body_landmark(self) -> None:
         unit_count, source = _infer_graph_replay_unit_count(
