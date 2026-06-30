@@ -17,6 +17,7 @@ enum class ProtectedIntervalKind {
 enum class BoundaryPolicy {
   kNoCross,
   kAllowEnclosing,
+  kBlockAnyOverlap,
 };
 
 struct ProtectedIntervalRow {

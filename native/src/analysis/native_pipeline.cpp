@@ -72,6 +72,29 @@ NativePipelineStats collect_stats(
   return stats;
 }
 
+FlatAnchorBuildStats summarize_existing_anchors_and_tokens(
+    const NativeIr& ir) {
+  FlatAnchorBuildStats stats;
+  stats.tokens = ir.tokens.size();
+  for (const AnchorRow& row : ir.anchors.rows()) {
+    switch (row.kind) {
+      case AnchorKind::kDeviceEvent:
+        ++stats.device_event_anchors;
+        break;
+      case AnchorKind::kGraphReplayUnit:
+        ++stats.device_event_anchors;
+        break;
+      case AnchorKind::kCommunication:
+        ++stats.communication_anchors;
+        break;
+      case AnchorKind::kSynchronization:
+      case AnchorKind::kUnknown:
+        break;
+    }
+  }
+  return stats;
+}
+
 }  // namespace
 
 NativePipelineResult run_native_pipeline(NativeIr& ir,
@@ -79,7 +102,19 @@ NativePipelineResult run_native_pipeline(NativeIr& ir,
   NativePipelineResult result;
 
   result.timing.build_anchor_tokens_ms = time_stage([&]() {
-    result.anchor_stats = build_flat_anchors(ir, options.anchor_config);
+    switch (options.anchor_mode) {
+      case NativePipelineAnchorMode::kBuildFlatAnchors:
+        result.anchor_stats = build_flat_anchors(ir, options.anchor_config);
+        break;
+      case NativePipelineAnchorMode::kUseExistingAnchorsAndTokens:
+        if (ir.anchors.empty() || ir.tokens.empty()) {
+          throw std::invalid_argument(
+              "existing anchor/token mode requires non-empty AnchorTable and "
+              "TokenTable");
+        }
+        result.anchor_stats = summarize_existing_anchors_and_tokens(ir);
+        break;
+    }
   });
 
   ProtectedSequence sequence;

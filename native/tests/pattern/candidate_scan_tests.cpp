@@ -102,17 +102,21 @@ int main() {
   bool saw_right_partial_cross = false;
   bool saw_strict_enclosing = false;
   for (const CandidateDiagnostic& diagnostic : scan_result.diagnostics) {
-    require(diagnostic.code ==
-            CandidateDiagnosticCode::kPartialNoCrossInterval);
     require(diagnostic.partition_id.valid());
     require(diagnostic.protected_interval_id == ProtectedIntervalId(0));
     if (diagnostic.begin == 0 && diagnostic.end == 2) {
+      require(diagnostic.code ==
+              CandidateDiagnosticCode::kCrossesNoCrossBoundary);
       saw_left_partial_cross = true;
     }
     if (diagnostic.begin == 2 && diagnostic.end == 5) {
+      require(diagnostic.code ==
+              CandidateDiagnosticCode::kCrossesNoCrossBoundary);
       saw_right_partial_cross = true;
     }
     if (diagnostic.begin == 0 && diagnostic.end == 5) {
+      require(diagnostic.code ==
+              CandidateDiagnosticCode::kEnclosesNoCrossInterval);
       saw_strict_enclosing = true;
     }
   }

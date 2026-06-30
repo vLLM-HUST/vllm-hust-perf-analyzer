@@ -17,6 +17,23 @@ struct ProtectedIntervalSpan {
   BoundaryPolicy boundary_policy = BoundaryPolicy::kNoCross;
 };
 
+enum class BoundaryViolationKind {
+  kNone,
+  kCrossesNoCrossBoundary,
+  kEnclosesNoCrossInterval,
+  kAmbiguousIntervalBlocksCandidate,
+};
+
+struct BoundaryViolation {
+  BoundaryViolationKind kind = BoundaryViolationKind::kNone;
+  ProtectedIntervalId protected_interval_id = ProtectedIntervalId::invalid();
+
+  bool valid() const noexcept {
+    return kind != BoundaryViolationKind::kNone &&
+           protected_interval_id.valid();
+  }
+};
+
 class BoundaryIndex {
  public:
   static BoundaryIndex build(const ProtectedSequence& sequence,
@@ -32,6 +49,9 @@ class BoundaryIndex {
 
   ProtectedIntervalId first_no_cross_violation(std::size_t begin,
                                                std::size_t end) const;
+
+  BoundaryViolation first_violation(std::size_t begin,
+                                    std::size_t end) const;
 
   bool violates_no_cross_interval(std::size_t begin,
                                   std::size_t end) const;

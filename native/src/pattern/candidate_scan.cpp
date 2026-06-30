@@ -7,6 +7,60 @@
 #include "traceloom/runtime/thread_pool.h"
 
 namespace traceloom {
+namespace {
+
+CandidateDiagnosticCode diagnostic_code_from_violation(
+    BoundaryViolationKind kind) {
+  switch (kind) {
+    case BoundaryViolationKind::kCrossesNoCrossBoundary:
+      return CandidateDiagnosticCode::kCrossesNoCrossBoundary;
+    case BoundaryViolationKind::kEnclosesNoCrossInterval:
+      return CandidateDiagnosticCode::kEnclosesNoCrossInterval;
+    case BoundaryViolationKind::kAmbiguousIntervalBlocksCandidate:
+      return CandidateDiagnosticCode::kAmbiguousIntervalBlocksCandidate;
+    case BoundaryViolationKind::kNone:
+      break;
+  }
+  throw std::invalid_argument("invalid boundary violation kind");
+}
+
+CandidateKey build_candidate_key(const ProtectedSequence& sequence,
+                                 std::size_t begin,
+                                 std::size_t end) {
+  CandidateKey key;
+  key.symbols.reserve(end - begin);
+  for (std::size_t index = begin; index < end; ++index) {
+    key.symbols.push_back(sequence.token_at(index).symbol_id);
+  }
+  return key;
+}
+
+void remove_ambiguous_key_occurrences(CandidateScanResult& result) {
+  std::vector<CandidateKey> blocked_keys;
+  for (const CandidateDiagnostic& diagnostic : result.diagnostics) {
+    if (diagnostic.code ==
+        CandidateDiagnosticCode::kAmbiguousIntervalBlocksCandidate) {
+      blocked_keys.push_back(diagnostic.key);
+    }
+  }
+  if (blocked_keys.empty()) {
+    return;
+  }
+
+  std::sort(blocked_keys.begin(), blocked_keys.end());
+  blocked_keys.erase(std::unique(blocked_keys.begin(), blocked_keys.end()),
+                     blocked_keys.end());
+  result.occurrences.erase(
+      std::remove_if(result.occurrences.begin(), result.occurrences.end(),
+                     [&](const CandidateOccurrence& occurrence) {
+                       return std::binary_search(blocked_keys.begin(),
+                                                 blocked_keys.end(),
+                                                 occurrence.key);
+                     }),
+      result.occurrences.end());
+}
+
+}  // namespace
 
 CandidateScanResult scan_candidates_with_diagnostics(
     const ProtectedSequence& sequence,
@@ -29,20 +83,15 @@ CandidateScanResult scan_candidates_with_diagnostics(
     const std::size_t max_end =
         std::min(partition.read_end, begin + config.max_length);
     for (std::size_t end = begin + config.min_length; end <= max_end; ++end) {
-      const ProtectedIntervalId blocked_interval_id =
-          boundaries.first_no_cross_violation(begin, end);
-      if (blocked_interval_id.valid()) {
+      CandidateKey key = build_candidate_key(sequence, begin, end);
+      const BoundaryViolation violation = boundaries.first_violation(begin, end);
+      if (violation.valid()) {
         result.diagnostics.push_back(CandidateDiagnostic{
-            CandidateDiagnosticCode::kPartialNoCrossInterval, begin, end,
-            partition.id, blocked_interval_id});
+            diagnostic_code_from_violation(violation.kind), std::move(key),
+            begin, end, partition.id, violation.protected_interval_id});
         continue;
       }
 
-      CandidateKey key;
-      key.symbols.reserve(end - begin);
-      for (std::size_t index = begin; index < end; ++index) {
-        key.symbols.push_back(sequence.token_at(index).symbol_id);
-      }
       result.occurrences.push_back(
           CandidateOccurrence{std::move(key), begin, end, partition.id});
     }
@@ -93,6 +142,7 @@ CandidateScanResult scan_candidate_partitions_with_diagnostics(
         std::make_move_iterator(local.diagnostics.begin()),
         std::make_move_iterator(local.diagnostics.end()));
   }
+  remove_ambiguous_key_occurrences(result);
   return result;
 }
 

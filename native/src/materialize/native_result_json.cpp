@@ -98,6 +98,13 @@ void write_native_result_json(std::ostream& out,
   out << ",\n";
   out << "    \"path\": ";
   write_json_string(out, options.source_path);
+  out << ",\n";
+  out << "    \"fixture_id\": ";
+  if (options.fixture_id.empty()) {
+    out << "null";
+  } else {
+    write_json_string(out, options.fixture_id);
+  }
   out << "\n";
   out << "  },\n";
   out << "  \"threads\": " << options.thread_count << ",\n";
@@ -199,7 +206,28 @@ void write_native_result_json(std::ostream& out,
 
   out << "  \"diagnostics\": {\n";
   out << "    \"pattern_mining_count\": "
-      << result.pattern_mining_diagnostics.rows.size() << "\n";
+      << result.pattern_mining_diagnostics.rows.size() << ",\n";
+  out << "    \"pattern_mining_preview\": [\n";
+  const std::size_t diagnostic_preview_count =
+      std::min<std::size_t>(16, result.pattern_mining_diagnostics.rows.size());
+  for (std::size_t index = 0; index < diagnostic_preview_count; ++index) {
+    const CandidateDiagnostic& diagnostic =
+        result.pattern_mining_diagnostics.rows[index];
+    out << "      {\"code\": ";
+    write_json_string(out, candidate_diagnostic_code_name(diagnostic.code));
+    out << ", \"begin\": " << diagnostic.begin
+        << ", \"end\": " << diagnostic.end
+        << ", \"key\": ";
+    write_candidate_key(out, symbols, diagnostic.key);
+    out << ", \"partition_id\": " << diagnostic.partition_id.value()
+        << ", \"protected_interval_id\": "
+        << diagnostic.protected_interval_id.value() << "}";
+    if (index + 1 < diagnostic_preview_count) {
+      out << ",";
+    }
+    out << "\n";
+  }
+  out << "    ]\n";
   out << "  }\n";
   out << "}\n";
 }

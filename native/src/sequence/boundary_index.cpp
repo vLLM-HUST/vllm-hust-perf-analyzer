@@ -53,30 +53,56 @@ std::vector<ProtectedIntervalId> BoundaryIndex::intervals_covering(
 ProtectedIntervalId BoundaryIndex::first_no_cross_violation(
     std::size_t begin,
     std::size_t end) const {
+  const BoundaryViolation violation = first_violation(begin, end);
+  if (violation.kind == BoundaryViolationKind::kCrossesNoCrossBoundary ||
+      violation.kind == BoundaryViolationKind::kEnclosesNoCrossInterval) {
+    return violation.protected_interval_id;
+  }
+  return ProtectedIntervalId::invalid();
+}
+
+BoundaryViolation BoundaryIndex::first_violation(std::size_t begin,
+                                                 std::size_t end) const {
   if (begin >= end) {
-    return ProtectedIntervalId::invalid();
+    return BoundaryViolation{};
   }
   const std::size_t last = end - 1;
   for (const ProtectedIntervalSpan& interval : intervals_) {
-    if (interval.boundary_policy != BoundaryPolicy::kNoCross) {
-      continue;
-    }
-
     const bool overlaps = begin <= interval.last_token_index &&
                           last >= interval.first_token_index;
     if (!overlaps) {
       continue;
     }
 
+    if (interval.boundary_policy == BoundaryPolicy::kBlockAnyOverlap) {
+      return BoundaryViolation{
+          BoundaryViolationKind::kAmbiguousIntervalBlocksCandidate,
+          interval.id};
+    }
+
     const bool exact_cover = begin == interval.first_token_index &&
                              last == interval.last_token_index;
     const bool inside_interval = begin >= interval.first_token_index &&
                                  last <= interval.last_token_index;
-    if (!exact_cover && !inside_interval) {
-      return interval.id;
+    const bool strictly_encloses = begin < interval.first_token_index &&
+                                   last > interval.last_token_index;
+
+    if (inside_interval || exact_cover) {
+      continue;
+    }
+    if (strictly_encloses &&
+        interval.boundary_policy == BoundaryPolicy::kNoCross) {
+      return BoundaryViolation{
+          BoundaryViolationKind::kEnclosesNoCrossInterval, interval.id};
+    }
+    if (!strictly_encloses &&
+        (interval.boundary_policy == BoundaryPolicy::kNoCross ||
+         interval.boundary_policy == BoundaryPolicy::kAllowEnclosing)) {
+      return BoundaryViolation{
+          BoundaryViolationKind::kCrossesNoCrossBoundary, interval.id};
     }
   }
-  return ProtectedIntervalId::invalid();
+  return BoundaryViolation{};
 }
 
 bool BoundaryIndex::violates_no_cross_interval(std::size_t begin,

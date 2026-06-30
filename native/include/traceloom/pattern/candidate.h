@@ -29,11 +29,16 @@ struct CandidateOccurrence {
 };
 
 enum class CandidateDiagnosticCode {
-  kPartialNoCrossInterval,
+  kCrossesNoCrossBoundary,
+  kEnclosesNoCrossInterval,
+  kAmbiguousIntervalBlocksCandidate,
+  kPartialNoCrossInterval = kCrossesNoCrossBoundary,
 };
 
 struct CandidateDiagnostic {
-  CandidateDiagnosticCode code = CandidateDiagnosticCode::kPartialNoCrossInterval;
+  CandidateDiagnosticCode code =
+      CandidateDiagnosticCode::kCrossesNoCrossBoundary;
+  CandidateKey key;
   std::size_t begin = 0;
   std::size_t end = 0;
   PartitionId partition_id;
@@ -50,5 +55,7 @@ struct CandidateSummaryRow {
   std::size_t occurrence_count = 0;
   std::size_t first_begin = 0;
 };
+
+const char* candidate_diagnostic_code_name(CandidateDiagnosticCode code);
 
 }  // namespace traceloom

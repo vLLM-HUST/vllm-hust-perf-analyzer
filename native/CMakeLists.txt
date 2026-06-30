@@ -27,6 +27,7 @@ add_library(traceloom_native_core
   src/ir/task_table.cpp
   src/ir/token_table.cpp
   src/ir/trace_event_table.cpp
+  src/pattern/candidate.cpp
   src/pattern/candidate_reduce.cpp
   src/pattern/candidate_scan.cpp
   src/pattern/pattern_candidate_table.cpp
@@ -52,6 +53,7 @@ endif()
 
 add_library(traceloom_native_adapters
   src/adapters/fixture_adapter.cpp
+  src/adapters/protected_sequence_fixture_reader.cpp
 )
 
 target_link_libraries(traceloom_native_adapters PUBLIC traceloom_native_core)
@@ -120,6 +122,15 @@ if(TRACELOOM_NATIVE_ASCEND_SQLITE_AVAILABLE)
     traceloom_native_materialize
   )
 endif()
+
+add_executable(traceloom-native-analyze-fixture
+  src/tools/analyze_fixture_main.cpp
+)
+target_link_libraries(
+  traceloom-native-analyze-fixture PRIVATE
+  traceloom_native_adapters
+  traceloom_native_materialize
+)
 
 if(TRACELOOM_NATIVE_BUILD_TESTS)
   enable_testing()
@@ -227,6 +238,22 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
   add_test(
     NAME traceloom_native_fixture_adapter_tests
     COMMAND traceloom_native_fixture_adapter_tests
+  )
+
+  add_executable(traceloom_native_protected_sequence_fixture_reader_tests
+    tests/adapters/protected_sequence_fixture_reader_tests.cpp
+  )
+  target_compile_definitions(
+    traceloom_native_protected_sequence_fixture_reader_tests PRIVATE
+    TRACELOOM_WORKSPACE_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../.."
+  )
+  target_link_libraries(
+    traceloom_native_protected_sequence_fixture_reader_tests PRIVATE
+    traceloom_native_adapters
+  )
+  add_test(
+    NAME traceloom_native_protected_sequence_fixture_reader_tests
+    COMMAND traceloom_native_protected_sequence_fixture_reader_tests
   )
 
   if(TRACELOOM_NATIVE_ASCEND_SQLITE_AVAILABLE)

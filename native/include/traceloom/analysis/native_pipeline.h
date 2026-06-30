@@ -15,11 +15,18 @@
 
 namespace traceloom {
 
+enum class NativePipelineAnchorMode {
+  kBuildFlatAnchors,
+  kUseExistingAnchorsAndTokens,
+};
+
 struct NativePipelineOptions {
   std::size_t thread_count = 1;
   PartitionPlanConfig partition_config{4096, 3};
   CandidateScanConfig candidate_scan_config{2, 3};
   FlatAnchorBuildConfig anchor_config;
+  NativePipelineAnchorMode anchor_mode =
+      NativePipelineAnchorMode::kBuildFlatAnchors;
 };
 
 struct NativePipelineStats {

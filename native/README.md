@@ -42,6 +42,15 @@ The first shallow native analysis executable emits debug JSON using the
 This output is a candidate/debug surface. It is not the final TraceLoom report
 model and should not be consumed as report-stable semantics yet.
 
+Protected-sequence fixtures can run through the same native pipeline:
+
+```bash
+../build/traceloom-native/traceloom-native-analyze-fixture \
+  --fixture ../../drafts/refactor/80_tests_fixtures/fixtures/protected_sequence/f2_hard_replay_unit_boundary.json \
+  --threads 8 \
+  --out native_fixture_result.json
+```
+
 To test the build without SQLite support:
 
 ```bash
