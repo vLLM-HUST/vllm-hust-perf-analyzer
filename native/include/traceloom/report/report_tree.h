@@ -1,0 +1,97 @@
+#pragma once
+
+#include <cstdint>
+#include <string>
+#include <vector>
+
+#include "traceloom/core/diagnostics.h"
+#include "traceloom/core/ids.h"
+
+namespace traceloom {
+
+enum class ReportAnchorKind {
+  kExec,
+  kGraphH,
+  kGraphL,
+  kGraphT,
+  kGraphTemplate,
+  kCollective,
+  kUnknown,
+};
+
+enum class ReportNodeKind {
+  kSeq,
+  kRepeat,
+  kAtom,
+};
+
+struct ReportToken {
+  std::uint32_t ordinal = 0;
+  SymbolId symbol_id;
+  std::string display_op;
+  std::string display_category;
+  ReportAnchorKind anchor_kind = ReportAnchorKind::kUnknown;
+  AnchorId anchor_id;
+  std::int64_t start_ns = 0;
+  std::int64_t end_ns = 0;
+};
+
+struct ReportNodeDef {
+  ReportNodeDefId id;
+  std::string local_node_id;
+  ReportNodeKind kind = ReportNodeKind::kAtom;
+  std::string display_op;
+  std::string display_category;
+  SymbolId symbol_id;
+  std::uint32_t repeat_count = 0;
+  std::uint32_t definition_order = 0;
+  std::uint32_t display_depth = 0;
+  std::uint32_t loop_depth = 0;
+  std::string visibility_reason;
+};
+
+struct ReportNodeOccurrence {
+  ReportNodeOccurrenceId id;
+  ReportNodeDefId node_def_id;
+  ReportNodeOccurrenceId parent_occurrence_id;
+  std::uint32_t edge_order = 0;
+  std::uint32_t occurrence_index_for_def = 0;
+  std::uint32_t token_start_ordinal = 0;
+  std::uint32_t token_end_ordinal = 0;
+  std::uint32_t repeat_iteration = 0;
+};
+
+struct ReportTreeEdge {
+  ReportNodeOccurrenceId parent_occurrence_id;
+  ReportNodeOccurrenceId child_occurrence_id;
+  std::uint32_t edge_order = 0;
+};
+
+enum class ReportCoverageKind {
+  kDirectBody,
+  kAtomLeaf,
+};
+
+struct ReportNodeCoverage {
+  ReportNodeOccurrenceId node_occurrence_id;
+  std::uint32_t token_start_ordinal = 0;
+  std::uint32_t token_end_ordinal = 0;
+  ReportCoverageKind kind = ReportCoverageKind::kDirectBody;
+};
+
+struct ReportTree {
+  std::vector<ReportNodeDef> node_defs;
+  std::vector<ReportNodeOccurrence> occurrences;
+  std::vector<ReportTreeEdge> edges;
+  std::vector<ReportNodeCoverage> coverage;
+  std::vector<Diagnostic> diagnostics;
+};
+
+const ReportNodeDef& node_def(const ReportTree& tree, ReportNodeDefId id);
+const ReportNodeOccurrence& node_occurrence(const ReportTree& tree,
+                                            ReportNodeOccurrenceId id);
+
+std::size_t occurrence_count_for_def(const ReportTree& tree,
+                                     ReportNodeDefId id);
+
+}  // namespace traceloom

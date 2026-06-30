@@ -39,6 +39,8 @@ add_library(traceloom_native_core
   src/pattern/grammar_state.cpp
   src/pattern/pattern_candidate_table.cpp
   src/pattern/pattern_candidate_summary.cpp
+  src/report/report_tree.cpp
+  src/report/report_tree_builder.cpp
   src/runtime/thread_pool.cpp
   src/sequence/boundary_index.cpp
   src/sequence/partition_plan.cpp
@@ -294,6 +296,17 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
   add_test(
     NAME traceloom_native_pipeline_tests
     COMMAND traceloom_native_pipeline_tests
+  )
+
+  add_executable(traceloom_native_report_tree_builder_tests
+    tests/report/report_tree_builder_tests.cpp
+  )
+  target_link_libraries(
+    traceloom_native_report_tree_builder_tests PRIVATE traceloom_native_core
+  )
+  add_test(
+    NAME traceloom_native_report_tree_builder_tests
+    COMMAND traceloom_native_report_tree_builder_tests
   )
 
   add_executable(traceloom_native_result_json_tests

@@ -11,6 +11,7 @@ set(_core_dirs
   pattern
   graph
   cost
+  report
 )
 
 set(_forbidden_patterns
