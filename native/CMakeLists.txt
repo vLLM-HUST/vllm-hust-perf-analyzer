@@ -30,6 +30,8 @@ add_library(traceloom_native_core
   src/pattern/candidate.cpp
   src/pattern/candidate_reduce.cpp
   src/pattern/candidate_scan.cpp
+  src/pattern/grammar_modes.cpp
+  src/pattern/grammar_state.cpp
   src/pattern/pattern_candidate_table.cpp
   src/pattern/pattern_candidate_summary.cpp
   src/runtime/thread_pool.cpp
@@ -192,6 +194,18 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
   add_test(
     NAME traceloom_native_candidate_scan_tests
     COMMAND traceloom_native_candidate_scan_tests
+  )
+
+  add_executable(traceloom_native_grammar_state_tests
+    tests/pattern/grammar_state_tests.cpp
+  )
+  target_link_libraries(
+    traceloom_native_grammar_state_tests PRIVATE
+    traceloom_native_adapters
+  )
+  add_test(
+    NAME traceloom_native_grammar_state_tests
+    COMMAND traceloom_native_grammar_state_tests
   )
 
   add_executable(traceloom_native_flat_anchor_builder_tests

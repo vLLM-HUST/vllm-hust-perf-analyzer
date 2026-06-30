@@ -74,6 +74,9 @@ struct PatternIdTag {};
 struct OccurrenceIdTag {};
 struct LoopNodeIdTag {};
 struct PartitionIdTag {};
+struct GrammarNodeIdTag {};
+struct GrammarChunkIdTag {};
+struct MacroDefIdTag {};
 
 using SourceRefId = Id<SourceRefIdTag>;
 using TraceEventId = Id<TraceEventIdTag>;
@@ -93,5 +96,8 @@ using PatternId = Id<PatternIdTag>;
 using OccurrenceId = Id<OccurrenceIdTag>;
 using LoopNodeId = Id<LoopNodeIdTag>;
 using PartitionId = Id<PartitionIdTag>;
+using GrammarNodeId = Id<GrammarNodeIdTag>;
+using GrammarChunkId = Id<GrammarChunkIdTag>;
+using MacroDefId = Id<MacroDefIdTag>;
 
 }  // namespace traceloom
