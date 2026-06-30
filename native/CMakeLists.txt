@@ -56,6 +56,20 @@ add_library(traceloom_native_adapters
 
 target_link_libraries(traceloom_native_adapters PUBLIC traceloom_native_core)
 
+add_library(traceloom_native_materialize
+  src/materialize/native_result_json.cpp
+)
+
+target_link_libraries(traceloom_native_materialize PUBLIC traceloom_native_core)
+
+if(MSVC)
+  target_compile_options(traceloom_native_materialize PRIVATE /W4)
+else()
+  target_compile_options(
+    traceloom_native_materialize PRIVATE -Wall -Wextra -Wpedantic
+  )
+endif()
+
 if(TRACELOOM_NATIVE_ENABLE_ASCEND_SQLITE)
   find_package(SQLite3 QUIET)
   if(SQLite3_FOUND)
@@ -95,6 +109,15 @@ if(TRACELOOM_NATIVE_ASCEND_SQLITE_AVAILABLE)
   )
   target_link_libraries(
     traceloom-native-ascend-sqlite-inventory PRIVATE traceloom_native_adapters
+  )
+
+  add_executable(traceloom-native-analyze-db
+    src/tools/analyze_db_main.cpp
+  )
+  target_link_libraries(
+    traceloom-native-analyze-db PRIVATE
+    traceloom_native_adapters
+    traceloom_native_materialize
   )
 endif()
 
@@ -180,6 +203,19 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
   add_test(
     NAME traceloom_native_pipeline_tests
     COMMAND traceloom_native_pipeline_tests
+  )
+
+  add_executable(traceloom_native_result_json_tests
+    tests/materialize/native_result_json_tests.cpp
+  )
+  target_link_libraries(
+    traceloom_native_result_json_tests PRIVATE
+    traceloom_native_adapters
+    traceloom_native_materialize
+  )
+  add_test(
+    NAME traceloom_native_result_json_tests
+    COMMAND traceloom_native_result_json_tests
   )
 
   add_executable(traceloom_native_fixture_adapter_tests
