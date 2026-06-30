@@ -1,4 +1,5 @@
 #include "traceloom/adapters/fixture_adapter.h"
+#include "traceloom/pattern/grammar_apply.h"
 #include "traceloom/pattern/grammar_commit_plan.h"
 #include "traceloom/pattern/grammar_round.h"
 #include "traceloom/pattern/grammar_snapshot.h"
@@ -39,6 +40,21 @@ traceloom::GlobalGrammarState make_state(
 
 }  // namespace
 
+traceloom::GlobalGrammarState pair_compressed_state(
+    const std::vector<std::string>& symbols) {
+  traceloom::GlobalGrammarState state = make_state(symbols);
+  const traceloom::GrammarSnapshot snapshot =
+      traceloom::freeze_grammar_snapshot(state);
+  const traceloom::GrammarRoundResult round =
+      traceloom::run_pair_grammar_readonly_round(state);
+  const traceloom::GrammarCommitPlan plan =
+      traceloom::build_pair_grammar_commit_plan(snapshot, round.action);
+  const traceloom::GrammarApplyResult applied =
+      traceloom::apply_pair_grammar_commit_plan(state, plan);
+  traceloom::testing::require(applied.applied());
+  return state;
+}
+
 int main() {
   using namespace traceloom;
   using traceloom::testing::require;
@@ -70,6 +86,31 @@ int main() {
   require(pair_plan.replacement_spans[0].end_dense_index_exclusive == 2);
   require(pair_plan.replacement_spans[3].begin_dense_index == 6);
   require(pair_plan.replacement_spans[3].end_dense_index_exclusive == 8);
+
+  GlobalGrammarState macro_state =
+      pair_compressed_state({"A", "B", "A", "B", "C", "A",
+                             "B", "A", "B", "A", "B"});
+  const GrammarSnapshot macro_snapshot = freeze_grammar_snapshot(macro_state);
+  const GrammarRoundResult macro_round =
+      run_native_macro_run_readonly_round(macro_state);
+  const GrammarCommitPlan macro_plan =
+      build_native_macro_run_commit_plan(macro_snapshot, macro_round.action);
+  require(macro_plan.valid());
+  require(macro_plan.replacement_spans.size() == 2);
+  require(macro_plan.replacement_spans[0].begin_dense_index == 0);
+  require(macro_plan.replacement_spans[0].end_dense_index_exclusive == 2);
+  require(macro_plan.replacement_spans[1].begin_dense_index == 3);
+  require(macro_plan.replacement_spans[1].end_dense_index_exclusive == 6);
+
+  GrammarGlobalAction non_maximal_macro = macro_round.action;
+  non_maximal_macro.occurrences[0] = macro_round.action.occurrences[1];
+  non_maximal_macro.occurrences[0].begin_dense_index = 4;
+  non_maximal_macro.occurrences[0].begin_node_id = macro_snapshot.nodes[4].node_id;
+  const GrammarCommitPlan non_maximal_plan =
+      build_native_macro_run_commit_plan(macro_snapshot, non_maximal_macro);
+  require(!non_maximal_plan.valid());
+  require(non_maximal_plan.diagnostics[0].code ==
+          GrammarCommitDiagnosticCode::kReplacementSpanMismatch);
 
   GrammarGlobalAction stale = round.action;
   stale.snapshot_generation = 99;

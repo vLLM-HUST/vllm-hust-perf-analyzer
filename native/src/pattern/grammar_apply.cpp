@@ -168,6 +168,15 @@ SymbolId allocate_macro_symbol(GlobalGrammarState& state) {
   return symbol;
 }
 
+struct ReplacementMacroAssignment {
+  std::size_t run_len = 0;
+  MacroDefId macro_def_id;
+  SymbolId macro_symbol_id;
+  std::size_t replace_count = 0;
+  std::size_t gain = 0;
+  std::size_t first_dense_index = 0;
+};
+
 std::vector<SymbolId> rhs_for_action(const GrammarGlobalAction& action) {
   if (action.kind == GrammarActionKind::kReplacePair) {
     return {action.key.symbol_id, action.key.second_symbol_id};
@@ -180,6 +189,76 @@ MacroLevel macro_level_for_action(const GrammarGlobalAction& action) {
     return MacroLevel::kRP;
   }
   return MacroLevel::kLP;
+}
+
+GrammarCommitPlan revalidate_plan(const GrammarSnapshot& snapshot,
+                                  const GrammarGlobalAction& action,
+                                  GrammarActionKind expected_kind) {
+  switch (expected_kind) {
+    case GrammarActionKind::kReplacePair:
+      return build_pair_grammar_commit_plan(snapshot, action);
+    case GrammarActionKind::kCompressMaximalRuns:
+      return build_native_macro_run_commit_plan(snapshot, action);
+    case GrammarActionKind::kReplaceExactRuns:
+      return build_adjacent_run_commit_plan(snapshot, action);
+  }
+  return build_adjacent_run_commit_plan(snapshot, action);
+}
+
+ReplacementMacroAssignment* find_assignment(
+    std::vector<ReplacementMacroAssignment>& assignments,
+    std::size_t run_len) {
+  for (ReplacementMacroAssignment& assignment : assignments) {
+    if (assignment.run_len == run_len) {
+      return &assignment;
+    }
+  }
+  return nullptr;
+}
+
+std::vector<ReplacementMacroAssignment> allocate_macro_run_assignments(
+    GlobalGrammarState& next,
+    const GrammarCommitPlan& plan) {
+  std::vector<ReplacementMacroAssignment> assignments;
+  for (const GrammarReplacementSpan& span : plan.replacement_spans) {
+    const std::size_t run_len =
+        span.end_dense_index_exclusive - span.begin_dense_index;
+    ReplacementMacroAssignment* assignment =
+        find_assignment(assignments, run_len);
+    if (assignment == nullptr) {
+      const MacroDefId macro_def_id =
+          checked_next_id<MacroDefId>(next.macro_defs.size() +
+                                      assignments.size());
+      const SymbolId macro_symbol_id = allocate_macro_symbol(next);
+      assignments.push_back(ReplacementMacroAssignment{
+          run_len,
+          macro_def_id,
+          macro_symbol_id,
+          0,
+          0,
+          span.begin_dense_index});
+      assignment = &assignments.back();
+    }
+    assignment->replace_count += 1;
+    assignment->gain += run_len > 0 ? run_len - 1 : 0;
+    assignment->first_dense_index =
+        std::min(assignment->first_dense_index, span.begin_dense_index);
+  }
+
+  for (const ReplacementMacroAssignment& assignment : assignments) {
+    std::vector<SymbolId> rhs_symbols(assignment.run_len,
+                                      plan.action.key.symbol_id);
+    next.macro_defs.push_back(MacroDefRow{
+        assignment.macro_def_id,
+        assignment.macro_symbol_id,
+        MacroLevel::kLP,
+        rhs_symbols,
+        assignment.run_len,
+        assignment.replace_count,
+        static_cast<std::ptrdiff_t>(assignment.gain),
+        assignment.first_dense_index});
+  }
+  return assignments;
 }
 
 GrammarApplyResult apply_validated_commit_plan(
@@ -199,9 +278,7 @@ GrammarApplyResult apply_validated_commit_plan(
 
   const GrammarSnapshot snapshot = freeze_grammar_snapshot(state);
   const GrammarCommitPlan revalidated =
-      expected_kind == GrammarActionKind::kReplacePair
-          ? build_pair_grammar_commit_plan(snapshot, plan.action)
-          : build_adjacent_run_commit_plan(snapshot, plan.action);
+      revalidate_plan(snapshot, plan.action, expected_kind);
   if (!revalidated.valid() ||
       !replacement_spans_equal(revalidated.replacement_spans,
                                plan.replacement_spans)) {
@@ -210,19 +287,25 @@ GrammarApplyResult apply_validated_commit_plan(
   }
 
   GlobalGrammarState next = state;
-  const MacroDefId macro_def_id =
-      checked_next_id<MacroDefId>(next.macro_defs.size());
-  const SymbolId macro_symbol_id = allocate_macro_symbol(next);
-  std::vector<SymbolId> rhs_symbols = rhs_for_action(plan.action);
-  next.macro_defs.push_back(MacroDefRow{
-      macro_def_id,
-      macro_symbol_id,
-      macro_level_for_action(plan.action),
-      rhs_symbols,
-      rhs_symbols.size(),
-      plan.replacement_spans.size(),
-      static_cast<std::ptrdiff_t>(plan.action.gain),
-      plan.action.first_dense_index});
+  MacroDefId macro_def_id = MacroDefId::invalid();
+  SymbolId macro_symbol_id = SymbolId::invalid();
+  std::vector<ReplacementMacroAssignment> macro_run_assignments;
+  if (expected_kind == GrammarActionKind::kCompressMaximalRuns) {
+    macro_run_assignments = allocate_macro_run_assignments(next, plan);
+  } else {
+    macro_def_id = checked_next_id<MacroDefId>(next.macro_defs.size());
+    macro_symbol_id = allocate_macro_symbol(next);
+    std::vector<SymbolId> rhs_symbols = rhs_for_action(plan.action);
+    next.macro_defs.push_back(MacroDefRow{
+        macro_def_id,
+        macro_symbol_id,
+        macro_level_for_action(plan.action),
+        rhs_symbols,
+        rhs_symbols.size(),
+        plan.replacement_spans.size(),
+        static_cast<std::ptrdiff_t>(plan.action.gain),
+        plan.action.first_dense_index});
+  }
 
   std::vector<GrammarNode> rewritten_nodes;
   rewritten_nodes.reserve(snapshot.nodes.size());
@@ -234,10 +317,25 @@ GrammarApplyResult apply_validated_commit_plan(
             plan.replacement_spans[replacement_index].begin_dense_index) {
       const GrammarReplacementSpan& span =
           plan.replacement_spans[replacement_index];
+      MacroDefId replacement_macro_def_id = macro_def_id;
+      SymbolId replacement_macro_symbol_id = macro_symbol_id;
+      if (expected_kind == GrammarActionKind::kCompressMaximalRuns) {
+        const std::size_t run_len =
+            span.end_dense_index_exclusive - span.begin_dense_index;
+        const ReplacementMacroAssignment* assignment =
+            find_assignment(macro_run_assignments, run_len);
+        if (assignment == nullptr) {
+          reject(result,
+                 GrammarApplyDiagnosticCode::kCommitPlanRevalidationFailed);
+          return result;
+        }
+        replacement_macro_def_id = assignment->macro_def_id;
+        replacement_macro_symbol_id = assignment->macro_symbol_id;
+      }
       rewritten_nodes.push_back(GrammarNode{
           GrammarNodeId::invalid(),
-          macro_symbol_id,
-          macro_def_id,
+          replacement_macro_symbol_id,
+          replacement_macro_def_id,
           span.source_begin_token_index,
           span.source_end_token_index_exclusive,
           span.start_ns,
@@ -317,6 +415,13 @@ GrammarApplyResult apply_pair_grammar_commit_plan(
     const GrammarCommitPlan& plan) {
   return apply_validated_commit_plan(state, plan,
                                      GrammarActionKind::kReplacePair);
+}
+
+GrammarApplyResult apply_native_macro_run_commit_plan(
+    GlobalGrammarState& state,
+    const GrammarCommitPlan& plan) {
+  return apply_validated_commit_plan(state, plan,
+                                     GrammarActionKind::kCompressMaximalRuns);
 }
 
 }  // namespace traceloom

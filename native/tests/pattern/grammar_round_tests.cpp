@@ -1,5 +1,8 @@
 #include "traceloom/adapters/fixture_adapter.h"
+#include "traceloom/pattern/grammar_apply.h"
+#include "traceloom/pattern/grammar_commit_plan.h"
 #include "traceloom/pattern/grammar_round.h"
+#include "traceloom/pattern/grammar_snapshot.h"
 #include "traceloom/pattern/grammar_state.h"
 #include "traceloom/testing/test_util.h"
 
@@ -41,6 +44,25 @@ traceloom::GrammarRoundResult pair_round_for(
   config.worker_count = worker_count;
   return traceloom::run_pair_grammar_readonly_round(
       traceloom::build_initial_grammar_state(make_ir(symbols), config));
+}
+
+traceloom::GlobalGrammarState pair_compressed_state(
+    const std::vector<std::string>& symbols) {
+  traceloom::GrammarStateConfig config;
+  config.target_nodes_per_chunk = 2;
+  config.worker_count = 2;
+  traceloom::GlobalGrammarState state =
+      traceloom::build_initial_grammar_state(make_ir(symbols), config);
+  const traceloom::GrammarSnapshot snapshot =
+      traceloom::freeze_grammar_snapshot(state);
+  const traceloom::GrammarRoundResult round =
+      traceloom::run_pair_grammar_readonly_round(state);
+  const traceloom::GrammarCommitPlan plan =
+      traceloom::build_pair_grammar_commit_plan(snapshot, round.action);
+  const traceloom::GrammarApplyResult applied =
+      traceloom::apply_pair_grammar_commit_plan(state, plan);
+  traceloom::testing::require(applied.applied());
+  return state;
 }
 
 }  // namespace
@@ -122,6 +144,34 @@ int main() {
                      3, 2);
   require(pair_tie.status == GrammarRoundStatus::kActionSelected);
   require(pair_tie.action.first_dense_index == 0);
+
+  GlobalGrammarState macro_state =
+      pair_compressed_state({"A", "B", "A", "B", "C", "A",
+                             "B", "A", "B", "A", "B"});
+  const GrammarRoundResult macro_run =
+      run_native_macro_run_readonly_round(macro_state);
+  require(macro_run.status == GrammarRoundStatus::kActionSelected);
+  require(macro_run.producer_id == GrammarProducerId::kNativeMacroRun);
+  require(macro_run.action.kind == GrammarActionKind::kCompressMaximalRuns);
+  require(macro_run.action.key.producer_id == GrammarProducerId::kNativeMacroRun);
+  require(macro_run.action.key.run_len == 0);
+  require(macro_run.action.replace_count == 2);
+  require(macro_run.action.gain == 3);
+  require(macro_run.action.max_run_len == 3);
+  require(macro_run.action.first_dense_index == 0);
+  require(macro_run.action.occurrences.size() == 2);
+  require(macro_run.action.occurrences[0].begin_dense_index == 0);
+  require(macro_run.action.occurrences[0].end_dense_index_exclusive == 2);
+  require(macro_run.action.occurrences[1].begin_dense_index == 3);
+  require(macro_run.action.occurrences[1].end_dense_index_exclusive == 6);
+
+  const GrammarRoundResult macro_one_worker =
+      run_native_macro_run_readonly_round(pair_compressed_state(
+          {"A", "B", "A", "B", "C", "A", "B", "A", "B", "A", "B"}));
+  require(macro_one_worker.status == GrammarRoundStatus::kActionSelected);
+  require(macro_one_worker.action.key == macro_run.action.key);
+  require(macro_one_worker.action.gain == macro_run.action.gain);
+  require(macro_one_worker.action.max_run_len == macro_run.action.max_run_len);
 
   GlobalGrammarState state =
       build_initial_grammar_state(make_ir({"A", "A", "A"}));

@@ -65,4 +65,8 @@ GrammarCommitPlan build_pair_grammar_commit_plan(
     const GrammarSnapshot& snapshot,
     const GrammarGlobalAction& action);
 
+GrammarCommitPlan build_native_macro_run_commit_plan(
+    const GrammarSnapshot& snapshot,
+    const GrammarGlobalAction& action);
+
 }  // namespace traceloom

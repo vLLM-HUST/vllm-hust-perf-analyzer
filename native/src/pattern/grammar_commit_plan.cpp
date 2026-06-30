@@ -60,10 +60,6 @@ bool span_matches_action(const GrammarSnapshot& snapshot,
   if (occurrence.end_dense_index_exclusive <= occurrence.begin_dense_index) {
     return false;
   }
-  if (occurrence.end_dense_index_exclusive - occurrence.begin_dense_index !=
-      action.key.run_len) {
-    return false;
-  }
   if (snapshot.nodes[occurrence.begin_dense_index].node_id !=
       occurrence.begin_node_id) {
     return false;
@@ -73,6 +69,10 @@ bool span_matches_action(const GrammarSnapshot& snapshot,
     return false;
   }
   if (action.kind == GrammarActionKind::kReplacePair) {
+    if (occurrence.end_dense_index_exclusive - occurrence.begin_dense_index !=
+        action.key.run_len) {
+      return false;
+    }
     if (action.key.run_len != 2 ||
         occurrence.end_dense_index_exclusive !=
             occurrence.begin_dense_index + 2) {
@@ -82,6 +82,33 @@ bool span_matches_action(const GrammarSnapshot& snapshot,
                action.key.symbol_id &&
            snapshot.nodes[occurrence.begin_dense_index + 1].symbol_id ==
                action.key.second_symbol_id;
+  }
+  if (action.kind == GrammarActionKind::kCompressMaximalRuns) {
+    if (occurrence.end_dense_index_exclusive - occurrence.begin_dense_index <
+        2) {
+      return false;
+    }
+    if (occurrence.begin_dense_index > 0 &&
+        snapshot.nodes[occurrence.begin_dense_index - 1].symbol_id ==
+            action.key.symbol_id) {
+      return false;
+    }
+    if (occurrence.end_dense_index_exclusive < snapshot.nodes.size() &&
+        snapshot.nodes[occurrence.end_dense_index_exclusive].symbol_id ==
+            action.key.symbol_id) {
+      return false;
+    }
+    for (std::size_t dense_index = occurrence.begin_dense_index;
+         dense_index < occurrence.end_dense_index_exclusive; ++dense_index) {
+      if (snapshot.nodes[dense_index].symbol_id != action.key.symbol_id) {
+        return false;
+      }
+    }
+    return true;
+  }
+  if (occurrence.end_dense_index_exclusive - occurrence.begin_dense_index !=
+      action.key.run_len) {
+    return false;
   }
   for (std::size_t dense_index = occurrence.begin_dense_index;
        dense_index < occurrence.end_dense_index_exclusive; ++dense_index) {
@@ -231,6 +258,16 @@ GrammarCommitPlan build_pair_grammar_commit_plan(
     const GrammarGlobalAction& action) {
   if (action.kind != GrammarActionKind::kReplacePair ||
       action.key.producer_id != GrammarProducerId::kPairGrammar) {
+    return rejected_plan_for_action(snapshot, action);
+  }
+  return build_commit_plan_for_action(snapshot, action);
+}
+
+GrammarCommitPlan build_native_macro_run_commit_plan(
+    const GrammarSnapshot& snapshot,
+    const GrammarGlobalAction& action) {
+  if (action.kind != GrammarActionKind::kCompressMaximalRuns ||
+      action.key.producer_id != GrammarProducerId::kNativeMacroRun) {
     return rejected_plan_for_action(snapshot, action);
   }
   return build_commit_plan_for_action(snapshot, action);

@@ -13,6 +13,7 @@ namespace traceloom {
 enum class GrammarProducerId {
   kAdjacentRun,
   kPairGrammar,
+  kNativeMacroRun,
 };
 
 enum class GrammarRoundStatus {
@@ -24,6 +25,7 @@ enum class GrammarRoundStatus {
 enum class GrammarActionKind {
   kReplaceExactRuns,
   kReplacePair,
+  kCompressMaximalRuns,
 };
 
 struct GrammarCandidateKey {
@@ -79,6 +81,7 @@ struct GrammarCandidateStats {
   std::size_t occurrence_count = 0;
   std::size_t first_dense_index = 0;
   std::size_t gain = 0;
+  std::size_t max_run_len = 0;
 };
 
 struct GrammarGlobalAction {
@@ -88,6 +91,7 @@ struct GrammarGlobalAction {
   std::size_t replace_count = 0;
   std::size_t gain = 0;
   std::size_t first_dense_index = 0;
+  std::size_t max_run_len = 0;
   std::vector<GrammarCandidateOccurrence> occurrences;
 };
 
@@ -107,6 +111,9 @@ GrammarRoundResult run_adjacent_run_readonly_round(
     const GlobalGrammarState& state);
 
 GrammarRoundResult run_pair_grammar_readonly_round(
+    const GlobalGrammarState& state);
+
+GrammarRoundResult run_native_macro_run_readonly_round(
     const GlobalGrammarState& state);
 
 }  // namespace traceloom

@@ -141,5 +141,44 @@ int main() {
     require(node.macro_def_id == MacroDefId(0));
   }
 
+  GlobalGrammarState macro_state =
+      make_state({"A", "B", "A", "B", "C", "A", "B", "A", "B", "A", "B"});
+  const GrammarSnapshot macro_pair_snapshot =
+      freeze_grammar_snapshot(macro_state);
+  const GrammarRoundResult macro_pair_round =
+      run_pair_grammar_readonly_round(macro_state);
+  const GrammarCommitPlan macro_pair_plan =
+      build_pair_grammar_commit_plan(macro_pair_snapshot,
+                                     macro_pair_round.action);
+  const GrammarApplyResult macro_pair_applied =
+      apply_pair_grammar_commit_plan(macro_state, macro_pair_plan);
+  require(macro_pair_applied.applied());
+  const SymbolId first_lp_symbol = macro_state.next_macro_symbol_id;
+  const GrammarSnapshot macro_snapshot = freeze_grammar_snapshot(macro_state);
+  const GrammarRoundResult macro_round =
+      run_native_macro_run_readonly_round(macro_state);
+  const GrammarCommitPlan macro_plan =
+      build_native_macro_run_commit_plan(macro_snapshot, macro_round.action);
+  const GrammarApplyResult macro_applied =
+      apply_native_macro_run_commit_plan(macro_state, macro_plan);
+  require(macro_applied.applied());
+  require(macro_state.generation == 2);
+  require(macro_state.live_node_count == 3);
+  require(macro_state.macro_defs.size() == 3);
+  require(macro_state.macro_defs[1].level == MacroLevel::kLP);
+  require(macro_state.macro_defs[1].symbol_id == first_lp_symbol);
+  require(macro_state.macro_defs[1].rhs_symbols.size() == 2);
+  require(macro_state.macro_defs[1].replace_count == 1);
+  require(macro_state.macro_defs[1].gain == 1);
+  require(macro_state.macro_defs[1].first_pos == 0);
+  require(macro_state.macro_defs[2].level == MacroLevel::kLP);
+  require(macro_state.macro_defs[2].rhs_symbols.size() == 3);
+  require(macro_state.macro_defs[2].replace_count == 1);
+  require(macro_state.macro_defs[2].gain == 2);
+  require(macro_state.macro_defs[2].first_pos == 3);
+  require(macro_state.nodes[0].macro_def_id == MacroDefId(1));
+  require(macro_state.nodes[1].macro_def_id == MacroDefId::invalid());
+  require(macro_state.nodes[2].macro_def_id == MacroDefId(2));
+
   return 0;
 }
