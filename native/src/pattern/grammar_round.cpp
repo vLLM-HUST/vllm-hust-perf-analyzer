@@ -177,6 +177,7 @@ GrammarRoundResult run_adjacent_run_readonly_round(
 
   result.status = GrammarRoundStatus::kActionSelected;
   result.action.kind = GrammarActionKind::kReplaceExactRuns;
+  result.action.snapshot_generation = snapshot.generation;
   result.action.key = best->key;
   result.action.replace_count = best->occurrence_count;
   result.action.gain = best->gain;

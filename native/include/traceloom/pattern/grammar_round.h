@@ -75,6 +75,7 @@ struct GrammarCandidateStats {
 
 struct GrammarGlobalAction {
   GrammarActionKind kind = GrammarActionKind::kReplaceExactRuns;
+  std::uint64_t snapshot_generation = 0;
   GrammarCandidateKey key;
   std::size_t replace_count = 0;
   std::size_t gain = 0;
