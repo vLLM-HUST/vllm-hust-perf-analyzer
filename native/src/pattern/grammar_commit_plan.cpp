@@ -72,6 +72,17 @@ bool span_matches_action(const GrammarSnapshot& snapshot,
       occurrence.last_node_id) {
     return false;
   }
+  if (action.kind == GrammarActionKind::kReplacePair) {
+    if (action.key.run_len != 2 ||
+        occurrence.end_dense_index_exclusive !=
+            occurrence.begin_dense_index + 2) {
+      return false;
+    }
+    return snapshot.nodes[occurrence.begin_dense_index].symbol_id ==
+               action.key.symbol_id &&
+           snapshot.nodes[occurrence.begin_dense_index + 1].symbol_id ==
+               action.key.second_symbol_id;
+  }
   for (std::size_t dense_index = occurrence.begin_dense_index;
        dense_index < occurrence.end_dense_index_exclusive; ++dense_index) {
     if (snapshot.nodes[dense_index].symbol_id != action.key.symbol_id) {
@@ -107,24 +118,19 @@ void reject(GrammarCommitPlan& plan,
   plan.diagnostics.push_back(diagnostic);
 }
 
-}  // namespace
-
-const char* grammar_commit_diagnostic_code_name(
-    GrammarCommitDiagnosticCode code) {
-  switch (code) {
-    case GrammarCommitDiagnosticCode::kStaleSnapshotGeneration:
-      return "stale_snapshot_generation";
-    case GrammarCommitDiagnosticCode::kReplacementSpanMismatch:
-      return "replacement_span_mismatch";
-    case GrammarCommitDiagnosticCode::kOverlappingReplacementSpan:
-      return "overlapping_replacement_span";
-    case GrammarCommitDiagnosticCode::kProtectedIntervalViolation:
-      return "protected_interval_violation";
-  }
-  return "unknown";
+GrammarCommitPlan rejected_plan_for_action(const GrammarSnapshot& snapshot,
+                                           const GrammarGlobalAction& action) {
+  GrammarCommitPlan plan;
+  plan.status = GrammarCommitPlanStatus::kRejected;
+  plan.snapshot_generation = snapshot.generation;
+  plan.action = action;
+  plan.diagnostics.push_back(GrammarCommitDiagnostic{
+      GrammarCommitDiagnosticCode::kReplacementSpanMismatch, 0,
+      ProtectedIntervalId::invalid(), BoundaryViolationKind::kNone});
+  return plan;
 }
 
-GrammarCommitPlan build_adjacent_run_commit_plan(
+GrammarCommitPlan build_commit_plan_for_action(
     const GrammarSnapshot& snapshot,
     const GrammarGlobalAction& action) {
   GrammarCommitPlan plan;
@@ -191,6 +197,43 @@ GrammarCommitPlan build_adjacent_run_commit_plan(
     plan.replacement_spans.clear();
   }
   return plan;
+}
+
+}  // namespace
+
+const char* grammar_commit_diagnostic_code_name(
+    GrammarCommitDiagnosticCode code) {
+  switch (code) {
+    case GrammarCommitDiagnosticCode::kStaleSnapshotGeneration:
+      return "stale_snapshot_generation";
+    case GrammarCommitDiagnosticCode::kReplacementSpanMismatch:
+      return "replacement_span_mismatch";
+    case GrammarCommitDiagnosticCode::kOverlappingReplacementSpan:
+      return "overlapping_replacement_span";
+    case GrammarCommitDiagnosticCode::kProtectedIntervalViolation:
+      return "protected_interval_violation";
+  }
+  return "unknown";
+}
+
+GrammarCommitPlan build_adjacent_run_commit_plan(
+    const GrammarSnapshot& snapshot,
+    const GrammarGlobalAction& action) {
+  if (action.kind != GrammarActionKind::kReplaceExactRuns ||
+      action.key.producer_id != GrammarProducerId::kAdjacentRun) {
+    return rejected_plan_for_action(snapshot, action);
+  }
+  return build_commit_plan_for_action(snapshot, action);
+}
+
+GrammarCommitPlan build_pair_grammar_commit_plan(
+    const GrammarSnapshot& snapshot,
+    const GrammarGlobalAction& action) {
+  if (action.kind != GrammarActionKind::kReplacePair ||
+      action.key.producer_id != GrammarProducerId::kPairGrammar) {
+    return rejected_plan_for_action(snapshot, action);
+  }
+  return build_commit_plan_for_action(snapshot, action);
 }
 
 }  // namespace traceloom

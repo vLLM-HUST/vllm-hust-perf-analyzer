@@ -12,6 +12,7 @@ namespace traceloom {
 
 enum class GrammarProducerId {
   kAdjacentRun,
+  kPairGrammar,
 };
 
 enum class GrammarRoundStatus {
@@ -22,18 +23,22 @@ enum class GrammarRoundStatus {
 
 enum class GrammarActionKind {
   kReplaceExactRuns,
+  kReplacePair,
 };
 
 struct GrammarCandidateKey {
   GrammarProducerId producer_id = GrammarProducerId::kAdjacentRun;
   SymbolId symbol_id;
+  SymbolId second_symbol_id = SymbolId::invalid();
   std::size_t run_len = 0;
 };
 
 inline bool operator==(const GrammarCandidateKey& lhs,
                        const GrammarCandidateKey& rhs) noexcept {
   return lhs.producer_id == rhs.producer_id &&
-         lhs.symbol_id == rhs.symbol_id && lhs.run_len == rhs.run_len;
+         lhs.symbol_id == rhs.symbol_id &&
+         lhs.second_symbol_id == rhs.second_symbol_id &&
+         lhs.run_len == rhs.run_len;
 }
 
 inline bool operator<(const GrammarCandidateKey& lhs,
@@ -43,6 +48,9 @@ inline bool operator<(const GrammarCandidateKey& lhs,
   }
   if (lhs.symbol_id != rhs.symbol_id) {
     return lhs.symbol_id < rhs.symbol_id;
+  }
+  if (lhs.second_symbol_id != rhs.second_symbol_id) {
+    return lhs.second_symbol_id < rhs.second_symbol_id;
   }
   return lhs.run_len < rhs.run_len;
 }
@@ -96,6 +104,9 @@ struct GrammarRoundResult {
 const char* grammar_producer_id_name(GrammarProducerId producer_id);
 
 GrammarRoundResult run_adjacent_run_readonly_round(
+    const GlobalGrammarState& state);
+
+GrammarRoundResult run_pair_grammar_readonly_round(
     const GlobalGrammarState& state);
 
 }  // namespace traceloom

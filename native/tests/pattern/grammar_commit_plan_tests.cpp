@@ -57,6 +57,20 @@ int main() {
   require(plan.replacement_spans[0].source_end_token_index_exclusive == 2);
   require(plan.replacement_spans[0].owner_worker_id == 0);
 
+  GlobalGrammarState pair_state =
+      make_state({"A", "B", "A", "B", "A", "B", "A", "B"});
+  const GrammarSnapshot pair_snapshot = freeze_grammar_snapshot(pair_state);
+  const GrammarRoundResult pair_round =
+      run_pair_grammar_readonly_round(pair_state);
+  const GrammarCommitPlan pair_plan =
+      build_pair_grammar_commit_plan(pair_snapshot, pair_round.action);
+  require(pair_plan.valid());
+  require(pair_plan.replacement_spans.size() == 4);
+  require(pair_plan.replacement_spans[0].begin_dense_index == 0);
+  require(pair_plan.replacement_spans[0].end_dense_index_exclusive == 2);
+  require(pair_plan.replacement_spans[3].begin_dense_index == 6);
+  require(pair_plan.replacement_spans[3].end_dense_index_exclusive == 8);
+
   GrammarGlobalAction stale = round.action;
   stale.snapshot_generation = 99;
   const GrammarCommitPlan stale_plan =

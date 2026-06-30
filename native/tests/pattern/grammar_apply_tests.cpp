@@ -117,5 +117,29 @@ int main() {
   require(invalid_state.generation == 0);
   require(invalid_state.macro_defs.empty());
 
+  GlobalGrammarState pair_state =
+      make_state({"A", "B", "A", "B", "A", "B", "A", "B"});
+  const SymbolId pair_macro_symbol = pair_state.next_macro_symbol_id;
+  const GrammarSnapshot pair_snapshot = freeze_grammar_snapshot(pair_state);
+  const GrammarRoundResult pair_round =
+      run_pair_grammar_readonly_round(pair_state);
+  const GrammarCommitPlan pair_plan =
+      build_pair_grammar_commit_plan(pair_snapshot, pair_round.action);
+  const GrammarApplyResult pair_applied =
+      apply_pair_grammar_commit_plan(pair_state, pair_plan);
+  require(pair_applied.applied());
+  require(pair_state.generation == 1);
+  require(pair_state.live_node_count == 4);
+  require(pair_state.macro_defs.size() == 1);
+  require(pair_state.macro_defs[0].level == MacroLevel::kRP);
+  require(pair_state.macro_defs[0].symbol_id == pair_macro_symbol);
+  require(pair_state.macro_defs[0].rhs_symbols.size() == 2);
+  require(pair_state.macro_defs[0].replace_count == 4);
+  require(pair_state.macro_defs[0].gain == 1);
+  for (const GrammarNode& node : pair_state.nodes) {
+    require(node.symbol_id == pair_macro_symbol);
+    require(node.macro_def_id == MacroDefId(0));
+  }
+
   return 0;
 }

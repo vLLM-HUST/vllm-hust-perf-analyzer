@@ -40,4 +40,8 @@ GrammarApplyResult apply_adjacent_run_commit_plan(
     GlobalGrammarState& state,
     const GrammarCommitPlan& plan);
 
+GrammarApplyResult apply_pair_grammar_commit_plan(
+    GlobalGrammarState& state,
+    const GrammarCommitPlan& plan);
+
 }  // namespace traceloom

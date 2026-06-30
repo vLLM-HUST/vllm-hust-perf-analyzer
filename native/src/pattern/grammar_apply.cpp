@@ -168,30 +168,26 @@ SymbolId allocate_macro_symbol(GlobalGrammarState& state) {
   return symbol;
 }
 
-}  // namespace
-
-const char* grammar_apply_diagnostic_code_name(
-    GrammarApplyDiagnosticCode code) {
-  switch (code) {
-    case GrammarApplyDiagnosticCode::kInvalidCommitPlan:
-      return "invalid_commit_plan";
-    case GrammarApplyDiagnosticCode::kStaleStateGeneration:
-      return "stale_state_generation";
-    case GrammarApplyDiagnosticCode::kCommitPlanRevalidationFailed:
-      return "commit_plan_revalidation_failed";
-    case GrammarApplyDiagnosticCode::kProtectedIntervalMappingFailed:
-      return "protected_interval_mapping_failed";
-    case GrammarApplyDiagnosticCode::kNoProgress:
-      return "no_progress";
+std::vector<SymbolId> rhs_for_action(const GrammarGlobalAction& action) {
+  if (action.kind == GrammarActionKind::kReplacePair) {
+    return {action.key.symbol_id, action.key.second_symbol_id};
   }
-  return "unknown";
+  return std::vector<SymbolId>(action.key.run_len, action.key.symbol_id);
 }
 
-GrammarApplyResult apply_adjacent_run_commit_plan(
+MacroLevel macro_level_for_action(const GrammarGlobalAction& action) {
+  if (action.kind == GrammarActionKind::kReplacePair) {
+    return MacroLevel::kRP;
+  }
+  return MacroLevel::kLP;
+}
+
+GrammarApplyResult apply_validated_commit_plan(
     GlobalGrammarState& state,
-    const GrammarCommitPlan& plan) {
+    const GrammarCommitPlan& plan,
+    GrammarActionKind expected_kind) {
   GrammarApplyResult result;
-  if (!plan.valid()) {
+  if (!plan.valid() || plan.action.kind != expected_kind) {
     reject(result, GrammarApplyDiagnosticCode::kInvalidCommitPlan);
     return result;
   }
@@ -203,7 +199,9 @@ GrammarApplyResult apply_adjacent_run_commit_plan(
 
   const GrammarSnapshot snapshot = freeze_grammar_snapshot(state);
   const GrammarCommitPlan revalidated =
-      build_adjacent_run_commit_plan(snapshot, plan.action);
+      expected_kind == GrammarActionKind::kReplacePair
+          ? build_pair_grammar_commit_plan(snapshot, plan.action)
+          : build_adjacent_run_commit_plan(snapshot, plan.action);
   if (!revalidated.valid() ||
       !replacement_spans_equal(revalidated.replacement_spans,
                                plan.replacement_spans)) {
@@ -215,14 +213,13 @@ GrammarApplyResult apply_adjacent_run_commit_plan(
   const MacroDefId macro_def_id =
       checked_next_id<MacroDefId>(next.macro_defs.size());
   const SymbolId macro_symbol_id = allocate_macro_symbol(next);
-  std::vector<SymbolId> rhs_symbols(plan.action.key.run_len,
-                                    plan.action.key.symbol_id);
+  std::vector<SymbolId> rhs_symbols = rhs_for_action(plan.action);
   next.macro_defs.push_back(MacroDefRow{
       macro_def_id,
       macro_symbol_id,
-      MacroLevel::kLP,
+      macro_level_for_action(plan.action),
       rhs_symbols,
-      plan.action.key.run_len,
+      rhs_symbols.size(),
       plan.replacement_spans.size(),
       static_cast<std::ptrdiff_t>(plan.action.gain),
       plan.action.first_dense_index});
@@ -287,6 +284,39 @@ GrammarApplyResult apply_adjacent_run_commit_plan(
   state = std::move(next);
   result.status = GrammarApplyStatus::kApplied;
   return result;
+}
+
+}  // namespace
+
+const char* grammar_apply_diagnostic_code_name(
+    GrammarApplyDiagnosticCode code) {
+  switch (code) {
+    case GrammarApplyDiagnosticCode::kInvalidCommitPlan:
+      return "invalid_commit_plan";
+    case GrammarApplyDiagnosticCode::kStaleStateGeneration:
+      return "stale_state_generation";
+    case GrammarApplyDiagnosticCode::kCommitPlanRevalidationFailed:
+      return "commit_plan_revalidation_failed";
+    case GrammarApplyDiagnosticCode::kProtectedIntervalMappingFailed:
+      return "protected_interval_mapping_failed";
+    case GrammarApplyDiagnosticCode::kNoProgress:
+      return "no_progress";
+  }
+  return "unknown";
+}
+
+GrammarApplyResult apply_adjacent_run_commit_plan(
+    GlobalGrammarState& state,
+    const GrammarCommitPlan& plan) {
+  return apply_validated_commit_plan(state, plan,
+                                     GrammarActionKind::kReplaceExactRuns);
+}
+
+GrammarApplyResult apply_pair_grammar_commit_plan(
+    GlobalGrammarState& state,
+    const GrammarCommitPlan& plan) {
+  return apply_validated_commit_plan(state, plan,
+                                     GrammarActionKind::kReplacePair);
 }
 
 }  // namespace traceloom

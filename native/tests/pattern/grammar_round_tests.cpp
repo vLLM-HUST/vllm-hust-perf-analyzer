@@ -32,6 +32,17 @@ traceloom::GrammarRoundResult round_for(
       traceloom::build_initial_grammar_state(make_ir(symbols), config));
 }
 
+traceloom::GrammarRoundResult pair_round_for(
+    const std::vector<std::string>& symbols,
+    std::size_t target_nodes_per_chunk,
+    std::size_t worker_count) {
+  traceloom::GrammarStateConfig config;
+  config.target_nodes_per_chunk = target_nodes_per_chunk;
+  config.worker_count = worker_count;
+  return traceloom::run_pair_grammar_readonly_round(
+      traceloom::build_initial_grammar_state(make_ir(symbols), config));
+}
+
 }  // namespace
 
 int main() {
@@ -78,6 +89,39 @@ int main() {
   require(stop.status == GrammarRoundStatus::kStop);
   require(stop.occurrences.empty());
   require(stop.candidate_stats.empty());
+
+  const GrammarRoundResult pair =
+      pair_round_for({"A", "B", "A", "B", "A", "B", "A", "B"}, 3, 2);
+  require(pair.status == GrammarRoundStatus::kActionSelected);
+  require(pair.producer_id == GrammarProducerId::kPairGrammar);
+  require(pair.action.kind == GrammarActionKind::kReplacePair);
+  require(pair.action.key.run_len == 2);
+  require(pair.action.replace_count == 4);
+  require(pair.action.gain == 1);
+  require(pair.action.first_dense_index == 0);
+  require(pair.action.occurrences.size() == 4);
+  require(pair.action.occurrences[0].begin_dense_index == 0);
+  require(pair.action.occurrences[3].begin_dense_index == 6);
+
+  const GrammarRoundResult pair_one_worker =
+      pair_round_for({"A", "B", "A", "B", "A", "B", "A", "B"}, 3, 1);
+  require(pair_one_worker.status == GrammarRoundStatus::kActionSelected);
+  require(pair_one_worker.action.key == pair.action.key);
+  require(pair_one_worker.action.replace_count == pair.action.replace_count);
+  require(pair_one_worker.action.gain == pair.action.gain);
+  require(pair_one_worker.action.first_dense_index ==
+          pair.action.first_dense_index);
+
+  const GrammarRoundResult pair_stop =
+      pair_round_for({"A", "B", "A", "B", "A", "B"}, 3, 2);
+  require(pair_stop.status == GrammarRoundStatus::kStop);
+
+  const GrammarRoundResult pair_tie =
+      pair_round_for({"A", "B", "C", "D", "A", "B", "C", "D",
+                      "A", "B", "C", "D", "A", "B", "C", "D"},
+                     3, 2);
+  require(pair_tie.status == GrammarRoundStatus::kActionSelected);
+  require(pair_tie.action.first_dense_index == 0);
 
   GlobalGrammarState state =
       build_initial_grammar_state(make_ir({"A", "A", "A"}));
