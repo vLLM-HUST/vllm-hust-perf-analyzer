@@ -48,6 +48,7 @@ struct GrammarNode {
 
 struct MacroDefRow {
   MacroDefId id;
+  SymbolId symbol_id;
   MacroLevel level = MacroLevel::kRP;
   std::vector<SymbolId> rhs_symbols;
   std::size_t definition_len = 0;
@@ -93,6 +94,9 @@ struct GlobalGrammarState {
   std::vector<MacroDefRow> macro_defs;
   std::vector<ProtectedIntervalSpan> protected_intervals;
   std::size_t live_node_count = 0;
+  SymbolId next_macro_symbol_id;
+  std::size_t target_nodes_per_chunk = 4096;
+  std::size_t worker_count = 1;
 };
 
 GlobalGrammarState build_initial_grammar_state(

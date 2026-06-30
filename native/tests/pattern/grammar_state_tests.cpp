@@ -83,6 +83,9 @@ int main() {
   require(state.boundary_summaries.size() == 3);
   require(state.protected_intervals.size() == 1);
   require(state.macro_defs.empty());
+  require(state.next_macro_symbol_id.value() == 3);
+  require(state.target_nodes_per_chunk == 2);
+  require(state.worker_count == 3);
 
   require(state.metadata.mode == GrammarAlgorithmMode::kAnalysisQualityV1);
   require(std::string(grammar_algorithm_mode_name(state.metadata.mode)) ==

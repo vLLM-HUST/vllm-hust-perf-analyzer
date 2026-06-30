@@ -1,6 +1,7 @@
 #include "traceloom/pattern/grammar_state.h"
 
 #include <algorithm>
+#include <limits>
 #include <stdexcept>
 
 #include "traceloom/sequence/protected_sequence.h"
@@ -75,10 +76,16 @@ GlobalGrammarState build_initial_grammar_state(
   state.generation = 0;
   state.live_node_count = sequence.size();
   state.protected_intervals = boundary_index.intervals();
+  state.target_nodes_per_chunk = config.target_nodes_per_chunk;
+  state.worker_count = config.worker_count;
 
+  SymbolId::value_type max_symbol_value = 0;
   state.nodes.reserve(sequence.size());
   for (std::size_t index = 0; index < sequence.size(); ++index) {
     const ProtectedSequenceToken& token = sequence.token_at(index);
+    if (token.symbol_id.valid()) {
+      max_symbol_value = std::max(max_symbol_value, token.symbol_id.value());
+    }
     const auto node_id = checked_next_id<GrammarNodeId>(state.nodes.size());
     state.nodes.push_back(GrammarNode{
         node_id,
@@ -93,6 +100,10 @@ GlobalGrammarState build_initial_grammar_state(
         GrammarNodeId::invalid(),
         true});
   }
+  if (max_symbol_value == std::numeric_limits<SymbolId::value_type>::max()) {
+    throw std::overflow_error("symbol id space exhausted");
+  }
+  state.next_macro_symbol_id = SymbolId(max_symbol_value + 1);
 
   for (std::size_t begin = 0; begin < sequence.size();
        begin += config.target_nodes_per_chunk) {
