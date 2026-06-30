@@ -2,9 +2,11 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <map>
 #include <stdexcept>
 #include <string>
 #include <unordered_set>
+#include <utility>
 
 namespace traceloom {
 namespace {
@@ -108,7 +110,89 @@ void append_atom_occurrence(ReportTree& tree,
   (void)token;
 }
 
+const ReportToken& exemplar_for_symbol(const std::vector<ReportToken>& tokens,
+                                       SymbolId symbol_id) {
+  const auto found = std::find_if(
+      tokens.begin(), tokens.end(), [symbol_id](const ReportToken& token) {
+        return token.symbol_id == symbol_id;
+      });
+  if (found == tokens.end()) {
+    throw std::invalid_argument("grammar references a missing token symbol");
+  }
+  return *found;
+}
+
+std::map<std::string, ReportMacroDefinition> macro_map(
+    const ReportGrammarEvidence& grammar) {
+  std::map<std::string, ReportMacroDefinition> out;
+  for (const ReportMacroDefinition& macro : grammar.macros) {
+    if (macro.macro_name.empty()) {
+      throw std::invalid_argument("macro name is empty");
+    }
+    if (macro.body_symbols.empty()) {
+      throw std::invalid_argument("macro body is empty");
+    }
+    const auto inserted = out.emplace(macro.macro_name, macro);
+    if (!inserted.second) {
+      throw std::invalid_argument("duplicate macro name");
+    }
+  }
+  return out;
+}
+
+std::vector<SymbolId> expand_item_symbols(
+    const ReportGrammarItem& item,
+    const std::map<std::string, ReportMacroDefinition>& macros) {
+  if (item.kind == ReportGrammarItemKind::kSymbol) {
+    return {item.symbol_id};
+  }
+  const auto found = macros.find(item.macro_name);
+  if (found == macros.end()) {
+    throw std::invalid_argument("final sequence references unknown macro");
+  }
+  return found->second.body_symbols;
+}
+
+void ensure_symbols_match_tokens(const std::vector<ReportToken>& tokens,
+                                 std::uint32_t cursor,
+                                 const std::vector<SymbolId>& symbols) {
+  if (cursor + symbols.size() > tokens.size()) {
+    throw std::invalid_argument("grammar expansion exceeds token sequence");
+  }
+  for (std::size_t i = 0; i < symbols.size(); ++i) {
+    if (tokens[cursor + i].symbol_id != symbols[i]) {
+      throw std::invalid_argument("grammar expansion does not match tokens");
+    }
+  }
+}
+
+ReportNodeDefId append_atom_def_for_symbol(ReportTree& tree,
+                                           const std::vector<ReportToken>& tokens,
+                                           SymbolId symbol_id,
+                                           std::uint32_t display_depth,
+                                           std::uint32_t loop_depth,
+                                           std::string reason) {
+  const ReportToken& token = exemplar_for_symbol(tokens, symbol_id);
+  return append_def(tree, ReportNodeKind::kAtom, token.display_op,
+                    token.display_category, token.symbol_id, 0, display_depth,
+                    loop_depth, std::move(reason));
+}
+
 }  // namespace
+
+ReportGrammarItem ReportGrammarItem::symbol(SymbolId symbol_id) {
+  ReportGrammarItem item;
+  item.kind = ReportGrammarItemKind::kSymbol;
+  item.symbol_id = symbol_id;
+  return item;
+}
+
+ReportGrammarItem ReportGrammarItem::macro(std::string macro_name) {
+  ReportGrammarItem item;
+  item.kind = ReportGrammarItemKind::kMacro;
+  item.macro_name = std::move(macro_name);
+  return item;
+}
 
 ReportTree build_report_tree_from_tokens(const std::vector<ReportToken>& tokens,
                                          ReportTreeBuildConfig config) {
@@ -169,6 +253,134 @@ ReportTree build_report_tree_from_tokens(const std::vector<ReportToken>& tokens,
     i = run_end;
   }
 
+  validate_report_tree_or_throw(tree, static_cast<std::uint32_t>(tokens.size()));
+  return tree;
+}
+
+ReportTree build_report_tree_from_grammar(const std::vector<ReportToken>& tokens,
+                                          const ReportGrammarEvidence& grammar,
+                                          ReportTreeBuildConfig config) {
+  if (grammar.final_sequence.empty()) {
+    return build_report_tree_from_tokens(tokens, config);
+  }
+
+  const std::map<std::string, ReportMacroDefinition> macros = macro_map(grammar);
+  ReportTree tree;
+  const ReportNodeDefId root_def =
+      append_def(tree, ReportNodeKind::kSeq, "Seq", "", SymbolId::invalid(), 0,
+                 0, 0, "root");
+  const ReportNodeOccurrenceId root_occurrence = append_occurrence(
+      tree, root_def, ReportNodeOccurrenceId::invalid(), 0, 0,
+      static_cast<std::uint32_t>(tokens.size()), 0);
+  append_coverage(tree, root_occurrence, 0,
+                  static_cast<std::uint32_t>(tokens.size()),
+                  ReportCoverageKind::kDirectBody);
+
+  std::uint32_t cursor = 0;
+  std::uint32_t edge_order = 1;
+  for (std::size_t i = 0; i < grammar.final_sequence.size();) {
+    const ReportGrammarItem& item = grammar.final_sequence[i];
+    if (item.kind == ReportGrammarItemKind::kMacro) {
+      const auto found = macros.find(item.macro_name);
+      if (found == macros.end()) {
+        throw std::invalid_argument("final sequence references unknown macro");
+      }
+      const ReportMacroDefinition& macro = found->second;
+      std::size_t run_end = i + 1;
+      while (run_end < grammar.final_sequence.size() &&
+             grammar.final_sequence[run_end].kind ==
+                 ReportGrammarItemKind::kMacro &&
+             grammar.final_sequence[run_end].macro_name == item.macro_name) {
+        ++run_end;
+      }
+      const std::uint32_t run_len = static_cast<std::uint32_t>(run_end - i);
+      const std::uint32_t body_len =
+          static_cast<std::uint32_t>(macro.body_symbols.size());
+      const std::uint32_t start = cursor;
+      const std::uint32_t end = cursor + run_len * body_len;
+      for (std::uint32_t repeat_idx = 0; repeat_idx < run_len; ++repeat_idx) {
+        ensure_symbols_match_tokens(tokens, cursor, macro.body_symbols);
+        cursor += body_len;
+      }
+
+      if (macro.visibility == ReportMacroVisibility::kKeepRepeat &&
+          run_len >= config.min_run_length) {
+        const ReportNodeDefId repeat_def = append_def(
+            tree, ReportNodeKind::kRepeat, "Rep x" + std::to_string(run_len),
+            "", SymbolId::invalid(), run_len, 1, 1, "macro_run");
+        const ReportNodeOccurrenceId repeat_occurrence = append_occurrence(
+            tree, repeat_def, root_occurrence, edge_order++, start, end, 0);
+        append_coverage(tree, repeat_occurrence, start, end,
+                        ReportCoverageKind::kDirectBody);
+
+        const ReportNodeDefId body_def =
+            append_def(tree, ReportNodeKind::kSeq, "Seq", "",
+                       SymbolId::invalid(), 0, 2, 1, "macro_body");
+        std::vector<ReportNodeDefId> atom_defs;
+        atom_defs.reserve(macro.body_symbols.size());
+        for (SymbolId symbol_id : macro.body_symbols) {
+          atom_defs.push_back(append_atom_def_for_symbol(
+              tree, tokens, symbol_id, 3, 1, "macro_body_atom"));
+        }
+
+        std::uint32_t body_start = start;
+        for (std::uint32_t repeat_idx = 0; repeat_idx < run_len; ++repeat_idx) {
+          const ReportNodeOccurrenceId body_occurrence = append_occurrence(
+              tree, body_def, repeat_occurrence, repeat_idx + 1, body_start,
+              body_start + body_len, repeat_idx + 1);
+          append_coverage(tree, body_occurrence, body_start,
+                          body_start + body_len,
+                          ReportCoverageKind::kDirectBody);
+          for (std::uint32_t body_offset = 0; body_offset < body_len;
+               ++body_offset) {
+            append_atom_occurrence(tree, tokens[body_start + body_offset],
+                                   body_occurrence, body_offset + 1,
+                                   body_start + body_offset, repeat_idx + 1,
+                                   atom_defs[body_offset]);
+          }
+          body_start += body_len;
+        }
+      } else {
+        if (run_len == 1) {
+          tree.diagnostics.push_back(Diagnostic{
+              DiagnosticSeverity::kWarning,
+              "macro_inlined_single_visible_reference",
+              "macro was inlined because it has one visible reference"});
+        }
+        for (std::uint32_t repeat_idx = 0; repeat_idx < run_len; ++repeat_idx) {
+          const std::uint32_t inline_start = start + repeat_idx * body_len;
+          for (std::uint32_t body_offset = 0; body_offset < body_len;
+               ++body_offset) {
+            const ReportToken& token = tokens[inline_start + body_offset];
+            const ReportNodeDefId atom_def = append_def(
+                tree, ReportNodeKind::kAtom, token.display_op,
+                token.display_category, token.symbol_id, 0, 1, 0,
+                "inlined_macro_atom");
+            append_atom_occurrence(tree, token, root_occurrence, edge_order++,
+                                   inline_start + body_offset, 0, atom_def);
+          }
+        }
+      }
+
+      i = run_end;
+      continue;
+    }
+
+    const std::vector<SymbolId> item_symbols = expand_item_symbols(item, macros);
+    ensure_symbols_match_tokens(tokens, cursor, item_symbols);
+    const ReportToken& token = tokens[cursor];
+    const ReportNodeDefId atom_def = append_def(
+        tree, ReportNodeKind::kAtom, token.display_op, token.display_category,
+        token.symbol_id, 0, 1, 0, "grammar_symbol");
+    append_atom_occurrence(tree, token, root_occurrence, edge_order++, cursor, 0,
+                           atom_def);
+    ++cursor;
+    ++i;
+  }
+
+  if (cursor != tokens.size()) {
+    throw std::invalid_argument("grammar expansion did not consume all tokens");
+  }
   validate_report_tree_or_throw(tree, static_cast<std::uint32_t>(tokens.size()));
   return tree;
 }
