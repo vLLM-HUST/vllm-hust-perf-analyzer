@@ -42,13 +42,29 @@ The first shallow native analysis executable emits debug JSON using the
 This output is a candidate/debug surface. It is not the final TraceLoom report
 model and should not be consumed as report-stable semantics yet.
 
+The same tool can optionally emit the Phase 5A grammar state-machine debug
+surface as a separate JSON document:
+
+```bash
+../build/traceloom-native/traceloom-native-analyze-db \
+  --source-db ../examples/kickstart_smoke/msprof_raw/.../msprof_*.db \
+  --threads 8 \
+  --out native_result.json \
+  --grammar-debug-out native_grammar_debug.json
+```
+
+The grammar debug output records the algorithm mode, producer sequence, known
+native-v1 deltas, engine steps, macro definitions, and final compressed
+sequence. It is not the final `PatternModel`.
+
 Protected-sequence fixtures can run through the same native pipeline:
 
 ```bash
 ../build/traceloom-native/traceloom-native-analyze-fixture \
   --fixture ../../drafts/refactor/80_tests_fixtures/fixtures/protected_sequence/f2_hard_replay_unit_boundary.json \
   --threads 8 \
-  --out native_fixture_result.json
+  --out native_fixture_result.json \
+  --grammar-debug-out native_fixture_grammar_debug.json
 ```
 
 To test the build without SQLite support:

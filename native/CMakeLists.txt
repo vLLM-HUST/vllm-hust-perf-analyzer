@@ -66,6 +66,7 @@ add_library(traceloom_native_adapters
 target_link_libraries(traceloom_native_adapters PUBLIC traceloom_native_core)
 
 add_library(traceloom_native_materialize
+  src/materialize/grammar_debug_json.cpp
   src/materialize/native_result_json.cpp
 )
 
@@ -306,6 +307,19 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
   add_test(
     NAME traceloom_native_result_json_tests
     COMMAND traceloom_native_result_json_tests
+  )
+
+  add_executable(traceloom_native_grammar_debug_json_tests
+    tests/materialize/grammar_debug_json_tests.cpp
+  )
+  target_link_libraries(
+    traceloom_native_grammar_debug_json_tests PRIVATE
+    traceloom_native_adapters
+    traceloom_native_materialize
+  )
+  add_test(
+    NAME traceloom_native_grammar_debug_json_tests
+    COMMAND traceloom_native_grammar_debug_json_tests
   )
 
   add_executable(traceloom_native_fixture_adapter_tests

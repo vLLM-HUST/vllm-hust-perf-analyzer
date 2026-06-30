@@ -11,7 +11,10 @@
 #include "traceloom/adapters/ascend_sqlite_adapter.h"
 #include "traceloom/analysis/native_pipeline.h"
 #include "traceloom/ir/native_ir.h"
+#include "traceloom/materialize/grammar_debug_json.h"
 #include "traceloom/materialize/native_result_json.h"
+#include "traceloom/pattern/grammar_engine.h"
+#include "traceloom/pattern/grammar_state.h"
 
 namespace {
 
@@ -32,6 +35,7 @@ class Stopwatch {
 struct CliOptions {
   std::string source_db;
   std::string out_path = "-";
+  std::string grammar_debug_out_path;
   std::size_t threads = 4;
   std::size_t top_candidate_limit = 16;
 };
@@ -39,7 +43,8 @@ struct CliOptions {
 void print_usage(const char* argv0) {
   std::cerr << "usage: " << argv0
             << " --source-db <ascend-msprof.db> [--threads N]"
-               " [--out PATH|-] [--top-candidates N]\n";
+               " [--out PATH|-] [--top-candidates N]"
+               " [--grammar-debug-out PATH|-]\n";
 }
 
 std::size_t parse_size(const std::string& text, const std::string& flag) {
@@ -69,6 +74,8 @@ CliOptions parse_args(int argc, char** argv) {
       options.threads = parse_size(require_value(arg), arg);
     } else if (arg == "--out") {
       options.out_path = require_value(arg);
+    } else if (arg == "--grammar-debug-out") {
+      options.grammar_debug_out_path = require_value(arg);
     } else if (arg == "--top-candidates") {
       options.top_candidate_limit = parse_size(require_value(arg), arg);
     } else if (arg == "--help" || arg == "-h") {
@@ -85,7 +92,23 @@ CliOptions parse_args(int argc, char** argv) {
   if (options.threads == 0) {
     throw std::invalid_argument("--threads must be greater than zero");
   }
+  if (options.out_path == "-" && options.grammar_debug_out_path == "-") {
+    throw std::invalid_argument(
+        "--out - and --grammar-debug-out - cannot be used together");
+  }
   return options;
+}
+
+void write_text_output(const std::string& path, const std::string& contents) {
+  if (path == "-") {
+    std::cout << contents;
+    return;
+  }
+  std::ofstream out(path);
+  if (!out) {
+    throw std::runtime_error("failed to open output path: " + path);
+  }
+  out << contents;
 }
 
 }  // namespace
@@ -129,14 +152,28 @@ int main(int argc, char** argv) {
     traceloom::write_native_result_json(final_json, ir.symbols, pipeline,
                                         json_options);
 
-    if (cli.out_path == "-") {
-      std::cout << final_json.str();
-    } else {
-      std::ofstream out(cli.out_path);
-      if (!out) {
-        throw std::runtime_error("failed to open output path: " + cli.out_path);
-      }
-      out << final_json.str();
+    write_text_output(cli.out_path, final_json.str());
+
+    if (!cli.grammar_debug_out_path.empty()) {
+      traceloom::GrammarStateConfig grammar_state_config;
+      grammar_state_config.target_nodes_per_chunk =
+          pipeline_options.partition_config.target_tokens_per_partition;
+      grammar_state_config.worker_count = cli.threads;
+      traceloom::GlobalGrammarState grammar_state =
+          traceloom::build_initial_grammar_state(ir, grammar_state_config);
+
+      traceloom::GrammarEngineConfig grammar_engine_config;
+      grammar_engine_config.full_discovery_cap =
+          grammar_state.metadata.full_discovery_cap;
+      const traceloom::GrammarEngineResult grammar_result =
+          traceloom::run_grammar_state_machine(grammar_state,
+                                               grammar_engine_config);
+
+      std::ostringstream grammar_debug_json;
+      traceloom::write_grammar_debug_json(grammar_debug_json, ir.symbols,
+                                          grammar_state, grammar_result);
+      write_text_output(cli.grammar_debug_out_path,
+                        grammar_debug_json.str());
     }
   } catch (const std::exception& ex) {
     std::cerr << "error: " << ex.what() << "\n";
