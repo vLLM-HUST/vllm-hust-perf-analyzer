@@ -12,6 +12,7 @@ set(TRACELOOM_NATIVE_ASCEND_SQLITE_AVAILABLE OFF)
 
 add_library(traceloom_native_core
   src/analysis/flat_anchor_builder.cpp
+  src/analysis/native_pipeline.cpp
   src/core/diagnostics.cpp
   src/core/string_table.cpp
   src/cost/cost_summary_lite.cpp
@@ -28,6 +29,8 @@ add_library(traceloom_native_core
   src/ir/trace_event_table.cpp
   src/pattern/candidate_reduce.cpp
   src/pattern/candidate_scan.cpp
+  src/pattern/pattern_candidate_table.cpp
+  src/pattern/pattern_candidate_summary.cpp
   src/runtime/thread_pool.cpp
   src/sequence/boundary_index.cpp
   src/sequence/partition_plan.cpp
@@ -166,6 +169,17 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
   add_test(
     NAME traceloom_native_flat_anchor_builder_tests
     COMMAND traceloom_native_flat_anchor_builder_tests
+  )
+
+  add_executable(traceloom_native_pipeline_tests
+    tests/analysis/native_pipeline_tests.cpp
+  )
+  target_link_libraries(
+    traceloom_native_pipeline_tests PRIVATE traceloom_native_core
+  )
+  add_test(
+    NAME traceloom_native_pipeline_tests
+    COMMAND traceloom_native_pipeline_tests
   )
 
   add_executable(traceloom_native_fixture_adapter_tests

@@ -6,14 +6,9 @@
 #include <string>
 #include <vector>
 
-#include "traceloom/analysis/flat_anchor_builder.h"
+#include "traceloom/analysis/native_pipeline.h"
 #include "traceloom/adapters/ascend_sqlite_adapter.h"
 #include "traceloom/ir/native_ir.h"
-#include "traceloom/pattern/candidate_reduce.h"
-#include "traceloom/pattern/candidate_scan.h"
-#include "traceloom/sequence/boundary_index.h"
-#include "traceloom/sequence/partition_plan.h"
-#include "traceloom/sequence/protected_sequence.h"
 
 namespace {
 
@@ -51,25 +46,19 @@ int main(int argc, char** argv) {
     const std::string db_path = argv[1];
     const traceloom::AscendSQLiteAdapter adapter(db_path);
     traceloom::NativeIr ir = adapter.load();
-    traceloom::FlatAnchorBuildConfig anchor_config;
-    anchor_config.skipped_task_type_symbols = {"CAPTURE_WAIT"};
-    anchor_config.skip_tasks_covered_by_communication_ops = true;
-    const traceloom::FlatAnchorBuildStats anchor_stats =
-        traceloom::build_flat_anchors(ir, anchor_config);
-    const traceloom::ProtectedSequence sequence =
-        traceloom::ProtectedSequence::from_token_table(ir.tokens);
-    const traceloom::BoundaryIndex boundaries =
-        traceloom::BoundaryIndex::build(sequence, ir.protected_intervals);
-    const traceloom::PartitionPlan plan = traceloom::PartitionPlan::build(
-        sequence.size(), traceloom::PartitionPlanConfig{4096, 3});
-    const traceloom::CandidateScanResult scan_result =
-        traceloom::scan_candidate_partitions_with_diagnostics(
-            sequence, boundaries, plan, traceloom::CandidateScanConfig{2, 3},
-            4);
-    const std::vector<traceloom::CandidateSummaryRow> candidate_summary =
-        traceloom::reduce_candidates(scan_result.occurrences);
+
+    traceloom::NativePipelineOptions pipeline_options;
+    pipeline_options.thread_count = 4;
+    pipeline_options.partition_config = traceloom::PartitionPlanConfig{4096, 3};
+    pipeline_options.candidate_scan_config =
+        traceloom::CandidateScanConfig{2, 3};
+    pipeline_options.anchor_config.skipped_task_type_symbols = {"CAPTURE_WAIT"};
+    pipeline_options.anchor_config.skip_tasks_covered_by_communication_ops =
+        true;
+    const traceloom::NativePipelineResult pipeline =
+        traceloom::run_native_pipeline(ir, pipeline_options);
     std::vector<traceloom::CandidateSummaryRow> top_candidates =
-        candidate_summary;
+        pipeline.reduced_candidates;
     std::sort(top_candidates.begin(), top_candidates.end(),
               [](const traceloom::CandidateSummaryRow& lhs,
                  const traceloom::CandidateSummaryRow& rhs) {
@@ -100,18 +89,56 @@ int main(int argc, char** argv) {
     std::cout << "anchors=" << ir.anchors.size() << "\n";
     std::cout << "tokens=" << ir.tokens.size() << "\n";
     std::cout << "device_event_anchors="
-              << anchor_stats.device_event_anchors << "\n";
+              << pipeline.anchor_stats.device_event_anchors << "\n";
     std::cout << "communication_anchors="
-              << anchor_stats.communication_anchors << "\n";
+              << pipeline.anchor_stats.communication_anchors << "\n";
     std::cout << "skipped_task_events="
-              << anchor_stats.skipped_task_events << "\n";
+              << pipeline.anchor_stats.skipped_task_events << "\n";
     std::cout << "candidate_projection=raw_event_bootstrap_len2_3\n";
     std::cout << "candidate_occurrences="
-              << scan_result.occurrences.size() << "\n";
-    std::cout << "candidate_distinct=" << candidate_summary.size() << "\n";
+              << pipeline.pattern_candidate_table.rows.size() << "\n";
+    std::cout << "candidate_distinct="
+              << pipeline.reduced_candidates.size() << "\n";
+    std::cout << "pattern_candidate_rows="
+              << pipeline.pattern_candidate_table.rows.size() << "\n";
+    std::cout << "pattern_candidate_summary_rows="
+              << pipeline.pattern_candidate_summary.rows.size() << "\n";
     std::cout << "candidate_diagnostics="
-              << scan_result.diagnostics.size() << "\n";
-    const std::size_t preview_count = std::min<std::size_t>(8, top_candidates.size());
+              << pipeline.pattern_mining_diagnostics.rows.size() << "\n";
+    std::cout << "cost_summary_anchor_count="
+              << pipeline.cost_summary_lite.anchor_count << "\n";
+    std::cout << "cost_summary_total_duration_ns="
+              << pipeline.cost_summary_lite.total_duration_ns << "\n";
+    std::cout << "timing_build_anchor_tokens_ms="
+              << pipeline.timing.build_anchor_tokens_ms << "\n";
+    std::cout << "timing_build_protected_sequence_ms="
+              << pipeline.timing.build_protected_sequence_ms << "\n";
+    std::cout << "timing_build_boundary_index_ms="
+              << pipeline.timing.build_boundary_index_ms << "\n";
+    std::cout << "timing_partition_plan_ms="
+              << pipeline.timing.partition_plan_ms << "\n";
+    std::cout << "timing_candidate_scan_map_ms="
+              << pipeline.timing.candidate_scan_map_ms << "\n";
+    std::cout << "timing_pattern_candidate_table_ms="
+              << pipeline.timing.pattern_candidate_table_ms << "\n";
+    std::cout << "timing_candidate_reduce_ms="
+              << pipeline.timing.candidate_reduce_ms << "\n";
+    std::cout << "timing_pattern_candidate_summary_ms="
+              << pipeline.timing.pattern_candidate_summary_ms << "\n";
+    std::cout << "timing_cost_summary_lite_ms="
+              << pipeline.timing.cost_summary_lite_ms << "\n";
+    std::cout << "memory_trace_event_bytes="
+              << pipeline.memory.trace_event_bytes << "\n";
+    std::cout << "memory_anchor_bytes=" << pipeline.memory.anchor_bytes << "\n";
+    std::cout << "memory_token_bytes=" << pipeline.memory.token_bytes << "\n";
+    std::cout << "memory_candidate_occurrence_bytes="
+              << pipeline.memory.candidate_occurrence_bytes << "\n";
+    std::cout << "memory_pattern_mining_diagnostic_bytes="
+              << pipeline.memory.pattern_mining_diagnostic_bytes << "\n";
+    std::cout << "memory_pattern_candidate_summary_bytes="
+              << pipeline.memory.pattern_candidate_summary_bytes << "\n";
+    const std::size_t preview_count =
+        std::min<std::size_t>(8, top_candidates.size());
     for (std::size_t index = 0; index < preview_count; ++index) {
       const auto& row = top_candidates[index];
       std::cout << "candidate_top[" << index << "]="
