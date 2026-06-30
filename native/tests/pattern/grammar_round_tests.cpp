@@ -47,10 +47,12 @@ traceloom::GrammarRoundResult pair_round_for(
 }
 
 traceloom::GlobalGrammarState pair_compressed_state(
-    const std::vector<std::string>& symbols) {
+    const std::vector<std::string>& symbols,
+    std::size_t target_nodes_per_chunk = 2,
+    std::size_t worker_count = 2) {
   traceloom::GrammarStateConfig config;
-  config.target_nodes_per_chunk = 2;
-  config.worker_count = 2;
+  config.target_nodes_per_chunk = target_nodes_per_chunk;
+  config.worker_count = worker_count;
   traceloom::GlobalGrammarState state =
       traceloom::build_initial_grammar_state(make_ir(symbols), config);
   const traceloom::GrammarSnapshot snapshot =
@@ -125,6 +127,23 @@ int main() {
   require(pair.action.occurrences[0].begin_dense_index == 0);
   require(pair.action.occurrences[3].begin_dense_index == 6);
 
+  const GrammarRoundResult boundary_pair =
+      pair_round_for({"A", "B", "A", "B", "A", "B", "A", "B"}, 1, 3);
+  require(boundary_pair.status == GrammarRoundStatus::kActionSelected);
+  require(boundary_pair.action.key == pair.action.key);
+  require(boundary_pair.action.occurrences.size() == 4);
+  for (std::size_t index = 0; index < boundary_pair.action.occurrences.size();
+       ++index) {
+    const GrammarCandidateOccurrence& occurrence =
+        boundary_pair.action.occurrences[index];
+    require(occurrence.crosses_chunk_boundary);
+    require(occurrence.owner_chunk_id ==
+            GrammarChunkId(static_cast<GrammarChunkId::value_type>(
+                occurrence.begin_dense_index)));
+    require(occurrence.owner_worker_id ==
+            occurrence.owner_chunk_id.value() % 3);
+  }
+
   const GrammarRoundResult pair_one_worker =
       pair_round_for({"A", "B", "A", "B", "A", "B", "A", "B"}, 3, 1);
   require(pair_one_worker.status == GrammarRoundStatus::kActionSelected);
@@ -144,6 +163,8 @@ int main() {
                      3, 2);
   require(pair_tie.status == GrammarRoundStatus::kActionSelected);
   require(pair_tie.action.first_dense_index == 0);
+  require(pair_tie.action.key.symbol_id == SymbolId(0));
+  require(pair_tie.action.key.second_symbol_id == SymbolId(1));
 
   GlobalGrammarState macro_state =
       pair_compressed_state({"A", "B", "A", "B", "C", "A",
@@ -172,6 +193,20 @@ int main() {
   require(macro_one_worker.action.key == macro_run.action.key);
   require(macro_one_worker.action.gain == macro_run.action.gain);
   require(macro_one_worker.action.max_run_len == macro_run.action.max_run_len);
+
+  GlobalGrammarState boundary_macro_state =
+      pair_compressed_state({"A", "B", "A", "B", "A",
+                             "B", "A", "B", "C"},
+                            1, 3);
+  const GrammarRoundResult boundary_macro =
+      run_native_macro_run_readonly_round(boundary_macro_state);
+  require(boundary_macro.status == GrammarRoundStatus::kActionSelected);
+  require(boundary_macro.action.occurrences.size() == 1);
+  require(boundary_macro.action.occurrences[0].begin_dense_index == 0);
+  require(boundary_macro.action.occurrences[0].end_dense_index_exclusive == 4);
+  require(boundary_macro.action.occurrences[0].crosses_chunk_boundary);
+  require(boundary_macro.action.max_run_len == 4);
+  require(boundary_macro.action.gain == 3);
 
   GlobalGrammarState state =
       build_initial_grammar_state(make_ir({"A", "A", "A"}));

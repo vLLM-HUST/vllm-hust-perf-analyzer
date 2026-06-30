@@ -322,6 +322,34 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     COMMAND traceloom_native_grammar_debug_json_tests
   )
 
+  add_test(
+    NAME traceloom_native_analyze_fixture_grammar_debug_cli
+    COMMAND traceloom-native-analyze-fixture
+      --fixture
+      ${CMAKE_CURRENT_SOURCE_DIR}/../../drafts/refactor/80_tests_fixtures/fixtures/protected_sequence/f1_tiny_repeated_pair.json
+      --threads 2
+      --out ${CMAKE_CURRENT_BINARY_DIR}/fixture_cli_result.json
+      --grammar-debug-out -
+  )
+  set_tests_properties(
+    traceloom_native_analyze_fixture_grammar_debug_cli
+    PROPERTIES PASS_REGULAR_EXPRESSION "native_grammar_debug_v1"
+  )
+
+  add_test(
+    NAME traceloom_native_analyze_fixture_stdout_conflict
+    COMMAND traceloom-native-analyze-fixture
+      --fixture
+      ${CMAKE_CURRENT_SOURCE_DIR}/../../drafts/refactor/80_tests_fixtures/fixtures/protected_sequence/f1_tiny_repeated_pair.json
+      --out -
+      --grammar-debug-out -
+  )
+  set_tests_properties(
+    traceloom_native_analyze_fixture_stdout_conflict
+    PROPERTIES
+      WILL_FAIL TRUE
+  )
+
   add_executable(traceloom_native_fixture_adapter_tests
     tests/adapters/fixture_adapter_tests.cpp
   )

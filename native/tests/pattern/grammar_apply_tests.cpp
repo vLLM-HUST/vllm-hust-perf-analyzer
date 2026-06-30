@@ -64,6 +64,24 @@ int main() {
   require(state.nodes.size() == 3);
   require(state.chunks.size() == 2);
   require(state.boundary_summaries.size() == 2);
+  for (const GrammarChunk& chunk : state.chunks) {
+    require(chunk.generation == state.generation);
+  }
+  for (const BoundarySummary& summary : state.boundary_summaries) {
+    require(summary.generation == state.generation);
+  }
+  require(state.boundary_summaries[0].prev_chunk_id ==
+          GrammarChunkId::invalid());
+  require(state.boundary_summaries[0].next_chunk_id == GrammarChunkId(1));
+  require(state.boundary_summaries[0].prefix_run_len == 1);
+  require(state.boundary_summaries[0].suffix_run_len == 1);
+  require(!state.boundary_summaries[0].all_same_symbol);
+  require(state.boundary_summaries[1].prev_chunk_id == GrammarChunkId(0));
+  require(state.boundary_summaries[1].next_chunk_id ==
+          GrammarChunkId::invalid());
+  require(state.boundary_summaries[1].prefix_run_len == 1);
+  require(state.boundary_summaries[1].suffix_run_len == 1);
+  require(state.boundary_summaries[1].all_same_symbol);
   require(state.macro_defs.size() == 1);
   require(state.macro_defs[0].id == MacroDefId(0));
   require(state.macro_defs[0].symbol_id == original_next_macro_symbol);
@@ -116,6 +134,31 @@ int main() {
           GrammarApplyDiagnosticCode::kInvalidCommitPlan);
   require(invalid_state.generation == 0);
   require(invalid_state.macro_defs.empty());
+
+  GlobalGrammarState no_progress_state = make_state({"A", "A", "B", "B"});
+  GrammarCommitPlan no_progress_plan = selected_plan(no_progress_state);
+  no_progress_plan.action.occurrences.clear();
+  no_progress_plan.replacement_spans.clear();
+  const GrammarApplyResult no_progress_result =
+      apply_adjacent_run_commit_plan(no_progress_state, no_progress_plan);
+  require(!no_progress_result.applied());
+  require(no_progress_result.diagnostics[0].code ==
+          GrammarApplyDiagnosticCode::kNoProgress);
+  require(no_progress_state.generation == 0);
+  require(no_progress_state.live_node_count == 4);
+  require(no_progress_state.macro_defs.empty());
+
+  GlobalGrammarState corrupt_state = make_state({"A", "A", "B", "B"});
+  const GrammarCommitPlan corrupt_plan = selected_plan(corrupt_state);
+  corrupt_state.nodes[0].symbol_id = SymbolId(1);
+  const GrammarApplyResult corrupt_result =
+      apply_adjacent_run_commit_plan(corrupt_state, corrupt_plan);
+  require(!corrupt_result.applied());
+  require(corrupt_result.diagnostics[0].code ==
+          GrammarApplyDiagnosticCode::kCommitPlanRevalidationFailed);
+  require(corrupt_state.generation == 0);
+  require(corrupt_state.live_node_count == 4);
+  require(corrupt_state.macro_defs.empty());
 
   GlobalGrammarState pair_state =
       make_state({"A", "B", "A", "B", "A", "B", "A", "B"});

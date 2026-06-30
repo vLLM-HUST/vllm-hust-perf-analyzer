@@ -170,8 +170,12 @@ int main(int argc, char** argv) {
                                                grammar_engine_config);
 
       std::ostringstream grammar_debug_json;
+      traceloom::GrammarDebugJsonOptions grammar_debug_options;
+      grammar_debug_options.engine_max_rounds =
+          grammar_engine_config.max_rounds;
       traceloom::write_grammar_debug_json(grammar_debug_json, ir.symbols,
-                                          grammar_state, grammar_result);
+                                          grammar_state, grammar_result,
+                                          grammar_debug_options);
       write_text_output(cli.grammar_debug_out_path,
                         grammar_debug_json.str());
     }

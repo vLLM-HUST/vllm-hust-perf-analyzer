@@ -55,7 +55,9 @@ surface as a separate JSON document:
 
 The grammar debug output records the algorithm mode, producer sequence, known
 native-v1 deltas, engine steps, macro definitions, and final compressed
-sequence. It is not the final `PatternModel`.
+sequence. It is not the final `PatternModel`. Use either the main result or
+the grammar debug output on stdout, not both; `--out - --grammar-debug-out -`
+is rejected so the two JSON documents cannot be mixed.
 
 Protected-sequence fixtures can run through the same native pipeline:
 

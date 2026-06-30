@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <iosfwd>
 
 #include "traceloom/core/string_table.h"
@@ -10,6 +11,7 @@ namespace traceloom {
 
 struct GrammarDebugJsonOptions {
   bool include_final_sequence = true;
+  std::size_t engine_max_rounds = 10000;
 };
 
 void write_grammar_debug_json(std::ostream& out,

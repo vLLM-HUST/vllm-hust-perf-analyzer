@@ -102,6 +102,20 @@ const char* macro_level_name(MacroLevel level) {
   return "unknown";
 }
 
+const char* boundary_violation_kind_name(BoundaryViolationKind kind) {
+  switch (kind) {
+    case BoundaryViolationKind::kNone:
+      return "none";
+    case BoundaryViolationKind::kCrossesNoCrossBoundary:
+      return "crosses_no_cross_boundary";
+    case BoundaryViolationKind::kEnclosesNoCrossInterval:
+      return "encloses_no_cross_interval";
+    case BoundaryViolationKind::kAmbiguousIntervalBlocksCandidate:
+      return "ambiguous_interval_blocks_candidate";
+  }
+  return "unknown";
+}
+
 std::string symbol_name(const SymbolTable& symbols, SymbolId symbol_id) {
   if (!symbol_id.valid()) {
     return "<invalid>";
@@ -216,6 +230,51 @@ void write_steps(std::ostream& out,
   out << "  ]";
 }
 
+void write_commit_diagnostics(
+    std::ostream& out,
+    const std::vector<GrammarCommitDiagnostic>& diagnostics) {
+  out << "  \"commit_diagnostics\": [\n";
+  for (std::size_t index = 0; index < diagnostics.size(); ++index) {
+    const GrammarCommitDiagnostic& diagnostic = diagnostics[index];
+    out << "    {\"index\": " << index << ", \"code\": ";
+    write_json_string(out,
+                      grammar_commit_diagnostic_code_name(diagnostic.code));
+    out << ", \"occurrence_index\": " << diagnostic.occurrence_index
+        << ", \"protected_interval_id\": ";
+    if (diagnostic.protected_interval_id.valid()) {
+      out << diagnostic.protected_interval_id.value();
+    } else {
+      out << "null";
+    }
+    out << ", \"boundary_violation\": ";
+    write_json_string(out, boundary_violation_kind_name(
+                               diagnostic.boundary_violation_kind));
+    out << "}";
+    if (index + 1 < diagnostics.size()) {
+      out << ",";
+    }
+    out << "\n";
+  }
+  out << "  ]";
+}
+
+void write_apply_diagnostics(
+    std::ostream& out,
+    const std::vector<GrammarApplyDiagnostic>& diagnostics) {
+  out << "  \"apply_diagnostics\": [\n";
+  for (std::size_t index = 0; index < diagnostics.size(); ++index) {
+    const GrammarApplyDiagnostic& diagnostic = diagnostics[index];
+    out << "    {\"index\": " << index << ", \"code\": ";
+    write_json_string(out, grammar_apply_diagnostic_code_name(diagnostic.code));
+    out << "}";
+    if (index + 1 < diagnostics.size()) {
+      out << ",";
+    }
+    out << "\n";
+  }
+  out << "  ]";
+}
+
 void write_final_sequence(std::ostream& out,
                           const SymbolTable& symbols,
                           const std::vector<GrammarNode>& nodes) {
@@ -270,6 +329,9 @@ void write_grammar_debug_json(std::ostream& out,
   out << ",\n";
   out << "    \"generation\": " << state.generation << ",\n";
   out << "    \"live_node_count\": " << state.live_node_count << ",\n";
+  out << "    \"target_nodes_per_chunk\": "
+      << state.target_nodes_per_chunk << ",\n";
+  out << "    \"worker_count\": " << state.worker_count << ",\n";
   out << "    \"chunk_count\": " << state.chunks.size() << ",\n";
   out << "    \"macro_def_count\": " << state.macro_defs.size() << "\n";
   out << "  },\n";
@@ -278,6 +340,7 @@ void write_grammar_debug_json(std::ostream& out,
   write_json_string(out, grammar_engine_stop_reason_name(result.stop_reason));
   out << ",\n";
   out << "    \"ok\": " << (result.ok() ? "true" : "false") << ",\n";
+  out << "    \"max_rounds\": " << options.engine_max_rounds << ",\n";
   out << "    \"step_count\": " << result.steps.size() << ",\n";
   out << "    \"commit_diagnostic_count\": "
       << result.commit_diagnostics.size() << ",\n";
@@ -285,6 +348,10 @@ void write_grammar_debug_json(std::ostream& out,
       << result.apply_diagnostics.size() << "\n";
   out << "  },\n";
   write_steps(out, result.steps);
+  out << ",\n";
+  write_commit_diagnostics(out, result.commit_diagnostics);
+  out << ",\n";
+  write_apply_diagnostics(out, result.apply_diagnostics);
   out << ",\n";
   write_macro_defs(out, symbols, state.macro_defs);
   if (options.include_final_sequence) {
