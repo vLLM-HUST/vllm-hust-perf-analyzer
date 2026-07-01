@@ -337,6 +337,366 @@ def write_aclgraph_outputs(
     return {**summary, **files}
 
 
+def aclgraph_analysis_to_semantic_fixture(
+    analysis: AclGraphAnalysis,
+    *,
+    fixture_id: str = "aclgraph_python_assets",
+    description: str = "Python-produced ACLGraph semantic assets.",
+) -> dict[str, object]:
+    """Export current Python ACLGraph rows into the native semantic fixture schema.
+
+    This is a compatibility/golden-asset bridge. It does not change the current
+    report path, and it intentionally keeps unmatched replay subslots as
+    diagnostics instead of inventing primary H/L/T anchors for them.
+    """
+
+    capture_slots = _semantic_fixture_capture_slots(analysis.capture_slot_rows)
+    capture_dictionary = _semantic_fixture_capture_dictionary(
+        analysis.capture_dictionary_rows,
+        capture_slots=capture_slots,
+    )
+    (
+        replay_activities,
+        replay_unit_boundaries,
+        replay_units,
+        replay_tilings,
+        replay_subslots,
+        hlt_anchor_seeds,
+    ) = _semantic_fixture_replay_assets(analysis.replay_rows)
+
+    diagnostic_codes: dict[str, int] = {}
+    if any(
+        int(row.get("unique_match_signature_count", 0) or 0) > 1
+        for row in capture_dictionary
+    ):
+        diagnostic_codes["capture_dictionary_variation"] = sum(
+            1
+            for row in capture_dictionary
+            if int(row.get("unique_match_signature_count", 0) or 0) > 1
+        )
+    partial_tilings = sum(
+        1
+        for row in replay_tilings
+        if int(row.get("unmatched_count", 0) or 0) > 0
+    )
+    if partial_tilings:
+        diagnostic_codes["replay_tiling_partial_coverage"] = partial_tilings
+
+    flat_hlt_sequence = " ".join(str(row["symbol"]) for row in hlt_anchor_seeds)
+    capture_group_sizes = {
+        int(row.get("capture_group_size", 0) or 0)
+        for row in capture_slots
+        if int(row.get("capture_group_size", 0) or 0) > 0
+    }
+    capture_group_counts = {
+        int(row.get("capture_group_idx", 0) or 0)
+        for row in capture_slots
+        if int(row.get("capture_group_idx", 0) or 0) > 0
+    }
+
+    return {
+        "fixture_id": fixture_id,
+        "schema_version": "aclgraph-fixture-v1",
+        "description": description,
+        "assets": {
+            "capture_slots": capture_slots,
+            "capture_dictionary": capture_dictionary,
+            "replay_activities": replay_activities,
+            "replay_unit_boundaries": replay_unit_boundaries,
+            "replay_units": replay_units,
+            "replay_tilings": replay_tilings,
+            "replay_subslots": replay_subslots,
+            "hlt_anchor_seeds": hlt_anchor_seeds,
+        },
+        "golden": {
+            "capture_slot_count": len(capture_slots),
+            "capture_group_count": (
+                max(capture_group_counts) if capture_group_counts else 0
+            ),
+            "capture_group_size": (
+                next(iter(capture_group_sizes))
+                if len(capture_group_sizes) == 1
+                else 0
+            ),
+            "capture_dictionary_count": len(capture_dictionary),
+            "dictionary_sequence": " ".join(
+                str(row["slot_symbol"]) for row in capture_dictionary
+            ),
+            "replay_activity_count": len(replay_activities),
+            "replay_unit_count": len(replay_units),
+            "hlt_anchor_count": len(hlt_anchor_seeds),
+            "flat_hlt_sequence": flat_hlt_sequence,
+            "normal_flat_hlt_sequence": flat_hlt_sequence,
+            "launch_anchor_count": 0,
+            "launch_boundary_used_as_anchor": False,
+            "unique_replay_unit_ids_in_anchors": len(
+                {str(row["replay_unit_id"]) for row in hlt_anchor_seeds}
+            ),
+            "diagnostic_codes": diagnostic_codes,
+        },
+    }
+
+
+def write_aclgraph_semantic_fixture(
+    *,
+    out_path: Path,
+    analysis: AclGraphAnalysis,
+    fixture_id: str = "aclgraph_python_assets",
+    description: str = "Python-produced ACLGraph semantic assets.",
+) -> dict[str, object]:
+    fixture = aclgraph_analysis_to_semantic_fixture(
+        analysis,
+        fixture_id=fixture_id,
+        description=description,
+    )
+    out_path.write_text(
+        json.dumps(fixture, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return fixture
+
+
+def _semantic_fixture_capture_slots(
+    rows: Sequence[dict[str, object]],
+) -> list[dict[str, object]]:
+    out: list[dict[str, object]] = []
+    for fallback_idx, row in enumerate(rows, start=1):
+        slot_idx = _safe_int(row.get("capture_slot_idx")) or fallback_idx
+        slot_id = str(row.get("capture_slot_id", "") or f"cs{slot_idx}")
+        out.append(
+            {
+                "capture_slot_id": slot_id,
+                "capture_slot_idx": slot_idx,
+                "capture_group_idx": _safe_int(row.get("capture_group_idx")),
+                "capture_group_size": _safe_int(row.get("capture_group_size")),
+                "capture_slot_in_group": _safe_int(
+                    row.get("capture_slot_in_group")
+                ),
+                "slot_kind": str(
+                    row.get("capture_dictionary_kind", row.get("slot_kind", ""))
+                    or ""
+                ),
+                "slot_symbol": str(
+                    row.get("capture_dictionary_symbol", row.get("slot_symbol", ""))
+                    or ""
+                ),
+                "start_ns": _safe_int(row.get("start_ns")),
+                "end_ns": _safe_int(row.get("end_ns")),
+                "body_match_signature": str(row.get("body_match_signature", "") or ""),
+            }
+        )
+    return out
+
+
+def _semantic_fixture_capture_dictionary(
+    rows: Sequence[dict[str, object]],
+    *,
+    capture_slots: Sequence[dict[str, object]],
+) -> list[dict[str, object]]:
+    slot_ids_by_kind: dict[str, list[str]] = {}
+    for slot in capture_slots:
+        kind = str(slot.get("slot_kind", ""))
+        slot_id = str(slot.get("capture_slot_id", ""))
+        if kind and slot_id:
+            slot_ids_by_kind.setdefault(kind, []).append(slot_id)
+
+    out: list[dict[str, object]] = []
+    for fallback_idx, row in enumerate(rows, start=1):
+        kind = str(
+            row.get("capture_dictionary_kind", row.get("slot_kind", "")) or ""
+        )
+        symbol = str(
+            row.get("capture_dictionary_symbol", row.get("slot_symbol", "")) or ""
+        )
+        out.append(
+            {
+                "capture_dictionary_id": str(
+                    row.get("capture_dictionary_id", "")
+                    or f"dict:{symbol or kind}"
+                ),
+                "dictionary_idx": (
+                    _safe_int(row.get("capture_dictionary_idx")) or fallback_idx
+                ),
+                "slot_kind": kind,
+                "slot_symbol": symbol,
+                "capture_slot_ids": slot_ids_by_kind.get(kind, []),
+                "capture_slot_count": _safe_int(row.get("capture_slot_count")),
+                "unique_match_signature_count": _safe_int(
+                    row.get("unique_match_signature_count")
+                ),
+                "variation_summary": str(row.get("variation_summary", "") or ""),
+            }
+        )
+    return out
+
+
+def _semantic_fixture_replay_assets(
+    replay_rows: Sequence[dict[str, object]],
+) -> tuple[
+    list[dict[str, object]],
+    list[dict[str, object]],
+    list[dict[str, object]],
+    list[dict[str, object]],
+    list[dict[str, object]],
+    list[dict[str, object]],
+]:
+    activity_rows_by_id: dict[str, list[dict[str, object]]] = {}
+    replay_activities: list[dict[str, object]] = []
+    replay_unit_boundaries: list[dict[str, object]] = []
+    replay_units: list[dict[str, object]] = []
+    replay_tilings: list[dict[str, object]] = []
+    replay_subslots: list[dict[str, object]] = []
+    hlt_anchor_seeds: list[dict[str, object]] = []
+    symbol_by_slot = {"H": "ACLH", "L": "ACLL", "T": "ACLT"}
+
+    for fallback_idx, row in enumerate(replay_rows, start=1):
+        if str(row.get("graph_provider", "aclgraph") or "aclgraph") != "aclgraph":
+            continue
+        replay_idx = _safe_int(row.get("graph_event_idx")) or fallback_idx
+        activity_idx = _safe_int(row.get("graph_activity_idx")) or replay_idx
+        activity_id = f"act{activity_idx}"
+        replay_unit_id = f"ru{replay_idx}"
+        boundary_id = f"b{activity_idx}"
+        activity_rows_by_id.setdefault(activity_id, []).append(row)
+
+        replay_units.append(
+            {
+                "replay_unit_id": replay_unit_id,
+                "replay_activity_id": activity_id,
+                "boundary_set_id": boundary_id,
+                "unit_idx_global": replay_idx,
+                "unit_idx_in_activity": (
+                    _safe_int(row.get("graph_activity_unit_idx")) or 1
+                ),
+                "unit_count_in_activity": (
+                    _safe_int(row.get("graph_activity_unit_count")) or 1
+                ),
+                "start_ns": _safe_int(row.get("start_ns")),
+                "end_ns": _safe_int(row.get("end_ns")),
+            }
+        )
+
+        replay_tiling_id = f"tile{replay_idx}"
+        replay_tilings.append(
+            {
+                "replay_tiling_id": replay_tiling_id,
+                "replay_unit_id": replay_unit_id,
+                "policy": str(row.get("replay_tiling_policy", "") or ""),
+                "subslot_count": _safe_int(
+                    row.get("replay_tiling_subslot_count")
+                ),
+                "sequence": str(row.get("replay_tiling_sequence", "") or ""),
+                "matched_count": _safe_int(
+                    row.get("replay_tiling_matched_count")
+                ),
+                "unmatched_count": _safe_int(
+                    row.get("replay_tiling_unmatched_count")
+                ),
+                "coverage": str(row.get("replay_tiling_coverage", "") or ""),
+                "top_mismatches": str(row.get("replay_tiling_top_mismatches", "") or ""),
+            }
+        )
+
+        subslots = _parse_replay_subslots(row.get("replay_tiling_subslots_json"))
+        for subslot in subslots:
+            subslot_idx = _safe_int(subslot.get("subslot_idx"))
+            slot_symbol = str(subslot.get("symbol", "") or "")
+            matched = _safe_int(subslot.get("matched")) > 0
+            subslot_id = f"ss{replay_idx}_{subslot_idx}"
+            replay_subslots.append(
+                {
+                    "subslot_id": subslot_id,
+                    "replay_tiling_id": replay_tiling_id,
+                    "subslot_idx": subslot_idx,
+                    "slot_kind": str(subslot.get("kind", "") or ""),
+                    "slot_symbol": slot_symbol,
+                    "matched": matched,
+                    "start_ns": _safe_int(subslot.get("start_ns")),
+                    "end_ns": _safe_int(subslot.get("end_ns")),
+                    "stream_id": _safe_int(subslot.get("stream_id")),
+                }
+            )
+            graph_symbol = symbol_by_slot.get(slot_symbol)
+            if not graph_symbol or not matched:
+                continue
+            hlt_anchor_seeds.append(
+                {
+                    "anchor_seed_id": f"a{replay_idx}_{subslot_idx}",
+                    "replay_unit_id": replay_unit_id,
+                    "subslot_id": subslot_id,
+                    "launch_activity_id": activity_id,
+                    "symbol": graph_symbol,
+                    "slot_symbol": slot_symbol,
+                    "semantic_role": "anchor",
+                    "start_ns": _safe_int(subslot.get("start_ns")),
+                    "end_ns": _safe_int(subslot.get("end_ns")),
+                }
+            )
+
+    for activity_id, rows in sorted(activity_rows_by_id.items()):
+        first = rows[0]
+        activity_idx = (
+            _safe_int(first.get("graph_activity_idx")) or len(replay_activities) + 1
+        )
+        replay_activities.append(
+            {
+                "replay_activity_id": activity_id,
+                "activity_idx": activity_idx,
+                "start_ns": min(_safe_int(row.get("start_ns")) for row in rows),
+                "end_ns": max(_safe_int(row.get("end_ns")) for row in rows),
+                "stream_ids": sorted(
+                    {
+                        _safe_int(row.get("stream_id"))
+                        for row in rows
+                        if _safe_int(row.get("stream_id")) >= 0
+                    }
+                ),
+                "raw_child_task_count": sum(
+                    _safe_int(row.get("raw_child_task_count")) for row in rows
+                ),
+            }
+        )
+        replay_unit_boundaries.append(
+            {
+                "boundary_set_id": f"b{activity_idx}",
+                "replay_activity_id": activity_id,
+                "expected_unit_count": (
+                    _safe_int(first.get("graph_activity_expected_unit_count"))
+                    or len(rows)
+                ),
+                "effective_unit_count": (
+                    _safe_int(first.get("graph_activity_unit_count")) or len(rows)
+                ),
+                "unit_source": str(first.get("graph_activity_unit_source", "") or ""),
+                "split_source": str(first.get("graph_activity_split_source", "") or "single"),
+                "confidence": "high" if len(rows) == 1 else "medium",
+                "boundary_ns": [],
+            }
+        )
+
+    return (
+        replay_activities,
+        replay_unit_boundaries,
+        replay_units,
+        replay_tilings,
+        replay_subslots,
+        hlt_anchor_seeds,
+    )
+
+
+def _parse_replay_subslots(raw: object) -> list[dict[str, object]]:
+    text = str(raw or "").strip()
+    if not text:
+        return []
+    try:
+        loaded = json.loads(text)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(loaded, list):
+        return []
+    return [item for item in loaded if isinstance(item, dict)]
+
+
 def _empty_analysis(db_path: Path, stream_info_path: Path, device_id: int, db_idx: int, gap_us: float) -> AclGraphAnalysis:
     summary = {
         "schema": "aclgraph.msprof.device_timeline.v1",

@@ -9,6 +9,8 @@ from traceloom.compute_prelude_timeline import (
     _merge_aclgraph_atoms_with_main_events,
 )
 from traceloom.ascend_aclgraph import (
+    AclGraphAnalysis,
+    aclgraph_analysis_to_semantic_fixture,
     _build_capture_dictionary_rows,
     _canonical_graph_body_token,
     _canonical_graph_noise_token,
@@ -592,6 +594,151 @@ class AclGraphAtomProjectionTests(unittest.TestCase):
             for start, end in intervals
         ]
         self.assertEqual(half_open, half_open_naive)
+
+    def test_aclgraph_analysis_exports_native_semantic_fixture(self) -> None:
+        analysis = AclGraphAnalysis(
+            step_rows=[],
+            replay_rows=[
+                {
+                    "graph_provider": "aclgraph",
+                    "graph_event_idx": 1,
+                    "graph_activity_idx": 1,
+                    "graph_activity_unit_idx": 1,
+                    "graph_activity_unit_count": 2,
+                    "graph_activity_expected_unit_count": 2,
+                    "graph_activity_unit_source": "body:landmark",
+                    "graph_activity_split_source": "body:landmark_midpoint",
+                    "replay_tiling_policy": "capture_dictionary_stream_subslot_nearest_v2",
+                    "replay_tiling_subslot_count": 3,
+                    "replay_tiling_sequence": "H,L,T",
+                    "replay_tiling_coverage": "3/3",
+                    "replay_tiling_matched_count": 3,
+                    "replay_tiling_unmatched_count": 0,
+                    "replay_tiling_subslots_json": (
+                        '[{"subslot_idx":1,"symbol":"H","kind":"head","matched":1,'
+                        '"start_ns":1000,"end_ns":1100,"stream_id":7},'
+                        '{"subslot_idx":2,"symbol":"L","kind":"layer","matched":1,'
+                        '"start_ns":1100,"end_ns":1200,"stream_id":7},'
+                        '{"subslot_idx":3,"symbol":"T","kind":"tail","matched":1,'
+                        '"start_ns":1200,"end_ns":1300,"stream_id":7}]'
+                    ),
+                    "stream_id": 7,
+                    "start_ns": 1000,
+                    "end_ns": 1300,
+                    "raw_child_task_count": 30,
+                },
+                {
+                    "graph_provider": "aclgraph",
+                    "graph_event_idx": 2,
+                    "graph_activity_idx": 1,
+                    "graph_activity_unit_idx": 2,
+                    "graph_activity_unit_count": 2,
+                    "graph_activity_expected_unit_count": 2,
+                    "graph_activity_unit_source": "body:landmark",
+                    "graph_activity_split_source": "body:landmark_midpoint",
+                    "replay_tiling_policy": "capture_dictionary_stream_subslot_nearest_v2",
+                    "replay_tiling_subslot_count": 3,
+                    "replay_tiling_sequence": "H,?,T",
+                    "replay_tiling_coverage": "2/3",
+                    "replay_tiling_matched_count": 2,
+                    "replay_tiling_unmatched_count": 1,
+                    "replay_tiling_subslots_json": (
+                        '[{"subslot_idx":1,"symbol":"H","kind":"head","matched":1,'
+                        '"start_ns":1300,"end_ns":1400,"stream_id":7},'
+                        '{"subslot_idx":2,"symbol":"?","kind":"unknown","matched":0,'
+                        '"start_ns":1400,"end_ns":1500,"stream_id":7},'
+                        '{"subslot_idx":3,"symbol":"T","kind":"tail","matched":1,'
+                        '"start_ns":1500,"end_ns":1600,"stream_id":7}]'
+                    ),
+                    "stream_id": 7,
+                    "start_ns": 1300,
+                    "end_ns": 1600,
+                    "raw_child_task_count": 20,
+                },
+            ],
+            envelope_rows=[],
+            semantic_task_rows=[],
+            model_stream_rows=[],
+            top_op_rows=[],
+            capture_slot_rows=[
+                {
+                    "capture_slot_idx": 1,
+                    "capture_group_idx": 1,
+                    "capture_group_size": 3,
+                    "capture_slot_in_group": 1,
+                    "capture_dictionary_kind": "head",
+                    "capture_dictionary_symbol": "H",
+                    "body_match_signature": "index|Embedding:1",
+                },
+                {
+                    "capture_slot_idx": 2,
+                    "capture_group_idx": 1,
+                    "capture_group_size": 3,
+                    "capture_slot_in_group": 2,
+                    "capture_dictionary_kind": "layer",
+                    "capture_dictionary_symbol": "L",
+                    "body_match_signature": "matmul|MatMul:2",
+                },
+                {
+                    "capture_slot_idx": 3,
+                    "capture_group_idx": 1,
+                    "capture_group_size": 3,
+                    "capture_slot_in_group": 3,
+                    "capture_dictionary_kind": "tail",
+                    "capture_dictionary_symbol": "T",
+                    "body_match_signature": "norm|RmsNorm:1",
+                },
+            ],
+            capture_dictionary_rows=[
+                {
+                    "capture_dictionary_idx": 1,
+                    "capture_dictionary_kind": "head",
+                    "capture_dictionary_symbol": "H",
+                    "capture_slot_count": 1,
+                    "unique_match_signature_count": 1,
+                },
+                {
+                    "capture_dictionary_idx": 2,
+                    "capture_dictionary_kind": "layer",
+                    "capture_dictionary_symbol": "L",
+                    "capture_slot_count": 1,
+                    "unique_match_signature_count": 1,
+                },
+                {
+                    "capture_dictionary_idx": 3,
+                    "capture_dictionary_kind": "tail",
+                    "capture_dictionary_symbol": "T",
+                    "capture_slot_count": 1,
+                    "unique_match_signature_count": 1,
+                },
+            ],
+            summary={},
+        )
+
+        fixture = aclgraph_analysis_to_semantic_fixture(
+            analysis,
+            fixture_id="unit_aclgraph_python_assets",
+        )
+
+        self.assertEqual(fixture["schema_version"], "aclgraph-fixture-v1")
+        assets = fixture["assets"]
+        self.assertEqual(len(assets["capture_slots"]), 3)
+        self.assertEqual([row["slot_symbol"] for row in assets["capture_dictionary"]], ["H", "L", "T"])
+        self.assertEqual(len(assets["replay_activities"]), 1)
+        self.assertEqual(len(assets["replay_units"]), 2)
+        self.assertEqual(len(assets["replay_subslots"]), 6)
+        self.assertEqual(
+            [row["symbol"] for row in assets["hlt_anchor_seeds"]],
+            ["ACLH", "ACLL", "ACLT", "ACLH", "ACLT"],
+        )
+        self.assertEqual(
+            fixture["golden"]["flat_hlt_sequence"],
+            "ACLH ACLL ACLT ACLH ACLT",
+        )
+        self.assertEqual(
+            fixture["golden"]["diagnostic_codes"],
+            {"replay_tiling_partial_coverage": 1},
+        )
 
 
 if __name__ == "__main__":
