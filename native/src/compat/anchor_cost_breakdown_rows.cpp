@@ -6,28 +6,6 @@ namespace traceloom::compat {
 
 namespace {
 
-const char* report_anchor_kind_name(ReportAnchorKind kind) {
-  switch (kind) {
-    case ReportAnchorKind::kExec:
-      return "exec";
-    case ReportAnchorKind::kGraphH:
-      return "graph_h";
-    case ReportAnchorKind::kGraphL:
-      return "graph_l";
-    case ReportAnchorKind::kGraphT:
-      return "graph_t";
-    case ReportAnchorKind::kGraphTemplate:
-      return "graph_template";
-    case ReportAnchorKind::kGraphLaunchActivity:
-      return "graph_launch_activity";
-    case ReportAnchorKind::kCollective:
-      return "collective";
-    case ReportAnchorKind::kUnknown:
-      return "unknown";
-  }
-  return "unknown";
-}
-
 double ns_to_us(std::int64_t ns) {
   return static_cast<double>(ns) / 1000.0;
 }

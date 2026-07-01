@@ -20,6 +20,8 @@ enum class ReportAnchorKind {
   kUnknown,
 };
 
+const char* report_anchor_kind_name(ReportAnchorKind kind);
+
 enum class ReportNodeKind {
   kSeq,
   kRepeat,
