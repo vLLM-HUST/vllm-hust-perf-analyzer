@@ -76,6 +76,7 @@ target_link_libraries(traceloom_native_adapters PUBLIC traceloom_native_core)
 add_library(traceloom_native_materialize
   src/compat/anchor_cost_breakdown_rows.cpp
   src/compat/schema.cpp
+  src/compat/sidecar_writer.cpp
   src/materialize/grammar_debug_json.cpp
   src/materialize/native_result_json.cpp
 )
@@ -99,17 +100,28 @@ if(TRACELOOM_NATIVE_ENABLE_ASCEND_SQLITE)
     )
     if(TARGET SQLite::SQLite3)
       target_link_libraries(traceloom_native_adapters PRIVATE SQLite::SQLite3)
+      target_link_libraries(traceloom_native_materialize PRIVATE SQLite::SQLite3)
     else()
       target_include_directories(
         traceloom_native_adapters PRIVATE ${SQLite3_INCLUDE_DIRS}
       )
+      target_include_directories(
+        traceloom_native_materialize PRIVATE ${SQLite3_INCLUDE_DIRS}
+      )
       target_link_libraries(
         traceloom_native_adapters PRIVATE ${SQLite3_LIBRARIES}
+      )
+      target_link_libraries(
+        traceloom_native_materialize PRIVATE ${SQLite3_LIBRARIES}
       )
     endif()
     target_compile_definitions(
       traceloom_native_adapters
       PUBLIC TRACELOOM_NATIVE_HAS_ASCEND_SQLITE=1
+    )
+    target_compile_definitions(
+      traceloom_native_materialize
+      PRIVATE TRACELOOM_NATIVE_HAS_SQLITE_COMPAT=1
     )
     set(TRACELOOM_NATIVE_ASCEND_SQLITE_AVAILABLE ON)
   else()
@@ -558,6 +570,66 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     add_test(
       NAME traceloom_native_ascend_sqlite_adapter_tests
       COMMAND traceloom_native_ascend_sqlite_adapter_tests
+    )
+
+    add_executable(traceloom_native_sidecar_writer_tests
+      tests/compat/sidecar_writer_tests.cpp
+    )
+    target_compile_definitions(
+      traceloom_native_sidecar_writer_tests PRIVATE
+      TRACELOOM_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/.."
+    )
+    target_link_libraries(
+      traceloom_native_sidecar_writer_tests PRIVATE
+      traceloom_native_materialize
+    )
+    if(TARGET SQLite::SQLite3)
+      target_link_libraries(
+        traceloom_native_sidecar_writer_tests PRIVATE SQLite::SQLite3
+      )
+    else()
+      target_include_directories(
+        traceloom_native_sidecar_writer_tests
+        PRIVATE ${SQLite3_INCLUDE_DIRS}
+      )
+      target_link_libraries(
+        traceloom_native_sidecar_writer_tests
+        PRIVATE ${SQLite3_LIBRARIES}
+      )
+    endif()
+    add_test(
+      NAME traceloom_native_sidecar_writer_tests
+      COMMAND traceloom_native_sidecar_writer_tests
+    )
+
+    add_executable(traceloom_native_report_sql_compat_tests
+      tests/compat/report_sql_compat_tests.cpp
+    )
+    target_compile_definitions(
+      traceloom_native_report_sql_compat_tests PRIVATE
+      TRACELOOM_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/.."
+    )
+    target_link_libraries(
+      traceloom_native_report_sql_compat_tests PRIVATE
+      traceloom_native_materialize
+    )
+    if(TARGET SQLite::SQLite3)
+      target_link_libraries(
+        traceloom_native_report_sql_compat_tests PRIVATE SQLite::SQLite3
+      )
+    else()
+      target_include_directories(
+        traceloom_native_report_sql_compat_tests
+        PRIVATE ${SQLite3_INCLUDE_DIRS}
+      )
+      target_link_libraries(
+        traceloom_native_report_sql_compat_tests
+        PRIVATE ${SQLite3_LIBRARIES}
+      )
+    endif()
+    add_test(
+      NAME traceloom_native_report_sql_compat_tests
+      COMMAND traceloom_native_report_sql_compat_tests
     )
   endif()
 

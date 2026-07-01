@@ -1,0 +1,608 @@
+#include "traceloom/compat/sidecar_writer.h"
+
+#include <stdexcept>
+#include <string>
+
+#if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
+#include <sqlite3.h>
+#endif
+
+namespace traceloom::compat {
+
+#if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
+namespace {
+
+class SqliteDb {
+ public:
+  explicit SqliteDb(const std::string& path) {
+    sqlite3* raw = nullptr;
+    const int rc =
+        sqlite3_open_v2(path.c_str(), &raw,
+                        SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
+    db_ = raw;
+    if (rc != SQLITE_OK) {
+      const std::string message =
+          db_ == nullptr ? "unknown sqlite open error" : sqlite3_errmsg(db_);
+      if (db_ != nullptr) {
+        sqlite3_close(db_);
+        db_ = nullptr;
+      }
+      throw std::runtime_error("failed to open compatibility sidecar: " +
+                               message);
+    }
+  }
+
+  ~SqliteDb() {
+    if (db_ != nullptr) {
+      sqlite3_close(db_);
+    }
+  }
+
+  SqliteDb(const SqliteDb&) = delete;
+  SqliteDb& operator=(const SqliteDb&) = delete;
+
+  void exec(const std::string& sql) {
+    char* error = nullptr;
+    const int rc = sqlite3_exec(db_, sql.c_str(), nullptr, nullptr, &error);
+    if (rc != SQLITE_OK) {
+      const std::string message =
+          error == nullptr ? sqlite3_errmsg(db_) : error;
+      sqlite3_free(error);
+      throw std::runtime_error("failed to materialize compatibility sidecar: " +
+                               message);
+    }
+  }
+
+  sqlite3* get() const noexcept { return db_; }
+
+ private:
+  sqlite3* db_ = nullptr;
+};
+
+class SqliteStmt {
+ public:
+  SqliteStmt(sqlite3* db, const std::string& sql) : db_(db) {
+    sqlite3_stmt* raw = nullptr;
+    const int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &raw, nullptr);
+    stmt_ = raw;
+    if (rc != SQLITE_OK) {
+      throw std::runtime_error("failed to prepare compatibility sidecar SQL: " +
+                               std::string(sqlite3_errmsg(db_)));
+    }
+  }
+
+  ~SqliteStmt() {
+    if (stmt_ != nullptr) {
+      sqlite3_finalize(stmt_);
+    }
+  }
+
+  SqliteStmt(const SqliteStmt&) = delete;
+  SqliteStmt& operator=(const SqliteStmt&) = delete;
+
+  sqlite3_stmt* get() const noexcept { return stmt_; }
+  sqlite3* db() const noexcept { return db_; }
+
+ private:
+  sqlite3* db_ = nullptr;
+  sqlite3_stmt* stmt_ = nullptr;
+};
+
+void bind_text(SqliteStmt& stmt, int column, const std::string& value) {
+  const int rc = sqlite3_bind_text(stmt.get(), column, value.c_str(), -1,
+                                   SQLITE_TRANSIENT);
+  if (rc != SQLITE_OK) {
+    throw std::runtime_error("failed to bind compatibility sidecar text: " +
+                             std::string(sqlite3_errmsg(stmt.db())));
+  }
+}
+
+void bind_int64(SqliteStmt& stmt, int column, sqlite3_int64 value) {
+  const int rc = sqlite3_bind_int64(stmt.get(), column, value);
+  if (rc != SQLITE_OK) {
+    throw std::runtime_error("failed to bind compatibility sidecar integer: " +
+                             std::string(sqlite3_errmsg(stmt.db())));
+  }
+}
+
+void bind_double(SqliteStmt& stmt, int column, double value) {
+  const int rc = sqlite3_bind_double(stmt.get(), column, value);
+  if (rc != SQLITE_OK) {
+    throw std::runtime_error("failed to bind compatibility sidecar real: " +
+                             std::string(sqlite3_errmsg(stmt.db())));
+  }
+}
+
+void insert_anchor_cost_breakdown_row(SqliteStmt& stmt,
+                                      const AnchorCostBreakdownSqlRow& row) {
+  bind_int64(stmt, 1, row.anchor_idx);
+  bind_text(stmt, 2, row.symbol);
+  bind_text(stmt, 3, row.anchor_kind);
+  bind_double(stmt, 4, row.total_us);
+  bind_double(stmt, 5, row.self_us);
+  bind_double(stmt, 6, row.aux_us);
+  bind_double(stmt, 7, row.graph_child_us);
+  bind_double(stmt, 8, row.residual_us);
+  bind_int64(stmt, 9, row.raw_child_task_count);
+  bind_text(stmt, 10, row.top_ops);
+  bind_text(stmt, 11, row.diagnostic_flags);
+
+  const int rc = sqlite3_step(stmt.get());
+  if (rc != SQLITE_DONE) {
+    throw std::runtime_error("failed to insert compatibility sidecar row: " +
+                             std::string(sqlite3_errmsg(stmt.db())));
+  }
+  sqlite3_reset(stmt.get());
+  sqlite3_clear_bindings(stmt.get());
+}
+
+void insert_event_row(SqliteStmt& stmt, const EventSqlRow& row) {
+  bind_text(stmt, 1, row.event_id);
+  bind_int64(stmt, 2, row.db_idx);
+  bind_int64(stmt, 3, row.device_id);
+  bind_int64(stmt, 4, row.step_idx);
+  bind_text(stmt, 5, row.source_table);
+  bind_text(stmt, 6, row.source_key);
+  bind_int64(stmt, 7, row.stream_id);
+  bind_int64(stmt, 8, row.start_ns);
+  bind_int64(stmt, 9, row.end_ns);
+  bind_double(stmt, 10, row.dur_us);
+  bind_text(stmt, 11, row.category);
+  bind_text(stmt, 12, row.role);
+  bind_text(stmt, 13, row.semantic_role);
+  bind_text(stmt, 14, row.semantic_role_reason);
+  bind_text(stmt, 15, row.symbol);
+  bind_text(stmt, 16, row.label);
+  bind_text(stmt, 17, row.raw_label);
+  bind_text(stmt, 18, row.op_type);
+  bind_text(stmt, 19, row.compute_task_type);
+  bind_text(stmt, 20, row.family);
+  bind_text(stmt, 21, row.task_type);
+  bind_text(stmt, 22, row.raw_json);
+
+  const int rc = sqlite3_step(stmt.get());
+  if (rc != SQLITE_DONE) {
+    throw std::runtime_error("failed to insert compatibility event row: " +
+                             std::string(sqlite3_errmsg(stmt.db())));
+  }
+  sqlite3_reset(stmt.get());
+  sqlite3_clear_bindings(stmt.get());
+}
+
+void insert_anchor_row(SqliteStmt& stmt, const AnchorSqlRow& row) {
+  bind_text(stmt, 1, row.anchor_id);
+  bind_int64(stmt, 2, row.db_idx);
+  bind_int64(stmt, 3, row.device_id);
+  bind_int64(stmt, 4, row.anchor_idx);
+  bind_text(stmt, 5, row.event_id);
+  bind_int64(stmt, 6, row.step_idx);
+  bind_text(stmt, 7, row.symbol);
+  bind_text(stmt, 8, row.role);
+  bind_text(stmt, 9, row.label);
+  bind_text(stmt, 10, row.family);
+  bind_int64(stmt, 11, row.start_ns);
+  bind_int64(stmt, 12, row.end_ns);
+  bind_double(stmt, 13, row.dur_us);
+
+  const int rc = sqlite3_step(stmt.get());
+  if (rc != SQLITE_DONE) {
+    throw std::runtime_error("failed to insert compatibility anchor row: " +
+                             std::string(sqlite3_errmsg(stmt.db())));
+  }
+  sqlite3_reset(stmt.get());
+  sqlite3_clear_bindings(stmt.get());
+}
+
+void insert_aux_link_row(SqliteStmt& stmt, const AuxLinkSqlRow& row) {
+  bind_text(stmt, 1, row.anchor_id);
+  bind_text(stmt, 2, row.aux_event_id);
+  bind_int64(stmt, 3, row.db_idx);
+  bind_int64(stmt, 4, row.device_id);
+  bind_int64(stmt, 5, row.aux_order);
+  bind_int64(stmt, 6, row.aux_step_idx);
+  bind_text(stmt, 7, row.link_type);
+  bind_text(stmt, 8, row.reason);
+  bind_text(stmt, 9, row.aux_kind);
+  bind_double(stmt, 10, row.aux_dur_us);
+  bind_text(stmt, 11, row.raw_json);
+
+  const int rc = sqlite3_step(stmt.get());
+  if (rc != SQLITE_DONE) {
+    throw std::runtime_error("failed to insert compatibility aux link row: " +
+                             std::string(sqlite3_errmsg(stmt.db())));
+  }
+  sqlite3_reset(stmt.get());
+  sqlite3_clear_bindings(stmt.get());
+}
+
+void insert_anchor_aux_slot_row(SqliteStmt& stmt,
+                                const AnchorAuxSlotSqlRow& row) {
+  bind_text(stmt, 1, row.anchor_id);
+  bind_int64(stmt, 2, row.db_idx);
+  bind_int64(stmt, 3, row.device_id);
+  bind_int64(stmt, 4, row.anchor_idx);
+  bind_int64(stmt, 5, row.anchor_step_idx);
+  bind_int64(stmt, 6, row.aux_start_step_idx);
+  bind_int64(stmt, 7, row.aux_end_step_idx);
+  bind_int64(stmt, 8, row.aux_event_count);
+  bind_double(stmt, 9, row.aux_dur_us);
+  bind_text(stmt, 10, row.raw_json);
+
+  const int rc = sqlite3_step(stmt.get());
+  if (rc != SQLITE_DONE) {
+    throw std::runtime_error(
+        "failed to insert compatibility anchor aux slot row: " +
+        std::string(sqlite3_errmsg(stmt.db())));
+  }
+  sqlite3_reset(stmt.get());
+  sqlite3_clear_bindings(stmt.get());
+}
+
+void insert_viz_node_row(SqliteStmt& stmt, const VizNodeSqlRow& row) {
+  bind_text(stmt, 1, row.node_id);
+  bind_int64(stmt, 2, row.db_idx);
+  bind_int64(stmt, 3, row.device_id);
+  bind_text(stmt, 4, row.view_name);
+  bind_text(stmt, 5, row.local_node_id);
+  bind_text(stmt, 6, row.path);
+  bind_text(stmt, 7, row.node_type);
+  bind_text(stmt, 8, row.kind);
+  bind_text(stmt, 9, row.symbol);
+  bind_text(stmt, 10, row.label);
+  bind_text(stmt, 11, row.category);
+  bind_int64(stmt, 12, row.depth);
+  bind_int64(stmt, 13, row.level);
+  bind_text(stmt, 14, row.repeat_label);
+  bind_int64(stmt, 15, row.repeat_count);
+  bind_int64(stmt, 16, row.occurrence_count);
+  bind_int64(stmt, 17, row.anchor_count);
+  bind_double(stmt, 18, row.anchors_per_occurrence);
+  bind_int64(stmt, 19, row.first_anchor_idx);
+  bind_int64(stmt, 20, row.last_anchor_idx);
+  bind_double(stmt, 21, row.compute_us);
+  bind_double(stmt, 22, row.comm_us);
+  bind_double(stmt, 23, row.idle_us);
+  bind_double(stmt, 24, row.total_us);
+  bind_double(stmt, 25, row.avg_compute_us);
+  bind_double(stmt, 26, row.avg_comm_us);
+  bind_double(stmt, 27, row.avg_idle_us);
+  bind_double(stmt, 28, row.avg_total_us);
+  bind_double(stmt, 29, row.self_us);
+  bind_double(stmt, 30, row.aux_events);
+  bind_double(stmt, 31, row.aux_us);
+  bind_text(stmt, 32, row.raw_json);
+
+  const int rc = sqlite3_step(stmt.get());
+  if (rc != SQLITE_DONE) {
+    throw std::runtime_error("failed to insert compatibility viz node row: " +
+                             std::string(sqlite3_errmsg(stmt.db())));
+  }
+  sqlite3_reset(stmt.get());
+  sqlite3_clear_bindings(stmt.get());
+}
+
+void insert_viz_node_anchor_row(SqliteStmt& stmt,
+                                const VizNodeAnchorSqlRow& row) {
+  bind_text(stmt, 1, row.node_id);
+  bind_text(stmt, 2, row.anchor_id);
+  bind_int64(stmt, 3, row.db_idx);
+  bind_int64(stmt, 4, row.device_id);
+  bind_text(stmt, 5, row.view_name);
+  bind_int64(stmt, 6, row.occurrence_idx);
+  bind_int64(stmt, 7, row.anchor_order);
+  bind_text(stmt, 8, row.coverage_kind);
+  bind_text(stmt, 9, row.repeat_context);
+
+  const int rc = sqlite3_step(stmt.get());
+  if (rc != SQLITE_DONE) {
+    throw std::runtime_error(
+        "failed to insert compatibility viz node anchor row: " +
+        std::string(sqlite3_errmsg(stmt.db())));
+  }
+  sqlite3_reset(stmt.get());
+  sqlite3_clear_bindings(stmt.get());
+}
+
+void materialize_tree_node_anchor_view(SqliteDb& db) {
+  db.exec(
+      "CREATE VIEW IF NOT EXISTS traceloom_tree_node_anchor AS "
+      "SELECT "
+      "na.node_id, "
+      "n.local_node_id, "
+      "na.anchor_id, "
+      "na.db_idx, "
+      "na.device_id, "
+      "na.view_name, "
+      "na.occurrence_idx, "
+      "na.anchor_order, "
+      "na.coverage_kind, "
+      "na.repeat_context "
+      "FROM traceloom_viz_node_anchor na "
+      "JOIN traceloom_viz_node n ON n.node_id = na.node_id");
+}
+
+void materialize_tree_node_occurrence_view(SqliteDb& db) {
+  db.exec(
+      "CREATE VIEW IF NOT EXISTS traceloom_tree_node_occurrence AS "
+      "WITH anchor_span AS ("
+      "SELECT "
+      "na.node_id, "
+      "na.db_idx, "
+      "na.device_id, "
+      "na.view_name, "
+      "na.occurrence_idx, "
+      "MIN(a.anchor_idx) AS anchor_start_idx, "
+      "MAX(a.anchor_idx) AS anchor_end_idx, "
+      "COUNT(*) AS anchor_count, "
+      "MIN(a.start_ns) AS start_ns, "
+      "MAX(a.end_ns) AS end_ns, "
+      "SUM(CASE WHEN e.role = 'compute' THEN e.dur_us ELSE 0.0 END) AS "
+      "compute_us, "
+      "SUM(CASE WHEN e.role = 'collective' THEN e.dur_us ELSE 0.0 END) AS "
+      "comm_us, "
+      "SUM(e.dur_us) AS anchor_us, "
+      "MIN(na.repeat_context) AS repeat_context "
+      "FROM traceloom_viz_node_anchor na "
+      "JOIN traceloom_anchor a ON a.anchor_id = na.anchor_id "
+      "JOIN traceloom_event e ON e.event_id = a.event_id "
+      "GROUP BY na.node_id, na.db_idx, na.device_id, na.view_name, "
+      "na.occurrence_idx"
+      "), "
+      "aux_span AS ("
+      "SELECT "
+      "na.node_id, "
+      "na.db_idx, "
+      "na.device_id, "
+      "na.view_name, "
+      "na.occurrence_idx, "
+      "COUNT(al.aux_event_id) AS aux_events, "
+      "SUM(COALESCE(aux.dur_us, 0.0)) AS aux_us "
+      "FROM traceloom_viz_node_anchor na "
+      "JOIN traceloom_aux_link al ON al.anchor_id = na.anchor_id "
+      "JOIN traceloom_event aux ON aux.event_id = al.aux_event_id "
+      "GROUP BY na.node_id, na.db_idx, na.device_id, na.view_name, "
+      "na.occurrence_idx"
+      ") "
+      "SELECT "
+      "a.node_id, "
+      "n.local_node_id, "
+      "a.db_idx, "
+      "a.device_id, "
+      "a.view_name, "
+      "a.occurrence_idx, "
+      "a.repeat_context, "
+      "a.anchor_start_idx, "
+      "a.anchor_end_idx, "
+      "a.anchor_count, "
+      "a.start_ns, "
+      "a.end_ns, "
+      "ROUND(COALESCE(a.compute_us, 0.0), 3) AS compute_us, "
+      "ROUND(COALESCE(a.comm_us, 0.0), 3) AS comm_us, "
+      "ROUND(COALESCE(n.idle_us, 0.0) / CASE WHEN "
+      "COALESCE(n.occurrence_count, 0) = 0 THEN 1 ELSE n.occurrence_count "
+      "END, 3) AS idle_us, "
+      "ROUND(COALESCE(a.compute_us, 0.0) + COALESCE(a.comm_us, 0.0) + "
+      "COALESCE(n.idle_us, 0.0) / CASE WHEN "
+      "COALESCE(n.occurrence_count, 0) = 0 THEN 1 ELSE n.occurrence_count "
+      "END, 3) AS total_us, "
+      "COALESCE(aux.aux_events, 0) AS aux_events, "
+      "ROUND(COALESCE(aux.aux_us, 0.0), 3) AS aux_us "
+      "FROM anchor_span a "
+      "JOIN traceloom_viz_node n ON n.node_id = a.node_id "
+      "LEFT JOIN aux_span aux ON aux.node_id = a.node_id "
+      "AND aux.occurrence_idx = a.occurrence_idx");
+}
+
+}  // namespace
+
+#endif
+
+void materialize_compatibility_schema(const std::string& sqlite_path) {
+#if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
+  materialize_compatibility_schema(sqlite_path, compatibility_table_schemas());
+#else
+  (void)sqlite_path;
+  throw std::runtime_error(
+      "compatibility sidecar writer requires SQLite support");
+#endif
+}
+
+void materialize_compatibility_schema(
+    const std::string& sqlite_path,
+    const std::vector<CompatTableSchema>& schemas) {
+#if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
+  SqliteDb db(sqlite_path);
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    for (const CompatTableSchema& schema : schemas) {
+      db.exec(sqlite_create_table_sql(schema));
+    }
+    db.exec("COMMIT");
+  } catch (...) {
+    try {
+      db.exec("ROLLBACK");
+    } catch (...) {
+    }
+    throw;
+  }
+#else
+  (void)sqlite_path;
+  (void)schemas;
+  throw std::runtime_error(
+      "compatibility sidecar writer requires SQLite support");
+#endif
+}
+
+void replace_anchor_cost_breakdown_rows(
+    const std::string& sqlite_path,
+    const std::vector<AnchorCostBreakdownSqlRow>& rows) {
+#if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
+  materialize_compatibility_schema(
+      sqlite_path, {anchor_cost_breakdown_sql_row_schema()});
+
+  SqliteDb db(sqlite_path);
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.exec("DELETE FROM traceloom_anchor_cost_breakdown");
+    SqliteStmt stmt(
+        db.get(),
+        "INSERT INTO traceloom_anchor_cost_breakdown ("
+        "anchor_idx, symbol, anchor_kind, total_us, self_us, aux_us, "
+        "graph_child_us, residual_us, raw_child_task_count, top_ops, "
+        "diagnostic_flags"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    for (const AnchorCostBreakdownSqlRow& row : rows) {
+      insert_anchor_cost_breakdown_row(stmt, row);
+    }
+    db.exec("COMMIT");
+  } catch (...) {
+    try {
+      db.exec("ROLLBACK");
+    } catch (...) {
+    }
+    throw;
+  }
+#else
+  (void)sqlite_path;
+  (void)rows;
+  throw std::runtime_error(
+      "compatibility sidecar writer requires SQLite support");
+#endif
+}
+
+void replace_anchor_aux_rows(const std::string& sqlite_path,
+                             const AnchorAuxSqlRows& rows) {
+#if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
+  materialize_compatibility_schema(
+      sqlite_path,
+      {event_table_schema(), anchor_table_schema(),
+       anchor_aux_slot_table_schema(), aux_link_table_schema()});
+
+  SqliteDb db(sqlite_path);
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.exec("DELETE FROM traceloom_aux_link");
+    db.exec("DELETE FROM traceloom_anchor_aux_slot");
+    db.exec("DELETE FROM traceloom_anchor");
+    db.exec("DELETE FROM traceloom_event");
+
+    SqliteStmt event_stmt(
+        db.get(),
+        "INSERT INTO traceloom_event ("
+        "event_id, db_idx, device_id, step_idx, source_table, source_key, "
+        "stream_id, start_ns, end_ns, dur_us, category, role, semantic_role, "
+        "semantic_role_reason, symbol, label, raw_label, op_type, "
+        "compute_task_type, family, task_type, raw_json"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+        "?, ?, ?)");
+    for (const EventSqlRow& row : rows.events) {
+      insert_event_row(event_stmt, row);
+    }
+
+    SqliteStmt anchor_stmt(
+        db.get(),
+        "INSERT INTO traceloom_anchor ("
+        "anchor_id, db_idx, device_id, anchor_idx, event_id, step_idx, "
+        "symbol, role, label, family, start_ns, end_ns, dur_us"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    for (const AnchorSqlRow& row : rows.anchors) {
+      insert_anchor_row(anchor_stmt, row);
+    }
+
+    SqliteStmt aux_slot_stmt(
+        db.get(),
+        "INSERT INTO traceloom_anchor_aux_slot ("
+        "anchor_id, db_idx, device_id, anchor_idx, anchor_step_idx, "
+        "aux_start_step_idx, aux_end_step_idx, aux_event_count, aux_dur_us, "
+        "raw_json"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    for (const AnchorAuxSlotSqlRow& row : rows.aux_slots) {
+      insert_anchor_aux_slot_row(aux_slot_stmt, row);
+    }
+
+    SqliteStmt aux_link_stmt(
+        db.get(),
+        "INSERT INTO traceloom_aux_link ("
+        "anchor_id, aux_event_id, db_idx, device_id, aux_order, aux_step_idx, "
+        "link_type, reason, aux_kind, aux_dur_us, raw_json"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    for (const AuxLinkSqlRow& row : rows.aux_links) {
+      insert_aux_link_row(aux_link_stmt, row);
+    }
+
+    db.exec("COMMIT");
+  } catch (...) {
+    try {
+      db.exec("ROLLBACK");
+    } catch (...) {
+    }
+    throw;
+  }
+#else
+  (void)sqlite_path;
+  (void)rows;
+  throw std::runtime_error(
+      "compatibility sidecar writer requires SQLite support");
+#endif
+}
+
+void replace_node_coverage_rows(const std::string& sqlite_path,
+                                const NodeCoverageSqlRows& rows) {
+#if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
+  materialize_compatibility_schema(
+      sqlite_path,
+      {event_table_schema(), anchor_table_schema(),
+       anchor_aux_slot_table_schema(), aux_link_table_schema(),
+       viz_node_table_schema(), viz_node_anchor_table_schema()});
+
+  SqliteDb db(sqlite_path);
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.exec("DELETE FROM traceloom_viz_node_anchor");
+    db.exec("DELETE FROM traceloom_viz_node");
+
+    SqliteStmt node_stmt(
+        db.get(),
+        "INSERT INTO traceloom_viz_node ("
+        "node_id, db_idx, device_id, view_name, local_node_id, path, "
+        "node_type, kind, symbol, label, category, depth, level, "
+        "repeat_label, repeat_count, occurrence_count, anchor_count, "
+        "anchors_per_occurrence, first_anchor_idx, last_anchor_idx, "
+        "compute_us, comm_us, idle_us, total_us, avg_compute_us, "
+        "avg_comm_us, avg_idle_us, avg_total_us, self_us, aux_events, aux_us, "
+        "raw_json"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+        "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    for (const VizNodeSqlRow& row : rows.nodes) {
+      insert_viz_node_row(node_stmt, row);
+    }
+
+    SqliteStmt node_anchor_stmt(
+        db.get(),
+        "INSERT INTO traceloom_viz_node_anchor ("
+        "node_id, anchor_id, db_idx, device_id, view_name, occurrence_idx, "
+        "anchor_order, coverage_kind, repeat_context"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    for (const VizNodeAnchorSqlRow& row : rows.node_anchors) {
+      insert_viz_node_anchor_row(node_anchor_stmt, row);
+    }
+
+    materialize_tree_node_anchor_view(db);
+    materialize_tree_node_occurrence_view(db);
+    db.exec("COMMIT");
+  } catch (...) {
+    try {
+      db.exec("ROLLBACK");
+    } catch (...) {
+    }
+    throw;
+  }
+#else
+  (void)sqlite_path;
+  (void)rows;
+  throw std::runtime_error(
+      "compatibility sidecar writer requires SQLite support");
+#endif
+}
+
+}  // namespace traceloom::compat

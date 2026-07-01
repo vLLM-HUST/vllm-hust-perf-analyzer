@@ -57,6 +57,157 @@ const char* sqlite_column_type_name(CompatColumnType type) {
   return "TEXT";
 }
 
+const CompatTableSchema& event_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_event",
+      {
+          {"event_id", CompatColumnType::kText, false},
+          {"db_idx", CompatColumnType::kInteger, false},
+          {"device_id", CompatColumnType::kInteger, false},
+          {"step_idx", CompatColumnType::kInteger, false},
+          {"source_table", CompatColumnType::kText, false},
+          {"source_key", CompatColumnType::kText, false},
+          {"stream_id", CompatColumnType::kInteger, true},
+          {"start_ns", CompatColumnType::kInteger, true},
+          {"end_ns", CompatColumnType::kInteger, true},
+          {"dur_us", CompatColumnType::kReal, true},
+          {"category", CompatColumnType::kText, true},
+          {"role", CompatColumnType::kText, true},
+          {"semantic_role", CompatColumnType::kText, true},
+          {"semantic_role_reason", CompatColumnType::kText, true},
+          {"symbol", CompatColumnType::kText, true},
+          {"label", CompatColumnType::kText, true},
+          {"raw_label", CompatColumnType::kText, true},
+          {"op_type", CompatColumnType::kText, true},
+          {"compute_task_type", CompatColumnType::kText, true},
+          {"family", CompatColumnType::kText, true},
+          {"task_type", CompatColumnType::kText, true},
+          {"raw_json", CompatColumnType::kText, true},
+      },
+  };
+  return schema;
+}
+
+const CompatTableSchema& anchor_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_anchor",
+      {
+          {"anchor_id", CompatColumnType::kText, false},
+          {"db_idx", CompatColumnType::kInteger, false},
+          {"device_id", CompatColumnType::kInteger, false},
+          {"anchor_idx", CompatColumnType::kInteger, false},
+          {"event_id", CompatColumnType::kText, false},
+          {"step_idx", CompatColumnType::kInteger, false},
+          {"symbol", CompatColumnType::kText, true},
+          {"role", CompatColumnType::kText, true},
+          {"label", CompatColumnType::kText, true},
+          {"family", CompatColumnType::kText, true},
+          {"start_ns", CompatColumnType::kInteger, true},
+          {"end_ns", CompatColumnType::kInteger, true},
+          {"dur_us", CompatColumnType::kReal, true},
+      },
+  };
+  return schema;
+}
+
+const CompatTableSchema& anchor_aux_slot_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_anchor_aux_slot",
+      {
+          {"anchor_id", CompatColumnType::kText, false},
+          {"db_idx", CompatColumnType::kInteger, false},
+          {"device_id", CompatColumnType::kInteger, false},
+          {"anchor_idx", CompatColumnType::kInteger, false},
+          {"anchor_step_idx", CompatColumnType::kInteger, false},
+          {"aux_start_step_idx", CompatColumnType::kInteger, true},
+          {"aux_end_step_idx", CompatColumnType::kInteger, true},
+          {"aux_event_count", CompatColumnType::kInteger, true},
+          {"aux_dur_us", CompatColumnType::kReal, true},
+          {"raw_json", CompatColumnType::kText, true},
+      },
+  };
+  return schema;
+}
+
+const CompatTableSchema& aux_link_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_aux_link",
+      {
+          {"anchor_id", CompatColumnType::kText, false},
+          {"aux_event_id", CompatColumnType::kText, false},
+          {"db_idx", CompatColumnType::kInteger, false},
+          {"device_id", CompatColumnType::kInteger, false},
+          {"aux_order", CompatColumnType::kInteger, false},
+          {"aux_step_idx", CompatColumnType::kInteger, false},
+          {"link_type", CompatColumnType::kText, false},
+          {"reason", CompatColumnType::kText, true},
+          {"aux_kind", CompatColumnType::kText, true},
+          {"aux_dur_us", CompatColumnType::kReal, true},
+          {"raw_json", CompatColumnType::kText, true},
+      },
+  };
+  return schema;
+}
+
+const CompatTableSchema& viz_node_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_viz_node",
+      {
+          {"node_id", CompatColumnType::kText, false},
+          {"db_idx", CompatColumnType::kInteger, false},
+          {"device_id", CompatColumnType::kInteger, false},
+          {"view_name", CompatColumnType::kText, false},
+          {"local_node_id", CompatColumnType::kText, false},
+          {"path", CompatColumnType::kText, true},
+          {"node_type", CompatColumnType::kText, true},
+          {"kind", CompatColumnType::kText, true},
+          {"symbol", CompatColumnType::kText, true},
+          {"label", CompatColumnType::kText, true},
+          {"category", CompatColumnType::kText, true},
+          {"depth", CompatColumnType::kInteger, true},
+          {"level", CompatColumnType::kInteger, true},
+          {"repeat_label", CompatColumnType::kText, true},
+          {"repeat_count", CompatColumnType::kInteger, true},
+          {"occurrence_count", CompatColumnType::kInteger, true},
+          {"anchor_count", CompatColumnType::kInteger, true},
+          {"anchors_per_occurrence", CompatColumnType::kReal, true},
+          {"first_anchor_idx", CompatColumnType::kInteger, true},
+          {"last_anchor_idx", CompatColumnType::kInteger, true},
+          {"compute_us", CompatColumnType::kReal, true},
+          {"comm_us", CompatColumnType::kReal, true},
+          {"idle_us", CompatColumnType::kReal, true},
+          {"total_us", CompatColumnType::kReal, true},
+          {"avg_compute_us", CompatColumnType::kReal, true},
+          {"avg_comm_us", CompatColumnType::kReal, true},
+          {"avg_idle_us", CompatColumnType::kReal, true},
+          {"avg_total_us", CompatColumnType::kReal, true},
+          {"self_us", CompatColumnType::kReal, true},
+          {"aux_events", CompatColumnType::kReal, true},
+          {"aux_us", CompatColumnType::kReal, true},
+          {"raw_json", CompatColumnType::kText, true},
+      },
+  };
+  return schema;
+}
+
+const CompatTableSchema& viz_node_anchor_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_viz_node_anchor",
+      {
+          {"node_id", CompatColumnType::kText, false},
+          {"anchor_id", CompatColumnType::kText, false},
+          {"db_idx", CompatColumnType::kInteger, false},
+          {"device_id", CompatColumnType::kInteger, false},
+          {"view_name", CompatColumnType::kText, false},
+          {"occurrence_idx", CompatColumnType::kInteger, false},
+          {"anchor_order", CompatColumnType::kInteger, false},
+          {"coverage_kind", CompatColumnType::kText, false},
+          {"repeat_context", CompatColumnType::kText, true},
+      },
+  };
+  return schema;
+}
+
 const CompatTableSchema& anchor_cost_breakdown_table_schema() {
   static const CompatTableSchema schema{
       "traceloom_anchor_cost_breakdown",
@@ -78,7 +229,15 @@ const CompatTableSchema& anchor_cost_breakdown_table_schema() {
 }
 
 std::vector<CompatTableSchema> compatibility_table_schemas() {
-  return {anchor_cost_breakdown_table_schema()};
+  return {
+      event_table_schema(),
+      anchor_table_schema(),
+      anchor_aux_slot_table_schema(),
+      aux_link_table_schema(),
+      viz_node_table_schema(),
+      viz_node_anchor_table_schema(),
+      anchor_cost_breakdown_table_schema(),
+  };
 }
 
 std::vector<std::string> column_names(const CompatTableSchema& schema) {

@@ -89,9 +89,14 @@ int main() {
           std::string("REAL"));
   const std::vector<compat::CompatTableSchema> catalog =
       compat::compatibility_table_schemas();
-  require(catalog.size() == 1);
-  require(catalog[0].name == schema.name);
-  require(compat::column_names(catalog[0]) == expected_columns);
+  bool found_anchor_cost_schema = false;
+  for (const compat::CompatTableSchema& catalog_schema : catalog) {
+    if (catalog_schema.name == schema.name) {
+      found_anchor_cost_schema = true;
+      require(compat::column_names(catalog_schema) == expected_columns);
+    }
+  }
+  require(found_anchor_cost_schema);
 
   const std::string create_sql = compat::sqlite_create_table_sql(schema);
   require(create_sql.find(

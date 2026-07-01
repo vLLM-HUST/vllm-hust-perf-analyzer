@@ -25,6 +25,12 @@ struct CompatTableSchema {
 const char* compat_column_type_name(CompatColumnType type);
 const char* sqlite_column_type_name(CompatColumnType type);
 
+const CompatTableSchema& event_table_schema();
+const CompatTableSchema& anchor_table_schema();
+const CompatTableSchema& anchor_aux_slot_table_schema();
+const CompatTableSchema& aux_link_table_schema();
+const CompatTableSchema& viz_node_table_schema();
+const CompatTableSchema& viz_node_anchor_table_schema();
 const CompatTableSchema& anchor_cost_breakdown_table_schema();
 
 std::vector<CompatTableSchema> compatibility_table_schemas();
