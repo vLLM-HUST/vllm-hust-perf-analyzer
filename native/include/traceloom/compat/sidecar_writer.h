@@ -160,10 +160,40 @@ struct VizEdgeSqlRow {
   std::string raw_json;
 };
 
+struct AnchorPrimaryNodeSqlRow {
+  std::string anchor_id;
+  std::string node_id;
+  std::uint32_t db_idx = 0;
+  std::uint32_t device_id = 0;
+  std::string view_name = "default";
+  std::string reason = "smallest_covering_node";
+};
+
+struct LoopNodeSqlRow {
+  std::string node_id;
+  std::uint32_t db_idx = 0;
+  std::uint32_t device_id = 0;
+  std::string view_name = "default";
+  std::uint32_t loop_rank = 0;
+  std::string repeat_label;
+  std::uint32_t repeat_count = 0;
+  std::uint32_t occurrence_count = 0;
+  std::uint32_t anchor_count = 0;
+  double total_us = 0.0;
+  double avg_total_us = 0.0;
+  double compute_us = 0.0;
+  double comm_us = 0.0;
+  double idle_us = 0.0;
+  double loop_total_pct = 0.0;
+  std::string raw_json;
+};
+
 struct NodeCoverageSqlRows {
   std::vector<VizNodeSqlRow> nodes;
   std::vector<VizEdgeSqlRow> edges;
   std::vector<VizNodeAnchorSqlRow> node_anchors;
+  std::vector<AnchorPrimaryNodeSqlRow> anchor_primary_nodes;
+  std::vector<LoopNodeSqlRow> loop_nodes;
 };
 
 struct GraphReplaySqlRow {

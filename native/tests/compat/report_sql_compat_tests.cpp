@@ -158,6 +158,18 @@ void require_node_coverage_invariants(const std::string& db_path) {
                      "child.node_id = e.child_node_id "
                      "WHERE parent.node_id IS NULL OR child.node_id IS NULL") ==
       0);
+  traceloom::testing::require(
+      run_scalar_int(db_path,
+                     "SELECT COUNT(*) FROM traceloom_loop_node l "
+                     "LEFT JOIN traceloom_viz_node n ON n.node_id = l.node_id "
+                     "WHERE n.node_id IS NULL") == 0);
+  traceloom::testing::require(
+      run_scalar_int(db_path,
+                     "SELECT COUNT(*) FROM traceloom_anchor_primary_node ap "
+                     "LEFT JOIN traceloom_anchor a ON "
+                     "a.anchor_id = ap.anchor_id "
+                     "LEFT JOIN traceloom_viz_node n ON n.node_id = ap.node_id "
+                     "WHERE a.anchor_id IS NULL OR n.node_id IS NULL") == 0);
 }
 
 void require_graph_replay_invariants(const std::string& db_path) {
@@ -430,6 +442,26 @@ void seed_node_event_fixture(const std::string& db_path) {
   node_coverage.coverage_kind = "self";
   node_coverage.repeat_context = "N001#0";
   rows.node_anchors.push_back(node_coverage);
+
+  traceloom::compat::LoopNodeSqlRow loop_node;
+  loop_node.node_id = parent.node_id;
+  loop_node.view_name = parent.view_name;
+  loop_node.loop_rank = 0;
+  loop_node.repeat_label = parent.repeat_label;
+  loop_node.repeat_count = parent.repeat_count;
+  loop_node.occurrence_count = parent.occurrence_count;
+  loop_node.anchor_count = parent.anchor_count;
+  loop_node.total_us = parent.total_us;
+  loop_node.avg_total_us = parent.avg_total_us;
+  loop_node.compute_us = parent.compute_us;
+  rows.loop_nodes.push_back(loop_node);
+
+  traceloom::compat::AnchorPrimaryNodeSqlRow anchor_primary;
+  anchor_primary.anchor_id = "anchor-1";
+  anchor_primary.node_id = node.node_id;
+  anchor_primary.view_name = node.view_name;
+  anchor_primary.reason = "self_atom";
+  rows.anchor_primary_nodes.push_back(anchor_primary);
 
   traceloom::compat::replace_node_coverage_rows(db_path, rows);
 }

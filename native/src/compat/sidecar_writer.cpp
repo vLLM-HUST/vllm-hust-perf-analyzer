@@ -368,6 +368,56 @@ void insert_viz_node_anchor_row(SqliteStmt& stmt,
   sqlite3_clear_bindings(stmt.get());
 }
 
+void insert_anchor_primary_node_row(SqliteStmt& stmt,
+                                    const AnchorPrimaryNodeSqlRow& row) {
+  bind_text(stmt, 1, row.anchor_id);
+  bind_text(stmt, 2, row.node_id);
+  bind_int64(stmt, 3, row.db_idx);
+  bind_int64(stmt, 4, row.device_id);
+  bind_text(stmt, 5, row.view_name);
+  bind_text(stmt, 6, row.reason);
+
+  const int rc = sqlite3_step(stmt.get());
+  if (rc != SQLITE_DONE) {
+    throw std::runtime_error(
+        "failed to insert compatibility anchor primary node row: " +
+        std::string(sqlite3_errmsg(stmt.db())));
+  }
+  sqlite3_reset(stmt.get());
+  sqlite3_clear_bindings(stmt.get());
+}
+
+void insert_loop_node_row(SqliteStmt& stmt, const LoopNodeSqlRow& row) {
+  bind_text(stmt, 1, row.node_id);
+  bind_int64(stmt, 2, row.db_idx);
+  bind_int64(stmt, 3, row.device_id);
+  bind_text(stmt, 4, row.view_name);
+  bind_int64(stmt, 5, row.loop_rank);
+  bind_text(stmt, 6, row.repeat_label);
+  if (row.repeat_count == 0) {
+    bind_null(stmt, 7);
+  } else {
+    bind_int64(stmt, 7, row.repeat_count);
+  }
+  bind_int64(stmt, 8, row.occurrence_count);
+  bind_int64(stmt, 9, row.anchor_count);
+  bind_double(stmt, 10, row.total_us);
+  bind_double(stmt, 11, row.avg_total_us);
+  bind_double(stmt, 12, row.compute_us);
+  bind_double(stmt, 13, row.comm_us);
+  bind_double(stmt, 14, row.idle_us);
+  bind_double(stmt, 15, row.loop_total_pct);
+  bind_text(stmt, 16, row.raw_json);
+
+  const int rc = sqlite3_step(stmt.get());
+  if (rc != SQLITE_DONE) {
+    throw std::runtime_error("failed to insert compatibility loop node row: " +
+                             std::string(sqlite3_errmsg(stmt.db())));
+  }
+  sqlite3_reset(stmt.get());
+  sqlite3_clear_bindings(stmt.get());
+}
+
 void insert_graph_replay_row(SqliteStmt& stmt, const GraphReplaySqlRow& row) {
   bind_text(stmt, 1, row.graph_event_id);
   bind_int64(stmt, 2, row.db_idx);
@@ -1193,11 +1243,14 @@ void replace_node_coverage_rows(const std::string& sqlite_path,
       {event_table_schema(), anchor_table_schema(),
        anchor_aux_slot_table_schema(), aux_link_table_schema(),
        viz_node_table_schema(), viz_edge_table_schema(),
-       viz_node_anchor_table_schema()});
+       viz_node_anchor_table_schema(), anchor_primary_node_table_schema(),
+       loop_node_table_schema()});
 
   SqliteDb db(sqlite_path);
   db.exec("BEGIN IMMEDIATE");
   try {
+    db.exec("DELETE FROM traceloom_anchor_primary_node");
+    db.exec("DELETE FROM traceloom_loop_node");
     db.exec("DELETE FROM traceloom_viz_node_anchor");
     db.exec("DELETE FROM traceloom_viz_edge");
     db.exec("DELETE FROM traceloom_viz_node");
@@ -1236,6 +1289,26 @@ void replace_node_coverage_rows(const std::string& sqlite_path,
         ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
     for (const VizNodeAnchorSqlRow& row : rows.node_anchors) {
       insert_viz_node_anchor_row(node_anchor_stmt, row);
+    }
+
+    SqliteStmt anchor_primary_stmt(
+        db.get(),
+        "INSERT INTO traceloom_anchor_primary_node ("
+        "anchor_id, node_id, db_idx, device_id, view_name, reason"
+        ") VALUES (?, ?, ?, ?, ?, ?)");
+    for (const AnchorPrimaryNodeSqlRow& row : rows.anchor_primary_nodes) {
+      insert_anchor_primary_node_row(anchor_primary_stmt, row);
+    }
+
+    SqliteStmt loop_node_stmt(
+        db.get(),
+        "INSERT INTO traceloom_loop_node ("
+        "node_id, db_idx, device_id, view_name, loop_rank, repeat_label, "
+        "repeat_count, occurrence_count, anchor_count, total_us, "
+        "avg_total_us, compute_us, comm_us, idle_us, loop_total_pct, raw_json"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    for (const LoopNodeSqlRow& row : rows.loop_nodes) {
+      insert_loop_node_row(loop_node_stmt, row);
     }
 
     materialize_tree_node_anchor_view(db);
