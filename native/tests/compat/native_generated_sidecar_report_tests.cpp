@@ -4,6 +4,7 @@
 #include "traceloom/compat/anchor_cost_breakdown_rows.h"
 #include "traceloom/compat/native_sidecar_materializer.h"
 #include "traceloom/compat/sidecar_writer.h"
+#include "traceloom/ir/native_ir.h"
 #include "traceloom/report/anchor_internal_cost_breakdown.h"
 #include "traceloom/testing/test_util.h"
 
@@ -105,6 +106,27 @@ void materialize_aclgraph_fixture_sidecar(const std::string& db_path) {
                                                                       ir));
 }
 
+void materialize_aux_fixture_sidecar(const std::string& db_path) {
+  traceloom::NativeIr ir;
+  const traceloom::SourceRefId source =
+      ir.source_refs.append("fixture", "memory", "TASK", 0);
+  const traceloom::SymbolId memcpy = ir.symbols.intern("Memcpy");
+  const traceloom::SymbolId matmul = ir.symbols.intern("MatMul");
+
+  ir.trace_events.append(source, 1, 0, 7, 1000, 1500, memcpy);
+  const traceloom::TraceEventId anchor_event =
+      ir.trace_events.append(source, 2, 0, 7, 2000, 3200, matmul);
+  ir.anchors.append(source, anchor_event, traceloom::ReplayUnitId::invalid(),
+                    traceloom::AnchorKind::kDeviceEvent, matmul, 0, 7, 2000,
+                    3200);
+
+  traceloom::compat::NativeCompatibilitySidecarOptions options;
+  options.source_kind = "native_aux_fixture";
+  options.source_path = "memory";
+  traceloom::compat::write_basic_native_compatibility_sidecar(db_path, ir,
+                                                              options);
+}
+
 }  // namespace
 
 int main() {
@@ -132,5 +154,23 @@ int main() {
               "WHERE e.event_id IS NULL") == 0);
 
   std::remove(db_path.c_str());
+
+  const std::string aux_db_path = temp_db_path();
+  materialize_aux_fixture_sidecar(aux_db_path);
+
+  require(run_report_sql_row_count(aux_db_path, "anchor-aux.sql") > 0);
+  require(run_scalar_int(
+              aux_db_path,
+              "SELECT COUNT(*) FROM traceloom_aux_link al "
+              "JOIN traceloom_anchor a ON a.anchor_id = al.anchor_id "
+              "JOIN traceloom_event e ON e.event_id = al.aux_event_id") > 0);
+  require(run_scalar_int(
+              aux_db_path,
+              "SELECT COUNT(*) FROM traceloom_aux_link al "
+              "LEFT JOIN traceloom_anchor a ON a.anchor_id = al.anchor_id "
+              "LEFT JOIN traceloom_event e ON e.event_id = al.aux_event_id "
+              "WHERE a.anchor_id IS NULL OR e.event_id IS NULL") == 0);
+
+  std::remove(aux_db_path.c_str());
   return 0;
 }
