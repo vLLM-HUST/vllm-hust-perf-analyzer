@@ -210,6 +210,19 @@ int main() {
               "traceloom_v_semantic_tree_readable",
               "traceloom_v_tree_node",
           }));
+  require(load_sqlite_master_names(db_path, "index") ==
+          std::vector<std::string>({
+              "idx_traceloom_anchor_device_idx",
+              "idx_traceloom_aux_anchor",
+              "idx_traceloom_cuda_graph_envelope_child",
+              "idx_traceloom_cuda_graph_envelope_graph",
+              "idx_traceloom_cuda_graph_replay_exec",
+              "idx_traceloom_event_device_step",
+              "idx_traceloom_node_anchor_anchor",
+              "idx_traceloom_node_anchor_node",
+              "idx_traceloom_semantic_node_parent",
+              "idx_traceloom_semantic_node_tree_order",
+          }));
 
   std::vector<traceloom::compat::AnchorCostBreakdownSqlRow> rows(2);
   rows[0].anchor_idx = 2;

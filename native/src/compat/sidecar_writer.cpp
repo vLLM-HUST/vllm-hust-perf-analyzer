@@ -799,6 +799,39 @@ void materialize_semantic_tree_views(SqliteDb& db) {
       "FROM traceloom_semantic_node n");
 }
 
+void materialize_report_compatibility_indexes(SqliteDb& db) {
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_event_device_step "
+      "ON traceloom_event(db_idx, device_id, step_idx)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_anchor_device_idx "
+      "ON traceloom_anchor(db_idx, device_id, anchor_idx)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_aux_anchor "
+      "ON traceloom_aux_link(anchor_id)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_cuda_graph_replay_exec "
+      "ON traceloom_cuda_graph_replay(db_idx, device_id, graph_exec_id)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_cuda_graph_envelope_graph "
+      "ON traceloom_cuda_graph_envelope(graph_event_id)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_cuda_graph_envelope_child "
+      "ON traceloom_cuda_graph_envelope(child_event_id)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_node_anchor_node "
+      "ON traceloom_viz_node_anchor(node_id)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_node_anchor_anchor "
+      "ON traceloom_viz_node_anchor(anchor_id)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_semantic_node_tree_order "
+      "ON traceloom_semantic_node(tree_id, preorder_idx)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_semantic_node_parent "
+      "ON traceloom_semantic_node(parent_node_id)");
+}
+
 }  // namespace
 
 #endif
@@ -846,6 +879,7 @@ void materialize_report_compatibility_views(const std::string& sqlite_path) {
   SqliteDb db(sqlite_path);
   db.exec("BEGIN IMMEDIATE");
   try {
+    materialize_report_compatibility_indexes(db);
     materialize_cuda_graph_views(db);
     materialize_tree_node_anchor_view(db);
     materialize_tree_node_occurrence_view(db);
