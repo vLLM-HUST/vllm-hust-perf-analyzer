@@ -11,6 +11,7 @@
 #include "traceloom/adapters/aclgraph_fixture_adapter.h"
 #include "traceloom/adapters/aclgraph_fixture_reader.h"
 #include "traceloom/analysis/native_pipeline.h"
+#include "traceloom/compat/aclgraph_graph_replay_rows.h"
 #include "traceloom/compat/anchor_cost_breakdown_rows.h"
 #include "traceloom/compat/native_sidecar_materializer.h"
 #include "traceloom/compat/sidecar_writer.h"
@@ -157,6 +158,10 @@ int main(int argc, char** argv) {
       traceloom::compat::replace_anchor_cost_breakdown_rows(
           cli.compat_sidecar_out_path,
           traceloom::compat::build_anchor_cost_breakdown_sql_rows(breakdown));
+      traceloom::compat::replace_graph_replay_rows(
+          cli.compat_sidecar_out_path,
+          traceloom::compat::build_aclgraph_fixture_graph_replay_sql_rows(
+              fixture, ir));
     }
     traceloom::write_native_result_json(first_pass, ir.symbols, pipeline,
                                         json_options);
