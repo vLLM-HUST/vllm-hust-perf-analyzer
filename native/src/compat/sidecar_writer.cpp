@@ -121,6 +121,20 @@ void bind_double(SqliteStmt& stmt, int column, double value) {
   }
 }
 
+void insert_metadata_row(SqliteStmt& stmt, const MetadataSqlRow& row) {
+  bind_text(stmt, 1, row.key);
+  bind_text(stmt, 2, row.value);
+
+  const int rc = sqlite3_step(stmt.get());
+  if (rc != SQLITE_DONE) {
+    throw std::runtime_error(
+        "failed to insert compatibility metadata row: " +
+        std::string(sqlite3_errmsg(stmt.db())));
+  }
+  sqlite3_reset(stmt.get());
+  sqlite3_clear_bindings(stmt.get());
+}
+
 void insert_anchor_cost_breakdown_row(SqliteStmt& stmt,
                                       const AnchorCostBreakdownSqlRow& row) {
   bind_int64(stmt, 1, row.anchor_idx);
@@ -1011,6 +1025,37 @@ void materialize_global_collective_compatibility_schema(
   }
 #else
   (void)sqlite_path;
+  throw std::runtime_error(
+      "compatibility sidecar writer requires SQLite support");
+#endif
+}
+
+void replace_metadata_rows(const std::string& sqlite_path,
+                           const std::vector<MetadataSqlRow>& rows) {
+#if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
+  materialize_compatibility_schema(sqlite_path, {metadata_table_schema()});
+
+  SqliteDb db(sqlite_path);
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.exec("DELETE FROM traceloom_metadata");
+    SqliteStmt stmt(db.get(),
+                    "INSERT INTO traceloom_metadata (key, value) "
+                    "VALUES (?, ?)");
+    for (const MetadataSqlRow& row : rows) {
+      insert_metadata_row(stmt, row);
+    }
+    db.exec("COMMIT");
+  } catch (...) {
+    try {
+      db.exec("ROLLBACK");
+    } catch (...) {
+    }
+    throw;
+  }
+#else
+  (void)sqlite_path;
+  (void)rows;
   throw std::runtime_error(
       "compatibility sidecar writer requires SQLite support");
 #endif

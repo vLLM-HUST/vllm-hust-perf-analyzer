@@ -34,6 +34,11 @@ struct StoredAnchorCostRow {
   std::string diagnostic_flags;
 };
 
+struct StoredMetadataRow {
+  std::string key;
+  std::string value;
+};
+
 std::string temp_db_path() {
   const auto now = std::chrono::steady_clock::now().time_since_epoch().count();
   const std::filesystem::path path =
@@ -138,6 +143,31 @@ std::vector<StoredAnchorCostRow> load_anchor_cost_rows(
   return rows;
 }
 
+std::vector<StoredMetadataRow> load_metadata_rows(const std::string& path) {
+  sqlite3* db = nullptr;
+  int rc = sqlite3_open_v2(path.c_str(), &db, SQLITE_OPEN_READONLY, nullptr);
+  traceloom::testing::require(rc == SQLITE_OK);
+
+  sqlite3_stmt* raw_stmt = nullptr;
+  rc = sqlite3_prepare_v2(
+      db,
+      "SELECT key, value FROM traceloom_metadata ORDER BY key",
+      -1, &raw_stmt, nullptr);
+  traceloom::testing::require(rc == SQLITE_OK);
+
+  std::vector<StoredMetadataRow> rows;
+  while ((rc = sqlite3_step(raw_stmt)) == SQLITE_ROW) {
+    rows.push_back(StoredMetadataRow{
+        sqlite_text(raw_stmt, 0),
+        sqlite_text(raw_stmt, 1),
+    });
+  }
+  traceloom::testing::require(rc == SQLITE_DONE);
+  sqlite3_finalize(raw_stmt);
+  sqlite3_close(db);
+  return rows;
+}
+
 void require_columns_match_schema(
     const std::string& db_path,
     const traceloom::compat::CompatTableSchema& schema) {
@@ -206,6 +236,26 @@ int main() {
               "idx_global_collective_status",
           }));
   std::remove(global_db_path.c_str());
+
+  traceloom::compat::replace_metadata_rows(
+      db_path,
+      {
+          {"source_db", "/tmp/msprof.db"},
+          {"traceloom_schema_version", "augmented_db_v1"},
+      });
+  std::vector<StoredMetadataRow> metadata_rows = load_metadata_rows(db_path);
+  require(metadata_rows.size() == 2);
+  require(metadata_rows[0].key == "source_db");
+  require(metadata_rows[0].value == "/tmp/msprof.db");
+  require(metadata_rows[1].key == "traceloom_schema_version");
+  require(metadata_rows[1].value == "augmented_db_v1");
+
+  traceloom::compat::replace_metadata_rows(
+      db_path, {{"traceloom_schema_version", "compat-v2"}});
+  metadata_rows = load_metadata_rows(db_path);
+  require(metadata_rows.size() == 1);
+  require(metadata_rows[0].key == "traceloom_schema_version");
+  require(metadata_rows[0].value == "compat-v2");
 
   bool rejected_bad_schema = false;
   try {

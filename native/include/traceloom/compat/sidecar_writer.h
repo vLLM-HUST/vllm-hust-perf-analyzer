@@ -9,6 +9,11 @@
 
 namespace traceloom::compat {
 
+struct MetadataSqlRow {
+  std::string key;
+  std::string value;
+};
+
 struct EventSqlRow {
   std::string event_id;
   std::uint32_t db_idx = 0;
@@ -309,6 +314,9 @@ void materialize_report_compatibility_views(const std::string& sqlite_path);
 
 void materialize_global_collective_compatibility_schema(
     const std::string& sqlite_path);
+
+void replace_metadata_rows(const std::string& sqlite_path,
+                           const std::vector<MetadataSqlRow>& rows);
 
 void replace_anchor_cost_breakdown_rows(
     const std::string& sqlite_path,
