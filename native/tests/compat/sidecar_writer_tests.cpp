@@ -138,26 +138,12 @@ std::vector<StoredAnchorCostRow> load_anchor_cost_rows(
   return rows;
 }
 
-}  // namespace
-
-int main() {
+void require_columns_match_schema(
+    const std::string& db_path,
+    const traceloom::compat::CompatTableSchema& schema) {
   using traceloom::compat::CompatColumnType;
   using traceloom::testing::require;
 
-  const std::string db_path = temp_db_path();
-  traceloom::compat::materialize_compatibility_schema(db_path);
-  traceloom::compat::materialize_compatibility_schema(db_path);
-
-  std::vector<std::string> expected_tables;
-  for (const traceloom::compat::CompatTableSchema& table_schema :
-       traceloom::compat::compatibility_table_schemas()) {
-    expected_tables.push_back(table_schema.name);
-  }
-  std::sort(expected_tables.begin(), expected_tables.end());
-  require(load_sqlite_master_names(db_path, "table") == expected_tables);
-
-  const traceloom::compat::CompatTableSchema& schema =
-      traceloom::compat::anchor_cost_breakdown_table_schema();
   const std::vector<ColumnInfo> columns = load_columns(db_path, schema.name);
   require(columns.size() == schema.columns.size());
   for (std::size_t index = 0; index < schema.columns.size(); ++index) {
@@ -171,12 +157,38 @@ int main() {
       require(columns[index].type == "TEXT");
     }
   }
+}
+
+}  // namespace
+
+int main() {
+  using traceloom::testing::require;
+
+  const std::string db_path = temp_db_path();
+  traceloom::compat::materialize_compatibility_schema(db_path);
+  traceloom::compat::materialize_compatibility_schema(db_path);
+
+  std::vector<std::string> expected_tables;
+  const std::vector<traceloom::compat::CompatTableSchema> table_schemas =
+      traceloom::compat::compatibility_table_schemas();
+  for (const traceloom::compat::CompatTableSchema& table_schema :
+       table_schemas) {
+    expected_tables.push_back(table_schema.name);
+  }
+  std::sort(expected_tables.begin(), expected_tables.end());
+  require(load_sqlite_master_names(db_path, "table") == expected_tables);
+
+  for (const traceloom::compat::CompatTableSchema& table_schema :
+       table_schemas) {
+    require_columns_match_schema(db_path, table_schema);
+  }
 
   bool rejected_bad_schema = false;
   try {
     traceloom::compat::materialize_compatibility_schema(
         db_path,
-        {traceloom::compat::CompatTableSchema{"bad-table", schema.columns}});
+        {traceloom::compat::CompatTableSchema{
+            "bad-table", table_schemas.front().columns}});
   } catch (const std::invalid_argument&) {
     rejected_bad_schema = true;
   }
