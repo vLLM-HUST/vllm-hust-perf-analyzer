@@ -453,6 +453,9 @@ void replace_metadata_rows(const std::string& sqlite_path,
 void replace_event_rows(const std::string& sqlite_path,
                         const EventSqlRows& rows);
 
+void replace_timeline_rows(const std::string& sqlite_path,
+                           const std::vector<EventSqlRow>& rows);
+
 void replace_event_source_rows(
     const std::string& sqlite_path,
     const std::vector<EventSourceSqlRow>& rows);

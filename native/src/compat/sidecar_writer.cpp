@@ -1262,6 +1262,45 @@ void replace_event_rows(const std::string& sqlite_path,
 #endif
 }
 
+void replace_timeline_rows(const std::string& sqlite_path,
+                           const std::vector<EventSqlRow>& rows) {
+#if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
+  materialize_compatibility_schema(sqlite_path, {event_table_schema()});
+
+  SqliteDb db(sqlite_path);
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.exec("DELETE FROM traceloom_event");
+
+    SqliteStmt event_stmt(
+        db.get(),
+        "INSERT INTO traceloom_event ("
+        "event_id, db_idx, device_id, step_idx, source_table, source_key, "
+        "stream_id, start_ns, end_ns, dur_us, category, role, semantic_role, "
+        "semantic_role_reason, symbol, label, raw_label, op_type, "
+        "compute_task_type, family, task_type, raw_json"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+        "?, ?, ?)");
+    for (const EventSqlRow& row : rows) {
+      insert_event_row(event_stmt, row);
+    }
+
+    db.exec("COMMIT");
+  } catch (...) {
+    try {
+      db.exec("ROLLBACK");
+    } catch (...) {
+    }
+    throw;
+  }
+#else
+  (void)sqlite_path;
+  (void)rows;
+  throw std::runtime_error(
+      "compatibility sidecar writer requires SQLite support");
+#endif
+}
+
 void replace_event_source_rows(
     const std::string& sqlite_path,
     const std::vector<EventSourceSqlRow>& rows) {

@@ -355,6 +355,15 @@ int main() {
   traceloom::compat::replace_event_source_rows(db_path, {event_source});
   require(run_scalar_int(db_path,
                          "SELECT COUNT(*) FROM traceloom_event_source") == 1);
+  traceloom::compat::EventSqlRow timeline_event = event;
+  timeline_event.symbol = "LayerNorm";
+  timeline_event.label = "LayerNorm";
+  traceloom::compat::replace_timeline_rows(db_path, {timeline_event});
+  require(run_scalar_text(db_path,
+                          "SELECT symbol FROM traceloom_event "
+                          "WHERE event_id = 'event-1'") == "LayerNorm");
+  require(run_scalar_int(db_path,
+                         "SELECT COUNT(*) FROM traceloom_event_source") == 1);
   traceloom::compat::replace_event_source_rows(db_path, {});
   require(run_scalar_int(db_path,
                          "SELECT COUNT(*) FROM traceloom_event_source") == 0);
