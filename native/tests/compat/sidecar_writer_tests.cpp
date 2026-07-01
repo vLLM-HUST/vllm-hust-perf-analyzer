@@ -206,6 +206,27 @@ int main() {
     expected_tables.push_back(table_schema.name);
   }
   std::sort(expected_tables.begin(), expected_tables.end());
+  require(expected_tables ==
+          std::vector<std::string>({
+              "traceloom_anchor",
+              "traceloom_anchor_aux_slot",
+              "traceloom_anchor_cost_breakdown",
+              "traceloom_anchor_primary_node",
+              "traceloom_aux_link",
+              "traceloom_collective_global_link",
+              "traceloom_cuda_graph_envelope",
+              "traceloom_cuda_graph_replay",
+              "traceloom_event",
+              "traceloom_event_source",
+              "traceloom_loop_node",
+              "traceloom_metadata",
+              "traceloom_semantic_edge",
+              "traceloom_semantic_node",
+              "traceloom_semantic_tree",
+              "traceloom_viz_edge",
+              "traceloom_viz_node",
+              "traceloom_viz_node_anchor",
+          }));
   require(load_sqlite_master_names(db_path, "table") == expected_tables);
 
   for (const traceloom::compat::CompatTableSchema& table_schema :
@@ -224,6 +245,11 @@ int main() {
     expected_global_tables.push_back(table_schema.name);
   }
   std::sort(expected_global_tables.begin(), expected_global_tables.end());
+  require(expected_global_tables ==
+          std::vector<std::string>({
+              "traceloom_global_collective_member",
+              "traceloom_global_collective_summary",
+          }));
   require(load_sqlite_master_names(global_db_path, "table") ==
           expected_global_tables);
   for (const traceloom::compat::CompatTableSchema& table_schema :
