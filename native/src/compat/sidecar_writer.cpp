@@ -839,6 +839,34 @@ void materialize_compatibility_schema(
 #endif
 }
 
+void materialize_report_compatibility_views(const std::string& sqlite_path) {
+#if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
+  materialize_compatibility_schema(sqlite_path);
+
+  SqliteDb db(sqlite_path);
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    materialize_cuda_graph_views(db);
+    materialize_tree_node_anchor_view(db);
+    materialize_tree_node_occurrence_view(db);
+    materialize_node_cost_views(db);
+    materialize_tree_node_view(db);
+    materialize_semantic_tree_views(db);
+    db.exec("COMMIT");
+  } catch (...) {
+    try {
+      db.exec("ROLLBACK");
+    } catch (...) {
+    }
+    throw;
+  }
+#else
+  (void)sqlite_path;
+  throw std::runtime_error(
+      "compatibility sidecar writer requires SQLite support");
+#endif
+}
+
 void replace_anchor_cost_breakdown_rows(
     const std::string& sqlite_path,
     const std::vector<AnchorCostBreakdownSqlRow>& rows) {

@@ -662,6 +662,15 @@ int main() {
   require(active_query_case_filenames(query_cases) ==
           checked_in_report_sql_filenames());
 
+  const std::string empty_db_path = temp_db_path();
+  traceloom::compat::materialize_report_compatibility_views(empty_db_path);
+  for (const QueryCase& query_case : query_cases) {
+    const QueryResult result = run_query(empty_db_path, query_case);
+    require(result.columns == query_case.expected_columns);
+    require(result.row_count == 0);
+  }
+  std::remove(empty_db_path.c_str());
+
   for (const QueryCase& query_case : query_cases) {
     const std::string db_path = temp_db_path();
     if (query_case.filename == "anchor-cost-breakdown.sql") {

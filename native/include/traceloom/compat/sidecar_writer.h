@@ -261,6 +261,8 @@ void materialize_compatibility_schema(
     const std::string& sqlite_path,
     const std::vector<CompatTableSchema>& schemas);
 
+void materialize_report_compatibility_views(const std::string& sqlite_path);
+
 void replace_anchor_cost_breakdown_rows(
     const std::string& sqlite_path,
     const std::vector<AnchorCostBreakdownSqlRow>& rows);
