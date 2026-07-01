@@ -15,6 +15,7 @@ enum class ReportAnchorKind {
   kGraphL,
   kGraphT,
   kGraphTemplate,
+  kGraphLaunchActivity,
   kCollective,
   kUnknown,
 };
@@ -32,6 +33,7 @@ struct ReportToken {
   std::string display_category;
   ReportAnchorKind anchor_kind = ReportAnchorKind::kUnknown;
   AnchorId anchor_id;
+  std::string launch_activity_id;
   std::int64_t start_ns = 0;
   std::int64_t end_ns = 0;
 };

@@ -320,6 +320,18 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     COMMAND traceloom_native_report_tree_visibility_tests
   )
 
+  add_executable(traceloom_native_report_tree_graph_boundary_tests
+    tests/report/report_tree_graph_boundary_tests.cpp
+  )
+  target_link_libraries(
+    traceloom_native_report_tree_graph_boundary_tests PRIVATE
+    traceloom_native_core
+  )
+  add_test(
+    NAME traceloom_native_report_tree_graph_boundary_tests
+    COMMAND traceloom_native_report_tree_graph_boundary_tests
+  )
+
   add_executable(traceloom_native_result_json_tests
     tests/materialize/native_result_json_tests.cpp
   )

@@ -26,6 +26,40 @@ bool same_visible_token(const ReportToken& lhs, const ReportToken& rhs) {
          lhs.anchor_kind == rhs.anchor_kind;
 }
 
+void validate_tokens_for_report_anchors(const std::vector<ReportToken>& tokens) {
+  for (const ReportToken& token : tokens) {
+    if (token.anchor_kind == ReportAnchorKind::kGraphLaunchActivity) {
+      throw std::invalid_argument(
+          "graph launch/activity metadata cannot become a report anchor");
+    }
+  }
+}
+
+std::string graph_tiling_diagnostic_code(const ReportGraphReplayEvidence& graph) {
+  if (!graph.diagnostic_code.empty()) {
+    return graph.diagnostic_code;
+  }
+  switch (graph.tiling_status) {
+    case ReportGraphTilingStatus::kGap:
+      return "graph_replay_tiling_gap";
+    case ReportGraphTilingStatus::kOverlap:
+      return "graph_replay_tiling_overlap";
+    case ReportGraphTilingStatus::kAmbiguous:
+      return "graph_replay_tiling_ambiguous";
+    case ReportGraphTilingStatus::kNone:
+    case ReportGraphTilingStatus::kExact:
+      break;
+  }
+  return "";
+}
+
+bool graph_tiling_blocks_materialization(
+    const ReportGraphReplayEvidence& graph) {
+  return graph.tiling_status == ReportGraphTilingStatus::kGap ||
+         graph.tiling_status == ReportGraphTilingStatus::kOverlap ||
+         graph.tiling_status == ReportGraphTilingStatus::kAmbiguous;
+}
+
 ReportNodeDefId append_def(ReportTree& tree,
                            ReportNodeKind kind,
                            std::string display_op,
@@ -199,6 +233,7 @@ ReportTree build_report_tree_from_tokens(const std::vector<ReportToken>& tokens,
   if (config.min_run_length == 0) {
     throw std::invalid_argument("ReportTreeBuildConfig min_run_length is zero");
   }
+  validate_tokens_for_report_anchors(tokens);
 
   ReportTree tree;
   const ReportNodeDefId root_def =
@@ -260,6 +295,23 @@ ReportTree build_report_tree_from_tokens(const std::vector<ReportToken>& tokens,
 ReportTree build_report_tree_from_grammar(const std::vector<ReportToken>& tokens,
                                           const ReportGrammarEvidence& grammar,
                                           ReportTreeBuildConfig config) {
+  ReportGraphReplayEvidence graph;
+  return build_report_tree_from_grammar(tokens, grammar, graph, config);
+}
+
+ReportTree build_report_tree_from_grammar(
+    const std::vector<ReportToken>& tokens,
+    const ReportGrammarEvidence& grammar,
+    const ReportGraphReplayEvidence& graph,
+    ReportTreeBuildConfig config) {
+  if (graph_tiling_blocks_materialization(graph)) {
+    ReportTree tree;
+    tree.diagnostics.push_back(Diagnostic{
+        DiagnosticSeverity::kError, graph_tiling_diagnostic_code(graph),
+        "graph replay tiling is not exact; report tree was not materialized"});
+    return tree;
+  }
+  validate_tokens_for_report_anchors(tokens);
   if (grammar.final_sequence.empty()) {
     return build_report_tree_from_tokens(tokens, config);
   }

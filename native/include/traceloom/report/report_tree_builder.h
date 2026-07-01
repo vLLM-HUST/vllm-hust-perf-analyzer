@@ -42,6 +42,19 @@ struct ReportGrammarEvidence {
   std::vector<ReportGrammarItem> final_sequence;
 };
 
+enum class ReportGraphTilingStatus {
+  kNone,
+  kExact,
+  kGap,
+  kOverlap,
+  kAmbiguous,
+};
+
+struct ReportGraphReplayEvidence {
+  ReportGraphTilingStatus tiling_status = ReportGraphTilingStatus::kNone;
+  std::string diagnostic_code;
+};
+
 ReportTree build_report_tree_from_tokens(
     const std::vector<ReportToken>& tokens,
     ReportTreeBuildConfig config = ReportTreeBuildConfig{});
@@ -49,6 +62,12 @@ ReportTree build_report_tree_from_tokens(
 ReportTree build_report_tree_from_grammar(
     const std::vector<ReportToken>& tokens,
     const ReportGrammarEvidence& grammar,
+    ReportTreeBuildConfig config = ReportTreeBuildConfig{});
+
+ReportTree build_report_tree_from_grammar(
+    const std::vector<ReportToken>& tokens,
+    const ReportGrammarEvidence& grammar,
+    const ReportGraphReplayEvidence& graph,
     ReportTreeBuildConfig config = ReportTreeBuildConfig{});
 
 void validate_report_tree_or_throw(const ReportTree& tree,
