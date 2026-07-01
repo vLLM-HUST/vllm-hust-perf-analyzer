@@ -73,8 +73,10 @@ int main() {
       ir.trace_events.append(source, 12, 0, 5, 1000, 3000, task_type);
   ir.tasks.append(source, event, 77, 9001, -1, task_type, op_name, op_type,
                   task_type, SymbolId::invalid());
-  ir.anchors.append(source, event, ReplayUnitId::invalid(),
-                    AnchorKind::kDeviceEvent, op_type, 0, 5, 1000, 3000);
+  const AnchorId anchor =
+      ir.anchors.append(source, event, ReplayUnitId::invalid(),
+                        AnchorKind::kDeviceEvent, op_type, 0, 5, 1000, 3000);
+  ir.tokens.append(anchor, op_type, 0, 0, 1000, 3000);
 
   const std::string db_path = temp_db_path();
   compat::NativeCompatibilitySidecarOptions options;
@@ -94,6 +96,18 @@ int main() {
                          "SELECT COUNT(*) FROM traceloom_event_source") == 1);
   require(run_scalar_int(db_path, "SELECT COUNT(*) FROM traceloom_anchor") ==
           1);
+  require(run_scalar_int(db_path, "SELECT COUNT(*) FROM traceloom_viz_node") ==
+          2);
+  require(run_scalar_int(db_path,
+                         "SELECT COUNT(*) FROM traceloom_viz_node_anchor") ==
+          2);
+  require(run_scalar_int(db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_anchor_primary_node") == 1);
+  require(run_scalar_int(db_path,
+                         "SELECT COUNT(*) FROM traceloom_semantic_tree") == 1);
+  require(run_scalar_int(db_path,
+                         "SELECT COUNT(*) FROM traceloom_semantic_node") == 2);
   require(run_scalar_text(db_path,
                           "SELECT symbol FROM traceloom_event "
                           "WHERE event_id = 'event-0'") == "Cube");

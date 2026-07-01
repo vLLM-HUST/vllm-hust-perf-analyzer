@@ -471,6 +471,22 @@ NodeCoverageSqlRows build_native_report_tree_node_coverage_sql_rows(
       tree, tokens, aux_rows, db_idx, std::move(view_name));
 }
 
+LoopTreeSqlRows split_loop_tree_sql_rows(const NodeCoverageSqlRows& rows) {
+  LoopTreeSqlRows out;
+  out.nodes = rows.nodes;
+  out.edges = rows.edges;
+  out.loop_nodes = rows.loop_nodes;
+  return out;
+}
+
+NodeAnchorCoverageSqlRows split_node_anchor_coverage_sql_rows(
+    const NodeCoverageSqlRows& rows) {
+  NodeAnchorCoverageSqlRows out;
+  out.node_anchors = rows.node_anchors;
+  out.anchor_primary_nodes = rows.anchor_primary_nodes;
+  return out;
+}
+
 SemanticTreeSqlRows build_report_tree_semantic_sql_rows(
     const ReportTree& tree,
     const std::vector<ReportToken>& tokens,
@@ -616,6 +632,19 @@ SemanticTreeSqlRows build_native_report_tree_semantic_sql_rows(
       build_aux_attribution_sql_rows(ir, db_idx);
   return build_report_tree_semantic_sql_rows(
       tree, tokens, aux_rows, db_idx, std::move(tree_id), std::move(view_name));
+}
+
+std::vector<SemanticTreeHeaderSqlRow> split_semantic_tree_catalog_sql_rows(
+    const SemanticTreeSqlRows& rows) {
+  return rows.trees;
+}
+
+SemanticGraphSqlRows split_semantic_graph_sql_rows(
+    const SemanticTreeSqlRows& rows) {
+  SemanticGraphSqlRows out;
+  out.nodes = rows.nodes;
+  out.edges = rows.edges;
+  return out;
 }
 
 }  // namespace traceloom::compat

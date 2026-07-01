@@ -31,11 +31,18 @@ void write_basic_native_compatibility_sidecar(
   replace_aux_attribution_rows(sqlite_path,
                                build_aux_attribution_sql_rows(ir,
                                                               options.db_idx));
-  replace_node_coverage_rows(
-      sqlite_path,
-      build_native_report_tree_node_coverage_sql_rows(ir, options.db_idx));
-  replace_semantic_tree_rows(
-      sqlite_path, build_native_report_tree_semantic_sql_rows(ir, options.db_idx));
+  const NodeCoverageSqlRows node_rows =
+      build_native_report_tree_node_coverage_sql_rows(ir, options.db_idx);
+  replace_loop_tree_rows(sqlite_path, split_loop_tree_sql_rows(node_rows));
+  replace_node_anchor_coverage_rows(
+      sqlite_path, split_node_anchor_coverage_sql_rows(node_rows));
+
+  const SemanticTreeSqlRows semantic_rows =
+      build_native_report_tree_semantic_sql_rows(ir, options.db_idx);
+  replace_semantic_tree_catalog_rows(
+      sqlite_path, split_semantic_tree_catalog_sql_rows(semantic_rows));
+  replace_semantic_graph_rows(sqlite_path,
+                              split_semantic_graph_sql_rows(semantic_rows));
   if (options.materialize_report_views) {
     materialize_report_compatibility_views(sqlite_path);
   }

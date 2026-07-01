@@ -2,6 +2,7 @@
 #include "traceloom/testing/test_util.h"
 
 #include <stdexcept>
+#include <vector>
 
 int main() {
   using namespace traceloom;
@@ -77,6 +78,18 @@ int main() {
   require(rows.anchor_primary_nodes[0].reason == "atom_leaf");
   require(rows.anchor_primary_nodes[1].anchor_id == "anchor-1");
 
+  const compat::LoopTreeSqlRows loop_rows =
+      compat::split_loop_tree_sql_rows(rows);
+  require(loop_rows.nodes.size() == rows.nodes.size());
+  require(loop_rows.edges.size() == rows.edges.size());
+  require(loop_rows.loop_nodes.size() == rows.loop_nodes.size());
+
+  const compat::NodeAnchorCoverageSqlRows coverage_rows =
+      compat::split_node_anchor_coverage_sql_rows(rows);
+  require(coverage_rows.node_anchors.size() == rows.node_anchors.size());
+  require(coverage_rows.anchor_primary_nodes.size() ==
+          rows.anchor_primary_nodes.size());
+
   const compat::SemanticTreeSqlRows semantic_rows =
       compat::build_native_report_tree_semantic_sql_rows(ir, 7, "tree-1",
                                                          "anchor_tree");
@@ -113,6 +126,16 @@ int main() {
   require(semantic_rows.edges[0].tree_id == "tree-1");
   require(semantic_rows.edges[0].parent_node_id == "node-N001");
   require(semantic_rows.edges[0].child_node_id == "node-N002");
+
+  const std::vector<compat::SemanticTreeHeaderSqlRow> semantic_catalog =
+      compat::split_semantic_tree_catalog_sql_rows(semantic_rows);
+  require(semantic_catalog.size() == semantic_rows.trees.size());
+  require(semantic_catalog[0].tree_id == "tree-1");
+
+  const compat::SemanticGraphSqlRows semantic_graph =
+      compat::split_semantic_graph_sql_rows(semantic_rows);
+  require(semantic_graph.nodes.size() == semantic_rows.nodes.size());
+  require(semantic_graph.edges.size() == semantic_rows.edges.size());
 
   NativeIr bad_ir;
   const SourceRefId bad_source =

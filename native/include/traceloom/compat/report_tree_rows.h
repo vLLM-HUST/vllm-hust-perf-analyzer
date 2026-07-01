@@ -31,6 +31,11 @@ NodeCoverageSqlRows build_native_report_tree_node_coverage_sql_rows(
     std::uint32_t db_idx = 0,
     std::string view_name = "native_report_tree");
 
+LoopTreeSqlRows split_loop_tree_sql_rows(const NodeCoverageSqlRows& rows);
+
+NodeAnchorCoverageSqlRows split_node_anchor_coverage_sql_rows(
+    const NodeCoverageSqlRows& rows);
+
 SemanticTreeSqlRows build_report_tree_semantic_sql_rows(
     const ReportTree& tree,
     const std::vector<ReportToken>& tokens,
@@ -51,5 +56,11 @@ SemanticTreeSqlRows build_native_report_tree_semantic_sql_rows(
     std::uint32_t db_idx = 0,
     std::string tree_id = "native-report-tree",
     std::string view_name = "anchor_tree");
+
+std::vector<SemanticTreeHeaderSqlRow> split_semantic_tree_catalog_sql_rows(
+    const SemanticTreeSqlRows& rows);
+
+SemanticGraphSqlRows split_semantic_graph_sql_rows(
+    const SemanticTreeSqlRows& rows);
 
 }  // namespace traceloom::compat
