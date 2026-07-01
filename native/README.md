@@ -69,6 +69,21 @@ Protected-sequence fixtures can run through the same native pipeline:
   --grammar-debug-out native_fixture_grammar_debug.json
 ```
 
+ACLGraph semantic fixtures have a dedicated golden-sample entry point. It
+projects H/L/T replay units into Native IR and emits the optional
+`anchor_internal_cost_breakdown` section in the result JSON:
+
+```bash
+../build/traceloom-native/traceloom-native-analyze-aclgraph-fixture \
+  --fixture ../../drafts/refactor/80_tests_fixtures/fixtures/aclgraph/aclgraph_python_minimal_assets.json \
+  --threads 8 \
+  --out native_aclgraph_fixture_result.json
+```
+
+This path is for semantic calibration and regression checks. Real DB-backed
+H/L/T child-cost aggregation is still owned by the future ACLGraph DB adapter
+slice.
+
 To test the build without SQLite support:
 
 ```bash
