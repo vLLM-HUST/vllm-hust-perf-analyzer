@@ -469,6 +469,88 @@ int main() {
                          "SELECT COUNT(*) FROM "
                          "traceloom_cuda_graph_envelope") == 0);
 
+  traceloom::compat::LoopTreeSqlRows loop_tree_rows;
+  traceloom::compat::VizNodeSqlRow parent_node;
+  parent_node.node_id = "node-parent";
+  parent_node.local_node_id = "N001";
+  parent_node.path = "root";
+  parent_node.node_type = "loop";
+  parent_node.kind = "loop";
+  parent_node.label = "root";
+  parent_node.occurrence_count = 1;
+  parent_node.anchor_count = 1;
+  parent_node.total_us = 1.0;
+  parent_node.avg_total_us = 1.0;
+  loop_tree_rows.nodes.push_back(parent_node);
+  traceloom::compat::VizNodeSqlRow child_node = parent_node;
+  child_node.node_id = "node-child";
+  child_node.local_node_id = "N002";
+  child_node.path = "root/child";
+  child_node.label = "child";
+  child_node.depth = 1;
+  child_node.level = 1;
+  loop_tree_rows.nodes.push_back(child_node);
+  traceloom::compat::VizEdgeSqlRow edge;
+  edge.parent_node_id = parent_node.node_id;
+  edge.child_node_id = child_node.node_id;
+  edge.edge_order = 0;
+  edge.edge_kind = "child";
+  loop_tree_rows.edges.push_back(edge);
+  traceloom::compat::LoopNodeSqlRow loop_node;
+  loop_node.node_id = parent_node.node_id;
+  loop_node.loop_rank = 0;
+  loop_node.repeat_label = "root";
+  loop_node.occurrence_count = 1;
+  loop_node.anchor_count = 1;
+  loop_node.total_us = 1.0;
+  loop_node.avg_total_us = 1.0;
+  loop_tree_rows.loop_nodes.push_back(loop_node);
+  traceloom::compat::replace_loop_tree_rows(db_path, loop_tree_rows);
+  require(run_scalar_int(db_path, "SELECT COUNT(*) FROM traceloom_viz_node") ==
+          2);
+  require(run_scalar_int(db_path, "SELECT COUNT(*) FROM traceloom_viz_edge") ==
+          1);
+  require(run_scalar_int(db_path, "SELECT COUNT(*) FROM traceloom_loop_node") ==
+          1);
+  traceloom::compat::replace_loop_tree_rows(
+      db_path, traceloom::compat::LoopTreeSqlRows{});
+  require(run_scalar_int(db_path, "SELECT COUNT(*) FROM traceloom_viz_node") ==
+          0);
+  require(run_scalar_int(db_path, "SELECT COUNT(*) FROM traceloom_viz_edge") ==
+          0);
+  require(run_scalar_int(db_path, "SELECT COUNT(*) FROM traceloom_loop_node") ==
+          0);
+
+  traceloom::compat::NodeAnchorCoverageSqlRows coverage_rows;
+  traceloom::compat::VizNodeAnchorSqlRow node_anchor;
+  node_anchor.node_id = "node-child";
+  node_anchor.anchor_id = "anchor-1";
+  node_anchor.occurrence_idx = 0;
+  node_anchor.anchor_order = 0;
+  node_anchor.coverage_kind = "self";
+  coverage_rows.node_anchors.push_back(node_anchor);
+  traceloom::compat::AnchorPrimaryNodeSqlRow primary_node;
+  primary_node.anchor_id = "anchor-1";
+  primary_node.node_id = "node-child";
+  primary_node.reason = "smallest_covering_node";
+  coverage_rows.anchor_primary_nodes.push_back(primary_node);
+  traceloom::compat::replace_node_anchor_coverage_rows(db_path,
+                                                       coverage_rows);
+  require(run_scalar_int(db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_viz_node_anchor") == 1);
+  require(run_scalar_int(db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_anchor_primary_node") == 1);
+  traceloom::compat::replace_node_anchor_coverage_rows(
+      db_path, traceloom::compat::NodeAnchorCoverageSqlRows{});
+  require(run_scalar_int(db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_viz_node_anchor") == 0);
+  require(run_scalar_int(db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_anchor_primary_node") == 0);
+
   std::vector<traceloom::compat::CollectiveGlobalLinkSqlRow> local_links(2);
   local_links[0].candidate_collective_key = "collective-1";
   local_links[0].db_name = "db00.traceloom_augmented.db";

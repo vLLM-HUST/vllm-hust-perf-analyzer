@@ -206,6 +206,17 @@ struct NodeCoverageSqlRows {
   std::vector<LoopNodeSqlRow> loop_nodes;
 };
 
+struct LoopTreeSqlRows {
+  std::vector<VizNodeSqlRow> nodes;
+  std::vector<VizEdgeSqlRow> edges;
+  std::vector<LoopNodeSqlRow> loop_nodes;
+};
+
+struct NodeAnchorCoverageSqlRows {
+  std::vector<VizNodeAnchorSqlRow> node_anchors;
+  std::vector<AnchorPrimaryNodeSqlRow> anchor_primary_nodes;
+};
+
 struct GraphReplaySqlRow {
   std::string graph_event_id;
   std::uint32_t db_idx = 0;
@@ -449,6 +460,13 @@ void replace_aux_attribution_rows(const std::string& sqlite_path,
 
 void replace_anchor_aux_rows(const std::string& sqlite_path,
                              const AnchorAuxSqlRows& rows);
+
+void replace_loop_tree_rows(const std::string& sqlite_path,
+                            const LoopTreeSqlRows& rows);
+
+void replace_node_anchor_coverage_rows(
+    const std::string& sqlite_path,
+    const NodeAnchorCoverageSqlRows& rows);
 
 void replace_node_coverage_rows(const std::string& sqlite_path,
                                 const NodeCoverageSqlRows& rows);
