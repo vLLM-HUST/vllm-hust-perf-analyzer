@@ -913,6 +913,15 @@ void materialize_report_compatibility_indexes(SqliteDb& db) {
       "idx_in_occurrence)");
 }
 
+void materialize_global_collective_indexes(SqliteDb& db) {
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_global_collective_status "
+      "ON traceloom_global_collective_summary(validation_status)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_global_collective_member_key "
+      "ON traceloom_global_collective_member(candidate_collective_key)");
+}
+
 }  // namespace
 
 #endif
@@ -967,6 +976,31 @@ void materialize_report_compatibility_views(const std::string& sqlite_path) {
     materialize_node_cost_views(db);
     materialize_tree_node_view(db);
     materialize_semantic_tree_views(db);
+    db.exec("COMMIT");
+  } catch (...) {
+    try {
+      db.exec("ROLLBACK");
+    } catch (...) {
+    }
+    throw;
+  }
+#else
+  (void)sqlite_path;
+  throw std::runtime_error(
+      "compatibility sidecar writer requires SQLite support");
+#endif
+}
+
+void materialize_global_collective_compatibility_schema(
+    const std::string& sqlite_path) {
+#if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
+  materialize_compatibility_schema(sqlite_path,
+                                   global_collective_table_schemas());
+
+  SqliteDb db(sqlite_path);
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    materialize_global_collective_indexes(db);
     db.exec("COMMIT");
   } catch (...) {
     try {

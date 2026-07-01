@@ -183,6 +183,30 @@ int main() {
     require_columns_match_schema(db_path, table_schema);
   }
 
+  const std::string global_db_path = temp_db_path();
+  traceloom::compat::materialize_global_collective_compatibility_schema(
+      global_db_path);
+  std::vector<std::string> expected_global_tables;
+  const std::vector<traceloom::compat::CompatTableSchema> global_schemas =
+      traceloom::compat::global_collective_table_schemas();
+  for (const traceloom::compat::CompatTableSchema& table_schema :
+       global_schemas) {
+    expected_global_tables.push_back(table_schema.name);
+  }
+  std::sort(expected_global_tables.begin(), expected_global_tables.end());
+  require(load_sqlite_master_names(global_db_path, "table") ==
+          expected_global_tables);
+  for (const traceloom::compat::CompatTableSchema& table_schema :
+       global_schemas) {
+    require_columns_match_schema(global_db_path, table_schema);
+  }
+  require(load_sqlite_master_names(global_db_path, "index") ==
+          std::vector<std::string>({
+              "idx_global_collective_member_key",
+              "idx_global_collective_status",
+          }));
+  std::remove(global_db_path.c_str());
+
   bool rejected_bad_schema = false;
   try {
     traceloom::compat::materialize_compatibility_schema(
