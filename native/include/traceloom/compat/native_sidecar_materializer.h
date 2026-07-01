@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 
@@ -16,6 +17,10 @@ struct NativeCompatibilitySidecarOptions {
   std::string collective_run_name;
   std::string collective_db_name;
   std::uint32_t collective_expected_world_size = 0;
+  bool materialize_grammar_report_tree = true;
+  std::size_t grammar_worker_count = 1;
+  std::size_t grammar_target_nodes_per_chunk = 4096;
+  std::size_t grammar_full_discovery_cap = 50000;
 };
 
 void write_basic_native_compatibility_sidecar(

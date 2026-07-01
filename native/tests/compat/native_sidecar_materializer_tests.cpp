@@ -68,8 +68,8 @@ NativeIr build_collective_repeat_ir() {
   const SymbolId all_reduce = ir.symbols.intern("HcclAllReduce");
 
   std::vector<AnchorId> anchors;
-  for (std::uint32_t idx = 0; idx < 4; ++idx) {
-    const bool collective = idx >= 2;
+  for (std::uint32_t idx = 0; idx < 8; ++idx) {
+    const bool collective = idx % 2 == 1;
     const SymbolId symbol = collective ? all_reduce : matmul;
     const std::int64_t start_ns = 1000 + static_cast<std::int64_t>(idx) * 1000;
     const TraceEventId event =
@@ -193,7 +193,7 @@ int main() {
 
   require(run_scalar_int(collective_db_path,
                          "SELECT COUNT(*) FROM "
-                         "traceloom_collective_global_link") == 2);
+                         "traceloom_collective_global_link") == 4);
   require(run_scalar_text(collective_db_path,
                           "SELECT op_type FROM "
                           "traceloom_collective_global_link "
@@ -208,7 +208,7 @@ int main() {
                           "SELECT candidate_collective_key FROM "
                           "traceloom_collective_global_link "
                           "ORDER BY idx_in_occurrence LIMIT 1")
-              .find("collective_smoke:LP_M001_01_") == 0);
+              .find("collective_smoke:LP_M002_01_") == 0);
 
   std::remove(collective_db_path.c_str());
   return 0;

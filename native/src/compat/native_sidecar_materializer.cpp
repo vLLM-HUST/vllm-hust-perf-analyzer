@@ -1,5 +1,6 @@
 #include "traceloom/compat/native_sidecar_materializer.h"
 
+#include <exception>
 #include <string>
 #include <vector>
 
@@ -10,6 +11,9 @@
 #include "traceloom/compat/report_tree_rows.h"
 #include "traceloom/compat/sidecar_writer.h"
 #include "traceloom/compat/timeline_rows.h"
+#include "traceloom/pattern/grammar_engine.h"
+#include "traceloom/pattern/grammar_state.h"
+#include "traceloom/report/report_tree_builder.h"
 
 namespace traceloom::compat {
 namespace {
@@ -25,6 +29,39 @@ std::string basename_or_default(const std::string& path,
   }
   const std::string value = path.substr(pos + 1);
   return value.empty() ? fallback : value;
+}
+
+ReportTree build_sidecar_report_tree(
+    const NativeIr& ir,
+    const NativeCompatibilitySidecarOptions& options,
+    const std::vector<ReportToken>& report_tokens) {
+  if (!options.materialize_grammar_report_tree || report_tokens.empty()) {
+    return build_report_tree_from_tokens(report_tokens);
+  }
+
+  try {
+    GrammarStateConfig grammar_state_config;
+    grammar_state_config.target_nodes_per_chunk =
+        options.grammar_target_nodes_per_chunk;
+    grammar_state_config.worker_count = options.grammar_worker_count;
+    grammar_state_config.full_discovery_cap =
+        options.grammar_full_discovery_cap;
+
+    GlobalGrammarState grammar_state =
+        build_initial_grammar_state(ir, grammar_state_config);
+    GrammarEngineConfig grammar_engine_config;
+    grammar_engine_config.full_discovery_cap =
+        grammar_state.metadata.full_discovery_cap;
+    const GrammarEngineResult grammar_result =
+        run_grammar_state_machine(grammar_state, grammar_engine_config);
+    if (!grammar_result.ok() || grammar_state.stage != GrammarStage::kDone ||
+        grammar_state.macro_defs.empty()) {
+      return build_report_tree_from_tokens(report_tokens);
+    }
+    return build_report_tree_from_grammar_state(report_tokens, grammar_state);
+  } catch (const std::exception&) {
+    return build_report_tree_from_tokens(report_tokens);
+  }
 }
 
 }  // namespace
@@ -56,8 +93,13 @@ void write_basic_native_compatibility_sidecar(
   replace_aux_attribution_rows(sqlite_path, aux_rows);
   replace_anchor_cost_breakdown_rows(
       sqlite_path, build_native_anchor_cost_breakdown_sql_rows(ir, aux_rows));
+  const std::vector<ReportToken> report_tokens =
+      build_report_tokens_from_native_ir(ir);
+  const ReportTree report_tree =
+      build_sidecar_report_tree(ir, options, report_tokens);
   const NodeCoverageSqlRows node_rows =
-      build_native_report_tree_node_coverage_sql_rows(ir, options.db_idx);
+      build_report_tree_node_coverage_sql_rows(report_tree, report_tokens,
+                                               aux_rows, options.db_idx);
   replace_loop_tree_rows(sqlite_path, split_loop_tree_sql_rows(node_rows));
   const NodeAnchorCoverageSqlRows coverage_rows =
       split_node_anchor_coverage_sql_rows(node_rows);
@@ -86,8 +128,8 @@ void write_basic_native_compatibility_sidecar(
                                         collective_rows.local_links);
   }
 
-  const SemanticTreeSqlRows semantic_rows =
-      build_native_report_tree_semantic_sql_rows(ir, options.db_idx);
+  const SemanticTreeSqlRows semantic_rows = build_report_tree_semantic_sql_rows(
+      report_tree, report_tokens, aux_rows, options.db_idx);
   replace_semantic_tree_catalog_rows(
       sqlite_path, split_semantic_tree_catalog_sql_rows(semantic_rows));
   replace_semantic_graph_rows(sqlite_path,

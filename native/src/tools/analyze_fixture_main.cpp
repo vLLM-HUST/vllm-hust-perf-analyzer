@@ -154,6 +154,9 @@ int main(int argc, char** argv) {
       traceloom::compat::NativeCompatibilitySidecarOptions sidecar_options;
       sidecar_options.source_kind = json_options.source_kind;
       sidecar_options.source_path = json_options.source_path;
+      sidecar_options.grammar_worker_count = cli.threads;
+      sidecar_options.grammar_target_nodes_per_chunk =
+          pipeline_options.partition_config.target_tokens_per_partition;
       traceloom::compat::write_basic_native_compatibility_sidecar(
           cli.compat_sidecar_out_path, ir, sidecar_options);
     }

@@ -7,6 +7,8 @@
 
 namespace traceloom {
 
+struct GlobalGrammarState;
+
 struct ReportTreeBuildConfig {
   bool fold_adjacent_runs = true;
   std::uint32_t min_run_length = 2;
@@ -68,6 +70,11 @@ ReportTree build_report_tree_from_grammar(
     const std::vector<ReportToken>& tokens,
     const ReportGrammarEvidence& grammar,
     const ReportGraphReplayEvidence& graph,
+    ReportTreeBuildConfig config = ReportTreeBuildConfig{});
+
+ReportTree build_report_tree_from_grammar_state(
+    const std::vector<ReportToken>& tokens,
+    const GlobalGrammarState& state,
     ReportTreeBuildConfig config = ReportTreeBuildConfig{});
 
 void validate_report_tree_or_throw(const ReportTree& tree,
