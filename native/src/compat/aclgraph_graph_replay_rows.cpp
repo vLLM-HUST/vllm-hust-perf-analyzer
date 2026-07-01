@@ -8,6 +8,7 @@
 #include <utility>
 #include <vector>
 
+#include "traceloom/compat/anchor_cost_breakdown_rows.h"
 #include "traceloom/compat/anchor_sequence_rows.h"
 
 namespace traceloom::compat {
@@ -302,6 +303,28 @@ GraphReplayEvidenceSqlRows split_graph_replay_evidence_sql_rows(
   out.graph_replays = rows.graph_replays;
   out.graph_envelopes = rows.graph_envelopes;
   return out;
+}
+
+void write_aclgraph_fixture_compatibility_sidecar(
+    const std::string& sqlite_path,
+    const AclGraphSemanticFixture& fixture,
+    const NativeIr& ir,
+    const AnchorInternalCostBreakdown& breakdown,
+    const NativeCompatibilitySidecarOptions& options) {
+  write_basic_native_compatibility_sidecar(sqlite_path, ir, options);
+  replace_anchor_cost_breakdown_rows(
+      sqlite_path, build_anchor_cost_breakdown_sql_rows(breakdown));
+
+  const GraphReplaySqlRows graph_rows =
+      build_aclgraph_fixture_graph_replay_sql_rows(fixture, ir, options.db_idx);
+  replace_timeline_rows(sqlite_path,
+                        split_graph_replay_timeline_sql_rows(graph_rows));
+  replace_event_source_rows(
+      sqlite_path, split_graph_replay_source_lineage_sql_rows(graph_rows));
+  replace_anchor_rows(sqlite_path,
+                      split_graph_replay_anchor_sequence_sql_rows(graph_rows));
+  replace_graph_replay_evidence_rows(
+      sqlite_path, split_graph_replay_evidence_sql_rows(graph_rows));
 }
 
 }  // namespace traceloom::compat

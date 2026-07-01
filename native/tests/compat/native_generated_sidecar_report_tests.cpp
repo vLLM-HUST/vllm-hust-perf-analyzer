@@ -1,9 +1,7 @@
 #include "traceloom/adapters/aclgraph_fixture_adapter.h"
 #include "traceloom/adapters/aclgraph_fixture_reader.h"
 #include "traceloom/compat/aclgraph_graph_replay_rows.h"
-#include "traceloom/compat/anchor_cost_breakdown_rows.h"
 #include "traceloom/compat/native_sidecar_materializer.h"
-#include "traceloom/compat/sidecar_writer.h"
 #include "traceloom/ir/native_ir.h"
 #include "traceloom/report/anchor_internal_cost_breakdown.h"
 #include "traceloom/testing/test_util.h"
@@ -193,28 +191,8 @@ void materialize_aclgraph_fixture_sidecar(const std::string& db_path) {
   traceloom::compat::NativeCompatibilitySidecarOptions options;
   options.source_kind = "aclgraph_semantic_fixture";
   options.source_path = fixture_path.string();
-  traceloom::compat::write_basic_native_compatibility_sidecar(db_path, ir,
-                                                              options);
-  traceloom::compat::replace_anchor_cost_breakdown_rows(
-      db_path, traceloom::compat::build_anchor_cost_breakdown_sql_rows(
-                   breakdown));
-  const traceloom::compat::GraphReplaySqlRows graph_rows =
-      traceloom::compat::build_aclgraph_fixture_graph_replay_sql_rows(fixture,
-                                                                      ir);
-  traceloom::compat::replace_timeline_rows(
-      db_path,
-      traceloom::compat::split_graph_replay_timeline_sql_rows(graph_rows));
-  traceloom::compat::replace_event_source_rows(
-      db_path,
-      traceloom::compat::split_graph_replay_source_lineage_sql_rows(
-          graph_rows));
-  traceloom::compat::replace_anchor_rows(
-      db_path,
-      traceloom::compat::split_graph_replay_anchor_sequence_sql_rows(
-          graph_rows));
-  traceloom::compat::replace_graph_replay_evidence_rows(
-      db_path,
-      traceloom::compat::split_graph_replay_evidence_sql_rows(graph_rows));
+  traceloom::compat::write_aclgraph_fixture_compatibility_sidecar(
+      db_path, fixture, ir, breakdown, options);
 }
 
 void materialize_aux_fixture_sidecar(const std::string& db_path) {
