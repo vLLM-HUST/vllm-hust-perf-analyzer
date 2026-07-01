@@ -352,6 +352,12 @@ int main() {
   traceloom::compat::replace_event_rows(db_path, event_rows);
   require(run_scalar_int(db_path,
                          "SELECT COUNT(*) FROM traceloom_event_source") == 0);
+  traceloom::compat::replace_event_source_rows(db_path, {event_source});
+  require(run_scalar_int(db_path,
+                         "SELECT COUNT(*) FROM traceloom_event_source") == 1);
+  traceloom::compat::replace_event_source_rows(db_path, {});
+  require(run_scalar_int(db_path,
+                         "SELECT COUNT(*) FROM traceloom_event_source") == 0);
 
   std::vector<traceloom::compat::AnchorSqlRow> anchor_rows(2);
   anchor_rows[0].anchor_id = "anchor-1";
