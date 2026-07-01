@@ -42,6 +42,11 @@ void require_basic_sidecar(const std::string& path) {
       run_scalar_int(path, "SELECT COUNT(*) FROM traceloom_anchor") > 0);
   traceloom::testing::require(run_scalar_int(
                                   path,
+                                  "SELECT COUNT(*) FROM sqlite_master "
+                                  "WHERE type = 'table' AND name = "
+                                  "'traceloom_collective_global_link'") == 1);
+  traceloom::testing::require(run_scalar_int(
+                                  path,
                                   "SELECT COUNT(*) FROM "
                                   "traceloom_event_source s "
                                   "LEFT JOIN traceloom_event e ON "

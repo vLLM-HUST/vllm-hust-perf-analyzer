@@ -10,6 +10,7 @@
 
 #include "traceloom/compat/anchor_cost_breakdown_rows.h"
 #include "traceloom/compat/anchor_sequence_rows.h"
+#include "traceloom/compat/sidecar_writer.h"
 
 namespace traceloom::compat {
 namespace {
@@ -311,7 +312,9 @@ void write_aclgraph_fixture_compatibility_sidecar(
     const NativeIr& ir,
     const AnchorInternalCostBreakdown& breakdown,
     const NativeCompatibilitySidecarOptions& options) {
-  write_basic_native_compatibility_sidecar(sqlite_path, ir, options);
+  NativeCompatibilitySidecarOptions basic_options = options;
+  basic_options.materialize_collective_tags = false;
+  write_basic_native_compatibility_sidecar(sqlite_path, ir, basic_options);
   replace_anchor_cost_breakdown_rows(
       sqlite_path, build_anchor_cost_breakdown_sql_rows(breakdown));
 
@@ -325,6 +328,9 @@ void write_aclgraph_fixture_compatibility_sidecar(
                       split_graph_replay_anchor_sequence_sql_rows(graph_rows));
   replace_graph_replay_evidence_rows(
       sqlite_path, split_graph_replay_evidence_sql_rows(graph_rows));
+  if (options.materialize_collective_tags) {
+    replace_collective_global_link_rows(sqlite_path, {});
+  }
 }
 
 }  // namespace traceloom::compat

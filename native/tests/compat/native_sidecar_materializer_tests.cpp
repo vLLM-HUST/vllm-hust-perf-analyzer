@@ -7,8 +7,11 @@
 #include <cstdio>
 #include <filesystem>
 #include <string>
+#include <vector>
 
 namespace {
+
+using namespace traceloom;
 
 std::string temp_db_path() {
   const auto now = std::chrono::steady_clock::now().time_since_epoch().count();
@@ -54,6 +57,38 @@ std::string run_scalar_text(const std::string& path, const std::string& sql) {
   sqlite3_finalize(raw_stmt);
   sqlite3_close(db);
   return value;
+}
+
+NativeIr build_collective_repeat_ir() {
+  NativeIr ir;
+  const SourceRefId source =
+      ir.source_refs.append("fixture", "collective", "TASK", 0);
+  const SymbolId ai_core = ir.symbols.intern("AI_CORE");
+  const SymbolId matmul = ir.symbols.intern("MatMul");
+  const SymbolId all_reduce = ir.symbols.intern("HcclAllReduce");
+
+  std::vector<AnchorId> anchors;
+  for (std::uint32_t idx = 0; idx < 4; ++idx) {
+    const bool collective = idx >= 2;
+    const SymbolId symbol = collective ? all_reduce : matmul;
+    const std::int64_t start_ns = 1000 + static_cast<std::int64_t>(idx) * 1000;
+    const TraceEventId event =
+        ir.trace_events.append(source, idx, 0, 5, start_ns, start_ns + 500,
+                               symbol);
+    ir.tasks.append(source, event, idx + 1, 9000 + idx,
+                    collective ? 700 : -1, ai_core, symbol, symbol, ai_core,
+                    collective ? all_reduce : SymbolId::invalid());
+    anchors.push_back(ir.anchors.append(
+        source, event, ReplayUnitId::invalid(),
+        collective ? AnchorKind::kCommunication : AnchorKind::kDeviceEvent,
+        symbol, 0, 5, start_ns, start_ns + 500));
+  }
+  for (std::uint32_t idx = 0; idx < anchors.size(); ++idx) {
+    const AnchorRow& anchor = ir.anchors.row(anchors[idx]);
+    ir.tokens.append(anchors[idx], anchor.symbol_id, 0, idx, anchor.start_ns,
+                     anchor.end_ns);
+  }
+  return ir;
 }
 
 }  // namespace
@@ -139,7 +174,42 @@ int main() {
               db_path,
               "SELECT COUNT(*) FROM sqlite_master "
               "WHERE type = 'view' AND name = 'traceloom_v_tree_node'") == 1);
+  require(run_scalar_int(db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_collective_global_link") == 0);
 
   std::remove(db_path.c_str());
+
+  const std::string collective_db_path = temp_db_path();
+  compat::NativeCompatibilitySidecarOptions collective_options;
+  collective_options.db_idx = 3;
+  collective_options.source_kind = "fixture";
+  collective_options.source_path = "collective-smoke";
+  collective_options.collective_run_name = "collective smoke";
+  collective_options.collective_db_name = "db00.traceloom_augmented.db";
+  collective_options.collective_expected_world_size = 1;
+  compat::write_basic_native_compatibility_sidecar(
+      collective_db_path, build_collective_repeat_ir(), collective_options);
+
+  require(run_scalar_int(collective_db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_collective_global_link") == 2);
+  require(run_scalar_text(collective_db_path,
+                          "SELECT op_type FROM "
+                          "traceloom_collective_global_link "
+                          "ORDER BY idx_in_occurrence LIMIT 1") ==
+          "allReduce");
+  require(run_scalar_text(collective_db_path,
+                          "SELECT validation_status FROM "
+                          "traceloom_collective_global_link "
+                          "ORDER BY idx_in_occurrence LIMIT 1") ==
+          "complete");
+  require(run_scalar_text(collective_db_path,
+                          "SELECT candidate_collective_key FROM "
+                          "traceloom_collective_global_link "
+                          "ORDER BY idx_in_occurrence LIMIT 1")
+              .find("collective_smoke:LP_M001_01_") == 0);
+
+  std::remove(collective_db_path.c_str());
   return 0;
 }
