@@ -84,6 +84,9 @@ struct AclGraphReplaySubslotFixtureRow {
   std::int64_t start_ns = 0;
   std::int64_t end_ns = 0;
   std::uint32_t stream_id = 0;
+  std::uint32_t raw_child_task_count = 0;
+  std::string raw_top_ops;
+  std::string body_match_signature;
 };
 
 struct AclGraphHltAnchorSeedFixtureRow {
@@ -96,6 +99,9 @@ struct AclGraphHltAnchorSeedFixtureRow {
   std::string semantic_role;
   std::int64_t start_ns = 0;
   std::int64_t end_ns = 0;
+  std::uint32_t raw_child_task_count = 0;
+  std::string raw_top_ops;
+  std::string body_match_signature;
 };
 
 struct AclGraphFixtureGolden {

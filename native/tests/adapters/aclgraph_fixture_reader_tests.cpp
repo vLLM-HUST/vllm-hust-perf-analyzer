@@ -145,7 +145,15 @@ int main() {
             fixture.golden.replay_activity_count);
     require(fixture.replay_units.size() == fixture.golden.replay_unit_count);
     require(fixture.replay_subslots.size() == 6);
+    require(fixture.replay_subslots[1].raw_child_task_count == 20);
+    require(fixture.replay_subslots[1].raw_top_ops == "MatMul:16");
+    require(fixture.replay_subslots[1].body_match_signature ==
+            "matmul|MatMul:2");
     require(fixture.hlt_anchor_seeds.size() == fixture.golden.hlt_anchor_count);
+    require(fixture.hlt_anchor_seeds[1].raw_child_task_count == 20);
+    require(fixture.hlt_anchor_seeds[1].raw_top_ops == "MatMul:16");
+    require(fixture.hlt_anchor_seeds[1].body_match_signature ==
+            "matmul|MatMul:2");
     require(flat_hlt_anchor_sequence(fixture) ==
             fixture.golden.flat_hlt_sequence);
     require(derive_aclgraph_diagnostic_counts(fixture)

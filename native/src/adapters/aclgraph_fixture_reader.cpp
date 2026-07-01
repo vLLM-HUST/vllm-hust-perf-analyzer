@@ -659,6 +659,14 @@ AclGraphSemanticFixture load_aclgraph_semantic_fixture(
             out.start_ns = optional_i64(row, "start_ns", "subslot start_ns");
             out.end_ns = optional_i64(row, "end_ns", "subslot end_ns");
             out.stream_id = optional_u32(row, "stream_id", "subslot stream_id");
+            out.raw_child_task_count =
+                optional_u32(row, "raw_child_task_count",
+                             "subslot raw_child_task_count");
+            out.raw_top_ops =
+                optional_string(row, "raw_top_ops", "subslot raw_top_ops");
+            out.body_match_signature =
+                optional_string(row, "body_match_signature",
+                                "subslot body_match_signature");
             return out;
           });
 
@@ -688,6 +696,14 @@ AclGraphSemanticFixture load_aclgraph_semantic_fixture(
                 optional_string(row, "semantic_role", "HLT semantic_role");
             out.start_ns = optional_i64(row, "start_ns", "HLT start_ns");
             out.end_ns = optional_i64(row, "end_ns", "HLT end_ns");
+            out.raw_child_task_count =
+                optional_u32(row, "raw_child_task_count",
+                             "HLT raw_child_task_count");
+            out.raw_top_ops =
+                optional_string(row, "raw_top_ops", "HLT raw_top_ops");
+            out.body_match_signature =
+                optional_string(row, "body_match_signature",
+                                "HLT body_match_signature");
             return out;
           });
 

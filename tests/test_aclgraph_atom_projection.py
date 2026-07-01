@@ -618,11 +618,17 @@ class AclGraphAtomProjectionTests(unittest.TestCase):
                     "replay_tiling_unmatched_count": 0,
                     "replay_tiling_subslots_json": (
                         '[{"subslot_idx":1,"symbol":"H","kind":"head","matched":1,'
-                        '"start_ns":1000,"end_ns":1100,"stream_id":7},'
+                        '"start_ns":1000,"end_ns":1100,"stream_id":7,'
+                        '"raw_child_task_count":4,"raw_top_ops":"Embedding:4",'
+                        '"body_match_signature":"index|Embedding:1"},'
                         '{"subslot_idx":2,"symbol":"L","kind":"layer","matched":1,'
-                        '"start_ns":1100,"end_ns":1200,"stream_id":7},'
+                        '"start_ns":1100,"end_ns":1200,"stream_id":7,'
+                        '"raw_child_task_count":20,"raw_top_ops":"MatMul:16",'
+                        '"body_match_signature":"matmul|MatMul:2"},'
                         '{"subslot_idx":3,"symbol":"T","kind":"tail","matched":1,'
-                        '"start_ns":1200,"end_ns":1300,"stream_id":7}]'
+                        '"start_ns":1200,"end_ns":1300,"stream_id":7,'
+                        '"raw_child_task_count":6,"raw_top_ops":"RmsNorm:4",'
+                        '"body_match_signature":"norm|RmsNorm:1"}]'
                     ),
                     "stream_id": 7,
                     "start_ns": 1000,
@@ -646,11 +652,17 @@ class AclGraphAtomProjectionTests(unittest.TestCase):
                     "replay_tiling_unmatched_count": 1,
                     "replay_tiling_subslots_json": (
                         '[{"subslot_idx":1,"symbol":"H","kind":"head","matched":1,'
-                        '"start_ns":1300,"end_ns":1400,"stream_id":7},'
+                        '"start_ns":1300,"end_ns":1400,"stream_id":7,'
+                        '"raw_child_task_count":5,"raw_top_ops":"Embedding:5",'
+                        '"body_match_signature":"index|Embedding:1"},'
                         '{"subslot_idx":2,"symbol":"?","kind":"unknown","matched":0,'
-                        '"start_ns":1400,"end_ns":1500,"stream_id":7},'
+                        '"start_ns":1400,"end_ns":1500,"stream_id":7,'
+                        '"raw_child_task_count":10,"raw_top_ops":"Unknown:10",'
+                        '"body_match_signature":"unknown|Unknown:1"},'
                         '{"subslot_idx":3,"symbol":"T","kind":"tail","matched":1,'
-                        '"start_ns":1500,"end_ns":1600,"stream_id":7}]'
+                        '"start_ns":1500,"end_ns":1600,"stream_id":7,'
+                        '"raw_child_task_count":5,"raw_top_ops":"RmsNorm:5",'
+                        '"body_match_signature":"norm|RmsNorm:1"}]'
                     ),
                     "stream_id": 7,
                     "start_ns": 1300,
@@ -733,10 +745,18 @@ class AclGraphAtomProjectionTests(unittest.TestCase):
         self.assertEqual(len(assets["replay_activities"]), 1)
         self.assertEqual(len(assets["replay_units"]), 2)
         self.assertEqual(len(assets["replay_subslots"]), 6)
+        self.assertEqual(assets["replay_subslots"][1]["raw_child_task_count"], 20)
+        self.assertEqual(assets["replay_subslots"][1]["raw_top_ops"], "MatMul:16")
+        self.assertEqual(
+            assets["replay_subslots"][1]["body_match_signature"],
+            "matmul|MatMul:2",
+        )
         self.assertEqual(
             [row["symbol"] for row in assets["hlt_anchor_seeds"]],
             ["ACLH", "ACLL", "ACLT", "ACLH", "ACLT"],
         )
+        self.assertEqual(assets["hlt_anchor_seeds"][1]["raw_child_task_count"], 20)
+        self.assertEqual(assets["hlt_anchor_seeds"][1]["raw_top_ops"], "MatMul:16")
         self.assertEqual(
             fixture["golden"]["flat_hlt_sequence"],
             "ACLH ACLL ACLT ACLH ACLT",

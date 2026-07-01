@@ -614,6 +614,13 @@ def _semantic_fixture_replay_assets(
                     "start_ns": _safe_int(subslot.get("start_ns")),
                     "end_ns": _safe_int(subslot.get("end_ns")),
                     "stream_id": _safe_int(subslot.get("stream_id")),
+                    "raw_child_task_count": _safe_int(
+                        subslot.get("raw_child_task_count")
+                    ),
+                    "raw_top_ops": str(subslot.get("raw_top_ops", "") or ""),
+                    "body_match_signature": str(
+                        subslot.get("body_match_signature", "") or ""
+                    ),
                 }
             )
             graph_symbol = symbol_by_slot.get(slot_symbol)
@@ -630,6 +637,13 @@ def _semantic_fixture_replay_assets(
                     "semantic_role": "anchor",
                     "start_ns": _safe_int(subslot.get("start_ns")),
                     "end_ns": _safe_int(subslot.get("end_ns")),
+                    "raw_child_task_count": _safe_int(
+                        subslot.get("raw_child_task_count")
+                    ),
+                    "raw_top_ops": str(subslot.get("raw_top_ops", "") or ""),
+                    "body_match_signature": str(
+                        subslot.get("body_match_signature", "") or ""
+                    ),
                 }
             )
 
