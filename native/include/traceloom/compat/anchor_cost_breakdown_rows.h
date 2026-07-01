@@ -7,7 +7,13 @@
 #include "traceloom/compat/schema.h"
 #include "traceloom/report/anchor_internal_cost_breakdown.h"
 
+namespace traceloom {
+struct NativeIr;
+}
+
 namespace traceloom::compat {
+
+struct AuxAttributionSqlRows;
 
 struct AnchorCostBreakdownSqlRow {
   std::uint32_t anchor_idx = 0;
@@ -25,6 +31,15 @@ struct AnchorCostBreakdownSqlRow {
 
 std::vector<AnchorCostBreakdownSqlRow> build_anchor_cost_breakdown_sql_rows(
     const AnchorInternalCostBreakdown& breakdown);
+
+std::vector<AnchorCostBreakdownSqlRow>
+build_native_anchor_cost_breakdown_sql_rows(
+    const NativeIr& ir,
+    const AuxAttributionSqlRows& aux_rows);
+
+std::vector<AnchorCostBreakdownSqlRow>
+build_native_anchor_cost_breakdown_sql_rows(const NativeIr& ir,
+                                            std::uint32_t db_idx = 0);
 
 const CompatTableSchema& anchor_cost_breakdown_sql_row_schema();
 

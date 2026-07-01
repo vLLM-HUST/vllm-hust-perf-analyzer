@@ -3,10 +3,11 @@
 #include <string>
 #include <vector>
 
+#include "traceloom/compat/anchor_cost_breakdown_rows.h"
 #include "traceloom/compat/anchor_sequence_rows.h"
 #include "traceloom/compat/aux_attribution_rows.h"
-#include "traceloom/compat/sidecar_writer.h"
 #include "traceloom/compat/report_tree_rows.h"
+#include "traceloom/compat/sidecar_writer.h"
 #include "traceloom/compat/timeline_rows.h"
 
 namespace traceloom::compat {
@@ -32,9 +33,11 @@ void write_basic_native_compatibility_sidecar(
                             split_source_lineage_sql_rows(event_rows));
   replace_anchor_rows(sqlite_path,
                       build_anchor_sequence_sql_rows(ir, options.db_idx));
-  replace_aux_attribution_rows(sqlite_path,
-                               build_aux_attribution_sql_rows(ir,
-                                                              options.db_idx));
+  const AuxAttributionSqlRows aux_rows =
+      build_aux_attribution_sql_rows(ir, options.db_idx);
+  replace_aux_attribution_rows(sqlite_path, aux_rows);
+  replace_anchor_cost_breakdown_rows(
+      sqlite_path, build_native_anchor_cost_breakdown_sql_rows(ir, aux_rows));
   const NodeCoverageSqlRows node_rows =
       build_native_report_tree_node_coverage_sql_rows(ir, options.db_idx);
   replace_loop_tree_rows(sqlite_path, split_loop_tree_sql_rows(node_rows));

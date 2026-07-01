@@ -1,4 +1,5 @@
 #include "traceloom/compat/anchor_cost_breakdown_rows.h"
+#include "traceloom/ir/native_ir.h"
 #include "traceloom/testing/test_util.h"
 
 #include <cmath>
@@ -62,6 +63,31 @@ int main() {
   require(rows[1].anchor_kind == "exec");
   require(near(rows[1].total_us, 7.0));
   require(near(rows[1].self_us, 7.0));
+
+  NativeIr ir;
+  const SourceRefId source =
+      ir.source_refs.append("fixture", "memory", "TASK", 0);
+  const SymbolId memcpy = ir.symbols.intern("Memcpy");
+  const SymbolId matmul = ir.symbols.intern("MatMul");
+  ir.trace_events.append(source, 1, 0, 7, 1000, 1500, memcpy);
+  const TraceEventId anchor_event =
+      ir.trace_events.append(source, 2, 0, 7, 2000, 3200, matmul);
+  ir.anchors.append(source, anchor_event, ReplayUnitId::invalid(),
+                    AnchorKind::kDeviceEvent, matmul, 0, 7, 2000, 3200);
+
+  const std::vector<compat::AnchorCostBreakdownSqlRow> native_rows =
+      compat::build_native_anchor_cost_breakdown_sql_rows(ir, 4);
+  require(native_rows.size() == 1);
+  require(native_rows[0].anchor_idx == 1);
+  require(native_rows[0].symbol == "MatMul");
+  require(native_rows[0].anchor_kind == "exec");
+  require(near(native_rows[0].self_us, 1.2));
+  require(near(native_rows[0].aux_us, 0.5));
+  require(near(native_rows[0].total_us, 1.7));
+  require(near(native_rows[0].graph_child_us, 0.0));
+  require(native_rows[0].raw_child_task_count == 0);
+  require(native_rows[0].top_ops.empty());
+  require(native_rows[0].diagnostic_flags.empty());
 
   const compat::CompatTableSchema& schema =
       compat::anchor_cost_breakdown_sql_row_schema();

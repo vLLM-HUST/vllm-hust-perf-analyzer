@@ -189,6 +189,12 @@ int main() {
   materialize_aux_fixture_sidecar(aux_db_path);
 
   require(run_report_sql_row_count(aux_db_path, "anchor-aux.sql") > 0);
+  require(run_report_sql_row_count(aux_db_path,
+                                   "anchor-cost-breakdown.sql") > 0);
+  require(run_scalar_int(
+              aux_db_path,
+              "SELECT COUNT(*) FROM traceloom_anchor_cost_breakdown "
+              "WHERE aux_us > 0") > 0);
   require(run_scalar_int(
               aux_db_path,
               "SELECT COUNT(*) FROM traceloom_aux_link al "

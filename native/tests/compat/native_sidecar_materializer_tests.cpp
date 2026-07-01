@@ -96,6 +96,9 @@ int main() {
                          "SELECT COUNT(*) FROM traceloom_event_source") == 1);
   require(run_scalar_int(db_path, "SELECT COUNT(*) FROM traceloom_anchor") ==
           1);
+  require(run_scalar_int(
+              db_path,
+              "SELECT COUNT(*) FROM traceloom_anchor_cost_breakdown") == 1);
   require(run_scalar_int(db_path, "SELECT COUNT(*) FROM traceloom_viz_node") ==
           2);
   require(run_scalar_int(db_path,
@@ -114,6 +117,14 @@ int main() {
   require(run_scalar_text(db_path,
                           "SELECT event_id FROM traceloom_anchor "
                           "WHERE anchor_id = 'anchor-0'") == "event-0");
+  require(run_scalar_int(db_path,
+                         "SELECT CAST(total_us * 1000 AS INTEGER) FROM "
+                         "traceloom_anchor_cost_breakdown "
+                         "WHERE anchor_idx = 1") == 2000);
+  require(run_scalar_text(db_path,
+                          "SELECT anchor_kind FROM "
+                          "traceloom_anchor_cost_breakdown "
+                          "WHERE anchor_idx = 1") == "exec");
   require(run_scalar_int(
               db_path,
               "SELECT COUNT(*) FROM traceloom_event_source s "
