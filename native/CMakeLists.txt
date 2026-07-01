@@ -76,6 +76,7 @@ target_link_libraries(traceloom_native_adapters PUBLIC traceloom_native_core)
 add_library(traceloom_native_materialize
   src/compat/anchor_sequence_rows.cpp
   src/compat/anchor_cost_breakdown_rows.cpp
+  src/compat/native_sidecar_materializer.cpp
   src/compat/schema.cpp
   src/compat/sidecar_writer.cpp
   src/compat/timeline_rows.cpp
@@ -626,6 +627,32 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     add_test(
       NAME traceloom_native_sidecar_writer_tests
       COMMAND traceloom_native_sidecar_writer_tests
+    )
+
+    add_executable(traceloom_native_sidecar_materializer_tests
+      tests/compat/native_sidecar_materializer_tests.cpp
+    )
+    target_link_libraries(
+      traceloom_native_sidecar_materializer_tests PRIVATE
+      traceloom_native_materialize
+    )
+    if(TARGET SQLite::SQLite3)
+      target_link_libraries(
+        traceloom_native_sidecar_materializer_tests PRIVATE SQLite::SQLite3
+      )
+    else()
+      target_include_directories(
+        traceloom_native_sidecar_materializer_tests
+        PRIVATE ${SQLite3_INCLUDE_DIRS}
+      )
+      target_link_libraries(
+        traceloom_native_sidecar_materializer_tests
+        PRIVATE ${SQLite3_LIBRARIES}
+      )
+    endif()
+    add_test(
+      NAME traceloom_native_sidecar_materializer_tests
+      COMMAND traceloom_native_sidecar_materializer_tests
     )
 
     add_executable(traceloom_native_report_sql_compat_tests
