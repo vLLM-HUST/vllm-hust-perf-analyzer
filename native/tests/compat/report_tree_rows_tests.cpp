@@ -69,6 +69,37 @@ int main() {
   require(rows.anchor_primary_nodes[0].reason == "atom_leaf");
   require(rows.anchor_primary_nodes[1].anchor_id == "anchor-1");
 
+  const compat::SemanticTreeSqlRows semantic_rows =
+      compat::build_native_report_tree_semantic_sql_rows(ir, 7, "tree-1",
+                                                         "anchor_tree");
+  require(semantic_rows.trees.size() == 1);
+  require(semantic_rows.nodes.size() == rows.nodes.size());
+  require(semantic_rows.edges.size() == rows.edges.size());
+
+  require(semantic_rows.trees[0].tree_id == "tree-1");
+  require(semantic_rows.trees[0].root_node_id == "node-N001");
+  require(semantic_rows.trees[0].semantic_projection == "native_report_tree");
+
+  require(semantic_rows.nodes[0].node_id == "node-N001");
+  require(semantic_rows.nodes[0].tree_id == "tree-1");
+  require(semantic_rows.nodes[0].preorder_idx == 0);
+  require(semantic_rows.nodes[0].node_type == "Seq");
+  require(semantic_rows.nodes[0].semantic_kind == "seq");
+  require(semantic_rows.nodes[0].anchor_count == 2);
+  require(semantic_rows.nodes[0].start_ns == 1000);
+  require(semantic_rows.nodes[0].end_ns == 4500);
+  require(semantic_rows.nodes[0].total_us == 3.0);
+
+  require(semantic_rows.nodes[1].parent_node_id == "node-N001");
+  require(semantic_rows.nodes[1].node_type == "Repeat");
+  require(semantic_rows.nodes[1].loop_depth == 1);
+  require(semantic_rows.nodes[2].parent_node_id == "node-N002");
+  require(semantic_rows.nodes[2].parent_local_node_id == "N002");
+  require(semantic_rows.nodes[2].self_us == 3.0);
+  require(semantic_rows.edges[0].tree_id == "tree-1");
+  require(semantic_rows.edges[0].parent_node_id == "node-N001");
+  require(semantic_rows.edges[0].child_node_id == "node-N002");
+
   NativeIr bad_ir;
   const SourceRefId bad_source =
       bad_ir.source_refs.append("fixture", "bad", "TASK", 0);

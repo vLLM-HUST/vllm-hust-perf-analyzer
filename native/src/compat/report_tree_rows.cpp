@@ -102,6 +102,8 @@ struct NodeAccum {
   std::uint32_t occurrence_count = 0;
   std::uint32_t first_anchor_idx = 0;
   std::uint32_t last_anchor_idx = 0;
+  std::int64_t start_ns = 0;
+  std::int64_t end_ns = 0;
   double compute_us = 0.0;
   double comm_us = 0.0;
   double self_us = 0.0;
@@ -151,6 +153,10 @@ std::vector<NodeAccum> accumulate_nodes(
           accum.first_anchor_idx = anchor_idx;
         }
         accum.last_anchor_idx = std::max(accum.last_anchor_idx, anchor_idx);
+        if (accum.start_ns == 0 || token.start_ns < accum.start_ns) {
+          accum.start_ns = token.start_ns;
+        }
+        accum.end_ns = std::max(accum.end_ns, token.end_ns);
         if (is_comm_token(token)) {
           accum.comm_us += token_duration_us(token);
         } else {
@@ -220,6 +226,21 @@ std::string repeat_context_for_occurrence(const ReportTree& tree,
     out += parts[i];
   }
   return out;
+}
+
+std::uint32_t loop_depth_for_occurrence(const ReportTree& tree,
+                                        ReportNodeOccurrenceId occurrence_id) {
+  std::uint32_t depth = 0;
+  ReportNodeOccurrenceId cursor = occurrence_id;
+  while (cursor.valid()) {
+    const ReportNodeOccurrence& occurrence = node_occurrence(tree, cursor);
+    const ReportNodeDef& def = node_def(tree, occurrence.node_def_id);
+    if (def.kind == ReportNodeKind::kRepeat) {
+      ++depth;
+    }
+    cursor = occurrence.parent_occurrence_id;
+  }
+  return depth;
 }
 
 }  // namespace
@@ -398,6 +419,135 @@ NodeCoverageSqlRows build_native_report_tree_node_coverage_sql_rows(
   const ReportTree tree = build_report_tree_from_tokens(tokens);
   return build_report_tree_node_coverage_sql_rows(tree, tokens, db_idx,
                                                   std::move(view_name));
+}
+
+SemanticTreeSqlRows build_report_tree_semantic_sql_rows(
+    const ReportTree& tree,
+    const std::vector<ReportToken>& tokens,
+    std::uint32_t db_idx,
+    std::string tree_id,
+    std::string view_name) {
+  validate_report_tree_or_throw(tree, static_cast<std::uint32_t>(tokens.size()));
+
+  SemanticTreeSqlRows rows;
+  const std::vector<NodeAccum> accum = accumulate_nodes(tree, tokens);
+  const auto first_occurrences = first_occurrence_by_def(tree);
+
+  SemanticTreeHeaderSqlRow header;
+  header.tree_id = tree_id;
+  header.db_idx = db_idx;
+  header.device_id = 0;
+  header.view_name = view_name;
+  header.tree_kind = "semantic";
+  header.stem = "native_report_tree";
+  header.schema_version = "compat-v1";
+  header.semantic_projection = "native_report_tree";
+  header.macro_discovery = "native_report_tree";
+  header.readable_macro_mode = "native_report_tree";
+  header.auxiliary_attribution = "not_materialized";
+  if (!tree.node_defs.empty()) {
+    header.root_node_id = node_id_for_def(tree.node_defs.front());
+  }
+  rows.trees.push_back(header);
+
+  rows.nodes.reserve(tree.node_defs.size());
+  for (const ReportNodeDef& def : tree.node_defs) {
+    const NodeAccum& node_accum = accum[def.id.value()];
+    const std::uint32_t occurrence_count =
+        node_accum.occurrence_count == 0 ? 1 : node_accum.occurrence_count;
+    const double total_us = node_accum.compute_us + node_accum.comm_us;
+    const auto occurrence_found = first_occurrences.find(def.id.value());
+
+    SemanticNodeSqlRow row;
+    row.node_id = node_id_for_def(def);
+    row.tree_id = tree_id;
+    row.db_idx = db_idx;
+    row.device_id = 0;
+    row.view_name = view_name;
+    row.tree_kind = "semantic";
+    row.local_node_id = def.local_node_id;
+    row.preorder_idx = def.definition_order;
+    row.path = occurrence_found == first_occurrences.end()
+                   ? def.local_node_id
+                   : path_for_occurrence(tree, occurrence_found->second);
+    row.depth = def.display_depth;
+    row.display_depth = def.display_depth;
+    row.node_type = report_node_type_name(def.kind);
+    row.semantic_kind = report_node_kind_name(def.kind);
+    row.symbol = def.display_op;
+    row.label = def.display_op;
+    row.category = def.display_category;
+    row.repeat_count = def.repeat_count;
+    row.occurrence_count = node_accum.occurrence_count;
+    row.anchor_count =
+        static_cast<std::uint32_t>(node_accum.token_ordinals.size());
+    row.first_anchor_idx = node_accum.first_anchor_idx;
+    row.last_anchor_idx = node_accum.last_anchor_idx;
+    row.start_ns = node_accum.start_ns;
+    row.end_ns = node_accum.end_ns;
+    row.compute_us = node_accum.compute_us;
+    row.comm_us = node_accum.comm_us;
+    row.total_us = total_us;
+    row.avg_compute_us = node_accum.compute_us / occurrence_count;
+    row.avg_comm_us = node_accum.comm_us / occurrence_count;
+    row.avg_total_us = total_us / occurrence_count;
+    row.self_us = node_accum.self_us;
+
+    if (occurrence_found != first_occurrences.end()) {
+      const ReportNodeOccurrence& occurrence =
+          node_occurrence(tree, occurrence_found->second);
+      row.sibling_order = occurrence.edge_order;
+      row.loop_depth = loop_depth_for_occurrence(tree, occurrence.id);
+      if (occurrence.parent_occurrence_id.valid()) {
+        const ReportNodeOccurrence& parent =
+            node_occurrence(tree, occurrence.parent_occurrence_id);
+        const ReportNodeDef& parent_def = node_def(tree, parent.node_def_id);
+        row.parent_node_id = node_id_for_def(parent_def);
+        row.parent_local_node_id = parent_def.local_node_id;
+      }
+    }
+    rows.nodes.push_back(std::move(row));
+  }
+
+  std::set<std::pair<std::string, std::string>> seen_edges;
+  for (const ReportTreeEdge& edge : tree.edges) {
+    const ReportNodeOccurrence& parent =
+        node_occurrence(tree, edge.parent_occurrence_id);
+    const ReportNodeOccurrence& child =
+        node_occurrence(tree, edge.child_occurrence_id);
+    const ReportNodeDef& parent_def = node_def(tree, parent.node_def_id);
+    const ReportNodeDef& child_def = node_def(tree, child.node_def_id);
+    const std::pair<std::string, std::string> key{node_id_for_def(parent_def),
+                                                  node_id_for_def(child_def)};
+    if (!seen_edges.insert(key).second) {
+      continue;
+    }
+    SemanticEdgeSqlRow row;
+    row.parent_node_id = key.first;
+    row.child_node_id = key.second;
+    row.tree_id = tree_id;
+    row.db_idx = db_idx;
+    row.device_id = 0;
+    row.view_name = view_name;
+    row.tree_kind = "semantic";
+    row.edge_order = edge.edge_order;
+    row.edge_kind = "child";
+    rows.edges.push_back(std::move(row));
+  }
+
+  return rows;
+}
+
+SemanticTreeSqlRows build_native_report_tree_semantic_sql_rows(
+    const NativeIr& ir,
+    std::uint32_t db_idx,
+    std::string tree_id,
+    std::string view_name) {
+  const std::vector<ReportToken> tokens = build_report_tokens_from_native_ir(ir);
+  const ReportTree tree = build_report_tree_from_tokens(tokens);
+  return build_report_tree_semantic_sql_rows(tree, tokens, db_idx,
+                                             std::move(tree_id),
+                                             std::move(view_name));
 }
 
 }  // namespace traceloom::compat

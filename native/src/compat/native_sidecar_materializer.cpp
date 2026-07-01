@@ -30,6 +30,8 @@ void write_basic_native_compatibility_sidecar(
   replace_node_coverage_rows(
       sqlite_path,
       build_native_report_tree_node_coverage_sql_rows(ir, options.db_idx));
+  replace_semantic_tree_rows(
+      sqlite_path, build_native_report_tree_semantic_sql_rows(ir, options.db_idx));
   if (options.materialize_report_views) {
     materialize_report_compatibility_views(sqlite_path);
   }
