@@ -287,6 +287,28 @@ const CompatTableSchema& viz_node_anchor_table_schema() {
   return schema;
 }
 
+const CompatTableSchema& semantic_tree_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_semantic_tree",
+      {
+          {"tree_id", CompatColumnType::kText, false},
+          {"db_idx", CompatColumnType::kInteger, false},
+          {"device_id", CompatColumnType::kInteger, false},
+          {"view_name", CompatColumnType::kText, false},
+          {"tree_kind", CompatColumnType::kText, false},
+          {"stem", CompatColumnType::kText, true},
+          {"root_node_id", CompatColumnType::kText, true},
+          {"schema_version", CompatColumnType::kText, true},
+          {"semantic_projection", CompatColumnType::kText, true},
+          {"macro_discovery", CompatColumnType::kText, true},
+          {"readable_macro_mode", CompatColumnType::kText, true},
+          {"auxiliary_attribution", CompatColumnType::kText, true},
+          {"raw_json", CompatColumnType::kText, true},
+      },
+  };
+  return schema;
+}
+
 const CompatTableSchema& semantic_node_table_schema() {
   static const CompatTableSchema schema{
       "traceloom_semantic_node",
@@ -368,6 +390,7 @@ std::vector<CompatTableSchema> compatibility_table_schemas() {
       viz_node_table_schema(),
       viz_edge_table_schema(),
       viz_node_anchor_table_schema(),
+      semantic_tree_table_schema(),
       semantic_node_table_schema(),
       anchor_cost_breakdown_table_schema(),
   };

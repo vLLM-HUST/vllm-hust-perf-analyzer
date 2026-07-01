@@ -403,6 +403,32 @@ void insert_graph_envelope_row(SqliteStmt& stmt,
   sqlite3_clear_bindings(stmt.get());
 }
 
+void insert_semantic_tree_header_row(SqliteStmt& stmt,
+                                     const SemanticTreeHeaderSqlRow& row) {
+  bind_text(stmt, 1, row.tree_id);
+  bind_int64(stmt, 2, row.db_idx);
+  bind_int64(stmt, 3, row.device_id);
+  bind_text(stmt, 4, row.view_name);
+  bind_text(stmt, 5, row.tree_kind);
+  bind_text(stmt, 6, row.stem);
+  bind_text(stmt, 7, row.root_node_id);
+  bind_text(stmt, 8, row.schema_version);
+  bind_text(stmt, 9, row.semantic_projection);
+  bind_text(stmt, 10, row.macro_discovery);
+  bind_text(stmt, 11, row.readable_macro_mode);
+  bind_text(stmt, 12, row.auxiliary_attribution);
+  bind_text(stmt, 13, row.raw_json);
+
+  const int rc = sqlite3_step(stmt.get());
+  if (rc != SQLITE_DONE) {
+    throw std::runtime_error(
+        "failed to insert compatibility semantic tree row: " +
+        std::string(sqlite3_errmsg(stmt.db())));
+  }
+  sqlite3_reset(stmt.get());
+  sqlite3_clear_bindings(stmt.get());
+}
+
 void insert_semantic_node_row(SqliteStmt& stmt, const SemanticNodeSqlRow& row) {
   bind_text(stmt, 1, row.node_id);
   bind_text(stmt, 2, row.tree_id);
@@ -1174,12 +1200,25 @@ void replace_graph_replay_rows(const std::string& sqlite_path,
 void replace_semantic_tree_rows(const std::string& sqlite_path,
                                 const SemanticTreeSqlRows& rows) {
 #if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
-  materialize_compatibility_schema(sqlite_path, {semantic_node_table_schema()});
+  materialize_compatibility_schema(
+      sqlite_path, {semantic_tree_table_schema(), semantic_node_table_schema()});
 
   SqliteDb db(sqlite_path);
   db.exec("BEGIN IMMEDIATE");
   try {
     db.exec("DELETE FROM traceloom_semantic_node");
+    db.exec("DELETE FROM traceloom_semantic_tree");
+
+    SqliteStmt tree_stmt(
+        db.get(),
+        "INSERT INTO traceloom_semantic_tree ("
+        "tree_id, db_idx, device_id, view_name, tree_kind, stem, "
+        "root_node_id, schema_version, semantic_projection, macro_discovery, "
+        "readable_macro_mode, auxiliary_attribution, raw_json"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    for (const SemanticTreeHeaderSqlRow& row : rows.trees) {
+      insert_semantic_tree_header_row(tree_stmt, row);
+    }
 
     SqliteStmt node_stmt(
         db.get(),

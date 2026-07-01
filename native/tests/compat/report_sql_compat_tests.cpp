@@ -169,6 +169,15 @@ void require_graph_replay_invariants(const std::string& db_path) {
                      "WHERE e.event_id IS NULL") == 0);
 }
 
+void require_semantic_tree_invariants(const std::string& db_path) {
+  traceloom::testing::require(
+      run_scalar_int(db_path,
+                     "SELECT COUNT(*) FROM traceloom_semantic_node n "
+                     "LEFT JOIN traceloom_semantic_tree t ON "
+                     "t.tree_id = n.tree_id "
+                     "WHERE t.tree_id IS NULL") == 0);
+}
+
 void seed_anchor_cost_fixture(const std::string& db_path) {
   std::vector<traceloom::compat::AnchorCostBreakdownSqlRow> rows(2);
   rows[0].anchor_idx = 2;
@@ -506,9 +515,21 @@ void seed_graph_replay_fixture(const std::string& db_path) {
 void seed_semantic_tree_fixture(const std::string& db_path) {
   traceloom::compat::SemanticTreeSqlRows rows;
 
+  traceloom::compat::SemanticTreeHeaderSqlRow tree;
+  tree.tree_id = "semantic-tree-1";
+  tree.view_name = "anchor_tree";
+  tree.tree_kind = "semantic";
+  tree.root_node_id = "semantic-node-1";
+  tree.schema_version = "compat-v1";
+  tree.semantic_projection = "fixture";
+  tree.macro_discovery = "fixture";
+  tree.readable_macro_mode = "fixture";
+  tree.auxiliary_attribution = "fixture";
+  rows.trees.push_back(tree);
+
   traceloom::compat::SemanticNodeSqlRow root;
   root.node_id = "semantic-node-1";
-  root.tree_id = "semantic-tree-1";
+  root.tree_id = tree.tree_id;
   root.view_name = "anchor_tree";
   root.tree_kind = "semantic";
   root.local_node_id = "N001";
@@ -776,6 +797,7 @@ int main() {
       require_node_coverage_invariants(db_path);
     } else if (query_case.filename == "semantic-tree-readable.sql") {
       seed_semantic_tree_fixture(db_path);
+      require_semantic_tree_invariants(db_path);
     }
 
     const QueryResult result = run_query(db_path, query_case);

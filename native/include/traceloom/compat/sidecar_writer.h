@@ -206,6 +206,22 @@ struct GraphReplaySqlRows {
   std::vector<GraphEnvelopeSqlRow> graph_envelopes;
 };
 
+struct SemanticTreeHeaderSqlRow {
+  std::string tree_id;
+  std::uint32_t db_idx = 0;
+  std::uint32_t device_id = 0;
+  std::string view_name = "anchor_tree";
+  std::string tree_kind = "semantic";
+  std::string stem;
+  std::string root_node_id;
+  std::string schema_version;
+  std::string semantic_projection;
+  std::string macro_discovery;
+  std::string readable_macro_mode;
+  std::string auxiliary_attribution;
+  std::string raw_json;
+};
+
 struct SemanticNodeSqlRow {
   std::string node_id;
   std::string tree_id;
@@ -252,6 +268,7 @@ struct SemanticNodeSqlRow {
 };
 
 struct SemanticTreeSqlRows {
+  std::vector<SemanticTreeHeaderSqlRow> trees;
   std::vector<SemanticNodeSqlRow> nodes;
 };
 
