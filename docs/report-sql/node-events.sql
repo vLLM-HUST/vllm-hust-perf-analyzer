@@ -1,3 +1,21 @@
+with target_node as (
+  select coalesce(
+    (
+      select 'N027'
+      where exists (
+        select 1
+        from traceloom_tree_node_anchor
+        where local_node_id = 'N027'
+      )
+    ),
+    (
+      select local_node_id
+      from traceloom_tree_node_anchor
+      order by db_idx, device_id, view_name, local_node_id
+      limit 1
+    )
+  ) as local_node_id
+)
 select
   na.local_node_id as node,
   na.occurrence_idx,
@@ -16,5 +34,5 @@ select
 from traceloom_tree_node_anchor na
 join traceloom_anchor a on a.anchor_id = na.anchor_id
 join traceloom_event e on e.event_id = a.event_id
-where na.local_node_id = 'N027'
+where na.local_node_id = (select local_node_id from target_node)
 order by na.occurrence_idx, na.anchor_order;

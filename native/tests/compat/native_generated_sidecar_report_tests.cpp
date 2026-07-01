@@ -115,6 +115,9 @@ int main() {
 
   require(run_report_sql_row_count(db_path, "cuda-graph-envelope.sql") > 0);
   require(run_report_sql_row_count(db_path, "anchor-cost-breakdown.sql") > 0);
+  require(run_report_sql_row_count(db_path, "node-cost-breakdown.sql") > 0);
+  require(run_report_sql_row_count(db_path, "node-events.sql") > 0);
+  require(run_report_sql_row_count(db_path, "node-occurrences.sql") > 0);
   require(run_report_sql_row_count(db_path, "tree-map.sql") > 0);
   require(run_report_sql_row_count(db_path, "semantic-tree-readable.sql") > 0);
   require(run_scalar_int(

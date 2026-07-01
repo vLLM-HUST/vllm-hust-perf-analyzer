@@ -1,3 +1,21 @@
+with target_node as (
+  select coalesce(
+    (
+      select 'N027'
+      where exists (
+        select 1
+        from traceloom_v_tree_node
+        where local_node_id = 'N027'
+      )
+    ),
+    (
+      select local_node_id
+      from traceloom_v_tree_node
+      order by db_idx, device_id, view_name, display_order
+      limit 1
+    )
+  ) as local_node_id
+)
 select
   local_node_id as node,
   depth,
@@ -19,5 +37,5 @@ select
   round(100.0 * self_us / nullif(total_us, 0), 2) as self_pct,
   round(100.0 * aux_us / nullif(total_us, 0), 2) as aux_pct
 from traceloom_v_tree_node
-where local_node_id = 'N027'
+where local_node_id = (select local_node_id from target_node)
 order by db_idx, device_id, view_name, display_order;
