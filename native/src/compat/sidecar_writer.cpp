@@ -486,6 +486,28 @@ void insert_semantic_node_row(SqliteStmt& stmt, const SemanticNodeSqlRow& row) {
   sqlite3_clear_bindings(stmt.get());
 }
 
+void insert_semantic_edge_row(SqliteStmt& stmt, const SemanticEdgeSqlRow& row) {
+  bind_text(stmt, 1, row.parent_node_id);
+  bind_text(stmt, 2, row.child_node_id);
+  bind_text(stmt, 3, row.tree_id);
+  bind_int64(stmt, 4, row.db_idx);
+  bind_int64(stmt, 5, row.device_id);
+  bind_text(stmt, 6, row.view_name);
+  bind_text(stmt, 7, row.tree_kind);
+  bind_int64(stmt, 8, row.edge_order);
+  bind_text(stmt, 9, row.edge_kind);
+  bind_text(stmt, 10, row.raw_json);
+
+  const int rc = sqlite3_step(stmt.get());
+  if (rc != SQLITE_DONE) {
+    throw std::runtime_error(
+        "failed to insert compatibility semantic edge row: " +
+        std::string(sqlite3_errmsg(stmt.db())));
+  }
+  sqlite3_reset(stmt.get());
+  sqlite3_clear_bindings(stmt.get());
+}
+
 void materialize_cuda_graph_views(SqliteDb& db) {
   db.exec(
       "CREATE VIEW IF NOT EXISTS traceloom_v_cuda_graph_replay AS "
@@ -856,6 +878,9 @@ void materialize_report_compatibility_indexes(SqliteDb& db) {
   db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_semantic_node_parent "
       "ON traceloom_semantic_node(parent_node_id)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_semantic_edge_tree "
+      "ON traceloom_semantic_edge(tree_id, edge_order)");
 }
 
 }  // namespace
@@ -1200,12 +1225,15 @@ void replace_graph_replay_rows(const std::string& sqlite_path,
 void replace_semantic_tree_rows(const std::string& sqlite_path,
                                 const SemanticTreeSqlRows& rows) {
 #if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
-  materialize_compatibility_schema(
-      sqlite_path, {semantic_tree_table_schema(), semantic_node_table_schema()});
+  materialize_compatibility_schema(sqlite_path,
+                                   {semantic_tree_table_schema(),
+                                    semantic_node_table_schema(),
+                                    semantic_edge_table_schema()});
 
   SqliteDb db(sqlite_path);
   db.exec("BEGIN IMMEDIATE");
   try {
+    db.exec("DELETE FROM traceloom_semantic_edge");
     db.exec("DELETE FROM traceloom_semantic_node");
     db.exec("DELETE FROM traceloom_semantic_tree");
 
@@ -1236,6 +1264,16 @@ void replace_semantic_tree_rows(const std::string& sqlite_path,
         "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     for (const SemanticNodeSqlRow& row : rows.nodes) {
       insert_semantic_node_row(node_stmt, row);
+    }
+
+    SqliteStmt edge_stmt(
+        db.get(),
+        "INSERT INTO traceloom_semantic_edge ("
+        "parent_node_id, child_node_id, tree_id, db_idx, device_id, "
+        "view_name, tree_kind, edge_order, edge_kind, raw_json"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    for (const SemanticEdgeSqlRow& row : rows.edges) {
+      insert_semantic_edge_row(edge_stmt, row);
     }
 
     materialize_semantic_tree_views(db);

@@ -176,6 +176,30 @@ void require_semantic_tree_invariants(const std::string& db_path) {
                      "LEFT JOIN traceloom_semantic_tree t ON "
                      "t.tree_id = n.tree_id "
                      "WHERE t.tree_id IS NULL") == 0);
+  traceloom::testing::require(run_scalar_int(
+                                  db_path,
+                                  "SELECT COUNT(*) FROM "
+                                  "traceloom_semantic_tree t "
+                                  "LEFT JOIN traceloom_semantic_node n ON "
+                                  "n.node_id = t.root_node_id "
+                                  "WHERE t.root_node_id IS NOT NULL AND "
+                                  "n.node_id IS NULL") == 0);
+  traceloom::testing::require(run_scalar_int(
+                                  db_path,
+                                  "SELECT COUNT(*) FROM "
+                                  "traceloom_semantic_edge e "
+                                  "LEFT JOIN traceloom_semantic_tree t ON "
+                                  "t.tree_id = e.tree_id "
+                                  "WHERE t.tree_id IS NULL") == 0);
+  traceloom::testing::require(
+      run_scalar_int(db_path,
+                     "SELECT COUNT(*) FROM traceloom_semantic_edge e "
+                     "LEFT JOIN traceloom_semantic_node parent ON "
+                     "parent.node_id = e.parent_node_id "
+                     "LEFT JOIN traceloom_semantic_node child ON "
+                     "child.node_id = e.child_node_id "
+                     "WHERE parent.node_id IS NULL OR child.node_id IS NULL") ==
+      0);
 }
 
 void seed_anchor_cost_fixture(const std::string& db_path) {
@@ -570,6 +594,16 @@ void seed_semantic_tree_fixture(const std::string& db_path) {
   child.hidden_aux_event_count = 2.0;
   child.hidden_aux_us = 5.5;
   rows.nodes.push_back(child);
+
+  traceloom::compat::SemanticEdgeSqlRow edge;
+  edge.parent_node_id = root.node_id;
+  edge.child_node_id = child.node_id;
+  edge.tree_id = tree.tree_id;
+  edge.view_name = root.view_name;
+  edge.tree_kind = root.tree_kind;
+  edge.edge_order = 0;
+  edge.edge_kind = "child";
+  rows.edges.push_back(edge);
 
   traceloom::compat::replace_semantic_tree_rows(db_path, rows);
 }

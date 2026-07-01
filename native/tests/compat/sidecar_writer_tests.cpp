@@ -220,6 +220,7 @@ int main() {
               "idx_traceloom_event_device_step",
               "idx_traceloom_node_anchor_anchor",
               "idx_traceloom_node_anchor_node",
+              "idx_traceloom_semantic_edge_tree",
               "idx_traceloom_semantic_node_parent",
               "idx_traceloom_semantic_node_tree_order",
           }));

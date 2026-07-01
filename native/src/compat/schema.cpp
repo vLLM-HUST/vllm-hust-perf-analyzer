@@ -359,6 +359,25 @@ const CompatTableSchema& semantic_node_table_schema() {
   return schema;
 }
 
+const CompatTableSchema& semantic_edge_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_semantic_edge",
+      {
+          {"parent_node_id", CompatColumnType::kText, false},
+          {"child_node_id", CompatColumnType::kText, false},
+          {"tree_id", CompatColumnType::kText, false},
+          {"db_idx", CompatColumnType::kInteger, false},
+          {"device_id", CompatColumnType::kInteger, false},
+          {"view_name", CompatColumnType::kText, false},
+          {"tree_kind", CompatColumnType::kText, false},
+          {"edge_order", CompatColumnType::kInteger, false},
+          {"edge_kind", CompatColumnType::kText, true},
+          {"raw_json", CompatColumnType::kText, true},
+      },
+  };
+  return schema;
+}
+
 const CompatTableSchema& anchor_cost_breakdown_table_schema() {
   static const CompatTableSchema schema{
       "traceloom_anchor_cost_breakdown",
@@ -392,6 +411,7 @@ std::vector<CompatTableSchema> compatibility_table_schemas() {
       viz_node_anchor_table_schema(),
       semantic_tree_table_schema(),
       semantic_node_table_schema(),
+      semantic_edge_table_schema(),
       anchor_cost_breakdown_table_schema(),
   };
 }

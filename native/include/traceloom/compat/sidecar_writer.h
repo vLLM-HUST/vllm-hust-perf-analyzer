@@ -267,9 +267,23 @@ struct SemanticNodeSqlRow {
   std::string raw_json;
 };
 
+struct SemanticEdgeSqlRow {
+  std::string parent_node_id;
+  std::string child_node_id;
+  std::string tree_id;
+  std::uint32_t db_idx = 0;
+  std::uint32_t device_id = 0;
+  std::string view_name = "anchor_tree";
+  std::string tree_kind = "semantic";
+  std::uint32_t edge_order = 0;
+  std::string edge_kind = "child";
+  std::string raw_json;
+};
+
 struct SemanticTreeSqlRows {
   std::vector<SemanticTreeHeaderSqlRow> trees;
   std::vector<SemanticNodeSqlRow> nodes;
+  std::vector<SemanticEdgeSqlRow> edges;
 };
 
 void materialize_compatibility_schema(const std::string& sqlite_path);
