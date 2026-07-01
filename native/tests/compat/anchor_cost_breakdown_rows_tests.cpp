@@ -2,6 +2,7 @@
 #include "traceloom/testing/test_util.h"
 
 #include <cmath>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -84,11 +85,32 @@ int main() {
   require(schema.columns[10].type == compat::CompatColumnType::kText);
   require(compat::compat_column_type_name(compat::CompatColumnType::kInteger) ==
           std::string("integer"));
+  require(compat::sqlite_column_type_name(compat::CompatColumnType::kReal) ==
+          std::string("REAL"));
   const std::vector<compat::CompatTableSchema> catalog =
       compat::compatibility_table_schemas();
   require(catalog.size() == 1);
   require(catalog[0].name == schema.name);
   require(compat::column_names(catalog[0]) == expected_columns);
+
+  const std::string create_sql = compat::sqlite_create_table_sql(schema);
+  require(create_sql.find(
+              "CREATE TABLE IF NOT EXISTS traceloom_anchor_cost_breakdown") ==
+          0);
+  require(create_sql.find("anchor_idx INTEGER NOT NULL") !=
+          std::string::npos);
+  require(create_sql.find("total_us REAL NOT NULL") != std::string::npos);
+  require(create_sql.find("diagnostic_flags TEXT NOT NULL") !=
+          std::string::npos);
+
+  bool rejected_bad_table = false;
+  try {
+    (void)compat::sqlite_create_table_sql(
+        compat::CompatTableSchema{"bad-table", schema.columns});
+  } catch (const std::invalid_argument&) {
+    rejected_bad_table = true;
+  }
+  require(rejected_bad_table);
 
   return 0;
 }
