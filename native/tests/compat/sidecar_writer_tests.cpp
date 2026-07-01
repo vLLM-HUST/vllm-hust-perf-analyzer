@@ -100,6 +100,14 @@ std::vector<std::string> load_sqlite_master_names(const std::string& path,
   return names;
 }
 
+bool has_column(const std::vector<ColumnInfo>& columns,
+                const std::string& name) {
+  return std::any_of(columns.begin(), columns.end(),
+                     [&](const ColumnInfo& column) {
+                       return column.name == name;
+                     });
+}
+
 std::string sqlite_text(sqlite3_stmt* stmt, int column) {
   const unsigned char* value = sqlite3_column_text(stmt, column);
   return value == nullptr ? "" : reinterpret_cast<const char*>(value);
@@ -798,6 +806,11 @@ int main() {
               "traceloom_v_semantic_tree_readable",
               "traceloom_v_tree_node",
           }));
+  const std::vector<ColumnInfo> tree_view_columns =
+      load_columns(db_path, "traceloom_v_tree_node");
+  require(has_column(tree_view_columns, "active_us"));
+  require(has_column(tree_view_columns, "avg_active_us"));
+  require(!has_column(tree_view_columns, "avg_self_us"));
   require(load_sqlite_master_names(db_path, "index") ==
           std::vector<std::string>({
               "idx_traceloom_anchor_device_idx",
