@@ -136,10 +136,14 @@ bool candidate_less(const NativeIr& ir,
         return 2;
       case AnchorKind::kSynchronization:
         return 3;
-      case AnchorKind::kUnknown:
+      case AnchorKind::kGraphH:
+      case AnchorKind::kGraphL:
+      case AnchorKind::kGraphT:
         return 4;
+      case AnchorKind::kUnknown:
+        return 5;
     }
-    return 5;
+    return 6;
   };
   const int lhs_order = source_kind_order(lhs.kind);
   const int rhs_order = source_kind_order(rhs.kind);

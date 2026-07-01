@@ -28,6 +28,9 @@ class ReplayUnitTable {
   bool empty() const noexcept { return rows_.empty(); }
   const ReplayUnitRow& row(ReplayUnitId id) const;
   const std::vector<ReplayUnitRow>& rows() const noexcept { return rows_; }
+  void set_anchor_bounds(ReplayUnitId id,
+                         AnchorId first_anchor_id,
+                         AnchorId last_anchor_id);
 
  private:
   std::vector<ReplayUnitRow> rows_;

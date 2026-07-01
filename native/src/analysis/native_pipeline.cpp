@@ -82,6 +82,9 @@ FlatAnchorBuildStats summarize_existing_anchors_and_tokens(
         ++stats.device_event_anchors;
         break;
       case AnchorKind::kGraphReplayUnit:
+      case AnchorKind::kGraphH:
+      case AnchorKind::kGraphL:
+      case AnchorKind::kGraphT:
         ++stats.device_event_anchors;
         break;
       case AnchorKind::kCommunication:

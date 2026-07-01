@@ -14,6 +14,9 @@ enum class AnchorKind {
   kGraphReplayUnit,
   kCommunication,
   kSynchronization,
+  kGraphH,
+  kGraphL,
+  kGraphT,
 };
 
 struct AnchorRow {

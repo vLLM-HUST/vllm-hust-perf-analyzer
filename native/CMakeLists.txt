@@ -63,6 +63,7 @@ else()
 endif()
 
 add_library(traceloom_native_adapters
+  src/adapters/aclgraph_fixture_adapter.cpp
   src/adapters/aclgraph_fixture_reader.cpp
   src/adapters/fixture_adapter.cpp
   src/adapters/protected_sequence_fixture_reader.cpp
@@ -437,6 +438,22 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
   add_test(
     NAME traceloom_native_aclgraph_fixture_reader_tests
     COMMAND traceloom_native_aclgraph_fixture_reader_tests
+  )
+
+  add_executable(traceloom_native_aclgraph_fixture_adapter_tests
+    tests/adapters/aclgraph_fixture_adapter_tests.cpp
+  )
+  target_compile_definitions(
+    traceloom_native_aclgraph_fixture_adapter_tests PRIVATE
+    TRACELOOM_WORKSPACE_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../.."
+  )
+  target_link_libraries(
+    traceloom_native_aclgraph_fixture_adapter_tests PRIVATE
+    traceloom_native_adapters
+  )
+  add_test(
+    NAME traceloom_native_aclgraph_fixture_adapter_tests
+    COMMAND traceloom_native_aclgraph_fixture_adapter_tests
   )
 
   add_executable(traceloom_native_protected_sequence_fixture_reader_tests
