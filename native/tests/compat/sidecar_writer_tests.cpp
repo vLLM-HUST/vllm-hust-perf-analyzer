@@ -353,6 +353,32 @@ int main() {
   require(run_scalar_int(db_path,
                          "SELECT COUNT(*) FROM traceloom_event_source") == 0);
 
+  std::vector<traceloom::compat::AnchorSqlRow> anchor_rows(2);
+  anchor_rows[0].anchor_id = "anchor-1";
+  anchor_rows[0].anchor_idx = 1;
+  anchor_rows[0].event_id = "event-1";
+  anchor_rows[0].step_idx = 1;
+  anchor_rows[0].symbol = "MatMul";
+  anchor_rows[0].role = "compute";
+  anchor_rows[0].label = "MatMul";
+  anchor_rows[0].family = "compute";
+  anchor_rows[0].start_ns = 100;
+  anchor_rows[0].end_ns = 300;
+  anchor_rows[0].dur_us = 0.2;
+  anchor_rows[1] = anchor_rows[0];
+  anchor_rows[1].anchor_id = "anchor-2";
+  anchor_rows[1].anchor_idx = 2;
+  anchor_rows[1].step_idx = 2;
+  traceloom::compat::replace_anchor_rows(db_path, anchor_rows);
+  require(run_scalar_int(db_path, "SELECT COUNT(*) FROM traceloom_anchor") ==
+          2);
+  require(run_scalar_text(db_path,
+                          "SELECT symbol FROM traceloom_anchor "
+                          "WHERE anchor_id = 'anchor-1'") == "MatMul");
+  traceloom::compat::replace_anchor_rows(db_path, {anchor_rows.front()});
+  require(run_scalar_int(db_path, "SELECT COUNT(*) FROM traceloom_anchor") ==
+          1);
+
   std::vector<traceloom::compat::CollectiveGlobalLinkSqlRow> local_links(2);
   local_links[0].candidate_collective_key = "collective-1";
   local_links[0].db_name = "db00.traceloom_augmented.db";

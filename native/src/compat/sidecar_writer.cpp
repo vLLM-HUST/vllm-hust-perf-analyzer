@@ -1262,6 +1262,42 @@ void replace_event_rows(const std::string& sqlite_path,
 #endif
 }
 
+void replace_anchor_rows(const std::string& sqlite_path,
+                         const std::vector<AnchorSqlRow>& rows) {
+#if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
+  materialize_compatibility_schema(sqlite_path, {anchor_table_schema()});
+
+  SqliteDb db(sqlite_path);
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.exec("DELETE FROM traceloom_anchor");
+
+    SqliteStmt anchor_stmt(
+        db.get(),
+        "INSERT INTO traceloom_anchor ("
+        "anchor_id, db_idx, device_id, anchor_idx, event_id, step_idx, "
+        "symbol, role, label, family, start_ns, end_ns, dur_us"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    for (const AnchorSqlRow& row : rows) {
+      insert_anchor_row(anchor_stmt, row);
+    }
+
+    db.exec("COMMIT");
+  } catch (...) {
+    try {
+      db.exec("ROLLBACK");
+    } catch (...) {
+    }
+    throw;
+  }
+#else
+  (void)sqlite_path;
+  (void)rows;
+  throw std::runtime_error(
+      "compatibility sidecar writer requires SQLite support");
+#endif
+}
+
 void replace_anchor_cost_breakdown_rows(
     const std::string& sqlite_path,
     const std::vector<AnchorCostBreakdownSqlRow>& rows) {

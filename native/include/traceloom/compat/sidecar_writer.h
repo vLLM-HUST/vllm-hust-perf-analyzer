@@ -427,6 +427,9 @@ void replace_metadata_rows(const std::string& sqlite_path,
 void replace_event_rows(const std::string& sqlite_path,
                         const EventSqlRows& rows);
 
+void replace_anchor_rows(const std::string& sqlite_path,
+                         const std::vector<AnchorSqlRow>& rows);
+
 void replace_anchor_cost_breakdown_rows(
     const std::string& sqlite_path,
     const std::vector<AnchorCostBreakdownSqlRow>& rows);
