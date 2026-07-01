@@ -86,6 +86,89 @@ QueryResult run_query(const std::string& db_path, const QueryCase& query_case) {
   return result;
 }
 
+int run_scalar_int(const std::string& db_path, const std::string& sql) {
+  sqlite3* db = nullptr;
+  int rc = sqlite3_open_v2(db_path.c_str(), &db, SQLITE_OPEN_READONLY, nullptr);
+  traceloom::testing::require(rc == SQLITE_OK);
+
+  sqlite3_stmt* raw_stmt = nullptr;
+  rc = sqlite3_prepare_v2(db, sql.c_str(), -1, &raw_stmt, nullptr);
+  traceloom::testing::require(rc == SQLITE_OK);
+  rc = sqlite3_step(raw_stmt);
+  traceloom::testing::require(rc == SQLITE_ROW);
+  const int value = sqlite3_column_int(raw_stmt, 0);
+  rc = sqlite3_step(raw_stmt);
+  traceloom::testing::require(rc == SQLITE_DONE);
+  sqlite3_finalize(raw_stmt);
+  sqlite3_close(db);
+  return value;
+}
+
+void require_anchor_aux_invariants(const std::string& db_path) {
+  traceloom::testing::require(run_scalar_int(
+                                  db_path,
+                                  "SELECT COUNT(*) FROM traceloom_anchor a "
+                                  "LEFT JOIN traceloom_event e ON "
+                                  "e.event_id = a.event_id "
+                                  "WHERE e.event_id IS NULL") == 0);
+  traceloom::testing::require(run_scalar_int(
+                                  db_path,
+                                  "SELECT COUNT(*) FROM traceloom_aux_link al "
+                                  "LEFT JOIN traceloom_anchor a ON "
+                                  "a.anchor_id = al.anchor_id "
+                                  "WHERE a.anchor_id IS NULL") == 0);
+  traceloom::testing::require(run_scalar_int(
+                                  db_path,
+                                  "SELECT COUNT(*) FROM traceloom_aux_link al "
+                                  "LEFT JOIN traceloom_event e ON "
+                                  "e.event_id = al.aux_event_id "
+                                  "WHERE e.event_id IS NULL") == 0);
+}
+
+void require_node_coverage_invariants(const std::string& db_path) {
+  traceloom::testing::require(
+      run_scalar_int(db_path,
+                     "SELECT COUNT(*) FROM traceloom_viz_node_anchor na "
+                     "LEFT JOIN traceloom_viz_node n ON n.node_id = na.node_id "
+                     "WHERE n.node_id IS NULL") == 0);
+  traceloom::testing::require(run_scalar_int(
+                                  db_path,
+                                  "SELECT COUNT(*) FROM "
+                                  "traceloom_viz_node_anchor na "
+                                  "LEFT JOIN traceloom_anchor a ON "
+                                  "a.anchor_id = na.anchor_id "
+                                  "WHERE a.anchor_id IS NULL") == 0);
+  traceloom::testing::require(
+      run_scalar_int(db_path,
+                     "SELECT COUNT(*) FROM traceloom_viz_edge e "
+                     "LEFT JOIN traceloom_viz_node parent ON "
+                     "parent.node_id = e.parent_node_id "
+                     "LEFT JOIN traceloom_viz_node child ON "
+                     "child.node_id = e.child_node_id "
+                     "WHERE parent.node_id IS NULL OR child.node_id IS NULL") ==
+      0);
+}
+
+void require_graph_replay_invariants(const std::string& db_path) {
+  traceloom::testing::require(
+      run_scalar_int(db_path,
+                     "SELECT COUNT(*) FROM traceloom_cuda_graph_replay g "
+                     "LEFT JOIN traceloom_event e ON e.event_id = g.event_id "
+                     "WHERE e.event_id IS NULL") == 0);
+  traceloom::testing::require(
+      run_scalar_int(db_path,
+                     "SELECT COUNT(*) FROM traceloom_cuda_graph_envelope ge "
+                     "LEFT JOIN traceloom_cuda_graph_replay g ON "
+                     "g.graph_event_id = ge.graph_event_id "
+                     "WHERE g.graph_event_id IS NULL") == 0);
+  traceloom::testing::require(
+      run_scalar_int(db_path,
+                     "SELECT COUNT(*) FROM traceloom_cuda_graph_envelope ge "
+                     "LEFT JOIN traceloom_event e ON "
+                     "e.event_id = ge.child_event_id "
+                     "WHERE e.event_id IS NULL") == 0);
+}
+
 void seed_anchor_cost_fixture(const std::string& db_path) {
   std::vector<traceloom::compat::AnchorCostBreakdownSqlRow> rows(2);
   rows[0].anchor_idx = 2;
@@ -677,8 +760,10 @@ int main() {
       seed_anchor_cost_fixture(db_path);
     } else if (query_case.filename == "anchor-aux.sql") {
       seed_anchor_aux_fixture(db_path);
+      require_anchor_aux_invariants(db_path);
     } else if (query_case.filename == "cuda-graph-envelope.sql") {
       seed_graph_replay_fixture(db_path);
+      require_graph_replay_invariants(db_path);
     } else if (query_case.filename == "node-events.sql" ||
                query_case.filename == "node-occurrences.sql" ||
                query_case.filename == "repeat-overview.sql" ||
@@ -687,6 +772,8 @@ int main() {
                query_case.filename == "node-cost-breakdown.sql") {
       seed_anchor_aux_fixture(db_path);
       seed_node_event_fixture(db_path);
+      require_anchor_aux_invariants(db_path);
+      require_node_coverage_invariants(db_path);
     } else if (query_case.filename == "semantic-tree-readable.sql") {
       seed_semantic_tree_fixture(db_path);
     }
