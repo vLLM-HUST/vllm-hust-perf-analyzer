@@ -756,6 +756,26 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
       COMMAND traceloom_native_generated_sidecar_report_tests
     )
 
+    add_executable(traceloom_native_cli_sidecar_smoke_tests
+      tests/compat/cli_sidecar_smoke_tests.cpp
+    )
+    target_link_libraries(
+      traceloom_native_cli_sidecar_smoke_tests PRIVATE traceloom_native_core
+    )
+    if(TARGET SQLite::SQLite3)
+      target_link_libraries(
+        traceloom_native_cli_sidecar_smoke_tests PRIVATE SQLite::SQLite3
+      )
+    else()
+      target_include_directories(
+        traceloom_native_cli_sidecar_smoke_tests
+        PRIVATE ${SQLite3_INCLUDE_DIRS}
+      )
+      target_link_libraries(
+        traceloom_native_cli_sidecar_smoke_tests PRIVATE ${SQLite3_LIBRARIES}
+      )
+    endif()
+
     add_test(
       NAME traceloom_native_analyze_fixture_compat_sidecar_cli
       COMMAND traceloom-native-analyze-fixture
@@ -768,6 +788,15 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     set_tests_properties(
       traceloom_native_analyze_fixture_compat_sidecar_cli
       PROPERTIES PASS_REGULAR_EXPRESSION "native_in_memory_result_v1"
+    )
+    add_test(
+      NAME traceloom_native_analyze_fixture_compat_sidecar_db
+      COMMAND traceloom_native_cli_sidecar_smoke_tests
+        ${CMAKE_CURRENT_BINARY_DIR}/fixture_cli_compat.db fixture
+    )
+    set_tests_properties(
+      traceloom_native_analyze_fixture_compat_sidecar_db
+      PROPERTIES DEPENDS traceloom_native_analyze_fixture_compat_sidecar_cli
     )
 
     add_test(
@@ -782,6 +811,16 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     set_tests_properties(
       traceloom_native_analyze_aclgraph_fixture_compat_sidecar_cli
       PROPERTIES PASS_REGULAR_EXPRESSION "native_in_memory_result_v1"
+    )
+    add_test(
+      NAME traceloom_native_analyze_aclgraph_fixture_compat_sidecar_db
+      COMMAND traceloom_native_cli_sidecar_smoke_tests
+        ${CMAKE_CURRENT_BINARY_DIR}/aclgraph_fixture_cli_compat.db aclgraph
+    )
+    set_tests_properties(
+      traceloom_native_analyze_aclgraph_fixture_compat_sidecar_db
+      PROPERTIES
+        DEPENDS traceloom_native_analyze_aclgraph_fixture_compat_sidecar_cli
     )
   endif()
 

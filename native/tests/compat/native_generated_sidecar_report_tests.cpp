@@ -82,6 +82,104 @@ int run_report_sql_row_count(const std::string& db_path,
   return row_count;
 }
 
+void require_node_coverage_invariants(const std::string& db_path) {
+  traceloom::testing::require(run_scalar_int(
+                                  db_path,
+                                  "SELECT COUNT(*) FROM "
+                                  "traceloom_viz_node_anchor na "
+                                  "LEFT JOIN traceloom_viz_node n ON "
+                                  "n.node_id = na.node_id "
+                                  "LEFT JOIN traceloom_anchor a ON "
+                                  "a.anchor_id = na.anchor_id "
+                                  "WHERE n.node_id IS NULL OR "
+                                  "a.anchor_id IS NULL") == 0);
+  traceloom::testing::require(
+      run_scalar_int(db_path,
+                     "SELECT COUNT(*) FROM traceloom_viz_edge e "
+                     "LEFT JOIN traceloom_viz_node parent ON "
+                     "parent.node_id = e.parent_node_id "
+                     "LEFT JOIN traceloom_viz_node child ON "
+                     "child.node_id = e.child_node_id "
+                     "WHERE parent.node_id IS NULL OR child.node_id IS NULL") ==
+      0);
+  traceloom::testing::require(
+      run_scalar_int(db_path,
+                     "SELECT COUNT(*) FROM traceloom_loop_node l "
+                     "LEFT JOIN traceloom_viz_node n ON n.node_id = l.node_id "
+                     "WHERE n.node_id IS NULL") == 0);
+  traceloom::testing::require(run_scalar_int(
+                                  db_path,
+                                  "SELECT COUNT(*) FROM "
+                                  "traceloom_anchor_primary_node ap "
+                                  "LEFT JOIN traceloom_anchor a ON "
+                                  "a.anchor_id = ap.anchor_id "
+                                  "LEFT JOIN traceloom_viz_node n ON "
+                                  "n.node_id = ap.node_id "
+                                  "WHERE a.anchor_id IS NULL OR "
+                                  "n.node_id IS NULL") == 0);
+}
+
+void require_all_anchors_have_primary_node_coverage(
+    const std::string& db_path) {
+  traceloom::testing::require(run_scalar_int(
+                                  db_path,
+                                  "SELECT COUNT(*) FROM traceloom_anchor a "
+                                  "LEFT JOIN traceloom_viz_node_anchor na ON "
+                                  "na.anchor_id = a.anchor_id "
+                                  "WHERE na.anchor_id IS NULL") == 0);
+  traceloom::testing::require(run_scalar_int(
+                                  db_path,
+                                  "SELECT COUNT(*) FROM ("
+                                  "SELECT a.anchor_id, "
+                                  "COUNT(ap.anchor_id) AS primary_count "
+                                  "FROM traceloom_anchor a "
+                                  "LEFT JOIN traceloom_anchor_primary_node ap "
+                                  "ON ap.anchor_id = a.anchor_id "
+                                  "GROUP BY a.anchor_id "
+                                  "HAVING primary_count != 1"
+                                  ")") == 0);
+}
+
+void require_semantic_tree_invariants(const std::string& db_path) {
+  traceloom::testing::require(
+      run_scalar_int(db_path,
+                     "SELECT COUNT(*) FROM traceloom_semantic_node n "
+                     "LEFT JOIN traceloom_semantic_tree t ON "
+                     "t.tree_id = n.tree_id "
+                     "WHERE t.tree_id IS NULL") == 0);
+  traceloom::testing::require(run_scalar_int(
+                                  db_path,
+                                  "SELECT COUNT(*) FROM "
+                                  "traceloom_semantic_tree t "
+                                  "LEFT JOIN traceloom_semantic_node root ON "
+                                  "root.node_id = t.root_node_id "
+                                  "WHERE t.root_node_id IS NOT NULL AND "
+                                  "root.node_id IS NULL") == 0);
+  traceloom::testing::require(run_scalar_int(
+                                  db_path,
+                                  "SELECT COUNT(*) FROM "
+                                  "traceloom_semantic_edge e "
+                                  "LEFT JOIN traceloom_semantic_tree t ON "
+                                  "t.tree_id = e.tree_id "
+                                  "LEFT JOIN traceloom_semantic_node parent "
+                                  "ON parent.node_id = e.parent_node_id "
+                                  "LEFT JOIN traceloom_semantic_node child ON "
+                                  "child.node_id = e.child_node_id "
+                                  "WHERE t.tree_id IS NULL OR "
+                                  "parent.node_id IS NULL OR "
+                                  "child.node_id IS NULL") == 0);
+}
+
+void require_anchor_cost_rows_link_to_anchors(const std::string& db_path) {
+  traceloom::testing::require(
+      run_scalar_int(db_path,
+                     "SELECT COUNT(*) FROM "
+                     "traceloom_anchor_cost_breakdown c "
+                     "LEFT JOIN traceloom_anchor a ON "
+                     "a.anchor_idx = c.anchor_idx "
+                     "WHERE a.anchor_idx IS NULL") == 0);
+}
+
 void materialize_aclgraph_fixture_sidecar(const std::string& db_path) {
   const std::filesystem::path fixture_path =
       workspace_root() / "drafts" / "refactor" / "80_tests_fixtures" /
@@ -195,6 +293,10 @@ int main() {
               "SELECT COUNT(*) FROM traceloom_cuda_graph_envelope ge "
               "LEFT JOIN traceloom_event e ON e.event_id = ge.child_event_id "
               "WHERE e.event_id IS NULL") == 0);
+  require_node_coverage_invariants(db_path);
+  require_all_anchors_have_primary_node_coverage(db_path);
+  require_semantic_tree_invariants(db_path);
+  require_anchor_cost_rows_link_to_anchors(db_path);
 
   std::remove(db_path.c_str());
 
@@ -219,6 +321,7 @@ int main() {
               "LEFT JOIN traceloom_anchor a ON a.anchor_id = al.anchor_id "
               "LEFT JOIN traceloom_event e ON e.event_id = al.aux_event_id "
               "WHERE a.anchor_id IS NULL OR e.event_id IS NULL") == 0);
+  require_anchor_cost_rows_link_to_anchors(aux_db_path);
 
   std::remove(aux_db_path.c_str());
 
@@ -239,6 +342,10 @@ int main() {
               repeat_db_path,
               "SELECT COUNT(*) FROM traceloom_semantic_node "
               "WHERE aux_event_count > 0 AND aux_us > 0") > 0);
+  require_node_coverage_invariants(repeat_db_path);
+  require_all_anchors_have_primary_node_coverage(repeat_db_path);
+  require_semantic_tree_invariants(repeat_db_path);
+  require_anchor_cost_rows_link_to_anchors(repeat_db_path);
 
   std::remove(repeat_db_path.c_str());
   return 0;
