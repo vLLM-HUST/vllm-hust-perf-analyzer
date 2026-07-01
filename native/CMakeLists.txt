@@ -148,6 +148,15 @@ target_link_libraries(
   traceloom_native_materialize
 )
 
+add_executable(traceloom-native-analyze-aclgraph-fixture
+  src/tools/analyze_aclgraph_fixture_main.cpp
+)
+target_link_libraries(
+  traceloom-native-analyze-aclgraph-fixture PRIVATE
+  traceloom_native_adapters
+  traceloom_native_materialize
+)
+
 if(TRACELOOM_NATIVE_BUILD_TESTS)
   enable_testing()
 
@@ -436,6 +445,19 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     traceloom_native_analyze_fixture_stdout_conflict
     PROPERTIES
       WILL_FAIL TRUE
+  )
+
+  add_test(
+    NAME traceloom_native_analyze_aclgraph_fixture_cli
+    COMMAND traceloom-native-analyze-aclgraph-fixture
+      --fixture
+      ${CMAKE_CURRENT_SOURCE_DIR}/../../drafts/refactor/80_tests_fixtures/fixtures/aclgraph/aclgraph_python_minimal_assets.json
+      --threads 2
+      --out -
+  )
+  set_tests_properties(
+    traceloom_native_analyze_aclgraph_fixture_cli
+    PROPERTIES PASS_REGULAR_EXPRESSION "anchor_internal_cost_breakdown"
   )
 
   add_executable(traceloom_native_fixture_adapter_tests
