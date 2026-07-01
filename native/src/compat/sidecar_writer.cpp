@@ -403,6 +403,63 @@ void insert_graph_envelope_row(SqliteStmt& stmt,
   sqlite3_clear_bindings(stmt.get());
 }
 
+void insert_semantic_node_row(SqliteStmt& stmt, const SemanticNodeSqlRow& row) {
+  bind_text(stmt, 1, row.node_id);
+  bind_text(stmt, 2, row.tree_id);
+  bind_int64(stmt, 3, row.db_idx);
+  bind_int64(stmt, 4, row.device_id);
+  bind_text(stmt, 5, row.view_name);
+  bind_text(stmt, 6, row.tree_kind);
+  bind_text(stmt, 7, row.local_node_id);
+  bind_text(stmt, 8, row.parent_node_id);
+  bind_text(stmt, 9, row.parent_local_node_id);
+  bind_int64(stmt, 10, row.preorder_idx);
+  bind_int64(stmt, 11, row.sibling_order);
+  bind_text(stmt, 12, row.path);
+  bind_int64(stmt, 13, row.depth);
+  bind_int64(stmt, 14, row.display_depth);
+  bind_int64(stmt, 15, row.loop_depth);
+  bind_text(stmt, 16, row.node_type);
+  bind_text(stmt, 17, row.semantic_kind);
+  bind_text(stmt, 18, row.symbol);
+  bind_text(stmt, 19, row.label);
+  bind_text(stmt, 20, row.category);
+  if (row.repeat_count == 0) {
+    bind_null(stmt, 21);
+  } else {
+    bind_int64(stmt, 21, row.repeat_count);
+  }
+  bind_int64(stmt, 22, row.occurrence_count);
+  bind_int64(stmt, 23, row.anchor_count);
+  bind_int64(stmt, 24, row.first_anchor_idx);
+  bind_int64(stmt, 25, row.last_anchor_idx);
+  bind_int64(stmt, 26, row.start_ns);
+  bind_int64(stmt, 27, row.end_ns);
+  bind_double(stmt, 28, row.compute_us);
+  bind_double(stmt, 29, row.comm_us);
+  bind_double(stmt, 30, row.idle_us);
+  bind_double(stmt, 31, row.total_us);
+  bind_double(stmt, 32, row.avg_compute_us);
+  bind_double(stmt, 33, row.avg_comm_us);
+  bind_double(stmt, 34, row.avg_idle_us);
+  bind_double(stmt, 35, row.avg_total_us);
+  bind_double(stmt, 36, row.self_us);
+  bind_double(stmt, 37, row.aux_event_count);
+  bind_double(stmt, 38, row.aux_us);
+  bind_double(stmt, 39, row.hidden_aux_event_count);
+  bind_double(stmt, 40, row.hidden_aux_us);
+  bind_text(stmt, 41, row.raw_json);
+
+  const int rc = sqlite3_step(stmt.get());
+  if (rc != SQLITE_DONE) {
+    throw std::runtime_error(
+        "failed to insert compatibility semantic node row: " +
+        std::string(sqlite3_errmsg(stmt.db())));
+  }
+  sqlite3_reset(stmt.get());
+  sqlite3_clear_bindings(stmt.get());
+}
+
 void materialize_cuda_graph_views(SqliteDb& db) {
   db.exec(
       "CREATE VIEW IF NOT EXISTS traceloom_v_cuda_graph_replay AS "
@@ -693,6 +750,53 @@ void materialize_tree_node_view(SqliteDb& db) {
       "JOIN traceloom_viz_node child ON child.node_id = e.child_node_id"
       ") "
       "SELECT * FROM tree");
+}
+
+void materialize_semantic_tree_views(SqliteDb& db) {
+  db.exec(
+      "CREATE VIEW IF NOT EXISTS traceloom_v_semantic_tree_node AS "
+      "SELECT "
+      "n.*, "
+      "parent.local_node_id AS parent_local_id, "
+      "parent.label AS parent_label, "
+      "CASE WHEN COALESCE(n.total_us, 0.0) = 0.0 THEN 0.0 ELSE "
+      "ROUND(COALESCE(n.comm_us, 0.0) / n.total_us, 6) END AS comm_pct, "
+      "CASE WHEN COALESCE(n.total_us, 0.0) = 0.0 THEN 0.0 ELSE "
+      "ROUND(COALESCE(n.idle_us, 0.0) / n.total_us, 6) END AS idle_pct "
+      "FROM traceloom_semantic_node n "
+      "LEFT JOIN traceloom_semantic_node parent ON "
+      "parent.node_id = n.parent_node_id");
+  db.exec(
+      "CREATE VIEW IF NOT EXISTS traceloom_v_semantic_tree_readable AS "
+      "SELECT "
+      "n.tree_id, "
+      "n.db_idx, "
+      "n.device_id, "
+      "n.view_name, "
+      "n.tree_kind, "
+      "n.preorder_idx, "
+      "n.local_node_id, "
+      "n.parent_local_node_id, "
+      "n.path, "
+      "n.display_depth, "
+      "printf('%*s', COALESCE(n.display_depth, 0) * 2, '') || "
+      "'- [' || COALESCE(NULLIF(n.path, ''), 'root') || '] ' || "
+      "n.local_node_id || ' ' || "
+      "CASE "
+      "WHEN n.node_type = 'Repeat' THEN 'Repeat x' || "
+      "COALESCE(n.repeat_count, 1) "
+      "WHEN n.node_type = 'Seq' THEN 'Seq' "
+      "ELSE COALESCE(NULLIF(n.node_type, ''), 'Node') "
+      "END || "
+      "' | ' || COALESCE(NULLIF(n.label, ''), NULLIF(n.symbol, ''), "
+      "n.semantic_kind, '') || "
+      "' | anchors=' || COALESCE(n.anchor_count, 0) || "
+      "' total_us=' || printf('%.3f', COALESCE(n.total_us, 0.0)) || "
+      "CASE WHEN COALESCE(n.hidden_aux_event_count, 0.0) > 0.0 THEN "
+      "' hidden_aux=' || printf('%.0f', n.hidden_aux_event_count) || "
+      "' hidden_aux_us=' || printf('%.3f', COALESCE(n.hidden_aux_us, 0.0)) "
+      "ELSE '' END AS line "
+      "FROM traceloom_semantic_node n");
 }
 
 }  // namespace
@@ -989,6 +1093,51 @@ void replace_graph_replay_rows(const std::string& sqlite_path,
     }
 
     materialize_cuda_graph_views(db);
+    db.exec("COMMIT");
+  } catch (...) {
+    try {
+      db.exec("ROLLBACK");
+    } catch (...) {
+    }
+    throw;
+  }
+#else
+  (void)sqlite_path;
+  (void)rows;
+  throw std::runtime_error(
+      "compatibility sidecar writer requires SQLite support");
+#endif
+}
+
+void replace_semantic_tree_rows(const std::string& sqlite_path,
+                                const SemanticTreeSqlRows& rows) {
+#if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
+  materialize_compatibility_schema(sqlite_path, {semantic_node_table_schema()});
+
+  SqliteDb db(sqlite_path);
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.exec("DELETE FROM traceloom_semantic_node");
+
+    SqliteStmt node_stmt(
+        db.get(),
+        "INSERT INTO traceloom_semantic_node ("
+        "node_id, tree_id, db_idx, device_id, view_name, tree_kind, "
+        "local_node_id, parent_node_id, parent_local_node_id, preorder_idx, "
+        "sibling_order, path, depth, display_depth, loop_depth, node_type, "
+        "semantic_kind, symbol, label, category, repeat_count, "
+        "occurrence_count, anchor_count, first_anchor_idx, last_anchor_idx, "
+        "start_ns, end_ns, compute_us, comm_us, idle_us, total_us, "
+        "avg_compute_us, avg_comm_us, avg_idle_us, avg_total_us, self_us, "
+        "aux_event_count, aux_us, hidden_aux_event_count, hidden_aux_us, "
+        "raw_json"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+        "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    for (const SemanticNodeSqlRow& row : rows.nodes) {
+      insert_semantic_node_row(node_stmt, row);
+    }
+
+    materialize_semantic_tree_views(db);
     db.exec("COMMIT");
   } catch (...) {
     try {

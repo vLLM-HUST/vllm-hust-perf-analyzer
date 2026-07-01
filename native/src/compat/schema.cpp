@@ -287,6 +287,56 @@ const CompatTableSchema& viz_node_anchor_table_schema() {
   return schema;
 }
 
+const CompatTableSchema& semantic_node_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_semantic_node",
+      {
+          {"node_id", CompatColumnType::kText, false},
+          {"tree_id", CompatColumnType::kText, false},
+          {"db_idx", CompatColumnType::kInteger, false},
+          {"device_id", CompatColumnType::kInteger, false},
+          {"view_name", CompatColumnType::kText, false},
+          {"tree_kind", CompatColumnType::kText, false},
+          {"local_node_id", CompatColumnType::kText, false},
+          {"parent_node_id", CompatColumnType::kText, true},
+          {"parent_local_node_id", CompatColumnType::kText, true},
+          {"preorder_idx", CompatColumnType::kInteger, false},
+          {"sibling_order", CompatColumnType::kInteger, false},
+          {"path", CompatColumnType::kText, true},
+          {"depth", CompatColumnType::kInteger, true},
+          {"display_depth", CompatColumnType::kInteger, true},
+          {"loop_depth", CompatColumnType::kInteger, true},
+          {"node_type", CompatColumnType::kText, true},
+          {"semantic_kind", CompatColumnType::kText, true},
+          {"symbol", CompatColumnType::kText, true},
+          {"label", CompatColumnType::kText, true},
+          {"category", CompatColumnType::kText, true},
+          {"repeat_count", CompatColumnType::kInteger, true},
+          {"occurrence_count", CompatColumnType::kInteger, true},
+          {"anchor_count", CompatColumnType::kInteger, true},
+          {"first_anchor_idx", CompatColumnType::kInteger, true},
+          {"last_anchor_idx", CompatColumnType::kInteger, true},
+          {"start_ns", CompatColumnType::kInteger, true},
+          {"end_ns", CompatColumnType::kInteger, true},
+          {"compute_us", CompatColumnType::kReal, true},
+          {"comm_us", CompatColumnType::kReal, true},
+          {"idle_us", CompatColumnType::kReal, true},
+          {"total_us", CompatColumnType::kReal, true},
+          {"avg_compute_us", CompatColumnType::kReal, true},
+          {"avg_comm_us", CompatColumnType::kReal, true},
+          {"avg_idle_us", CompatColumnType::kReal, true},
+          {"avg_total_us", CompatColumnType::kReal, true},
+          {"self_us", CompatColumnType::kReal, true},
+          {"aux_event_count", CompatColumnType::kReal, true},
+          {"aux_us", CompatColumnType::kReal, true},
+          {"hidden_aux_event_count", CompatColumnType::kReal, true},
+          {"hidden_aux_us", CompatColumnType::kReal, true},
+          {"raw_json", CompatColumnType::kText, true},
+      },
+  };
+  return schema;
+}
+
 const CompatTableSchema& anchor_cost_breakdown_table_schema() {
   static const CompatTableSchema schema{
       "traceloom_anchor_cost_breakdown",
@@ -318,6 +368,7 @@ std::vector<CompatTableSchema> compatibility_table_schemas() {
       viz_node_table_schema(),
       viz_edge_table_schema(),
       viz_node_anchor_table_schema(),
+      semantic_node_table_schema(),
       anchor_cost_breakdown_table_schema(),
   };
 }

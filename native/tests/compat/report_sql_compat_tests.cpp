@@ -415,6 +415,56 @@ void seed_graph_replay_fixture(const std::string& db_path) {
   traceloom::compat::replace_graph_replay_rows(db_path, rows);
 }
 
+void seed_semantic_tree_fixture(const std::string& db_path) {
+  traceloom::compat::SemanticTreeSqlRows rows;
+
+  traceloom::compat::SemanticNodeSqlRow root;
+  root.node_id = "semantic-node-1";
+  root.tree_id = "semantic-tree-1";
+  root.view_name = "anchor_tree";
+  root.tree_kind = "semantic";
+  root.local_node_id = "N001";
+  root.preorder_idx = 0;
+  root.sibling_order = 0;
+  root.path = "";
+  root.node_type = "Repeat";
+  root.semantic_kind = "repeat";
+  root.label = "repeat x2";
+  root.repeat_count = 2;
+  root.occurrence_count = 2;
+  root.anchor_count = 1;
+  root.total_us = 12.0;
+  rows.nodes.push_back(root);
+
+  traceloom::compat::SemanticNodeSqlRow child;
+  child.node_id = "semantic-node-27";
+  child.tree_id = root.tree_id;
+  child.view_name = root.view_name;
+  child.tree_kind = root.tree_kind;
+  child.local_node_id = "N027";
+  child.parent_node_id = root.node_id;
+  child.parent_local_node_id = root.local_node_id;
+  child.preorder_idx = 1;
+  child.sibling_order = 0;
+  child.path = "/N001/N027";
+  child.depth = 1;
+  child.display_depth = 1;
+  child.loop_depth = 1;
+  child.node_type = "Atom";
+  child.semantic_kind = "compute";
+  child.symbol = "MatMul";
+  child.label = "MatMul";
+  child.category = "compute";
+  child.occurrence_count = 1;
+  child.anchor_count = 1;
+  child.total_us = 10.5;
+  child.hidden_aux_event_count = 2.0;
+  child.hidden_aux_us = 5.5;
+  rows.nodes.push_back(child);
+
+  traceloom::compat::replace_semantic_tree_rows(db_path, rows);
+}
+
 std::vector<QueryCase> active_query_cases() {
   return {
       QueryCase{
@@ -560,6 +610,13 @@ std::vector<QueryCase> active_query_cases() {
           1,
       },
       QueryCase{
+          "semantic-tree-readable.sql",
+          {
+              "line",
+          },
+          1,
+      },
+      QueryCase{
           "anchor-cost-breakdown.sql",
           traceloom::compat::column_names(
               traceloom::compat::anchor_cost_breakdown_table_schema()),
@@ -589,6 +646,8 @@ int main() {
                query_case.filename == "node-cost-breakdown.sql") {
       seed_anchor_aux_fixture(db_path);
       seed_node_event_fixture(db_path);
+    } else if (query_case.filename == "semantic-tree-readable.sql") {
+      seed_semantic_tree_fixture(db_path);
     }
 
     const QueryResult result = run_query(db_path, query_case);
@@ -669,6 +728,11 @@ int main() {
       require(result.first_row[13] == "5.5");
       require(result.first_row[14] == "47.62");
       require(result.first_row[18] == "52.38");
+    } else if (query_case.filename == "semantic-tree-readable.sql") {
+      require(result.row_count == 2);
+      require(result.first_row[0] ==
+              "- [root] N001 Repeat x2 | repeat x2 | anchors=1 "
+              "total_us=12.000");
     }
     std::remove(db_path.c_str());
   }

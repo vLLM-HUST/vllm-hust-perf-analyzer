@@ -206,6 +206,55 @@ struct GraphReplaySqlRows {
   std::vector<GraphEnvelopeSqlRow> graph_envelopes;
 };
 
+struct SemanticNodeSqlRow {
+  std::string node_id;
+  std::string tree_id;
+  std::uint32_t db_idx = 0;
+  std::uint32_t device_id = 0;
+  std::string view_name = "anchor_tree";
+  std::string tree_kind = "semantic";
+  std::string local_node_id;
+  std::string parent_node_id;
+  std::string parent_local_node_id;
+  std::uint32_t preorder_idx = 0;
+  std::uint32_t sibling_order = 0;
+  std::string path;
+  std::uint32_t depth = 0;
+  std::uint32_t display_depth = 0;
+  std::uint32_t loop_depth = 0;
+  std::string node_type;
+  std::string semantic_kind;
+  std::string symbol;
+  std::string label;
+  std::string category;
+  // Zero materializes as SQL NULL for non-repeat nodes.
+  std::uint32_t repeat_count = 0;
+  std::uint32_t occurrence_count = 0;
+  std::uint32_t anchor_count = 0;
+  std::uint32_t first_anchor_idx = 0;
+  std::uint32_t last_anchor_idx = 0;
+  std::int64_t start_ns = 0;
+  std::int64_t end_ns = 0;
+  double compute_us = 0.0;
+  double comm_us = 0.0;
+  double idle_us = 0.0;
+  double total_us = 0.0;
+  double avg_compute_us = 0.0;
+  double avg_comm_us = 0.0;
+  double avg_idle_us = 0.0;
+  double avg_total_us = 0.0;
+  double self_us = 0.0;
+  double aux_event_count = 0.0;
+  double aux_us = 0.0;
+  double hidden_aux_event_count = 0.0;
+  double hidden_aux_us = 0.0;
+  std::string raw_json;
+};
+
+struct SemanticTreeSqlRows {
+  std::vector<SemanticNodeSqlRow> nodes;
+};
+
 void materialize_compatibility_schema(const std::string& sqlite_path);
 
 void materialize_compatibility_schema(
@@ -224,5 +273,8 @@ void replace_node_coverage_rows(const std::string& sqlite_path,
 
 void replace_graph_replay_rows(const std::string& sqlite_path,
                                const GraphReplaySqlRows& rows);
+
+void replace_semantic_tree_rows(const std::string& sqlite_path,
+                                const SemanticTreeSqlRows& rows);
 
 }  // namespace traceloom::compat
