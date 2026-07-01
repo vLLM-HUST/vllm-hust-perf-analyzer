@@ -303,6 +303,109 @@ void insert_viz_node_anchor_row(SqliteStmt& stmt,
   sqlite3_clear_bindings(stmt.get());
 }
 
+void insert_graph_replay_row(SqliteStmt& stmt, const GraphReplaySqlRow& row) {
+  bind_text(stmt, 1, row.graph_event_id);
+  bind_int64(stmt, 2, row.db_idx);
+  bind_int64(stmt, 3, row.device_id);
+  bind_text(stmt, 4, row.graph_provider);
+  bind_text(stmt, 5, row.graph_kind);
+  bind_int64(stmt, 6, row.graph_event_idx);
+  bind_text(stmt, 7, row.event_id);
+  bind_int64(stmt, 8, row.step_idx);
+  bind_int64(stmt, 9, row.stream_id);
+  bind_text(stmt, 10, row.correlation_id);
+  bind_text(stmt, 11, row.graph_id);
+  bind_text(stmt, 12, row.graph_exec_id);
+  bind_text(stmt, 13, row.context_id);
+  bind_int64(stmt, 14, row.start_ns);
+  bind_int64(stmt, 15, row.end_ns);
+  bind_double(stmt, 16, row.dur_us);
+  bind_int64(stmt, 17, row.enclosed_event_count);
+  bind_double(stmt, 18, row.enclosed_event_us);
+  bind_int64(stmt, 19, row.enclosed_kernel_count);
+  bind_double(stmt, 20, row.enclosed_kernel_us);
+  bind_text(stmt, 21, row.raw_json);
+
+  const int rc = sqlite3_step(stmt.get());
+  if (rc != SQLITE_DONE) {
+    throw std::runtime_error(
+        "failed to insert compatibility graph replay row: " +
+        std::string(sqlite3_errmsg(stmt.db())));
+  }
+  sqlite3_reset(stmt.get());
+  sqlite3_clear_bindings(stmt.get());
+}
+
+void insert_graph_envelope_row(SqliteStmt& stmt,
+                               const GraphEnvelopeSqlRow& row) {
+  bind_text(stmt, 1, row.envelope_id);
+  bind_int64(stmt, 2, row.db_idx);
+  bind_int64(stmt, 3, row.device_id);
+  bind_text(stmt, 4, row.graph_provider);
+  bind_text(stmt, 5, row.graph_kind);
+  bind_int64(stmt, 6, row.envelope_idx);
+  bind_text(stmt, 7, row.graph_event_id);
+  bind_text(stmt, 8, row.child_event_id);
+  bind_int64(stmt, 9, row.graph_step_idx);
+  bind_int64(stmt, 10, row.child_step_idx);
+  bind_text(stmt, 11, row.relation);
+  bind_text(stmt, 12, row.stream_relation);
+  bind_text(stmt, 13, row.graph_id);
+  bind_text(stmt, 14, row.graph_exec_id);
+  bind_text(stmt, 15, row.graph_correlation_id);
+  bind_int64(stmt, 16, row.graph_start_ns);
+  bind_int64(stmt, 17, row.graph_end_ns);
+  bind_int64(stmt, 18, row.child_start_ns);
+  bind_int64(stmt, 19, row.child_end_ns);
+  bind_double(stmt, 20, row.start_offset_us);
+  bind_double(stmt, 21, row.end_offset_us);
+  bind_double(stmt, 22, row.child_dur_us);
+  bind_text(stmt, 23, row.raw_json);
+
+  const int rc = sqlite3_step(stmt.get());
+  if (rc != SQLITE_DONE) {
+    throw std::runtime_error(
+        "failed to insert compatibility graph envelope row: " +
+        std::string(sqlite3_errmsg(stmt.db())));
+  }
+  sqlite3_reset(stmt.get());
+  sqlite3_clear_bindings(stmt.get());
+}
+
+void materialize_cuda_graph_views(SqliteDb& db) {
+  db.exec(
+      "CREATE VIEW IF NOT EXISTS traceloom_v_cuda_graph_replay AS "
+      "SELECT "
+      "g.*, "
+      "e.symbol, "
+      "e.label, "
+      "e.task_type, "
+      "e.semantic_role, "
+      "e.semantic_role_reason, "
+      "a.anchor_idx "
+      "FROM traceloom_cuda_graph_replay g "
+      "JOIN traceloom_event e ON e.event_id = g.event_id "
+      "LEFT JOIN traceloom_anchor a ON a.event_id = e.event_id");
+  db.exec(
+      "CREATE VIEW IF NOT EXISTS traceloom_v_cuda_graph_envelope AS "
+      "SELECT "
+      "ge.*, "
+      "graph_anchor.anchor_idx AS graph_anchor_idx, "
+      "graph.label AS graph_label, "
+      "graph.stream_id AS graph_stream_id, "
+      "child.label AS child_label, "
+      "child.task_type AS child_task_type, "
+      "child.source_table AS child_source_table, "
+      "child.stream_id AS child_stream_id, "
+      "child.symbol AS child_symbol, "
+      "child.semantic_role AS child_semantic_role "
+      "FROM traceloom_cuda_graph_envelope ge "
+      "JOIN traceloom_event graph ON graph.event_id = ge.graph_event_id "
+      "LEFT JOIN traceloom_anchor graph_anchor ON "
+      "graph_anchor.event_id = graph.event_id "
+      "JOIN traceloom_event child ON child.event_id = ge.child_event_id");
+}
+
 void materialize_tree_node_anchor_view(SqliteDb& db) {
   db.exec(
       "CREATE VIEW IF NOT EXISTS traceloom_tree_node_anchor AS "
@@ -589,6 +692,90 @@ void replace_node_coverage_rows(const std::string& sqlite_path,
 
     materialize_tree_node_anchor_view(db);
     materialize_tree_node_occurrence_view(db);
+    db.exec("COMMIT");
+  } catch (...) {
+    try {
+      db.exec("ROLLBACK");
+    } catch (...) {
+    }
+    throw;
+  }
+#else
+  (void)sqlite_path;
+  (void)rows;
+  throw std::runtime_error(
+      "compatibility sidecar writer requires SQLite support");
+#endif
+}
+
+void replace_graph_replay_rows(const std::string& sqlite_path,
+                               const GraphReplaySqlRows& rows) {
+#if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
+  materialize_compatibility_schema(
+      sqlite_path,
+      {event_table_schema(), anchor_table_schema(),
+       cuda_graph_replay_table_schema(), cuda_graph_envelope_table_schema()});
+
+  SqliteDb db(sqlite_path);
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.exec("DELETE FROM traceloom_cuda_graph_envelope");
+    db.exec("DELETE FROM traceloom_cuda_graph_replay");
+    db.exec("DELETE FROM traceloom_anchor");
+    db.exec("DELETE FROM traceloom_event");
+
+    SqliteStmt event_stmt(
+        db.get(),
+        "INSERT INTO traceloom_event ("
+        "event_id, db_idx, device_id, step_idx, source_table, source_key, "
+        "stream_id, start_ns, end_ns, dur_us, category, role, semantic_role, "
+        "semantic_role_reason, symbol, label, raw_label, op_type, "
+        "compute_task_type, family, task_type, raw_json"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+        "?, ?, ?)");
+    for (const EventSqlRow& row : rows.events) {
+      insert_event_row(event_stmt, row);
+    }
+
+    SqliteStmt anchor_stmt(
+        db.get(),
+        "INSERT INTO traceloom_anchor ("
+        "anchor_id, db_idx, device_id, anchor_idx, event_id, step_idx, "
+        "symbol, role, label, family, start_ns, end_ns, dur_us"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    for (const AnchorSqlRow& row : rows.anchors) {
+      insert_anchor_row(anchor_stmt, row);
+    }
+
+    SqliteStmt graph_stmt(
+        db.get(),
+        "INSERT INTO traceloom_cuda_graph_replay ("
+        "graph_event_id, db_idx, device_id, graph_provider, graph_kind, "
+        "graph_event_idx, event_id, step_idx, stream_id, correlation_id, "
+        "graph_id, graph_exec_id, context_id, start_ns, end_ns, dur_us, "
+        "enclosed_event_count, enclosed_event_us, enclosed_kernel_count, "
+        "enclosed_kernel_us, raw_json"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+        "?, ?)");
+    for (const GraphReplaySqlRow& row : rows.graph_replays) {
+      insert_graph_replay_row(graph_stmt, row);
+    }
+
+    SqliteStmt envelope_stmt(
+        db.get(),
+        "INSERT INTO traceloom_cuda_graph_envelope ("
+        "envelope_id, db_idx, device_id, graph_provider, graph_kind, "
+        "envelope_idx, graph_event_id, child_event_id, graph_step_idx, "
+        "child_step_idx, relation, stream_relation, graph_id, graph_exec_id, "
+        "graph_correlation_id, graph_start_ns, graph_end_ns, child_start_ns, "
+        "child_end_ns, start_offset_us, end_offset_us, child_dur_us, raw_json"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+        "?, ?, ?, ?)");
+    for (const GraphEnvelopeSqlRow& row : rows.graph_envelopes) {
+      insert_graph_envelope_row(envelope_stmt, row);
+    }
+
+    materialize_cuda_graph_views(db);
     db.exec("COMMIT");
   } catch (...) {
     try {

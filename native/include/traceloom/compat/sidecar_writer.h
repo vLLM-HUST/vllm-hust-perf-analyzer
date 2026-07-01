@@ -136,6 +136,63 @@ struct NodeCoverageSqlRows {
   std::vector<VizNodeAnchorSqlRow> node_anchors;
 };
 
+struct GraphReplaySqlRow {
+  std::string graph_event_id;
+  std::uint32_t db_idx = 0;
+  std::uint32_t device_id = 0;
+  std::string graph_provider = "cuda";
+  std::string graph_kind = "cuda_graph_replay";
+  std::uint32_t graph_event_idx = 0;
+  std::string event_id;
+  std::uint32_t step_idx = 0;
+  std::int64_t stream_id = 0;
+  std::string correlation_id;
+  std::string graph_id;
+  std::string graph_exec_id;
+  std::string context_id;
+  std::int64_t start_ns = 0;
+  std::int64_t end_ns = 0;
+  double dur_us = 0.0;
+  std::uint32_t enclosed_event_count = 0;
+  double enclosed_event_us = 0.0;
+  std::uint32_t enclosed_kernel_count = 0;
+  double enclosed_kernel_us = 0.0;
+  std::string raw_json;
+};
+
+struct GraphEnvelopeSqlRow {
+  std::string envelope_id;
+  std::uint32_t db_idx = 0;
+  std::uint32_t device_id = 0;
+  std::string graph_provider = "cuda";
+  std::string graph_kind = "cuda_graph_replay";
+  std::uint32_t envelope_idx = 0;
+  std::string graph_event_id;
+  std::string child_event_id;
+  std::uint32_t graph_step_idx = 0;
+  std::uint32_t child_step_idx = 0;
+  std::string relation;
+  std::string stream_relation;
+  std::string graph_id;
+  std::string graph_exec_id;
+  std::string graph_correlation_id;
+  std::int64_t graph_start_ns = 0;
+  std::int64_t graph_end_ns = 0;
+  std::int64_t child_start_ns = 0;
+  std::int64_t child_end_ns = 0;
+  double start_offset_us = 0.0;
+  double end_offset_us = 0.0;
+  double child_dur_us = 0.0;
+  std::string raw_json;
+};
+
+struct GraphReplaySqlRows {
+  std::vector<EventSqlRow> events;
+  std::vector<AnchorSqlRow> anchors;
+  std::vector<GraphReplaySqlRow> graph_replays;
+  std::vector<GraphEnvelopeSqlRow> graph_envelopes;
+};
+
 void materialize_compatibility_schema(const std::string& sqlite_path);
 
 void materialize_compatibility_schema(
@@ -151,5 +208,8 @@ void replace_anchor_aux_rows(const std::string& sqlite_path,
 
 void replace_node_coverage_rows(const std::string& sqlite_path,
                                 const NodeCoverageSqlRows& rows);
+
+void replace_graph_replay_rows(const std::string& sqlite_path,
+                               const GraphReplaySqlRows& rows);
 
 }  // namespace traceloom::compat

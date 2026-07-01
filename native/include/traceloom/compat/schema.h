@@ -29,6 +29,8 @@ const CompatTableSchema& event_table_schema();
 const CompatTableSchema& anchor_table_schema();
 const CompatTableSchema& anchor_aux_slot_table_schema();
 const CompatTableSchema& aux_link_table_schema();
+const CompatTableSchema& cuda_graph_replay_table_schema();
+const CompatTableSchema& cuda_graph_envelope_table_schema();
 const CompatTableSchema& viz_node_table_schema();
 const CompatTableSchema& viz_node_anchor_table_schema();
 const CompatTableSchema& anchor_cost_breakdown_table_schema();

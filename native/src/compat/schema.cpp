@@ -149,6 +149,68 @@ const CompatTableSchema& aux_link_table_schema() {
   return schema;
 }
 
+const CompatTableSchema& cuda_graph_replay_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_cuda_graph_replay",
+      {
+          {"graph_event_id", CompatColumnType::kText, false},
+          {"db_idx", CompatColumnType::kInteger, false},
+          {"device_id", CompatColumnType::kInteger, false},
+          {"graph_provider", CompatColumnType::kText, true},
+          {"graph_kind", CompatColumnType::kText, true},
+          {"graph_event_idx", CompatColumnType::kInteger, false},
+          {"event_id", CompatColumnType::kText, false},
+          {"step_idx", CompatColumnType::kInteger, false},
+          {"stream_id", CompatColumnType::kInteger, true},
+          {"correlation_id", CompatColumnType::kText, true},
+          {"graph_id", CompatColumnType::kText, true},
+          {"graph_exec_id", CompatColumnType::kText, true},
+          {"context_id", CompatColumnType::kText, true},
+          {"start_ns", CompatColumnType::kInteger, true},
+          {"end_ns", CompatColumnType::kInteger, true},
+          {"dur_us", CompatColumnType::kReal, true},
+          {"enclosed_event_count", CompatColumnType::kInteger, true},
+          {"enclosed_event_us", CompatColumnType::kReal, true},
+          {"enclosed_kernel_count", CompatColumnType::kInteger, true},
+          {"enclosed_kernel_us", CompatColumnType::kReal, true},
+          {"raw_json", CompatColumnType::kText, true},
+      },
+  };
+  return schema;
+}
+
+const CompatTableSchema& cuda_graph_envelope_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_cuda_graph_envelope",
+      {
+          {"envelope_id", CompatColumnType::kText, false},
+          {"db_idx", CompatColumnType::kInteger, false},
+          {"device_id", CompatColumnType::kInteger, false},
+          {"graph_provider", CompatColumnType::kText, true},
+          {"graph_kind", CompatColumnType::kText, true},
+          {"envelope_idx", CompatColumnType::kInteger, false},
+          {"graph_event_id", CompatColumnType::kText, false},
+          {"child_event_id", CompatColumnType::kText, false},
+          {"graph_step_idx", CompatColumnType::kInteger, false},
+          {"child_step_idx", CompatColumnType::kInteger, false},
+          {"relation", CompatColumnType::kText, false},
+          {"stream_relation", CompatColumnType::kText, true},
+          {"graph_id", CompatColumnType::kText, true},
+          {"graph_exec_id", CompatColumnType::kText, true},
+          {"graph_correlation_id", CompatColumnType::kText, true},
+          {"graph_start_ns", CompatColumnType::kInteger, true},
+          {"graph_end_ns", CompatColumnType::kInteger, true},
+          {"child_start_ns", CompatColumnType::kInteger, true},
+          {"child_end_ns", CompatColumnType::kInteger, true},
+          {"start_offset_us", CompatColumnType::kReal, true},
+          {"end_offset_us", CompatColumnType::kReal, true},
+          {"child_dur_us", CompatColumnType::kReal, true},
+          {"raw_json", CompatColumnType::kText, true},
+      },
+  };
+  return schema;
+}
+
 const CompatTableSchema& viz_node_table_schema() {
   static const CompatTableSchema schema{
       "traceloom_viz_node",
@@ -234,6 +296,8 @@ std::vector<CompatTableSchema> compatibility_table_schemas() {
       anchor_table_schema(),
       anchor_aux_slot_table_schema(),
       aux_link_table_schema(),
+      cuda_graph_replay_table_schema(),
+      cuda_graph_envelope_table_schema(),
       viz_node_table_schema(),
       viz_node_anchor_table_schema(),
       anchor_cost_breakdown_table_schema(),

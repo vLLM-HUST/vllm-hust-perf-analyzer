@@ -236,6 +236,136 @@ void seed_node_event_fixture(const std::string& db_path) {
   traceloom::compat::replace_node_coverage_rows(db_path, rows);
 }
 
+void seed_graph_replay_fixture(const std::string& db_path) {
+  traceloom::compat::GraphReplaySqlRows rows;
+
+  traceloom::compat::EventSqlRow graph_event;
+  graph_event.event_id = "event-graph-1";
+  graph_event.step_idx = 20;
+  graph_event.source_table = "SYNTHETIC";
+  graph_event.source_key = "aclgraph-20";
+  graph_event.stream_id = 7;
+  graph_event.start_ns = 10000;
+  graph_event.end_ns = 18000;
+  graph_event.dur_us = 8.0;
+  graph_event.category = "graph";
+  graph_event.role = "compute";
+  graph_event.semantic_role = "anchor";
+  graph_event.symbol = "ACLGraphReplay";
+  graph_event.label = "ACLGraphReplay";
+  graph_event.task_type = "ACL_GRAPH";
+  rows.events.push_back(graph_event);
+
+  traceloom::compat::EventSqlRow child_event_a;
+  child_event_a.event_id = "event-graph-child-1";
+  child_event_a.step_idx = 21;
+  child_event_a.source_table = "TASK";
+  child_event_a.source_key = "task-21";
+  child_event_a.stream_id = 7;
+  child_event_a.start_ns = 11000;
+  child_event_a.end_ns = 13000;
+  child_event_a.dur_us = 2.0;
+  child_event_a.category = "exec";
+  child_event_a.role = "compute";
+  child_event_a.semantic_role = "graph_child";
+  child_event_a.symbol = "MatMul";
+  rows.events.push_back(child_event_a);
+
+  traceloom::compat::EventSqlRow child_event_b;
+  child_event_b.event_id = "event-graph-child-2";
+  child_event_b.step_idx = 22;
+  child_event_b.source_table = "TASK";
+  child_event_b.source_key = "task-22";
+  child_event_b.stream_id = 7;
+  child_event_b.start_ns = 14000;
+  child_event_b.end_ns = 17000;
+  child_event_b.dur_us = 3.0;
+  child_event_b.category = "exec";
+  child_event_b.role = "compute";
+  child_event_b.semantic_role = "graph_child";
+  child_event_b.symbol = "Add";
+  rows.events.push_back(child_event_b);
+
+  traceloom::compat::AnchorSqlRow graph_anchor;
+  graph_anchor.anchor_id = "anchor-graph-1";
+  graph_anchor.anchor_idx = 20;
+  graph_anchor.event_id = graph_event.event_id;
+  graph_anchor.step_idx = graph_event.step_idx;
+  graph_anchor.symbol = graph_event.symbol;
+  graph_anchor.role = graph_event.role;
+  graph_anchor.label = graph_event.label;
+  graph_anchor.family = "aclgraph";
+  graph_anchor.start_ns = graph_event.start_ns;
+  graph_anchor.end_ns = graph_event.end_ns;
+  graph_anchor.dur_us = graph_event.dur_us;
+  rows.anchors.push_back(graph_anchor);
+
+  traceloom::compat::GraphReplaySqlRow replay;
+  replay.graph_event_id = graph_event.event_id;
+  replay.graph_provider = "aclgraph";
+  replay.graph_kind = "aclgraph_replay";
+  replay.graph_event_idx = 1;
+  replay.event_id = graph_event.event_id;
+  replay.step_idx = graph_event.step_idx;
+  replay.stream_id = graph_event.stream_id;
+  replay.graph_id = "graph-1";
+  replay.graph_exec_id = "exec-1";
+  replay.start_ns = graph_event.start_ns;
+  replay.end_ns = graph_event.end_ns;
+  replay.dur_us = graph_event.dur_us;
+  replay.enclosed_event_count = 2;
+  replay.enclosed_event_us = 5.0;
+  replay.enclosed_kernel_count = 2;
+  replay.enclosed_kernel_us = 5.0;
+  rows.graph_replays.push_back(replay);
+
+  traceloom::compat::GraphEnvelopeSqlRow envelope_a;
+  envelope_a.envelope_id = "graph-envelope-1";
+  envelope_a.graph_provider = replay.graph_provider;
+  envelope_a.graph_kind = replay.graph_kind;
+  envelope_a.envelope_idx = 1;
+  envelope_a.graph_event_id = replay.graph_event_id;
+  envelope_a.child_event_id = child_event_a.event_id;
+  envelope_a.graph_step_idx = replay.step_idx;
+  envelope_a.child_step_idx = child_event_a.step_idx;
+  envelope_a.relation = "contains";
+  envelope_a.stream_relation = "same_stream";
+  envelope_a.graph_id = replay.graph_id;
+  envelope_a.graph_exec_id = replay.graph_exec_id;
+  envelope_a.graph_start_ns = replay.start_ns;
+  envelope_a.graph_end_ns = replay.end_ns;
+  envelope_a.child_start_ns = child_event_a.start_ns;
+  envelope_a.child_end_ns = child_event_a.end_ns;
+  envelope_a.start_offset_us = 1.0;
+  envelope_a.end_offset_us = 5.0;
+  envelope_a.child_dur_us = child_event_a.dur_us;
+  rows.graph_envelopes.push_back(envelope_a);
+
+  traceloom::compat::GraphEnvelopeSqlRow envelope_b;
+  envelope_b.envelope_id = "graph-envelope-2";
+  envelope_b.graph_provider = replay.graph_provider;
+  envelope_b.graph_kind = replay.graph_kind;
+  envelope_b.envelope_idx = 2;
+  envelope_b.graph_event_id = replay.graph_event_id;
+  envelope_b.child_event_id = child_event_b.event_id;
+  envelope_b.graph_step_idx = replay.step_idx;
+  envelope_b.child_step_idx = child_event_b.step_idx;
+  envelope_b.relation = "contains";
+  envelope_b.stream_relation = "same_stream";
+  envelope_b.graph_id = replay.graph_id;
+  envelope_b.graph_exec_id = replay.graph_exec_id;
+  envelope_b.graph_start_ns = replay.start_ns;
+  envelope_b.graph_end_ns = replay.end_ns;
+  envelope_b.child_start_ns = child_event_b.start_ns;
+  envelope_b.child_end_ns = child_event_b.end_ns;
+  envelope_b.start_offset_us = 4.0;
+  envelope_b.end_offset_us = 1.0;
+  envelope_b.child_dur_us = child_event_b.dur_us;
+  rows.graph_envelopes.push_back(envelope_b);
+
+  traceloom::compat::replace_graph_replay_rows(db_path, rows);
+}
+
 std::vector<QueryCase> active_query_cases() {
   return {
       QueryCase{
@@ -248,6 +378,26 @@ std::vector<QueryCase> active_query_cases() {
               "aux_us",
               "first_aux_step_idx",
               "last_aux_step_idx",
+          },
+          1,
+      },
+      QueryCase{
+          "cuda-graph-envelope.sql",
+          {
+              "graph_provider",
+              "graph_kind",
+              "graph_event_idx",
+              "anchor_idx",
+              "graph_exec_id",
+              "graph_id",
+              "stream_id",
+              "graph_us",
+              "enclosed_event_count",
+              "enclosed_event_us",
+              "enclosed_kernel_count",
+              "enclosed_kernel_us",
+              "first_child_step_idx",
+              "last_child_step_idx",
           },
           1,
       },
@@ -304,12 +454,20 @@ std::vector<QueryCase> active_query_cases() {
 int main() {
   using traceloom::testing::require;
 
-  const std::string db_path = temp_db_path();
-  seed_anchor_aux_fixture(db_path);
-  seed_node_event_fixture(db_path);
-  seed_anchor_cost_fixture(db_path);
-
   for (const QueryCase& query_case : active_query_cases()) {
+    const std::string db_path = temp_db_path();
+    if (query_case.filename == "anchor-cost-breakdown.sql") {
+      seed_anchor_cost_fixture(db_path);
+    } else if (query_case.filename == "anchor-aux.sql") {
+      seed_anchor_aux_fixture(db_path);
+    } else if (query_case.filename == "cuda-graph-envelope.sql") {
+      seed_graph_replay_fixture(db_path);
+    } else if (query_case.filename == "node-events.sql" ||
+               query_case.filename == "node-occurrences.sql") {
+      seed_anchor_aux_fixture(db_path);
+      seed_node_event_fixture(db_path);
+    }
+
     const QueryResult result = run_query(db_path, query_case);
     require(result.columns == query_case.expected_columns);
     require(result.row_count >= query_case.expected_min_rows);
@@ -327,6 +485,18 @@ int main() {
       require(result.first_row[3] == "2");
       require(result.first_row[5] == "8");
       require(result.first_row[6] == "9");
+    } else if (query_case.filename == "cuda-graph-envelope.sql") {
+      require(result.row_count == 1);
+      require(result.first_row[0] == "aclgraph");
+      require(result.first_row[1] == "aclgraph_replay");
+      require(result.first_row[2] == "1");
+      require(result.first_row[3] == "20");
+      require(result.first_row[4] == "exec-1");
+      require(result.first_row[5] == "graph-1");
+      require(result.first_row[7] == "8.0" || result.first_row[7] == "8");
+      require(result.first_row[8] == "2");
+      require(result.first_row[12] == "21");
+      require(result.first_row[13] == "22");
     } else if (query_case.filename == "node-events.sql") {
       require(result.row_count == 1);
       require(result.first_row[0] == "N027");
@@ -346,8 +516,8 @@ int main() {
       require(result.first_row[9] == "5.0" || result.first_row[9] == "5");
       require(result.first_row[12] == "5.5");
     }
+    std::remove(db_path.c_str());
   }
 
-  std::remove(db_path.c_str());
   return 0;
 }
