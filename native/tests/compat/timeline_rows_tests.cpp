@@ -3,6 +3,7 @@
 
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 int main() {
   using namespace traceloom;
@@ -33,6 +34,15 @@ int main() {
       compat::build_timeline_sql_rows(ir, 3);
   require(rows.events.size() == 2);
   require(rows.event_sources.size() == 2);
+
+  const std::vector<compat::EventSqlRow> timeline_rows =
+      compat::split_timeline_event_sql_rows(rows);
+  const std::vector<compat::EventSourceSqlRow> lineage_rows =
+      compat::split_source_lineage_sql_rows(rows);
+  require(timeline_rows.size() == rows.events.size());
+  require(lineage_rows.size() == rows.event_sources.size());
+  require(timeline_rows[0].event_id == rows.events[0].event_id);
+  require(lineage_rows[0].event_id == rows.event_sources[0].event_id);
 
   require(rows.events[0].event_id == "event-0");
   require(rows.events[0].db_idx == 3);

@@ -146,4 +146,14 @@ EventSqlRows build_timeline_sql_rows(const NativeIr& ir, std::uint32_t db_idx) {
   return rows;
 }
 
+std::vector<EventSqlRow> split_timeline_event_sql_rows(
+    const EventSqlRows& rows) {
+  return rows.events;
+}
+
+std::vector<EventSourceSqlRow> split_source_lineage_sql_rows(
+    const EventSqlRows& rows) {
+  return rows.event_sources;
+}
+
 }  // namespace traceloom::compat

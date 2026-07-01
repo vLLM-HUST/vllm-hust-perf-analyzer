@@ -25,7 +25,11 @@ void write_basic_native_compatibility_sidecar(
   };
 
   replace_metadata_rows(sqlite_path, metadata);
-  replace_event_rows(sqlite_path, build_timeline_sql_rows(ir, options.db_idx));
+  const EventSqlRows event_rows = build_timeline_sql_rows(ir, options.db_idx);
+  replace_timeline_rows(sqlite_path,
+                        split_timeline_event_sql_rows(event_rows));
+  replace_event_source_rows(sqlite_path,
+                            split_source_lineage_sql_rows(event_rows));
   replace_anchor_rows(sqlite_path,
                       build_anchor_sequence_sql_rows(ir, options.db_idx));
   replace_aux_attribution_rows(sqlite_path,
