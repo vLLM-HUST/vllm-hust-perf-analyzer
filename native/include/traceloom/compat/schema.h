@@ -41,6 +41,7 @@ const CompatTableSchema& loop_node_table_schema();
 const CompatTableSchema& semantic_tree_table_schema();
 const CompatTableSchema& semantic_node_table_schema();
 const CompatTableSchema& semantic_edge_table_schema();
+const CompatTableSchema& collective_global_link_table_schema();
 const CompatTableSchema& anchor_cost_breakdown_table_schema();
 
 std::vector<CompatTableSchema> compatibility_table_schemas();

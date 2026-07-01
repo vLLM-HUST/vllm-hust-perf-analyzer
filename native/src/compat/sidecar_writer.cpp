@@ -904,6 +904,13 @@ void materialize_report_compatibility_indexes(SqliteDb& db) {
   db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_semantic_edge_tree "
       "ON traceloom_semantic_edge(tree_id, edge_order)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_collective_key "
+      "ON traceloom_collective_global_link(candidate_collective_key)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_collective_pair "
+      "ON traceloom_collective_global_link(pair_id, occurrence_idx, op_type, "
+      "idx_in_occurrence)");
 }
 
 }  // namespace

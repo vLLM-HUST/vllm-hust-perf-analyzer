@@ -446,6 +446,36 @@ const CompatTableSchema& semantic_edge_table_schema() {
   return schema;
 }
 
+const CompatTableSchema& collective_global_link_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_collective_global_link",
+      {
+          {"candidate_collective_key", CompatColumnType::kText, false},
+          {"db_name", CompatColumnType::kText, false},
+          {"db_idx", CompatColumnType::kInteger, false},
+          {"device_id", CompatColumnType::kInteger, false},
+          {"member_id", CompatColumnType::kText, false},
+          {"pair_id", CompatColumnType::kText, false},
+          {"local_node_id", CompatColumnType::kText, false},
+          {"occurrence_idx", CompatColumnType::kInteger, false},
+          {"idx_in_occurrence", CompatColumnType::kInteger, false},
+          {"op_type", CompatColumnType::kText, false},
+          {"anchor_id", CompatColumnType::kText, false},
+          {"event_id", CompatColumnType::kText, false},
+          {"source_table", CompatColumnType::kText, true},
+          {"source_key", CompatColumnType::kText, true},
+          {"connection_id", CompatColumnType::kText, true},
+          {"op_id", CompatColumnType::kText, true},
+          {"start_ns", CompatColumnType::kInteger, true},
+          {"end_ns", CompatColumnType::kInteger, true},
+          {"dur_us", CompatColumnType::kReal, true},
+          {"validation_status", CompatColumnType::kText, true},
+          {"confidence", CompatColumnType::kReal, true},
+      },
+  };
+  return schema;
+}
+
 const CompatTableSchema& anchor_cost_breakdown_table_schema() {
   static const CompatTableSchema schema{
       "traceloom_anchor_cost_breakdown",
@@ -484,6 +514,7 @@ std::vector<CompatTableSchema> compatibility_table_schemas() {
       semantic_tree_table_schema(),
       semantic_node_table_schema(),
       semantic_edge_table_schema(),
+      collective_global_link_table_schema(),
       anchor_cost_breakdown_table_schema(),
   };
 }

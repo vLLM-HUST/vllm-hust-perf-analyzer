@@ -214,6 +214,8 @@ int main() {
           std::vector<std::string>({
               "idx_traceloom_anchor_device_idx",
               "idx_traceloom_aux_anchor",
+              "idx_traceloom_collective_key",
+              "idx_traceloom_collective_pair",
               "idx_traceloom_cuda_graph_envelope_child",
               "idx_traceloom_cuda_graph_envelope_graph",
               "idx_traceloom_cuda_graph_replay_exec",
