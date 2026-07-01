@@ -2,6 +2,8 @@
 #include "traceloom/testing/test_util.h"
 
 #include <cmath>
+#include <string>
+#include <vector>
 
 namespace {
 
@@ -59,6 +61,29 @@ int main() {
   require(rows[1].anchor_kind == "exec");
   require(near(rows[1].total_us, 7.0));
   require(near(rows[1].self_us, 7.0));
+
+  const compat::CompatTableSchema& schema =
+      compat::anchor_cost_breakdown_sql_row_schema();
+  require(schema.name == "traceloom_anchor_cost_breakdown");
+  const std::vector<std::string> expected_columns{
+      "anchor_idx",
+      "symbol",
+      "anchor_kind",
+      "total_us",
+      "self_us",
+      "aux_us",
+      "graph_child_us",
+      "residual_us",
+      "raw_child_task_count",
+      "top_ops",
+      "diagnostic_flags",
+  };
+  require(compat::column_names(schema) == expected_columns);
+  require(schema.columns[0].type == compat::CompatColumnType::kInteger);
+  require(schema.columns[3].type == compat::CompatColumnType::kReal);
+  require(schema.columns[10].type == compat::CompatColumnType::kText);
+  require(compat::compat_column_type_name(compat::CompatColumnType::kInteger) ==
+          std::string("integer"));
 
   return 0;
 }

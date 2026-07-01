@@ -34,4 +34,8 @@ std::vector<AnchorCostBreakdownSqlRow> build_anchor_cost_breakdown_sql_rows(
   return rows;
 }
 
+const CompatTableSchema& anchor_cost_breakdown_sql_row_schema() {
+  return anchor_cost_breakdown_table_schema();
+}
+
 }  // namespace traceloom::compat

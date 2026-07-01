@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "traceloom/compat/schema.h"
 #include "traceloom/report/anchor_internal_cost_breakdown.h"
 
 namespace traceloom::compat {
@@ -24,5 +25,7 @@ struct AnchorCostBreakdownSqlRow {
 
 std::vector<AnchorCostBreakdownSqlRow> build_anchor_cost_breakdown_sql_rows(
     const AnchorInternalCostBreakdown& breakdown);
+
+const CompatTableSchema& anchor_cost_breakdown_sql_row_schema();
 
 }  // namespace traceloom::compat

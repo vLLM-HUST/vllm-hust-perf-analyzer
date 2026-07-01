@@ -75,6 +75,7 @@ target_link_libraries(traceloom_native_adapters PUBLIC traceloom_native_core)
 
 add_library(traceloom_native_materialize
   src/compat/anchor_cost_breakdown_rows.cpp
+  src/compat/schema.cpp
   src/materialize/grammar_debug_json.cpp
   src/materialize/native_result_json.cpp
 )
