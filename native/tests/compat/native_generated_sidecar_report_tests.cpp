@@ -315,11 +315,19 @@ int main() {
   require(run_scalar_int(
               repeat_db_path,
               "SELECT COUNT(*) FROM traceloom_viz_node "
-              "WHERE aux_events > 0 AND aux_us > 0") > 0);
+              "WHERE idle_us > 0 AND avg_idle_us > 0") > 0);
   require(run_scalar_int(
               repeat_db_path,
               "SELECT COUNT(*) FROM traceloom_semantic_node "
-              "WHERE aux_event_count > 0 AND aux_us > 0") > 0);
+              "WHERE idle_us > 0 AND avg_idle_us > 0") > 0);
+  require(run_scalar_int(
+              repeat_db_path,
+              "SELECT COUNT(*) FROM traceloom_viz_node "
+              "WHERE aux_us > total_us") == 0);
+  require(run_scalar_int(
+              repeat_db_path,
+              "SELECT COUNT(*) FROM traceloom_semantic_node "
+              "WHERE aux_us > total_us") == 0);
   require_node_coverage_invariants(repeat_db_path);
   require_all_anchors_have_primary_node_coverage(repeat_db_path);
   require_semantic_tree_invariants(repeat_db_path);

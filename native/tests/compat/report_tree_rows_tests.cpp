@@ -45,14 +45,14 @@ int main() {
   require(rows.nodes[0].idle_us == 0.5);
   require(rows.nodes[0].avg_idle_us == 0.5);
   require(rows.nodes[0].avg_total_us == 3.5);
-  require(rows.nodes[0].aux_events == 1.0);
-  require(rows.nodes[0].aux_us == 0.3);
+  require(rows.nodes[0].aux_events == 0.0);
+  require(rows.nodes[0].aux_us == 0.0);
 
   require(rows.nodes[1].kind == "repeat");
   require(rows.nodes[1].repeat_count == 2);
   require(rows.nodes[1].anchor_count == 2);
-  require(rows.nodes[1].aux_events == 1.0);
-  require(rows.nodes[1].aux_us == 0.3);
+  require(rows.nodes[1].aux_events == 0.0);
+  require(rows.nodes[1].aux_us == 0.0);
   require(rows.loop_nodes[0].node_id == rows.nodes[1].node_id);
   require(rows.loop_nodes[0].repeat_count == 2);
   require(rows.loop_nodes[0].idle_us == 0.5);
@@ -65,8 +65,8 @@ int main() {
   require(rows.nodes[2].idle_us == 0.5);
   require(rows.nodes[2].avg_idle_us == 0.25);
   require(rows.nodes[2].self_us == 3.0);
-  require(rows.nodes[2].aux_events == 1.0);
-  require(rows.nodes[2].aux_us == 0.3);
+  require(rows.nodes[2].aux_events == 0.0);
+  require(rows.nodes[2].aux_us == 0.0);
 
   require(rows.node_anchors[0].node_id == "node-N001");
   require(rows.node_anchors[0].anchor_id == "anchor-0");
@@ -119,8 +119,8 @@ int main() {
   require(semantic_rows.nodes[0].idle_us == 0.5);
   require(semantic_rows.nodes[0].avg_idle_us == 0.5);
   require(semantic_rows.nodes[0].total_us == 3.5);
-  require(semantic_rows.nodes[0].aux_event_count == 1.0);
-  require(semantic_rows.nodes[0].aux_us == 0.3);
+  require(semantic_rows.nodes[0].aux_event_count == 0.0);
+  require(semantic_rows.nodes[0].aux_us == 0.0);
 
   require(semantic_rows.nodes[1].parent_node_id == "node-N001");
   require(semantic_rows.nodes[1].node_type == "Repeat");
@@ -128,8 +128,8 @@ int main() {
   require(semantic_rows.nodes[2].parent_node_id == "node-N002");
   require(semantic_rows.nodes[2].parent_local_node_id == "N002");
   require(semantic_rows.nodes[2].self_us == 3.0);
-  require(semantic_rows.nodes[2].aux_event_count == 1.0);
-  require(semantic_rows.nodes[2].aux_us == 0.3);
+  require(semantic_rows.nodes[2].aux_event_count == 0.0);
+  require(semantic_rows.nodes[2].aux_us == 0.0);
   require(semantic_rows.edges[0].tree_id == "tree-1");
   require(semantic_rows.edges[0].parent_node_id == "node-N001");
   require(semantic_rows.edges[0].child_node_id == "node-N002");

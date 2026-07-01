@@ -120,6 +120,8 @@ struct PreludeCost {
   double exec_aux_us = 0.0;
   double comm_us = 0.0;
   double idle_us = 0.0;
+  double aux_event_count = 0.0;
+  double aux_us = 0.0;
 };
 
 std::string lower_ascii(std::string value) {
@@ -263,8 +265,12 @@ std::vector<PreludeCost> compute_prelude_costs(
       if (comm_events.find(event.id.value()) != comm_events.end() ||
           (task != nullptr && task->comm_name_symbol_id.valid())) {
         cost.comm_us += duration_us;
+        cost.aux_event_count += 1.0;
+        cost.aux_us += duration_us;
       } else if (!is_wait_event(ir, event, task)) {
         cost.exec_aux_us += duration_us;
+        cost.aux_event_count += 1.0;
+        cost.aux_us += duration_us;
       }
     }
 
@@ -368,7 +374,12 @@ std::vector<NodeAccum> accumulate_nodes(
       const ReportToken& token = tokens[token_index];
       const std::uint32_t anchor_idx = anchor_idx_for_token(token);
       if (accum.token_ordinals.insert(token_index).second) {
-        add_aux_for_anchor(accum, aux_index, token.anchor_id);
+        if (token.has_prelude_cost) {
+          accum.aux_event_count += token.prelude_aux_event_count;
+          accum.aux_us += token.prelude_aux_us;
+        } else {
+          add_aux_for_anchor(accum, aux_index, token.anchor_id);
+        }
         if (accum.first_anchor_idx == 0 ||
             (anchor_idx != 0 && anchor_idx < accum.first_anchor_idx)) {
           accum.first_anchor_idx = anchor_idx;
@@ -495,9 +506,12 @@ std::vector<ReportToken> build_report_tokens_from_native_ir(
   const std::vector<PreludeCost> prelude_costs =
       compute_prelude_costs(ir, tokens);
   for (std::size_t i = 0; i < tokens.size(); ++i) {
+    tokens[i].has_prelude_cost = true;
     tokens[i].prelude_exec_aux_us = prelude_costs[i].exec_aux_us;
     tokens[i].prelude_comm_us = prelude_costs[i].comm_us;
     tokens[i].prelude_idle_us = prelude_costs[i].idle_us;
+    tokens[i].prelude_aux_event_count = prelude_costs[i].aux_event_count;
+    tokens[i].prelude_aux_us = prelude_costs[i].aux_us;
   }
   return tokens;
 }

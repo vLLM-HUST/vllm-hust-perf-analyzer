@@ -39,9 +39,12 @@ struct ReportToken {
   std::string launch_activity_id;
   std::int64_t start_ns = 0;
   std::int64_t end_ns = 0;
+  bool has_prelude_cost = false;
   double prelude_exec_aux_us = 0.0;
   double prelude_comm_us = 0.0;
   double prelude_idle_us = 0.0;
+  double prelude_aux_event_count = 0.0;
+  double prelude_aux_us = 0.0;
 };
 
 struct ReportNodeDef {
