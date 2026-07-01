@@ -34,6 +34,10 @@ const CompatTableSchema& anchor_cost_breakdown_table_schema() {
   return schema;
 }
 
+std::vector<CompatTableSchema> compatibility_table_schemas() {
+  return {anchor_cost_breakdown_table_schema()};
+}
+
 std::vector<std::string> column_names(const CompatTableSchema& schema) {
   std::vector<std::string> names;
   names.reserve(schema.columns.size());

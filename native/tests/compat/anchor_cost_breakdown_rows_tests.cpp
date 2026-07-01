@@ -84,6 +84,11 @@ int main() {
   require(schema.columns[10].type == compat::CompatColumnType::kText);
   require(compat::compat_column_type_name(compat::CompatColumnType::kInteger) ==
           std::string("integer"));
+  const std::vector<compat::CompatTableSchema> catalog =
+      compat::compatibility_table_schemas();
+  require(catalog.size() == 1);
+  require(catalog[0].name == schema.name);
+  require(compat::column_names(catalog[0]) == expected_columns);
 
   return 0;
 }
