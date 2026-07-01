@@ -79,6 +79,7 @@ struct GrammarChunkIdTag {};
 struct MacroDefIdTag {};
 struct ReportNodeDefIdTag {};
 struct ReportNodeOccurrenceIdTag {};
+struct ReportCostLeafIdTag {};
 
 using SourceRefId = Id<SourceRefIdTag>;
 using TraceEventId = Id<TraceEventIdTag>;
@@ -103,5 +104,6 @@ using GrammarChunkId = Id<GrammarChunkIdTag>;
 using MacroDefId = Id<MacroDefIdTag>;
 using ReportNodeDefId = Id<ReportNodeDefIdTag>;
 using ReportNodeOccurrenceId = Id<ReportNodeOccurrenceIdTag>;
+using ReportCostLeafId = Id<ReportCostLeafIdTag>;
 
 }  // namespace traceloom

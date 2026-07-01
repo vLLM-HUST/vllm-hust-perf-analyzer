@@ -41,6 +41,7 @@ add_library(traceloom_native_core
   src/pattern/pattern_candidate_summary.cpp
   src/report/report_tree.cpp
   src/report/report_tree_builder.cpp
+  src/report/report_cost_tree.cpp
   src/report/report_tree_cost_handoff.cpp
   src/runtime/thread_pool.cpp
   src/sequence/boundary_index.cpp
@@ -343,6 +344,17 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
   add_test(
     NAME traceloom_native_report_tree_cost_handoff_tests
     COMMAND traceloom_native_report_tree_cost_handoff_tests
+  )
+
+  add_executable(traceloom_native_report_cost_tree_tests
+    tests/report/report_cost_tree_tests.cpp
+  )
+  target_link_libraries(
+    traceloom_native_report_cost_tree_tests PRIVATE traceloom_native_core
+  )
+  add_test(
+    NAME traceloom_native_report_cost_tree_tests
+    COMMAND traceloom_native_report_cost_tree_tests
   )
 
   add_executable(traceloom_native_result_json_tests
