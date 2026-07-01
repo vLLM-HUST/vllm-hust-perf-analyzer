@@ -222,4 +222,56 @@ AnchorGraphChildCostResult build_anchor_graph_child_cost_components(
   return out;
 }
 
+AnchorGraphChildCostResult build_anchor_graph_child_summary_components(
+    const std::vector<AnchorGraphChildSummary>& summaries,
+    const AnchorGraphChildCostConfig& config) {
+  AnchorGraphChildCostResult out;
+
+  if (!config.first_leaf_id.valid()) {
+    add_diagnostic(out, DiagnosticSeverity::kError,
+                   "anchor_graph_child_invalid_first_leaf_id",
+                   "first graph-child component leaf id must be valid");
+  }
+
+  for (const AnchorGraphChildSummary& summary : summaries) {
+    if (summary.end_ns < summary.start_ns) {
+      add_diagnostic(out, DiagnosticSeverity::kError,
+                     "anchor_graph_child_invalid_summary_range",
+                     "graph-child summary end_ns cannot be smaller than "
+                     "start_ns");
+    }
+    if (summary.duration_ns < 0) {
+      add_diagnostic(out, DiagnosticSeverity::kError,
+                     "anchor_graph_child_negative_summary_duration",
+                     "graph-child summary duration cannot be negative");
+    }
+  }
+  if (has_errors(out)) {
+    return out;
+  }
+
+  out.component_leaves.reserve(summaries.size());
+  for (const AnchorGraphChildSummary& summary : summaries) {
+    if (!config.emit_zero_duration_windows && summary.duration_ns == 0 &&
+        summary.diagnostic_flags.empty()) {
+      continue;
+    }
+
+    AnchorCostComponentLeaf leaf;
+    leaf.id = ReportCostLeafId(
+        config.first_leaf_id.value() +
+        static_cast<ReportCostLeafId::value_type>(out.component_leaves.size()));
+    leaf.token_ordinal = summary.token_ordinal;
+    leaf.kind = AnchorCostComponentKind::kGraphChild;
+    leaf.duration_ns = summary.duration_ns;
+    leaf.raw_child_task_count = summary.raw_child_task_count;
+    leaf.source_ref_count = summary.source_ref_count;
+    leaf.top_ops = summary.top_ops;
+    leaf.diagnostic_flags = summary.diagnostic_flags;
+    out.component_leaves.push_back(std::move(leaf));
+  }
+
+  return out;
+}
+
 }  // namespace traceloom

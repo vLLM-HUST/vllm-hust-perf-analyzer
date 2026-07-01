@@ -133,5 +133,33 @@ int main() {
   require(duplicate_owner.diagnostics[0].code ==
           "anchor_graph_child_duplicate_task_owner");
 
+  const std::vector<AnchorGraphChildSummary> summaries{
+      AnchorGraphChildSummary{0, 1000, 1100, 100, 4, 1, "Embedding:4", ""},
+      AnchorGraphChildSummary{1, 1100, 1200, 100, 20, 1, "MatMul:16", ""},
+  };
+  const AnchorGraphChildCostResult summary_cost =
+      build_anchor_graph_child_summary_components(summaries);
+  require(summary_cost.diagnostics.empty());
+  require(summary_cost.component_leaves.size() == 2);
+  require(summary_cost.component_leaves[0].id == ReportCostLeafId(0));
+  require(summary_cost.component_leaves[0].token_ordinal == 0);
+  require(summary_cost.component_leaves[0].duration_ns == 100);
+  require(summary_cost.component_leaves[0].raw_child_task_count == 4);
+  require(summary_cost.component_leaves[0].source_ref_count == 1);
+  require(summary_cost.component_leaves[0].top_ops == "Embedding:4");
+  require(summary_cost.component_leaves[1].duration_ns == 100);
+  require(summary_cost.component_leaves[1].raw_child_task_count == 20);
+  require(summary_cost.component_leaves[1].top_ops == "MatMul:16");
+
+  const AnchorGraphChildCostResult invalid_summary =
+      build_anchor_graph_child_summary_components(
+          std::vector<AnchorGraphChildSummary>{
+              AnchorGraphChildSummary{0, 10, 5, 1, 0, 0, "", ""},
+          });
+  require(!invalid_summary.diagnostics.empty());
+  require(invalid_summary.diagnostics[0].severity == DiagnosticSeverity::kError);
+  require(invalid_summary.diagnostics[0].code ==
+          "anchor_graph_child_invalid_summary_range");
+
   return 0;
 }

@@ -27,6 +27,17 @@ struct AnchorGraphChildTask {
   SourceRefId source_ref_id;
 };
 
+struct AnchorGraphChildSummary {
+  std::uint32_t token_ordinal = 0;
+  std::int64_t start_ns = 0;
+  std::int64_t end_ns = 0;
+  std::int64_t duration_ns = 0;
+  std::uint32_t raw_child_task_count = 0;
+  std::uint32_t source_ref_count = 0;
+  std::string top_ops;
+  std::string diagnostic_flags;
+};
+
 struct AnchorGraphChildCostConfig {
   ReportCostLeafId first_leaf_id{0};
   std::uint32_t max_top_ops = 3;
@@ -42,6 +53,10 @@ struct AnchorGraphChildCostResult {
 AnchorGraphChildCostResult build_anchor_graph_child_cost_components(
     const std::vector<AnchorGraphChildWindow>& windows,
     const std::vector<AnchorGraphChildTask>& tasks,
+    const AnchorGraphChildCostConfig& config = AnchorGraphChildCostConfig{});
+
+AnchorGraphChildCostResult build_anchor_graph_child_summary_components(
+    const std::vector<AnchorGraphChildSummary>& summaries,
     const AnchorGraphChildCostConfig& config = AnchorGraphChildCostConfig{});
 
 }  // namespace traceloom
