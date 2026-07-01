@@ -6,6 +6,7 @@
 
 #include "traceloom/analysis/native_pipeline.h"
 #include "traceloom/core/string_table.h"
+#include "traceloom/report/anchor_internal_cost_breakdown.h"
 
 namespace traceloom {
 
@@ -17,6 +18,7 @@ struct NativeResultJsonOptions {
   std::size_t top_candidate_limit = 16;
   double load_source_adapter_ms = 0.0;
   double materialization_ms = 0.0;
+  const AnchorInternalCostBreakdown* anchor_internal_cost_breakdown = nullptr;
 };
 
 void write_native_result_json(std::ostream& out,

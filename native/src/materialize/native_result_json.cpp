@@ -81,6 +81,66 @@ std::vector<CandidateSummaryRow> top_candidates(
   return top;
 }
 
+const char* report_anchor_kind_name(ReportAnchorKind kind) {
+  switch (kind) {
+    case ReportAnchorKind::kExec:
+      return "exec";
+    case ReportAnchorKind::kGraphH:
+      return "graph_h";
+    case ReportAnchorKind::kGraphL:
+      return "graph_l";
+    case ReportAnchorKind::kGraphT:
+      return "graph_t";
+    case ReportAnchorKind::kGraphTemplate:
+      return "graph_template";
+    case ReportAnchorKind::kGraphLaunchActivity:
+      return "graph_launch_activity";
+    case ReportAnchorKind::kCollective:
+      return "collective";
+    case ReportAnchorKind::kUnknown:
+      return "unknown";
+  }
+  return "unknown";
+}
+
+void write_anchor_internal_cost_breakdown(
+    std::ostream& out,
+    const AnchorInternalCostBreakdown& breakdown) {
+  out << "  \"anchor_internal_cost_breakdown\": {\n";
+  out << "    \"row_count\": " << breakdown.rows.size() << ",\n";
+  out << "    \"diagnostic_count\": " << breakdown.diagnostics.size() << ",\n";
+  out << "    \"rows\": [\n";
+  for (std::size_t index = 0; index < breakdown.rows.size(); ++index) {
+    const AnchorInternalCostBreakdownRow& row = breakdown.rows[index];
+    out << "      {\"anchor_occurrence_id\": "
+        << row.anchor_occurrence_id.value()
+        << ", \"anchor_def_id\": " << row.anchor_def_id.value()
+        << ", \"anchor_idx\": " << row.anchor_idx
+        << ", \"symbol\": ";
+    write_json_string(out, row.symbol);
+    out << ", \"anchor_kind\": ";
+    write_json_string(out, report_anchor_kind_name(row.anchor_kind));
+    out << ", \"total_ns\": " << row.total_ns
+        << ", \"self_ns\": " << row.self_ns
+        << ", \"aux_ns\": " << row.aux_ns
+        << ", \"graph_child_ns\": " << row.graph_child_ns
+        << ", \"residual_ns\": " << row.residual_ns
+        << ", \"raw_child_task_count\": " << row.raw_child_task_count
+        << ", \"source_ref_count\": " << row.source_ref_count
+        << ", \"top_ops\": ";
+    write_json_string(out, row.top_ops);
+    out << ", \"diagnostic_flags\": ";
+    write_json_string(out, row.diagnostic_flags);
+    out << "}";
+    if (index + 1 < breakdown.rows.size()) {
+      out << ",";
+    }
+    out << "\n";
+  }
+  out << "    ]\n";
+  out << "  },\n";
+}
+
 }  // namespace
 
 void write_native_result_json(std::ostream& out,
@@ -188,6 +248,11 @@ void write_native_result_json(std::ostream& out,
   out << "    \"row_count\": "
       << result.pattern_candidate_summary.rows.size() << "\n";
   out << "  },\n";
+
+  if (options.anchor_internal_cost_breakdown != nullptr) {
+    write_anchor_internal_cost_breakdown(
+        out, *options.anchor_internal_cost_breakdown);
+  }
 
   out << "  \"candidates_preview\": [\n";
   for (std::size_t index = 0; index < preview.size(); ++index) {

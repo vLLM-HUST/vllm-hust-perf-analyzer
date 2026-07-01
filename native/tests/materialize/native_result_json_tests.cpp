@@ -41,6 +41,20 @@ int main() {
   json_options.thread_count = 2;
   json_options.top_candidate_limit = 2;
 
+  AnchorInternalCostBreakdown breakdown;
+  AnchorInternalCostBreakdownRow row;
+  row.anchor_occurrence_id = ReportNodeOccurrenceId(7);
+  row.anchor_def_id = ReportNodeDefId(3);
+  row.anchor_idx = 2;
+  row.symbol = "ACLL";
+  row.anchor_kind = ReportAnchorKind::kGraphL;
+  row.total_ns = 100;
+  row.graph_child_ns = 100;
+  row.raw_child_task_count = 20;
+  row.top_ops = "MatMul:16";
+  breakdown.rows.push_back(row);
+  json_options.anchor_internal_cost_breakdown = &breakdown;
+
   std::ostringstream out;
   write_native_result_json(out, ir.symbols, result, json_options);
   const std::string json = out.str();
@@ -50,6 +64,12 @@ int main() {
   require(json.find("\"kind\": \"fixture\"") != std::string::npos);
   require(json.find("\"trace_event_count\": 4") != std::string::npos);
   require(json.find("\"candidate_distinct_count\"") != std::string::npos);
+  require(json.find("\"anchor_internal_cost_breakdown\"") !=
+          std::string::npos);
+  require(json.find("\"anchor_kind\": \"graph_l\"") != std::string::npos);
+  require(json.find("\"graph_child_ns\": 100") != std::string::npos);
+  require(json.find("\"raw_child_task_count\": 20") != std::string::npos);
+  require(json.find("\"top_ops\": \"MatMul:16\"") != std::string::npos);
   require(json.find("\"candidates_preview\"") != std::string::npos);
 
   return 0;
