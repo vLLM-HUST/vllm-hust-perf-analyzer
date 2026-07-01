@@ -105,6 +105,42 @@ std::string sqlite_text(sqlite3_stmt* stmt, int column) {
   return value == nullptr ? "" : reinterpret_cast<const char*>(value);
 }
 
+int run_scalar_int(const std::string& path, const std::string& sql) {
+  sqlite3* db = nullptr;
+  int rc = sqlite3_open_v2(path.c_str(), &db, SQLITE_OPEN_READONLY, nullptr);
+  traceloom::testing::require(rc == SQLITE_OK);
+
+  sqlite3_stmt* raw_stmt = nullptr;
+  rc = sqlite3_prepare_v2(db, sql.c_str(), -1, &raw_stmt, nullptr);
+  traceloom::testing::require(rc == SQLITE_OK);
+  rc = sqlite3_step(raw_stmt);
+  traceloom::testing::require(rc == SQLITE_ROW);
+  const int value = sqlite3_column_int(raw_stmt, 0);
+  rc = sqlite3_step(raw_stmt);
+  traceloom::testing::require(rc == SQLITE_DONE);
+  sqlite3_finalize(raw_stmt);
+  sqlite3_close(db);
+  return value;
+}
+
+std::string run_scalar_text(const std::string& path, const std::string& sql) {
+  sqlite3* db = nullptr;
+  int rc = sqlite3_open_v2(path.c_str(), &db, SQLITE_OPEN_READONLY, nullptr);
+  traceloom::testing::require(rc == SQLITE_OK);
+
+  sqlite3_stmt* raw_stmt = nullptr;
+  rc = sqlite3_prepare_v2(db, sql.c_str(), -1, &raw_stmt, nullptr);
+  traceloom::testing::require(rc == SQLITE_OK);
+  rc = sqlite3_step(raw_stmt);
+  traceloom::testing::require(rc == SQLITE_ROW);
+  const std::string value = sqlite_text(raw_stmt, 0);
+  rc = sqlite3_step(raw_stmt);
+  traceloom::testing::require(rc == SQLITE_DONE);
+  sqlite3_finalize(raw_stmt);
+  sqlite3_close(db);
+  return value;
+}
+
 std::vector<StoredAnchorCostRow> load_anchor_cost_rows(
     const std::string& path) {
   sqlite3* db = nullptr;
@@ -282,6 +318,108 @@ int main() {
   require(metadata_rows.size() == 1);
   require(metadata_rows[0].key == "traceloom_schema_version");
   require(metadata_rows[0].value == "compat-v2");
+
+  std::vector<traceloom::compat::CollectiveGlobalLinkSqlRow> local_links(2);
+  local_links[0].candidate_collective_key = "collective-1";
+  local_links[0].db_name = "db00.traceloom_augmented.db";
+  local_links[0].db_idx = 0;
+  local_links[0].device_id = 0;
+  local_links[0].member_id = "rank0";
+  local_links[0].pair_id = "pair-1";
+  local_links[0].local_node_id = "N027";
+  local_links[0].occurrence_idx = 0;
+  local_links[0].idx_in_occurrence = 0;
+  local_links[0].op_type = "allReduce";
+  local_links[0].anchor_id = "anchor-1";
+  local_links[0].event_id = "event-anchor-1";
+  local_links[0].source_table = "COMMUNICATION_OP";
+  local_links[0].source_key = "comm-1";
+  local_links[0].connection_id = "conn-1";
+  local_links[0].op_id = "op-1";
+  local_links[0].start_ns = 1000;
+  local_links[0].end_ns = 2000;
+  local_links[0].dur_us = 1.0;
+  local_links[0].validation_status = "complete";
+  local_links[0].confidence = 1.0;
+  local_links[1] = local_links[0];
+  local_links[1].candidate_collective_key = "collective-2";
+  local_links[1].member_id = "rank1";
+  local_links[1].anchor_id = "anchor-2";
+  traceloom::compat::replace_collective_global_link_rows(db_path, local_links);
+  require(run_scalar_int(
+              db_path,
+              "SELECT COUNT(*) FROM traceloom_collective_global_link") == 2);
+  require(run_scalar_text(
+              db_path,
+              "SELECT validation_status FROM traceloom_collective_global_link "
+              "WHERE candidate_collective_key = 'collective-1'") ==
+          "complete");
+  traceloom::compat::replace_collective_global_link_rows(
+      db_path, {local_links.front()});
+  require(run_scalar_int(
+              db_path,
+              "SELECT COUNT(*) FROM traceloom_collective_global_link") == 1);
+
+  const std::string global_rows_db_path = temp_db_path();
+  traceloom::compat::GlobalCollectiveSqlRows global_rows;
+  traceloom::compat::GlobalCollectiveSummarySqlRow summary;
+  summary.candidate_collective_key = "collective-1";
+  summary.pair_id = "pair-1";
+  summary.occurrence_idx = 0;
+  summary.op_type = "allReduce";
+  summary.idx_in_occurrence = 0;
+  summary.member_count = 2;
+  summary.expected_world_size = 2;
+  summary.start_skew_us = 0.25;
+  summary.duration_skew_us = 0.5;
+  summary.connection_ids = "conn-1";
+  summary.op_ids = "op-1";
+  summary.members = "rank0,rank1";
+  summary.validation_status = "complete";
+  summary.confidence = 1.0;
+  global_rows.summaries.push_back(summary);
+  traceloom::compat::GlobalCollectiveMemberSqlRow member;
+  member.candidate_collective_key = summary.candidate_collective_key;
+  member.db_name = "db00.traceloom_augmented.db";
+  member.db_idx = 0;
+  member.device_id = 0;
+  member.member_id = "rank0";
+  member.pair_id = summary.pair_id;
+  member.local_node_id = "N027";
+  member.occurrence_idx = summary.occurrence_idx;
+  member.idx_in_occurrence = summary.idx_in_occurrence;
+  member.op_type = summary.op_type;
+  member.anchor_id = "anchor-1";
+  member.event_id = "event-anchor-1";
+  member.source_table = "COMMUNICATION_OP";
+  member.source_key = "comm-1";
+  member.connection_id = "conn-1";
+  member.op_id = "op-1";
+  member.start_ns = 1000;
+  member.end_ns = 2000;
+  member.dur_us = 1.0;
+  member.validation_status = summary.validation_status;
+  member.confidence = summary.confidence;
+  global_rows.members.push_back(member);
+  traceloom::compat::replace_global_collective_rows(global_rows_db_path,
+                                                    global_rows);
+  require(run_scalar_int(global_rows_db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_global_collective_summary") == 1);
+  require(run_scalar_int(global_rows_db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_global_collective_member") == 1);
+  require(run_scalar_text(global_rows_db_path,
+                          "SELECT validation_status FROM "
+                          "traceloom_global_collective_summary") ==
+          "complete");
+  global_rows.members.clear();
+  traceloom::compat::replace_global_collective_rows(global_rows_db_path,
+                                                    global_rows);
+  require(run_scalar_int(global_rows_db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_global_collective_member") == 0);
+  std::remove(global_rows_db_path.c_str());
 
   bool rejected_bad_schema = false;
   try {

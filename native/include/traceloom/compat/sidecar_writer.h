@@ -254,6 +254,77 @@ struct GraphReplaySqlRows {
   std::vector<GraphEnvelopeSqlRow> graph_envelopes;
 };
 
+struct CollectiveGlobalLinkSqlRow {
+  std::string candidate_collective_key;
+  std::string db_name;
+  std::uint32_t db_idx = 0;
+  std::uint32_t device_id = 0;
+  std::string member_id;
+  std::string pair_id;
+  std::string local_node_id;
+  std::uint32_t occurrence_idx = 0;
+  std::uint32_t idx_in_occurrence = 0;
+  std::string op_type;
+  std::string anchor_id;
+  std::string event_id;
+  std::string source_table;
+  std::string source_key;
+  std::string connection_id;
+  std::string op_id;
+  std::int64_t start_ns = 0;
+  std::int64_t end_ns = 0;
+  double dur_us = 0.0;
+  std::string validation_status;
+  double confidence = 0.0;
+};
+
+struct GlobalCollectiveSummarySqlRow {
+  std::string candidate_collective_key;
+  std::string pair_id;
+  std::uint32_t occurrence_idx = 0;
+  std::string op_type;
+  std::uint32_t idx_in_occurrence = 0;
+  std::uint32_t member_count = 0;
+  std::uint32_t expected_world_size = 0;
+  double start_skew_us = 0.0;
+  double duration_skew_us = 0.0;
+  std::string connection_ids;
+  std::string op_ids;
+  std::string members;
+  std::string missing_members;
+  std::string validation_status;
+  double confidence = 0.0;
+};
+
+struct GlobalCollectiveMemberSqlRow {
+  std::string candidate_collective_key;
+  std::string db_name;
+  std::uint32_t db_idx = 0;
+  std::uint32_t device_id = 0;
+  std::string member_id;
+  std::string pair_id;
+  std::string local_node_id;
+  std::uint32_t occurrence_idx = 0;
+  std::uint32_t idx_in_occurrence = 0;
+  std::string op_type;
+  std::string anchor_id;
+  std::string event_id;
+  std::string source_table;
+  std::string source_key;
+  std::string connection_id;
+  std::string op_id;
+  std::int64_t start_ns = 0;
+  std::int64_t end_ns = 0;
+  double dur_us = 0.0;
+  std::string validation_status;
+  double confidence = 0.0;
+};
+
+struct GlobalCollectiveSqlRows {
+  std::vector<GlobalCollectiveSummarySqlRow> summaries;
+  std::vector<GlobalCollectiveMemberSqlRow> members;
+};
+
 struct SemanticTreeHeaderSqlRow {
   std::string tree_id;
   std::uint32_t db_idx = 0;
@@ -360,6 +431,13 @@ void replace_node_coverage_rows(const std::string& sqlite_path,
 
 void replace_graph_replay_rows(const std::string& sqlite_path,
                                const GraphReplaySqlRows& rows);
+
+void replace_collective_global_link_rows(
+    const std::string& sqlite_path,
+    const std::vector<CollectiveGlobalLinkSqlRow>& rows);
+
+void replace_global_collective_rows(const std::string& sqlite_path,
+                                    const GlobalCollectiveSqlRows& rows);
 
 void replace_semantic_tree_rows(const std::string& sqlite_path,
                                 const SemanticTreeSqlRows& rows);

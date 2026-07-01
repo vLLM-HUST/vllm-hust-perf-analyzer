@@ -487,6 +487,105 @@ void insert_graph_envelope_row(SqliteStmt& stmt,
   sqlite3_clear_bindings(stmt.get());
 }
 
+void insert_collective_global_link_row(
+    SqliteStmt& stmt,
+    const CollectiveGlobalLinkSqlRow& row) {
+  bind_text(stmt, 1, row.candidate_collective_key);
+  bind_text(stmt, 2, row.db_name);
+  bind_int64(stmt, 3, row.db_idx);
+  bind_int64(stmt, 4, row.device_id);
+  bind_text(stmt, 5, row.member_id);
+  bind_text(stmt, 6, row.pair_id);
+  bind_text(stmt, 7, row.local_node_id);
+  bind_int64(stmt, 8, row.occurrence_idx);
+  bind_int64(stmt, 9, row.idx_in_occurrence);
+  bind_text(stmt, 10, row.op_type);
+  bind_text(stmt, 11, row.anchor_id);
+  bind_text(stmt, 12, row.event_id);
+  bind_text(stmt, 13, row.source_table);
+  bind_text(stmt, 14, row.source_key);
+  bind_text(stmt, 15, row.connection_id);
+  bind_text(stmt, 16, row.op_id);
+  bind_int64(stmt, 17, row.start_ns);
+  bind_int64(stmt, 18, row.end_ns);
+  bind_double(stmt, 19, row.dur_us);
+  bind_text(stmt, 20, row.validation_status);
+  bind_double(stmt, 21, row.confidence);
+
+  const int rc = sqlite3_step(stmt.get());
+  if (rc != SQLITE_DONE) {
+    throw std::runtime_error(
+        "failed to insert compatibility collective link row: " +
+        std::string(sqlite3_errmsg(stmt.db())));
+  }
+  sqlite3_reset(stmt.get());
+  sqlite3_clear_bindings(stmt.get());
+}
+
+void insert_global_collective_summary_row(
+    SqliteStmt& stmt,
+    const GlobalCollectiveSummarySqlRow& row) {
+  bind_text(stmt, 1, row.candidate_collective_key);
+  bind_text(stmt, 2, row.pair_id);
+  bind_int64(stmt, 3, row.occurrence_idx);
+  bind_text(stmt, 4, row.op_type);
+  bind_int64(stmt, 5, row.idx_in_occurrence);
+  bind_int64(stmt, 6, row.member_count);
+  bind_int64(stmt, 7, row.expected_world_size);
+  bind_double(stmt, 8, row.start_skew_us);
+  bind_double(stmt, 9, row.duration_skew_us);
+  bind_text(stmt, 10, row.connection_ids);
+  bind_text(stmt, 11, row.op_ids);
+  bind_text(stmt, 12, row.members);
+  bind_text(stmt, 13, row.missing_members);
+  bind_text(stmt, 14, row.validation_status);
+  bind_double(stmt, 15, row.confidence);
+
+  const int rc = sqlite3_step(stmt.get());
+  if (rc != SQLITE_DONE) {
+    throw std::runtime_error(
+        "failed to insert compatibility global collective summary row: " +
+        std::string(sqlite3_errmsg(stmt.db())));
+  }
+  sqlite3_reset(stmt.get());
+  sqlite3_clear_bindings(stmt.get());
+}
+
+void insert_global_collective_member_row(
+    SqliteStmt& stmt,
+    const GlobalCollectiveMemberSqlRow& row) {
+  bind_text(stmt, 1, row.candidate_collective_key);
+  bind_text(stmt, 2, row.db_name);
+  bind_int64(stmt, 3, row.db_idx);
+  bind_int64(stmt, 4, row.device_id);
+  bind_text(stmt, 5, row.member_id);
+  bind_text(stmt, 6, row.pair_id);
+  bind_text(stmt, 7, row.local_node_id);
+  bind_int64(stmt, 8, row.occurrence_idx);
+  bind_int64(stmt, 9, row.idx_in_occurrence);
+  bind_text(stmt, 10, row.op_type);
+  bind_text(stmt, 11, row.anchor_id);
+  bind_text(stmt, 12, row.event_id);
+  bind_text(stmt, 13, row.source_table);
+  bind_text(stmt, 14, row.source_key);
+  bind_text(stmt, 15, row.connection_id);
+  bind_text(stmt, 16, row.op_id);
+  bind_int64(stmt, 17, row.start_ns);
+  bind_int64(stmt, 18, row.end_ns);
+  bind_double(stmt, 19, row.dur_us);
+  bind_text(stmt, 20, row.validation_status);
+  bind_double(stmt, 21, row.confidence);
+
+  const int rc = sqlite3_step(stmt.get());
+  if (rc != SQLITE_DONE) {
+    throw std::runtime_error(
+        "failed to insert compatibility global collective member row: " +
+        std::string(sqlite3_errmsg(stmt.db())));
+  }
+  sqlite3_reset(stmt.get());
+  sqlite3_clear_bindings(stmt.get());
+}
+
 void insert_semantic_tree_header_row(SqliteStmt& stmt,
                                      const SemanticTreeHeaderSqlRow& row) {
   bind_text(stmt, 1, row.tree_id);
@@ -1410,6 +1509,97 @@ void replace_graph_replay_rows(const std::string& sqlite_path,
     }
 
     materialize_cuda_graph_views(db);
+    db.exec("COMMIT");
+  } catch (...) {
+    try {
+      db.exec("ROLLBACK");
+    } catch (...) {
+    }
+    throw;
+  }
+#else
+  (void)sqlite_path;
+  (void)rows;
+  throw std::runtime_error(
+      "compatibility sidecar writer requires SQLite support");
+#endif
+}
+
+void replace_collective_global_link_rows(
+    const std::string& sqlite_path,
+    const std::vector<CollectiveGlobalLinkSqlRow>& rows) {
+#if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
+  materialize_compatibility_schema(sqlite_path,
+                                   {collective_global_link_table_schema()});
+
+  SqliteDb db(sqlite_path);
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.exec("DELETE FROM traceloom_collective_global_link");
+    SqliteStmt stmt(
+        db.get(),
+        "INSERT INTO traceloom_collective_global_link ("
+        "candidate_collective_key, db_name, db_idx, device_id, member_id, "
+        "pair_id, local_node_id, occurrence_idx, idx_in_occurrence, op_type, "
+        "anchor_id, event_id, source_table, source_key, connection_id, op_id, "
+        "start_ns, end_ns, dur_us, validation_status, confidence"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+        "?, ?)");
+    for (const CollectiveGlobalLinkSqlRow& row : rows) {
+      insert_collective_global_link_row(stmt, row);
+    }
+    db.exec("COMMIT");
+  } catch (...) {
+    try {
+      db.exec("ROLLBACK");
+    } catch (...) {
+    }
+    throw;
+  }
+#else
+  (void)sqlite_path;
+  (void)rows;
+  throw std::runtime_error(
+      "compatibility sidecar writer requires SQLite support");
+#endif
+}
+
+void replace_global_collective_rows(const std::string& sqlite_path,
+                                    const GlobalCollectiveSqlRows& rows) {
+#if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
+  materialize_global_collective_compatibility_schema(sqlite_path);
+
+  SqliteDb db(sqlite_path);
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.exec("DELETE FROM traceloom_global_collective_member");
+    db.exec("DELETE FROM traceloom_global_collective_summary");
+
+    SqliteStmt summary_stmt(
+        db.get(),
+        "INSERT INTO traceloom_global_collective_summary ("
+        "candidate_collective_key, pair_id, occurrence_idx, op_type, "
+        "idx_in_occurrence, member_count, expected_world_size, start_skew_us, "
+        "duration_skew_us, connection_ids, op_ids, members, missing_members, "
+        "validation_status, confidence"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    for (const GlobalCollectiveSummarySqlRow& row : rows.summaries) {
+      insert_global_collective_summary_row(summary_stmt, row);
+    }
+
+    SqliteStmt member_stmt(
+        db.get(),
+        "INSERT INTO traceloom_global_collective_member ("
+        "candidate_collective_key, db_name, db_idx, device_id, member_id, "
+        "pair_id, local_node_id, occurrence_idx, idx_in_occurrence, op_type, "
+        "anchor_id, event_id, source_table, source_key, connection_id, op_id, "
+        "start_ns, end_ns, dur_us, validation_status, confidence"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+        "?, ?)");
+    for (const GlobalCollectiveMemberSqlRow& row : rows.members) {
+      insert_global_collective_member_row(member_stmt, row);
+    }
+
     db.exec("COMMIT");
   } catch (...) {
     try {
