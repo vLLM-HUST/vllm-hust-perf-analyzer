@@ -11,7 +11,9 @@
 #include "traceloom/adapters/aclgraph_fixture_adapter.h"
 #include "traceloom/adapters/aclgraph_fixture_reader.h"
 #include "traceloom/analysis/native_pipeline.h"
+#include "traceloom/compat/anchor_cost_breakdown_rows.h"
 #include "traceloom/compat/native_sidecar_materializer.h"
+#include "traceloom/compat/sidecar_writer.h"
 #include "traceloom/ir/native_ir.h"
 #include "traceloom/materialize/native_result_json.h"
 #include "traceloom/report/anchor_internal_cost_breakdown.h"
@@ -152,6 +154,9 @@ int main(int argc, char** argv) {
       sidecar_options.source_path = json_options.source_path;
       traceloom::compat::write_basic_native_compatibility_sidecar(
           cli.compat_sidecar_out_path, ir, sidecar_options);
+      traceloom::compat::replace_anchor_cost_breakdown_rows(
+          cli.compat_sidecar_out_path,
+          traceloom::compat::build_anchor_cost_breakdown_sql_rows(breakdown));
     }
     traceloom::write_native_result_json(first_pass, ir.symbols, pipeline,
                                         json_options);
