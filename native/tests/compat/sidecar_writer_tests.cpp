@@ -4,6 +4,7 @@
 
 #include <sqlite3.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
@@ -68,6 +69,32 @@ std::vector<ColumnInfo> load_columns(const std::string& path,
   return columns;
 }
 
+std::vector<std::string> load_sqlite_master_names(const std::string& path,
+                                                  const std::string& type) {
+  sqlite3* db = nullptr;
+  int rc = sqlite3_open_v2(path.c_str(), &db, SQLITE_OPEN_READONLY, nullptr);
+  traceloom::testing::require(rc == SQLITE_OK);
+
+  sqlite3_stmt* raw_stmt = nullptr;
+  rc = sqlite3_prepare_v2(
+      db,
+      "SELECT name FROM sqlite_master WHERE type = ? ORDER BY name",
+      -1, &raw_stmt, nullptr);
+  traceloom::testing::require(rc == SQLITE_OK);
+  rc = sqlite3_bind_text(raw_stmt, 1, type.c_str(), -1, SQLITE_TRANSIENT);
+  traceloom::testing::require(rc == SQLITE_OK);
+
+  std::vector<std::string> names;
+  while ((rc = sqlite3_step(raw_stmt)) == SQLITE_ROW) {
+    const unsigned char* name = sqlite3_column_text(raw_stmt, 0);
+    names.push_back(name == nullptr ? "" : reinterpret_cast<const char*>(name));
+  }
+  traceloom::testing::require(rc == SQLITE_DONE);
+  sqlite3_finalize(raw_stmt);
+  sqlite3_close(db);
+  return names;
+}
+
 std::string sqlite_text(sqlite3_stmt* stmt, int column) {
   const unsigned char* value = sqlite3_column_text(stmt, column);
   return value == nullptr ? "" : reinterpret_cast<const char*>(value);
@@ -121,6 +148,14 @@ int main() {
   traceloom::compat::materialize_compatibility_schema(db_path);
   traceloom::compat::materialize_compatibility_schema(db_path);
 
+  std::vector<std::string> expected_tables;
+  for (const traceloom::compat::CompatTableSchema& table_schema :
+       traceloom::compat::compatibility_table_schemas()) {
+    expected_tables.push_back(table_schema.name);
+  }
+  std::sort(expected_tables.begin(), expected_tables.end());
+  require(load_sqlite_master_names(db_path, "table") == expected_tables);
+
   const traceloom::compat::CompatTableSchema& schema =
       traceloom::compat::anchor_cost_breakdown_table_schema();
   const std::vector<ColumnInfo> columns = load_columns(db_path, schema.name);
@@ -146,6 +181,23 @@ int main() {
     rejected_bad_schema = true;
   }
   require(rejected_bad_schema);
+
+  traceloom::compat::materialize_report_compatibility_views(db_path);
+  require(load_sqlite_master_names(db_path, "table") == expected_tables);
+  require(load_sqlite_master_names(db_path, "view") ==
+          std::vector<std::string>({
+              "traceloom_tree_node_anchor",
+              "traceloom_tree_node_occurrence",
+              "traceloom_v_cuda_graph_envelope",
+              "traceloom_v_cuda_graph_replay",
+              "traceloom_v_node_anchor_cost",
+              "traceloom_v_node_aux_cost",
+              "traceloom_v_node_children",
+              "traceloom_v_node_cost",
+              "traceloom_v_semantic_tree_node",
+              "traceloom_v_semantic_tree_readable",
+              "traceloom_v_tree_node",
+          }));
 
   std::vector<traceloom::compat::AnchorCostBreakdownSqlRow> rows(2);
   rows[0].anchor_idx = 2;
