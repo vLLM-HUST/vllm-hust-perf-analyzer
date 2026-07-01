@@ -557,6 +557,81 @@ int main() {
                          "SELECT COUNT(*) FROM "
                          "traceloom_anchor_primary_node") == 0);
 
+  traceloom::compat::SemanticTreeHeaderSqlRow semantic_tree;
+  semantic_tree.tree_id = "semantic-tree-1";
+  semantic_tree.view_name = "semantic_tree";
+  semantic_tree.tree_kind = "semantic";
+  semantic_tree.stem = "root";
+  semantic_tree.root_node_id = "semantic-node-root";
+  semantic_tree.schema_version = "v1";
+  semantic_tree.semantic_projection = "compat-test";
+  semantic_tree.macro_discovery = "fixture";
+  semantic_tree.readable_macro_mode = "compact";
+  semantic_tree.auxiliary_attribution = "visible";
+  traceloom::compat::replace_semantic_tree_catalog_rows(db_path,
+                                                        {semantic_tree});
+  require(run_scalar_int(db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_semantic_tree") == 1);
+
+  traceloom::compat::SemanticGraphSqlRows semantic_graph_rows;
+  traceloom::compat::SemanticNodeSqlRow semantic_root;
+  semantic_root.node_id = semantic_tree.root_node_id;
+  semantic_root.tree_id = semantic_tree.tree_id;
+  semantic_root.view_name = semantic_tree.view_name;
+  semantic_root.tree_kind = semantic_tree.tree_kind;
+  semantic_root.local_node_id = "N001";
+  semantic_root.path = "root";
+  semantic_root.node_type = "loop";
+  semantic_root.semantic_kind = "repeat";
+  semantic_root.label = "root";
+  semantic_root.occurrence_count = 1;
+  semantic_root.anchor_count = 1;
+  semantic_graph_rows.nodes.push_back(semantic_root);
+  traceloom::compat::SemanticNodeSqlRow semantic_child = semantic_root;
+  semantic_child.node_id = "semantic-node-child";
+  semantic_child.local_node_id = "N002";
+  semantic_child.parent_node_id = semantic_root.node_id;
+  semantic_child.parent_local_node_id = semantic_root.local_node_id;
+  semantic_child.preorder_idx = 1;
+  semantic_child.sibling_order = 0;
+  semantic_child.path = "root/child";
+  semantic_child.depth = 1;
+  semantic_child.display_depth = 1;
+  semantic_child.node_type = "op";
+  semantic_child.semantic_kind = "compute";
+  semantic_child.label = "MatMul";
+  semantic_graph_rows.nodes.push_back(semantic_child);
+  traceloom::compat::SemanticEdgeSqlRow semantic_edge;
+  semantic_edge.parent_node_id = semantic_root.node_id;
+  semantic_edge.child_node_id = semantic_child.node_id;
+  semantic_edge.tree_id = semantic_tree.tree_id;
+  semantic_edge.view_name = semantic_tree.view_name;
+  semantic_edge.tree_kind = semantic_tree.tree_kind;
+  semantic_edge.edge_order = 0;
+  semantic_edge.edge_kind = "child";
+  semantic_graph_rows.edges.push_back(semantic_edge);
+  traceloom::compat::replace_semantic_graph_rows(db_path,
+                                                 semantic_graph_rows);
+  require(run_scalar_int(db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_semantic_node") == 2);
+  require(run_scalar_int(db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_semantic_edge") == 1);
+  traceloom::compat::replace_semantic_graph_rows(
+      db_path, traceloom::compat::SemanticGraphSqlRows{});
+  require(run_scalar_int(db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_semantic_node") == 0);
+  require(run_scalar_int(db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_semantic_edge") == 0);
+  traceloom::compat::replace_semantic_tree_catalog_rows(db_path, {});
+  require(run_scalar_int(db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_semantic_tree") == 0);
+
   std::vector<traceloom::compat::CollectiveGlobalLinkSqlRow> local_links(2);
   local_links[0].candidate_collective_key = "collective-1";
   local_links[0].db_name = "db00.traceloom_augmented.db";

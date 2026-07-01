@@ -431,6 +431,11 @@ struct SemanticTreeSqlRows {
   std::vector<SemanticEdgeSqlRow> edges;
 };
 
+struct SemanticGraphSqlRows {
+  std::vector<SemanticNodeSqlRow> nodes;
+  std::vector<SemanticEdgeSqlRow> edges;
+};
+
 void materialize_compatibility_schema(const std::string& sqlite_path);
 
 void materialize_compatibility_schema(
@@ -488,6 +493,13 @@ void replace_collective_global_link_rows(
 
 void replace_global_collective_rows(const std::string& sqlite_path,
                                     const GlobalCollectiveSqlRows& rows);
+
+void replace_semantic_tree_catalog_rows(
+    const std::string& sqlite_path,
+    const std::vector<SemanticTreeHeaderSqlRow>& rows);
+
+void replace_semantic_graph_rows(const std::string& sqlite_path,
+                                 const SemanticGraphSqlRows& rows);
 
 void replace_semantic_tree_rows(const std::string& sqlite_path,
                                 const SemanticTreeSqlRows& rows);
