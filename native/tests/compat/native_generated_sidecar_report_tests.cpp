@@ -131,8 +131,10 @@ void materialize_repeat_fixture_sidecar(const std::string& db_path) {
   traceloom::NativeIr ir;
   const traceloom::SourceRefId source =
       ir.source_refs.append("fixture", "memory", "TASK", 0);
+  const traceloom::SymbolId memcpy = ir.symbols.intern("Memcpy");
   const traceloom::SymbolId matmul = ir.symbols.intern("MatMul");
 
+  ir.trace_events.append(source, 0, 0, 3, 500, 800, memcpy);
   const traceloom::TraceEventId event0 =
       ir.trace_events.append(source, 1, 0, 3, 1000, 2000, matmul);
   const traceloom::TraceEventId event1 =
@@ -210,6 +212,14 @@ int main() {
               repeat_db_path,
               "SELECT COUNT(*) FROM traceloom_viz_node "
               "WHERE repeat_count IS NOT NULL") > 0);
+  require(run_scalar_int(
+              repeat_db_path,
+              "SELECT COUNT(*) FROM traceloom_viz_node "
+              "WHERE aux_events > 0 AND aux_us > 0") > 0);
+  require(run_scalar_int(
+              repeat_db_path,
+              "SELECT COUNT(*) FROM traceloom_semantic_node "
+              "WHERE aux_event_count > 0 AND aux_us > 0") > 0);
 
   std::remove(repeat_db_path.c_str());
   return 0;

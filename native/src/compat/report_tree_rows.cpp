@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "traceloom/compat/anchor_sequence_rows.h"
+#include "traceloom/compat/aux_attribution_rows.h"
 #include "traceloom/report/report_tree_builder.h"
 
 namespace traceloom::compat {
@@ -107,7 +108,38 @@ struct NodeAccum {
   double compute_us = 0.0;
   double comm_us = 0.0;
   double self_us = 0.0;
+  double aux_event_count = 0.0;
+  double aux_us = 0.0;
 };
+
+struct AuxAttributionIndex {
+  std::map<std::string, std::vector<const AuxLinkSqlRow*>> links_by_anchor;
+};
+
+AuxAttributionIndex build_aux_attribution_index(
+    const AuxAttributionSqlRows& aux_rows) {
+  AuxAttributionIndex out;
+  for (const AuxLinkSqlRow& link : aux_rows.aux_links) {
+    out.links_by_anchor[link.anchor_id].push_back(&link);
+  }
+  return out;
+}
+
+void add_aux_for_anchor(NodeAccum& accum,
+                        const AuxAttributionIndex& aux_index,
+                        AnchorId anchor_id) {
+  if (!anchor_id.valid()) {
+    return;
+  }
+  const auto found = aux_index.links_by_anchor.find(anchor_compat_id(anchor_id));
+  if (found == aux_index.links_by_anchor.end()) {
+    return;
+  }
+  for (const AuxLinkSqlRow* link : found->second) {
+    accum.aux_event_count += 1.0;
+    accum.aux_us += link->aux_dur_us;
+  }
+}
 
 std::vector<std::uint32_t> occurrence_counts_by_def(const ReportTree& tree) {
   std::vector<std::uint32_t> out(tree.node_defs.size(), 0);
@@ -123,7 +155,8 @@ std::vector<std::uint32_t> occurrence_counts_by_def(const ReportTree& tree) {
 
 std::vector<NodeAccum> accumulate_nodes(
     const ReportTree& tree,
-    const std::vector<ReportToken>& tokens) {
+    const std::vector<ReportToken>& tokens,
+    const AuxAttributionIndex& aux_index) {
   std::vector<NodeAccum> out(tree.node_defs.size());
   const std::vector<std::uint32_t> occurrence_counts =
       occurrence_counts_by_def(tree);
@@ -148,6 +181,7 @@ std::vector<NodeAccum> accumulate_nodes(
       const ReportToken& token = tokens[token_index];
       const std::uint32_t anchor_idx = anchor_idx_for_token(token);
       if (accum.token_ordinals.insert(token_index).second) {
+        add_aux_for_anchor(accum, aux_index, token.anchor_id);
         if (accum.first_anchor_idx == 0 ||
             (anchor_idx != 0 && anchor_idx < accum.first_anchor_idx)) {
           accum.first_anchor_idx = anchor_idx;
@@ -275,10 +309,22 @@ NodeCoverageSqlRows build_report_tree_node_coverage_sql_rows(
     const std::vector<ReportToken>& tokens,
     std::uint32_t db_idx,
     std::string view_name) {
+  return build_report_tree_node_coverage_sql_rows(
+      tree, tokens, AuxAttributionSqlRows{}, db_idx, std::move(view_name));
+}
+
+NodeCoverageSqlRows build_report_tree_node_coverage_sql_rows(
+    const ReportTree& tree,
+    const std::vector<ReportToken>& tokens,
+    const AuxAttributionSqlRows& aux_rows,
+    std::uint32_t db_idx,
+    std::string view_name) {
   validate_report_tree_or_throw(tree, static_cast<std::uint32_t>(tokens.size()));
 
   NodeCoverageSqlRows rows;
-  const std::vector<NodeAccum> accum = accumulate_nodes(tree, tokens);
+  const AuxAttributionIndex aux_index = build_aux_attribution_index(aux_rows);
+  const std::vector<NodeAccum> accum =
+      accumulate_nodes(tree, tokens, aux_index);
   const auto first_occurrences = first_occurrence_by_def(tree);
 
   rows.nodes.reserve(tree.node_defs.size());
@@ -322,6 +368,8 @@ NodeCoverageSqlRows build_report_tree_node_coverage_sql_rows(
     row.avg_comm_us = node_accum.comm_us / occurrence_count;
     row.avg_total_us = total_us / occurrence_count;
     row.self_us = node_accum.self_us;
+    row.aux_events = node_accum.aux_event_count;
+    row.aux_us = node_accum.aux_us;
     rows.nodes.push_back(std::move(row));
 
     if (def.kind == ReportNodeKind::kRepeat) {
@@ -417,8 +465,10 @@ NodeCoverageSqlRows build_native_report_tree_node_coverage_sql_rows(
     std::string view_name) {
   const std::vector<ReportToken> tokens = build_report_tokens_from_native_ir(ir);
   const ReportTree tree = build_report_tree_from_tokens(tokens);
-  return build_report_tree_node_coverage_sql_rows(tree, tokens, db_idx,
-                                                  std::move(view_name));
+  const AuxAttributionSqlRows aux_rows =
+      build_aux_attribution_sql_rows(ir, db_idx);
+  return build_report_tree_node_coverage_sql_rows(
+      tree, tokens, aux_rows, db_idx, std::move(view_name));
 }
 
 SemanticTreeSqlRows build_report_tree_semantic_sql_rows(
@@ -427,10 +477,24 @@ SemanticTreeSqlRows build_report_tree_semantic_sql_rows(
     std::uint32_t db_idx,
     std::string tree_id,
     std::string view_name) {
+  return build_report_tree_semantic_sql_rows(
+      tree, tokens, AuxAttributionSqlRows{}, db_idx, std::move(tree_id),
+      std::move(view_name));
+}
+
+SemanticTreeSqlRows build_report_tree_semantic_sql_rows(
+    const ReportTree& tree,
+    const std::vector<ReportToken>& tokens,
+    const AuxAttributionSqlRows& aux_rows,
+    std::uint32_t db_idx,
+    std::string tree_id,
+    std::string view_name) {
   validate_report_tree_or_throw(tree, static_cast<std::uint32_t>(tokens.size()));
 
   SemanticTreeSqlRows rows;
-  const std::vector<NodeAccum> accum = accumulate_nodes(tree, tokens);
+  const AuxAttributionIndex aux_index = build_aux_attribution_index(aux_rows);
+  const std::vector<NodeAccum> accum =
+      accumulate_nodes(tree, tokens, aux_index);
   const auto first_occurrences = first_occurrence_by_def(tree);
 
   SemanticTreeHeaderSqlRow header;
@@ -444,7 +508,8 @@ SemanticTreeSqlRows build_report_tree_semantic_sql_rows(
   header.semantic_projection = "native_report_tree";
   header.macro_discovery = "native_report_tree";
   header.readable_macro_mode = "native_report_tree";
-  header.auxiliary_attribution = "not_materialized";
+  header.auxiliary_attribution =
+      aux_rows.aux_links.empty() ? "none" : "native_aux_attribution";
   if (!tree.node_defs.empty()) {
     header.root_node_id = node_id_for_def(tree.node_defs.front());
   }
@@ -492,6 +557,8 @@ SemanticTreeSqlRows build_report_tree_semantic_sql_rows(
     row.avg_comm_us = node_accum.comm_us / occurrence_count;
     row.avg_total_us = total_us / occurrence_count;
     row.self_us = node_accum.self_us;
+    row.aux_event_count = node_accum.aux_event_count;
+    row.aux_us = node_accum.aux_us;
 
     if (occurrence_found != first_occurrences.end()) {
       const ReportNodeOccurrence& occurrence =
@@ -545,9 +612,10 @@ SemanticTreeSqlRows build_native_report_tree_semantic_sql_rows(
     std::string view_name) {
   const std::vector<ReportToken> tokens = build_report_tokens_from_native_ir(ir);
   const ReportTree tree = build_report_tree_from_tokens(tokens);
-  return build_report_tree_semantic_sql_rows(tree, tokens, db_idx,
-                                             std::move(tree_id),
-                                             std::move(view_name));
+  const AuxAttributionSqlRows aux_rows =
+      build_aux_attribution_sql_rows(ir, db_idx);
+  return build_report_tree_semantic_sql_rows(
+      tree, tokens, aux_rows, db_idx, std::move(tree_id), std::move(view_name));
 }
 
 }  // namespace traceloom::compat
