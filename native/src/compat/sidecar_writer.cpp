@@ -909,6 +909,11 @@ void materialize_tree_node_view(SqliteDb& db) {
       "n.avg_comm_us, "
       "n.avg_idle_us, "
       "n.avg_total_us, "
+      "COALESCE(n.compute_us, 0.0) + COALESCE(n.comm_us, 0.0) "
+      "AS active_us, "
+      "ROUND((COALESCE(n.compute_us, 0.0) + COALESCE(n.comm_us, 0.0)) / "
+      "CASE WHEN COALESCE(n.occurrence_count, 0) = 0 THEN 1 ELSE "
+      "n.occurrence_count END, 3) AS avg_active_us, "
       "n.self_us, "
       "ROUND(COALESCE(n.self_us, 0.0) / CASE WHEN "
       "COALESCE(n.occurrence_count, 0) = 0 THEN 1 ELSE "
@@ -961,6 +966,12 @@ void materialize_tree_node_view(SqliteDb& db) {
       "child.avg_comm_us, "
       "child.avg_idle_us, "
       "child.avg_total_us, "
+      "COALESCE(child.compute_us, 0.0) + COALESCE(child.comm_us, 0.0) "
+      "AS active_us, "
+      "ROUND((COALESCE(child.compute_us, 0.0) + "
+      "COALESCE(child.comm_us, 0.0)) / CASE WHEN "
+      "COALESCE(child.occurrence_count, 0) = 0 THEN 1 ELSE "
+      "child.occurrence_count END, 3) AS avg_active_us, "
       "child.self_us, "
       "ROUND(COALESCE(child.self_us, 0.0) / CASE WHEN "
       "COALESCE(child.occurrence_count, 0) = 0 THEN 1 ELSE "
@@ -1125,6 +1136,22 @@ void materialize_compatibility_schema(
 #endif
 }
 
+#if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
+void drop_report_compatibility_views(SqliteDb& db) {
+  db.exec("DROP VIEW IF EXISTS traceloom_v_semantic_tree_readable");
+  db.exec("DROP VIEW IF EXISTS traceloom_v_semantic_tree_node");
+  db.exec("DROP VIEW IF EXISTS traceloom_v_tree_node");
+  db.exec("DROP VIEW IF EXISTS traceloom_v_node_children");
+  db.exec("DROP VIEW IF EXISTS traceloom_v_node_cost");
+  db.exec("DROP VIEW IF EXISTS traceloom_v_node_aux_cost");
+  db.exec("DROP VIEW IF EXISTS traceloom_v_node_anchor_cost");
+  db.exec("DROP VIEW IF EXISTS traceloom_tree_node_occurrence");
+  db.exec("DROP VIEW IF EXISTS traceloom_tree_node_anchor");
+  db.exec("DROP VIEW IF EXISTS traceloom_v_cuda_graph_envelope");
+  db.exec("DROP VIEW IF EXISTS traceloom_v_cuda_graph_replay");
+}
+#endif
+
 void materialize_report_compatibility_views(const std::string& sqlite_path) {
 #if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
   materialize_compatibility_schema(sqlite_path);
@@ -1132,6 +1159,7 @@ void materialize_report_compatibility_views(const std::string& sqlite_path) {
   SqliteDb db(sqlite_path);
   db.exec("BEGIN IMMEDIATE");
   try {
+    drop_report_compatibility_views(db);
     materialize_report_compatibility_indexes(db);
     materialize_cuda_graph_views(db);
     materialize_tree_node_anchor_view(db);
