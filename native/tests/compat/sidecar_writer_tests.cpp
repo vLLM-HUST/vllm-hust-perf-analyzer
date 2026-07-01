@@ -741,6 +741,34 @@ int main() {
   require(run_scalar_int(global_rows_db_path,
                          "SELECT COUNT(*) FROM "
                          "traceloom_global_collective_member") == 0);
+  traceloom::compat::replace_global_collective_member_rows(global_rows_db_path,
+                                                           {member});
+  require(run_scalar_int(global_rows_db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_global_collective_member") == 1);
+  require(run_scalar_int(global_rows_db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_global_collective_summary") == 1);
+  summary.validation_status = "partial";
+  traceloom::compat::replace_global_collective_summary_rows(
+      global_rows_db_path, {summary});
+  require(run_scalar_text(global_rows_db_path,
+                          "SELECT validation_status FROM "
+                          "traceloom_global_collective_summary") ==
+          "partial");
+  require(run_scalar_int(global_rows_db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_global_collective_member") == 1);
+  traceloom::compat::replace_global_collective_member_rows(
+      global_rows_db_path, {});
+  traceloom::compat::replace_global_collective_summary_rows(
+      global_rows_db_path, {});
+  require(run_scalar_int(global_rows_db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_global_collective_member") == 0);
+  require(run_scalar_int(global_rows_db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_global_collective_summary") == 0);
   std::remove(global_rows_db_path.c_str());
 
   bool rejected_bad_schema = false;

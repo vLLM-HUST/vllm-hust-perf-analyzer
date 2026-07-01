@@ -494,6 +494,14 @@ void replace_collective_global_link_rows(
     const std::string& sqlite_path,
     const std::vector<CollectiveGlobalLinkSqlRow>& rows);
 
+void replace_global_collective_summary_rows(
+    const std::string& sqlite_path,
+    const std::vector<GlobalCollectiveSummarySqlRow>& rows);
+
+void replace_global_collective_member_rows(
+    const std::string& sqlite_path,
+    const std::vector<GlobalCollectiveMemberSqlRow>& rows);
+
 void replace_global_collective_rows(const std::string& sqlite_path,
                                     const GlobalCollectiveSqlRows& rows);
 
