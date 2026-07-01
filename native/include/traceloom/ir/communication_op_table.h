@@ -17,6 +17,9 @@ struct CommunicationOpRow {
   std::uint32_t linked_task_count = 0;
   std::uint32_t linked_stream_count = 0;
   SymbolId op_name_symbol_id;
+  SymbolId op_type_symbol_id;
+  SymbolId linked_task_name_symbol_id;
+  SymbolId linked_task_type_symbol_id;
 };
 
 class CommunicationOpTable {
@@ -27,7 +30,12 @@ class CommunicationOpTable {
                            std::int64_t raw_op_id,
                            std::uint32_t linked_task_count,
                            std::uint32_t linked_stream_count,
-                           SymbolId op_name_symbol_id);
+                           SymbolId op_name_symbol_id,
+                           SymbolId op_type_symbol_id = SymbolId::invalid(),
+                           SymbolId linked_task_name_symbol_id =
+                               SymbolId::invalid(),
+                           SymbolId linked_task_type_symbol_id =
+                               SymbolId::invalid());
 
   std::size_t size() const noexcept { return rows_.size(); }
   bool empty() const noexcept { return rows_.empty(); }

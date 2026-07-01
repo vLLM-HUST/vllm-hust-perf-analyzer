@@ -55,6 +55,7 @@ int main(int argc, char** argv) {
     pipeline_options.anchor_config.skipped_task_type_symbols = {"CAPTURE_WAIT"};
     pipeline_options.anchor_config.skip_tasks_covered_by_communication_ops =
         true;
+    pipeline_options.anchor_config.filter_auxiliary_task_anchors = true;
     const traceloom::NativePipelineResult pipeline =
         traceloom::run_native_pipeline(ir, pipeline_options);
     std::vector<traceloom::CandidateSummaryRow> top_candidates =
@@ -85,7 +86,8 @@ int main(int argc, char** argv) {
     std::cout << "trace_events=" << ir.trace_events.size() << "\n";
     std::cout << "tasks=" << ir.tasks.size() << "\n";
     std::cout << "communication_ops=" << ir.communication_ops.size() << "\n";
-    std::cout << "anchor_projection=raw_event_bootstrap\n";
+    std::cout << "anchor_projection="
+              << pipeline.anchor_stats.projection_kind << "\n";
     std::cout << "anchors=" << ir.anchors.size() << "\n";
     std::cout << "tokens=" << ir.tokens.size() << "\n";
     std::cout << "device_event_anchors="

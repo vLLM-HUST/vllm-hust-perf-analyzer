@@ -88,6 +88,7 @@ struct ComputeInfo {
 
 struct CommunicationTaskInfo {
   SymbolId comm_name_symbol_id = SymbolId::invalid();
+  SymbolId task_type_symbol_id = SymbolId::invalid();
 };
 
 struct LinkedTaskStats {
@@ -95,6 +96,8 @@ struct LinkedTaskStats {
   std::uint32_t linked_stream_count = 0;
   std::uint64_t primary_stream_id = 0;
   bool has_primary_stream = false;
+  SymbolId linked_task_name_symbol_id;
+  SymbolId linked_task_type_symbol_id;
 };
 
 using StreamIndex = std::unordered_map<std::uint64_t, StreamId>;
@@ -103,6 +106,8 @@ struct TaskLink {
   std::uint64_t stream_id = 0;
   std::int64_t start_ns = 0;
   std::int64_t end_ns = 0;
+  SymbolId comm_name_symbol_id;
+  SymbolId comm_task_type_symbol_id;
 };
 
 using TaskLinkIndex = std::unordered_map<std::uint64_t, std::vector<TaskLink>>;
@@ -142,6 +147,28 @@ std::string decode_string_id(
     return found->second;
   }
   return std::to_string(raw_id);
+}
+
+bool table_has_column(SqliteDb& db,
+                      const std::string& table_name,
+                      const std::string& column_name) {
+  const std::string sql = "PRAGMA table_info(" + table_name + ")";
+  SqliteStmt stmt(db.get(), sql.c_str());
+  while (true) {
+    const int rc = sqlite3_step(stmt.get());
+    if (rc == SQLITE_ROW) {
+      if (sqlite_text(stmt.get(), 1) == column_name) {
+        return true;
+      }
+      continue;
+    }
+    if (rc == SQLITE_DONE) {
+      break;
+    }
+    throw std::runtime_error("failed to inspect Ascend SQLite table columns: " +
+                             std::string(sqlite3_errmsg(stmt.db())));
+  }
+  return false;
 }
 
 std::unordered_map<std::int64_t, std::string> load_string_ids(SqliteDb& db,
@@ -218,13 +245,19 @@ std::unordered_map<std::int64_t, CommunicationTaskInfo>
 load_communication_task_info(
     SqliteDb& db,
     NativeIr& ir,
-    const std::unordered_map<std::int64_t, std::string>& string_ids) {
-  static constexpr const char* kSql =
-      "SELECT globalTaskId, MIN(name) "
-      "FROM COMMUNICATION_TASK_INFO "
-      "GROUP BY globalTaskId "
-      "ORDER BY globalTaskId";
-  SqliteStmt stmt(db.get(), kSql);
+    const std::unordered_map<std::int64_t, std::string>& string_ids,
+    bool has_task_type_column) {
+  const std::string sql =
+      has_task_type_column
+          ? "SELECT globalTaskId, MIN(name), MIN(taskType) "
+            "FROM COMMUNICATION_TASK_INFO "
+            "GROUP BY globalTaskId "
+            "ORDER BY globalTaskId"
+          : "SELECT globalTaskId, MIN(name), NULL "
+            "FROM COMMUNICATION_TASK_INFO "
+            "GROUP BY globalTaskId "
+            "ORDER BY globalTaskId";
+  SqliteStmt stmt(db.get(), sql.c_str());
   std::unordered_map<std::int64_t, CommunicationTaskInfo> out;
   while (true) {
     const int rc = sqlite3_step(stmt.get());
@@ -235,6 +268,8 @@ load_communication_task_info(
       CommunicationTaskInfo info;
       info.comm_name_symbol_id =
           intern_optional_string_id(ir, string_ids, stmt.get(), 1);
+      info.task_type_symbol_id =
+          intern_optional_string_id(ir, string_ids, stmt.get(), 2);
       out.emplace(sqlite_i64(stmt.get(), 0), info);
       continue;
     }
@@ -303,8 +338,6 @@ void load_task_rows(
       const std::int64_t raw_task_type_id = sqlite_i64(stmt.get(), 8);
       const SymbolId task_type_symbol =
           ir.symbols.intern(decode_string_id(string_ids, raw_task_type_id));
-      task_links[connection_key(device_id, raw_connection_id)].push_back(
-          TaskLink{raw_stream_id, start_ns, end_ns});
       const auto compute_found = compute_info.find(raw_global_task_id);
       const ComputeInfo compute =
           compute_found == compute_info.end() ? ComputeInfo()
@@ -315,6 +348,9 @@ void load_task_rows(
           comm_task_found == communication_task_info.end()
               ? CommunicationTaskInfo()
               : comm_task_found->second;
+      task_links[connection_key(device_id, raw_connection_id)].push_back(
+          TaskLink{raw_stream_id, start_ns, end_ns, comm_task.comm_name_symbol_id,
+                   comm_task.task_type_symbol_id});
 
       const StreamId stream =
           find_or_append_stream(streams, ir, task_table_ref, device_id,
@@ -359,6 +395,14 @@ LinkedTaskStats linked_task_stats_from_index(const TaskLinkIndex& task_links,
           static_cast<std::uint64_t>(std::max<std::int64_t>(
               0, std::min(task.end_ns, end_ns) -
                      std::max(task.start_ns, start_ns)));
+      if (!stats.linked_task_name_symbol_id.valid() &&
+          task.comm_name_symbol_id.valid()) {
+        stats.linked_task_name_symbol_id = task.comm_name_symbol_id;
+      }
+      if (!stats.linked_task_type_symbol_id.valid() &&
+          task.comm_task_type_symbol_id.valid()) {
+        stats.linked_task_type_symbol_id = task.comm_task_type_symbol_id;
+      }
     }
   }
 
@@ -379,24 +423,36 @@ void load_communication_op_rows(
     StreamIndex& streams,
     const TaskLinkIndex& task_links,
     const std::unordered_map<std::int64_t, std::string>& string_ids,
-    SourceRefId comm_table_ref) {
-  static constexpr const char* kSql =
-      "SELECT rowid, opName, startNs, endNs, deviceId, connectionId, opId "
-      "FROM COMMUNICATION_OP "
-      "WHERE startNs IS NOT NULL AND endNs IS NOT NULL AND endNs > startNs "
-      "ORDER BY deviceId, startNs, endNs, connectionId";
-  SqliteStmt stmt(db.get(), kSql);
+    SourceRefId comm_table_ref,
+    bool has_op_type_column) {
+  const std::string sql =
+      has_op_type_column
+          ? "SELECT rowid, opName, opType, startNs, endNs, deviceId, "
+            "connectionId, opId "
+            "FROM COMMUNICATION_OP "
+            "WHERE startNs IS NOT NULL AND endNs IS NOT NULL AND endNs > "
+            "startNs "
+            "ORDER BY deviceId, startNs, endNs, connectionId"
+          : "SELECT rowid, opName, NULL AS opType, startNs, endNs, deviceId, "
+            "connectionId, opId "
+            "FROM COMMUNICATION_OP "
+            "WHERE startNs IS NOT NULL AND endNs IS NOT NULL AND endNs > "
+            "startNs "
+            "ORDER BY deviceId, startNs, endNs, connectionId";
+  SqliteStmt stmt(db.get(), sql.c_str());
   while (true) {
     const int rc = sqlite3_step(stmt.get());
     if (rc == SQLITE_ROW) {
       const std::uint64_t row_id = sqlite_u64(stmt.get(), 0);
       const SymbolId op_name_symbol =
           intern_optional_string_id(ir, string_ids, stmt.get(), 1);
-      const std::int64_t start_ns = sqlite_i64(stmt.get(), 2, 0);
-      const std::int64_t end_ns = sqlite_i64(stmt.get(), 3, 0);
-      const std::uint32_t device_id = sqlite_u32(stmt.get(), 4);
-      const std::int64_t connection_id = sqlite_i64(stmt.get(), 5);
-      const std::int64_t op_id = sqlite_i64(stmt.get(), 6);
+      const SymbolId op_type_symbol =
+          intern_optional_string_id(ir, string_ids, stmt.get(), 2);
+      const std::int64_t start_ns = sqlite_i64(stmt.get(), 3, 0);
+      const std::int64_t end_ns = sqlite_i64(stmt.get(), 4, 0);
+      const std::uint32_t device_id = sqlite_u32(stmt.get(), 5);
+      const std::int64_t connection_id = sqlite_i64(stmt.get(), 6);
+      const std::int64_t op_id = sqlite_i64(stmt.get(), 7);
       const LinkedTaskStats linked =
           linked_task_stats_from_index(task_links, device_id, connection_id,
                                        start_ns, end_ns);
@@ -415,7 +471,10 @@ void load_communication_op_rows(
                                  op_name_symbol);
       ir.communication_ops.append(comm_table_ref, event, connection_id, op_id,
                                   linked.linked_task_count,
-                                  linked.linked_stream_count, op_name_symbol);
+                                  linked.linked_stream_count, op_name_symbol,
+                                  op_type_symbol,
+                                  linked.linked_task_name_symbol_id,
+                                  linked.linked_task_type_symbol_id);
       continue;
     }
     if (rc == SQLITE_DONE) {
@@ -492,7 +551,10 @@ NativeIr AscendSQLiteAdapter::load() const {
       communication_task_info =
           table_refs.find("COMMUNICATION_TASK_INFO") == table_refs.end()
               ? std::unordered_map<std::int64_t, CommunicationTaskInfo>()
-              : load_communication_task_info(db, ir, string_ids);
+              : load_communication_task_info(
+                    db, ir, string_ids,
+                    table_has_column(db, "COMMUNICATION_TASK_INFO",
+                                     "taskType"));
   StreamIndex streams;
   TaskLinkIndex task_links;
   if (table_refs.find("TASK") != table_refs.end()) {
@@ -501,7 +563,9 @@ NativeIr AscendSQLiteAdapter::load() const {
   }
   if (table_refs.find("COMMUNICATION_OP") != table_refs.end()) {
     load_communication_op_rows(db, ir, streams, task_links, string_ids,
-                               table_refs.at("COMMUNICATION_OP"));
+                               table_refs.at("COMMUNICATION_OP"),
+                               table_has_column(db, "COMMUNICATION_OP",
+                                                "opType"));
   }
 
   return ir;

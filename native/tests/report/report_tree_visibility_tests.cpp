@@ -1,3 +1,4 @@
+#include "traceloom/pattern/grammar_state.h"
 #include "traceloom/report/report_tree_builder.h"
 #include "traceloom/testing/test_util.h"
 
@@ -62,6 +63,45 @@ int main() {
           3);
   require(macro_tree.diagnostics.empty());
   validate_report_tree_or_throw(macro_tree, macro_run_tokens.size());
+
+  GlobalGrammarState grammar_state_run;
+  grammar_state_run.stage = GrammarStage::kDone;
+  grammar_state_run.nodes = {
+      GrammarNode{GrammarNodeId(0), SymbolId(100), MacroDefId(0), 0, 2, 0, 20,
+                  GrammarChunkId(0), GrammarNodeId::invalid(),
+                  GrammarNodeId(1), true},
+      GrammarNode{GrammarNodeId(1), SymbolId(100), MacroDefId(0), 2, 4, 20, 40,
+                  GrammarChunkId(0), GrammarNodeId(0), GrammarNodeId(2),
+                  true},
+      GrammarNode{GrammarNodeId(2), SymbolId(100), MacroDefId(0), 4, 6, 40, 60,
+                  GrammarChunkId(0), GrammarNodeId(1),
+                  GrammarNodeId::invalid(), true},
+  };
+  grammar_state_run.chunks = {GrammarChunk{
+      GrammarChunkId(0), 0, 0, GrammarNodeId(0), GrammarNodeId(2), 3, 0}};
+  grammar_state_run.macro_defs = {
+      MacroDefRow{MacroDefId(0), SymbolId(100), MacroLevel::kRP, {a, b}, 2, 3,
+                  2, 0}};
+  grammar_state_run.live_node_count = 3;
+
+  const ReportTree grammar_state_tree =
+      build_report_tree_from_grammar_state(macro_run_tokens,
+                                           grammar_state_run);
+  require(grammar_state_tree.node_defs.size() == 4);
+  require(grammar_state_tree.node_defs[1].kind == ReportNodeKind::kRepeat);
+  require(grammar_state_tree.node_defs[1].display_op == "Rep x3");
+  require(grammar_state_tree.node_defs[1].repeat_count == 3);
+  require(grammar_state_tree.node_defs[2].display_op == "A");
+  require(grammar_state_tree.node_defs[3].display_op == "B");
+  require(occurrence_count_for_def(grammar_state_tree,
+                                   grammar_state_tree.node_defs[2].id) == 3);
+  require(occurrence_count_for_def(grammar_state_tree,
+                                   grammar_state_tree.node_defs[3].id) == 3);
+  for (std::size_t index = 2; index < grammar_state_tree.node_defs.size();
+       ++index) {
+    require(grammar_state_tree.node_defs[index].kind == ReportNodeKind::kAtom);
+  }
+  validate_report_tree_or_throw(grammar_state_tree, macro_run_tokens.size());
 
   const std::vector<ReportToken> inline_tokens{
       token(0, a, "A"),

@@ -209,6 +209,14 @@ int main() {
                           "traceloom_collective_global_link "
                           "ORDER BY idx_in_occurrence LIMIT 1")
               .find("collective_smoke:LP_M002_01_") == 0);
+  require(run_scalar_int(collective_db_path,
+                         "SELECT COUNT(*) FROM traceloom_viz_node "
+                         "WHERE kind = 'atom' AND symbol = 'HcclAllReduce'") ==
+          1);
+  require(run_scalar_int(collective_db_path,
+                         "SELECT occurrence_count FROM traceloom_viz_node "
+                         "WHERE kind = 'atom' AND symbol = 'HcclAllReduce'") ==
+          4);
 
   std::remove(collective_db_path.c_str());
   return 0;

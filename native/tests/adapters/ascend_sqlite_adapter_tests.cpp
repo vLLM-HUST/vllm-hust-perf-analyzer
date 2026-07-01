@@ -45,6 +45,7 @@ void create_minimal_db(const std::string& path) {
                     "(21, 'MatMul'), "
                     "(22, 'MIX_AIC'), "
                     "(30, 'hcclAllReduce'), "
+                    "(31, 'hcom_allReduce_'), "
                     "(40, 'comm_task_hccl_allreduce');"
                     "CREATE TABLE TASK("
                     "startNs INTEGER, "
@@ -73,21 +74,24 @@ void create_minimal_db(const std::string& path) {
                     "(9001, 20, 21, 22);"
                     "CREATE TABLE COMMUNICATION_TASK_INFO("
                     "globalTaskId INTEGER, "
-                    "name INTEGER);"
-                    "INSERT INTO COMMUNICATION_TASK_INFO(globalTaskId, name) "
+                    "name INTEGER, "
+                    "taskType INTEGER);"
+                    "INSERT INTO COMMUNICATION_TASK_INFO(globalTaskId, name, "
+                    "taskType) "
                     "VALUES "
-                    "(9002, 40);"
+                    "(9002, 40, 31);"
                     "CREATE TABLE COMMUNICATION_OP("
                     "opName INTEGER, "
+                    "opType INTEGER, "
                     "startNs INTEGER, "
                     "endNs INTEGER, "
                     "connectionId INTEGER, "
                     "groupName INTEGER, "
                     "opId INTEGER, "
                     "deviceId INTEGER);"
-                    "INSERT INTO COMMUNICATION_OP(opName, startNs, endNs, "
-                    "connectionId, groupName, opId, deviceId) VALUES "
-                    "(30, 90, 165, 700, NULL, 55, 0);",
+                    "INSERT INTO COMMUNICATION_OP(opName, opType, startNs, "
+                    "endNs, connectionId, groupName, opId, deviceId) VALUES "
+                    "(30, 31, 165, 215, 701, NULL, 55, 0);",
                     nullptr, nullptr, &error);
   if (rc != SQLITE_OK) {
     std::cerr << "failed to create test table: "
@@ -125,7 +129,7 @@ int main() {
     }
   }
   require(found_test_table, "adapter inventory did not include test table");
-  require(ir.strings.size() == 7, "adapter did not load STRING_IDS values");
+  require(ir.strings.size() == 8, "adapter did not load STRING_IDS values");
   require(ir.streams.size() == 1, "adapter did not normalize streams");
   require(ir.trace_events.size() == 3, "adapter did not load TASK/COMM events");
   require(ir.tasks.size() == 2, "adapter did not load TASK facts");
@@ -175,7 +179,7 @@ int main() {
               TraceEventId(2),
           "COMMUNICATION_OP trace event id mismatch");
   require(ir.communication_ops.row(CommunicationOpId(0)).raw_connection_id ==
-              700,
+              701,
           "COMMUNICATION_OP connection id mismatch");
   require(ir.communication_ops.row(CommunicationOpId(0)).raw_op_id == 55,
           "COMMUNICATION_OP op id mismatch");
@@ -189,6 +193,18 @@ int main() {
               ir.communication_ops.row(CommunicationOpId(0)).op_name_symbol_id) ==
               "hcclAllReduce",
           "COMMUNICATION_OP op name decode mismatch");
+  require(ir.symbols.value(
+              ir.communication_ops.row(CommunicationOpId(0)).op_type_symbol_id) ==
+              "hcom_allReduce_",
+          "COMMUNICATION_OP op type decode mismatch");
+  require(ir.symbols.value(ir.communication_ops.row(CommunicationOpId(0))
+                               .linked_task_name_symbol_id) ==
+              "comm_task_hccl_allreduce",
+          "COMMUNICATION_OP linked task name mismatch");
+  require(ir.symbols.value(ir.communication_ops.row(CommunicationOpId(0))
+                               .linked_task_type_symbol_id) ==
+              "hcom_allReduce_",
+          "COMMUNICATION_OP linked task type mismatch");
 
   bool caught_missing = false;
   try {

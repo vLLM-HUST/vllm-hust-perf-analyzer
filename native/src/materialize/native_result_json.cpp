@@ -166,7 +166,9 @@ void write_native_result_json(std::ostream& out,
   out << "  },\n";
 
   out << "  \"anchor_projection\": {\n";
-  out << "    \"kind\": \"raw_event_bootstrap\",\n";
+  out << "    \"kind\": ";
+  write_json_string(out, result.anchor_stats.projection_kind);
+  out << ",\n";
   out << "    \"device_event_anchors\": "
       << result.anchor_stats.device_event_anchors << ",\n";
   out << "    \"communication_anchors\": "

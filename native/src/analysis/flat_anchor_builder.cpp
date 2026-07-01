@@ -1,6 +1,7 @@
 #include "traceloom/analysis/flat_anchor_builder.h"
 
 #include <algorithm>
+#include <cctype>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -32,6 +33,188 @@ SymbolId choose_task_symbol(const TaskRow& task) {
     return task.comm_name_symbol_id;
   }
   return task.task_type_symbol_id;
+}
+
+std::string symbol_text(const NativeIr& ir, SymbolId id) {
+  return id.valid() ? ir.symbols.value(id) : std::string();
+}
+
+std::string lower_ascii(std::string value) {
+  for (char& ch : value) {
+    ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+  }
+  return value;
+}
+
+std::string normalize_task_key(std::string value) {
+  for (char& ch : value) {
+    if (std::isalnum(static_cast<unsigned char>(ch))) {
+      ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+    } else {
+      ch = '_';
+    }
+  }
+  while (value.find("__") != std::string::npos) {
+    value.replace(value.find("__"), 2, "_");
+  }
+  while (!value.empty() && value.front() == '_') {
+    value.erase(value.begin());
+  }
+  while (!value.empty() && value.back() == '_') {
+    value.pop_back();
+  }
+  return value;
+}
+
+bool contains_any(const std::string& text,
+                  const std::vector<std::string>& needles) {
+  for (const std::string& needle : needles) {
+    if (text.find(needle) != std::string::npos) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool is_device_allreduce_label(const std::string& lower_text) {
+  return contains_any(lower_text,
+                      {"aiv_all_reduce", "aiv_allreduce", "aic_all_reduce",
+                       "aic_allreduce", "all_reduce_bfloat16",
+                       "allreduce_bfloat16"});
+}
+
+bool is_opaque_collective_instance_label(const std::string& text) {
+  if (text.empty() ||
+      !std::isdigit(static_cast<unsigned char>(text.front()))) {
+    return false;
+  }
+  bool saw_underscore = false;
+  for (char ch : text) {
+    if (ch == '_') {
+      saw_underscore = true;
+      continue;
+    }
+    if (!std::isdigit(static_cast<unsigned char>(ch))) {
+      return false;
+    }
+  }
+  return saw_underscore;
+}
+
+SymbolId choose_communication_symbol(NativeIr& ir,
+                                     const CommunicationOpRow& comm) {
+  if (!comm.op_name_symbol_id.valid() && !comm.op_type_symbol_id.valid() &&
+      !comm.linked_task_name_symbol_id.valid() &&
+      !comm.linked_task_type_symbol_id.valid()) {
+    return SymbolId::invalid();
+  }
+  const std::string label = symbol_text(ir, comm.op_name_symbol_id);
+  const std::string op_type = symbol_text(ir, comm.op_type_symbol_id);
+  const std::string linked_task_name =
+      symbol_text(ir, comm.linked_task_name_symbol_id);
+  const std::string linked_task_type =
+      symbol_text(ir, comm.linked_task_type_symbol_id);
+  const std::string lower_blob =
+      lower_ascii(label + " " + op_type + " " + linked_task_name + " " +
+                  linked_task_type);
+  if (contains_any(lower_blob, {"allreduce", "all_reduce"}) ||
+      is_opaque_collective_instance_label(label)) {
+    return ir.symbols.intern("AllReduce");
+  }
+  if (contains_any(lower_blob, {"reducescatter", "reduce_scatter"})) {
+    return ir.symbols.intern("ReduceScatter");
+  }
+  if (contains_any(lower_blob, {"allgather", "all_gather"})) {
+    return ir.symbols.intern("AllGather");
+  }
+  if (contains_any(lower_blob, {"broadcast"})) {
+    return ir.symbols.intern("Broadcast");
+  }
+  if (contains_any(lower_blob,
+                   {"alltoall", "all_to_all", "all-to-all", "all2all",
+                    "a2a"})) {
+    return ir.symbols.intern("AllToAll");
+  }
+  if (comm.op_type_symbol_id.valid()) {
+    return comm.op_type_symbol_id;
+  }
+  if (comm.linked_task_type_symbol_id.valid()) {
+    return comm.linked_task_type_symbol_id;
+  }
+  if (comm.linked_task_name_symbol_id.valid()) {
+    return comm.linked_task_name_symbol_id;
+  }
+  return comm.op_name_symbol_id;
+}
+
+SymbolId choose_task_anchor_symbol(NativeIr& ir, const TaskRow& task) {
+  const SymbolId symbol = choose_task_symbol(task);
+  const std::string blob = lower_ascii(
+      symbol_text(ir, symbol) + " " + symbol_text(ir, task.op_name_symbol_id) +
+      " " + symbol_text(ir, task.op_type_symbol_id) + " " +
+      symbol_text(ir, task.compute_task_type_symbol_id) + " " +
+      symbol_text(ir, task.task_type_symbol_id));
+  if (is_device_allreduce_label(blob)) {
+    return ir.symbols.intern("AIV_AllReduce");
+  }
+  return symbol;
+}
+
+bool is_hccl_sync_label(const std::string& lower_text) {
+  return contains_any(lower_text, {"hccl_aiv_sync", "hccl_aic_sync",
+                                   "aiv_sync", "aic_sync"});
+}
+
+bool is_collective_label(const std::string& lower_text) {
+  return lower_text.find("nccl") != std::string::npos ||
+         contains_any(lower_text,
+                      {"allreduce", "all_reduce", "allgather", "all_gather",
+                       "reducescatter", "reduce_scatter", "broadcast",
+                       "alltoall", "all_to_all", "all-to-all", "all2all",
+                       "a2a"}) ||
+         is_device_allreduce_label(lower_text);
+}
+
+bool is_semantic_anchor_task(const NativeIr& ir, const TaskRow& task) {
+  const std::string task_type =
+      normalize_task_key(symbol_text(ir, task.task_type_symbol_id));
+  if (task_type == "MODEL_MAINTAINCE" || task_type == "MODEL_MAINTENANCE") {
+    return false;
+  }
+
+  const std::string label = symbol_text(ir, choose_task_symbol(task));
+  const std::string blob = lower_ascii(
+      label + " " + symbol_text(ir, task.op_name_symbol_id) + " " +
+      symbol_text(ir, task.op_type_symbol_id) + " " +
+      symbol_text(ir, task.compute_task_type_symbol_id) + " " +
+      symbol_text(ir, task.task_type_symbol_id));
+
+  if (is_hccl_sync_label(blob)) {
+    return false;
+  }
+  if (is_collective_label(blob)) {
+    return true;
+  }
+
+  const std::unordered_set<std::string> control_task_types{
+      "AI_CORE",       "MODEL_EXECUTE", "CAPTURE_RECORD",
+      "CAPTURE_WAIT",  "EVENT_RECORD",  "EVENT_WAIT",
+      "MEM_WRITE_VALUE", "MEMCPY",      "MEMCPY_ASYNC",
+      "NOTIFY",        "NOTIFY_RECORD", "NOTIFY_WAIT",
+      "SDMA",          "TASK_TIMEOUT_SET", "WRITE_VALUE"};
+  if (control_task_types.find(task_type) != control_task_types.end()) {
+    return false;
+  }
+
+  if (contains_any(blob, {"matmul", "batchmatmul", "gemm", "conv",
+                          "flashattention", "fusedinferattention",
+                          "pagedattention", "attention", "rmsnorm",
+                          "rms_norm", "layernorm", "layer_norm", "swiglu",
+                          "siluandmul", "moe", "ffn", "rotary", "rope"})) {
+    return true;
+  }
+
+  return false;
 }
 
 void validate_task_trace_event_refs(const TaskTable& tasks,
@@ -180,6 +363,9 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
   std::vector<AnchorCandidate> candidates;
   candidates.reserve(ir.tasks.size() + ir.communication_ops.size());
   FlatAnchorBuildStats stats;
+  if (config.filter_auxiliary_task_anchors) {
+    stats.projection_kind = "anchor_compute_collective_only";
+  }
 
   for (const TaskRow& task : ir.tasks.rows()) {
     if (!task.trace_event_id.valid()) {
@@ -194,13 +380,18 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
       ++stats.skipped_task_events;
       continue;
     }
+    if (config.filter_auxiliary_task_anchors &&
+        !is_semantic_anchor_task(ir, task)) {
+      ++stats.skipped_task_events;
+      continue;
+    }
     if (comm_event_ids.find(task.trace_event_id.value()) !=
         comm_event_ids.end()) {
       continue;
     }
     candidates.push_back(
         AnchorCandidate{task.trace_event_id, AnchorKind::kDeviceEvent,
-                        choose_task_symbol(task)});
+                        choose_task_anchor_symbol(ir, task)});
   }
 
   for (const CommunicationOpRow& comm : ir.communication_ops.rows()) {
@@ -209,7 +400,7 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
     }
     candidates.push_back(
         AnchorCandidate{comm.trace_event_id, AnchorKind::kCommunication,
-                        comm.op_name_symbol_id});
+                        choose_communication_symbol(ir, comm)});
   }
 
   std::sort(candidates.begin(), candidates.end(),

@@ -42,11 +42,13 @@ int main() {
   require(ir.anchors.size() == 3);
   require(ir.tokens.size() == 3);
 
+  const SymbolId normalized_all_reduce =
+      ir.symbols.intern("AllReduce");
   require(ir.anchors.row(AnchorId(0)).kind == AnchorKind::kCommunication);
   require(ir.anchors.row(AnchorId(0)).trace_event_id == comm_event);
-  require(ir.anchors.row(AnchorId(0)).symbol_id == all_reduce);
+  require(ir.anchors.row(AnchorId(0)).symbol_id == normalized_all_reduce);
   require(ir.tokens.row(TokenId(0)).sequence_index == 0);
-  require(ir.tokens.row(TokenId(0)).symbol_id == all_reduce);
+  require(ir.tokens.row(TokenId(0)).symbol_id == normalized_all_reduce);
 
   require(ir.anchors.row(AnchorId(1)).kind == AnchorKind::kDeviceEvent);
   require(ir.anchors.row(AnchorId(1)).trace_event_id == task0);
@@ -74,12 +76,22 @@ int main() {
   const SymbolId skip_symbol = filtered.symbols.intern("CAPTURE_WAIT");
   const SymbolId keep_symbol = filtered.symbols.intern("MatMul");
   const SymbolId comm_symbol = filtered.symbols.intern("hcclAllReduce");
+  const SymbolId event_wait_symbol = filtered.symbols.intern("EVENT_WAIT");
+  const SymbolId memcpy_symbol = filtered.symbols.intern("MEMCPY_ASYNC");
+  const SymbolId maintenance_symbol =
+      filtered.symbols.intern("MODEL_MAINTAINCE");
   const TraceEventId skipped_task_event = filtered.trace_events.append(
       filtered_task_source, 201, 0, 3, 0, 10, skip_symbol);
   const TraceEventId covered_task_event = filtered.trace_events.append(
       filtered_task_source, 202, 0, 3, 20, 30, keep_symbol);
   const TraceEventId kept_task_event = filtered.trace_events.append(
       filtered_task_source, 203, 0, 3, 40, 50, keep_symbol);
+  const TraceEventId event_wait_task_event = filtered.trace_events.append(
+      filtered_task_source, 204, 0, 3, 60, 70, event_wait_symbol);
+  const TraceEventId memcpy_task_event = filtered.trace_events.append(
+      filtered_task_source, 205, 0, 3, 80, 90, memcpy_symbol);
+  const TraceEventId maintenance_task_event = filtered.trace_events.append(
+      filtered_task_source, 206, 0, 3, 100, 110, maintenance_symbol);
   const TraceEventId filtered_comm_event = filtered.trace_events.append(
       filtered_comm_source, 1, 0, 3, 18, 32, comm_symbol);
   filtered.tasks.append(filtered_task_source, skipped_task_event, 21, 9201,
@@ -92,19 +104,80 @@ int main() {
   filtered.tasks.append(filtered_task_source, kept_task_event, 23, 9203, 802,
                         keep_symbol, SymbolId::invalid(), keep_symbol,
                         SymbolId::invalid(), SymbolId::invalid());
+  filtered.tasks.append(filtered_task_source, event_wait_task_event, 24, 9204,
+                        803, event_wait_symbol, SymbolId::invalid(),
+                        SymbolId::invalid(), SymbolId::invalid(),
+                        SymbolId::invalid());
+  filtered.tasks.append(filtered_task_source, memcpy_task_event, 25, 9205, 804,
+                        memcpy_symbol, SymbolId::invalid(),
+                        SymbolId::invalid(), SymbolId::invalid(),
+                        SymbolId::invalid());
+  filtered.tasks.append(filtered_task_source, maintenance_task_event, 26, 9206,
+                        805, maintenance_symbol, SymbolId::invalid(),
+                        SymbolId::invalid(), SymbolId::invalid(),
+                        SymbolId::invalid());
   filtered.communication_ops.append(filtered_comm_source, filtered_comm_event,
                                     801, 66, 1, 1, comm_symbol);
   FlatAnchorBuildConfig filter_config;
   filter_config.skipped_task_type_symbols = {"CAPTURE_WAIT"};
   filter_config.skip_tasks_covered_by_communication_ops = true;
+  filter_config.filter_auxiliary_task_anchors = true;
   const FlatAnchorBuildStats filtered_stats =
       build_flat_anchors(filtered, filter_config);
-  require(filtered_stats.skipped_task_events == 2);
+  require(filtered_stats.skipped_task_events == 5);
   require(filtered_stats.device_event_anchors == 1);
   require(filtered_stats.communication_anchors == 1);
   require(filtered.tokens.size() == 2);
   require(filtered.anchors.row(AnchorId(0)).kind == AnchorKind::kCommunication);
+  require(filtered.anchors.row(AnchorId(0)).symbol_id ==
+          filtered.symbols.intern("AllReduce"));
   require(filtered.anchors.row(AnchorId(1)).trace_event_id == kept_task_event);
+
+  NativeIr normalized_comm;
+  const SourceRefId normalized_comm_source =
+      normalized_comm.source_refs.append("fixture", "memory",
+                                         "COMMUNICATION_OP", 0);
+  const SymbolId unique_all_reduce0 =
+      normalized_comm.symbols.intern("hcom_allReduce__503_0_1");
+  const SymbolId unique_all_reduce1 =
+      normalized_comm.symbols.intern("hcom_allReduce__503_1_1");
+  const TraceEventId comm_event0 = normalized_comm.trace_events.append(
+      normalized_comm_source, 301, 0, 7, 0, 10, unique_all_reduce0);
+  const TraceEventId comm_event1 = normalized_comm.trace_events.append(
+      normalized_comm_source, 302, 0, 7, 20, 30, unique_all_reduce1);
+  normalized_comm.communication_ops.append(normalized_comm_source, comm_event0,
+                                           900, 1, 1, 1,
+                                           unique_all_reduce0);
+  normalized_comm.communication_ops.append(normalized_comm_source, comm_event1,
+                                           901, 2, 1, 1,
+                                           unique_all_reduce1);
+  const FlatAnchorBuildStats normalized_comm_stats =
+      build_flat_anchors(normalized_comm);
+  require(normalized_comm_stats.communication_anchors == 2);
+  require(normalized_comm.tokens.size() == 2);
+  require(normalized_comm.tokens.row(TokenId(0)).symbol_id ==
+          normalized_comm.tokens.row(TokenId(1)).symbol_id);
+  require(normalized_comm.symbols.value(
+              normalized_comm.tokens.row(TokenId(0)).symbol_id) ==
+          "AllReduce");
+
+  NativeIr normalized_aiv;
+  const SourceRefId normalized_aiv_source =
+      normalized_aiv.source_refs.append("fixture", "memory", "TASK", 0);
+  const SymbolId aiv_all_reduce =
+      normalized_aiv.symbols.intern("aiv_all_reduce_bfloat16_t");
+  const TraceEventId aiv_event = normalized_aiv.trace_events.append(
+      normalized_aiv_source, 401, 0, 9, 0, 10, aiv_all_reduce);
+  normalized_aiv.tasks.append(normalized_aiv_source, aiv_event, 31, 9301, -1,
+                              aiv_all_reduce, SymbolId::invalid(),
+                              aiv_all_reduce, SymbolId::invalid(),
+                              SymbolId::invalid());
+  const FlatAnchorBuildStats normalized_aiv_stats =
+      build_flat_anchors(normalized_aiv);
+  require(normalized_aiv_stats.device_event_anchors == 1);
+  require(normalized_aiv.symbols.value(
+              normalized_aiv.tokens.row(TokenId(0)).symbol_id) ==
+          "AIV_AllReduce");
 
   return 0;
 }

@@ -136,6 +136,7 @@ int main(int argc, char** argv) {
     pipeline_options.anchor_config.skipped_task_type_symbols = {"CAPTURE_WAIT"};
     pipeline_options.anchor_config.skip_tasks_covered_by_communication_ops =
         true;
+    pipeline_options.anchor_config.filter_auxiliary_task_anchors = true;
 
     const traceloom::NativePipelineResult pipeline =
         traceloom::run_native_pipeline(ir, pipeline_options);

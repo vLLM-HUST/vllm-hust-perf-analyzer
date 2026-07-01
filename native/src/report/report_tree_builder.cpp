@@ -220,6 +220,21 @@ struct GrammarReportLowering {
   std::map<SymbolId::value_type, const MacroDefRow*> macro_by_symbol;
 };
 
+struct GrammarTemplateChild;
+
+struct GrammarSubtreeTemplate {
+  ReportNodeDefId def_id;
+  SymbolId atom_symbol;
+  std::uint32_t span_len = 0;
+  bool transparent = false;
+  std::vector<GrammarTemplateChild> children;
+};
+
+struct GrammarTemplateChild {
+  GrammarSubtreeTemplate subtree;
+  std::uint32_t span_len = 0;
+};
+
 std::uint32_t expanded_symbol_len(const GrammarReportLowering& lowering,
                                   SymbolId symbol,
                                   std::unordered_set<SymbolId::value_type>&
@@ -257,26 +272,43 @@ bool lp_macro_is_uniform(const MacroDefRow& macro) {
   return true;
 }
 
-void append_grammar_symbol_tree(ReportTree& tree,
-                                const GrammarReportLowering& lowering,
-                                SymbolId symbol,
-                                ReportNodeOccurrenceId parent_id,
-                                std::uint32_t edge_order,
-                                std::uint32_t token_start,
-                                std::uint32_t token_end,
-                                std::uint32_t repeat_iteration,
-                                std::uint32_t display_depth,
-                                std::uint32_t loop_depth);
+std::uint32_t append_grammar_symbol_tree(ReportTree& tree,
+                                         const GrammarReportLowering& lowering,
+                                         SymbolId symbol,
+                                         ReportNodeOccurrenceId parent_id,
+                                         std::uint32_t edge_order,
+                                         std::uint32_t token_start,
+                                         std::uint32_t token_end,
+                                         std::uint32_t repeat_iteration,
+                                         std::uint32_t display_depth,
+                                         std::uint32_t loop_depth);
 
-void append_grammar_atom(ReportTree& tree,
-                         const GrammarReportLowering& lowering,
-                         SymbolId symbol,
-                         ReportNodeOccurrenceId parent_id,
-                         std::uint32_t edge_order,
-                         std::uint32_t token_start,
-                         std::uint32_t repeat_iteration,
-                         std::uint32_t display_depth,
-                         std::uint32_t loop_depth) {
+GrammarSubtreeTemplate build_grammar_template(ReportTree& tree,
+                                              const GrammarReportLowering&
+                                                  lowering,
+                                              SymbolId symbol,
+                                              std::uint32_t display_depth,
+                                              std::uint32_t loop_depth);
+
+std::uint32_t append_grammar_template_occurrence(
+    ReportTree& tree,
+    const GrammarReportLowering& lowering,
+    const GrammarSubtreeTemplate& subtree,
+    ReportNodeOccurrenceId parent_id,
+    std::uint32_t edge_order,
+    std::uint32_t token_start,
+    std::uint32_t token_end,
+    std::uint32_t repeat_iteration);
+
+std::uint32_t append_grammar_atom(ReportTree& tree,
+                                  const GrammarReportLowering& lowering,
+                                  SymbolId symbol,
+                                  ReportNodeOccurrenceId parent_id,
+                                  std::uint32_t edge_order,
+                                  std::uint32_t token_start,
+                                  std::uint32_t repeat_iteration,
+                                  std::uint32_t display_depth,
+                                  std::uint32_t loop_depth) {
   if (token_start >= lowering.tokens.size()) {
     throw std::invalid_argument("grammar atom token span is out of range");
   }
@@ -288,52 +320,45 @@ void append_grammar_atom(ReportTree& tree,
                                  loop_depth, "grammar_state_atom");
   append_atom_occurrence(tree, lowering.tokens[token_start], parent_id,
                          edge_order, token_start, repeat_iteration, atom_def);
+  return edge_order + 1;
 }
 
-void append_grammar_macro_seq(ReportTree& tree,
-                              const GrammarReportLowering& lowering,
-                              const MacroDefRow& macro,
-                              ReportNodeOccurrenceId parent_id,
-                              std::uint32_t edge_order,
-                              std::uint32_t token_start,
-                              std::uint32_t token_end,
-                              std::uint32_t repeat_iteration,
-                              std::uint32_t display_depth,
-                              std::uint32_t loop_depth) {
-  const ReportNodeDefId seq_def =
-      append_def(tree, ReportNodeKind::kSeq, "Seq", "", macro.symbol_id, 0,
-                 display_depth, loop_depth, "grammar_state_macro");
-  const ReportNodeOccurrenceId seq_occurrence = append_occurrence(
-      tree, seq_def, parent_id, edge_order, token_start, token_end,
-      repeat_iteration);
-  append_coverage(tree, seq_occurrence, token_start, token_end,
-                  ReportCoverageKind::kDirectBody);
-
+std::uint32_t append_grammar_macro_inline(
+    ReportTree& tree,
+    const GrammarReportLowering& lowering,
+    const MacroDefRow& macro,
+    ReportNodeOccurrenceId parent_id,
+    std::uint32_t edge_order,
+    std::uint32_t token_start,
+    std::uint32_t token_end,
+    std::uint32_t repeat_iteration,
+    std::uint32_t display_depth,
+    std::uint32_t loop_depth) {
   std::uint32_t cursor = token_start;
-  std::uint32_t child_order = 1;
+  std::uint32_t child_order = edge_order;
   for (SymbolId rhs_symbol : macro.rhs_symbols) {
     const std::uint32_t span_len = expanded_symbol_len(lowering, rhs_symbol);
-    append_grammar_symbol_tree(tree, lowering, rhs_symbol, seq_occurrence,
-                               child_order++, cursor, cursor + span_len,
-                               repeat_iteration, display_depth + 1,
-                               loop_depth);
+    child_order = append_grammar_symbol_tree(
+        tree, lowering, rhs_symbol, parent_id, child_order, cursor,
+        cursor + span_len, repeat_iteration, display_depth, loop_depth);
     cursor += span_len;
   }
   if (cursor != token_end) {
-    throw std::invalid_argument("grammar macro seq did not consume its span");
+    throw std::invalid_argument("grammar macro inline did not consume its span");
   }
+  return child_order;
 }
 
-void append_grammar_macro_repeat(ReportTree& tree,
-                                 const GrammarReportLowering& lowering,
-                                 const MacroDefRow& macro,
-                                 ReportNodeOccurrenceId parent_id,
-                                 std::uint32_t edge_order,
-                                 std::uint32_t token_start,
-                                 std::uint32_t token_end,
-                                 std::uint32_t repeat_iteration,
-                                 std::uint32_t display_depth,
-                                 std::uint32_t loop_depth) {
+std::uint32_t append_grammar_macro_repeat(ReportTree& tree,
+                                          const GrammarReportLowering& lowering,
+                                          const MacroDefRow& macro,
+                                          ReportNodeOccurrenceId parent_id,
+                                          std::uint32_t edge_order,
+                                          std::uint32_t token_start,
+                                          std::uint32_t token_end,
+                                          std::uint32_t repeat_iteration,
+                                          std::uint32_t display_depth,
+                                          std::uint32_t loop_depth) {
   const SymbolId body_symbol = macro.rhs_symbols.front();
   const std::uint32_t body_len = expanded_symbol_len(lowering, body_symbol);
   const std::uint32_t repeat_count =
@@ -352,46 +377,220 @@ void append_grammar_macro_repeat(ReportTree& tree,
   append_coverage(tree, repeat_occurrence, token_start, token_end,
                   ReportCoverageKind::kDirectBody);
 
+  const GrammarSubtreeTemplate body_template = build_grammar_template(
+      tree, lowering, body_symbol, display_depth + 1, loop_depth + 1);
   std::uint32_t cursor = token_start;
+  std::uint32_t child_order = 1;
   for (std::uint32_t index = 0; index < repeat_count; ++index) {
-    append_grammar_symbol_tree(tree, lowering, body_symbol, repeat_occurrence,
-                               index + 1, cursor, cursor + body_len,
-                               index + 1, display_depth + 1, loop_depth + 1);
+    child_order = append_grammar_template_occurrence(
+        tree, lowering, body_template, repeat_occurrence, child_order, cursor,
+        cursor + body_len, index + 1);
     cursor += body_len;
   }
+  return edge_order + 1;
 }
 
-void append_grammar_symbol_tree(ReportTree& tree,
-                                const GrammarReportLowering& lowering,
-                                SymbolId symbol,
-                                ReportNodeOccurrenceId parent_id,
-                                std::uint32_t edge_order,
-                                std::uint32_t token_start,
-                                std::uint32_t token_end,
-                                std::uint32_t repeat_iteration,
-                                std::uint32_t display_depth,
-                                std::uint32_t loop_depth) {
+std::uint32_t append_grammar_symbol_run_repeat(
+    ReportTree& tree,
+    const GrammarReportLowering& lowering,
+    SymbolId body_symbol,
+    std::uint32_t repeat_count,
+    ReportNodeOccurrenceId parent_id,
+    std::uint32_t edge_order,
+    std::uint32_t token_start,
+    std::uint32_t token_end,
+    std::uint32_t repeat_iteration,
+    std::uint32_t display_depth,
+    std::uint32_t loop_depth) {
+  const std::uint32_t body_len = expanded_symbol_len(lowering, body_symbol);
+  if (body_len == 0 ||
+      token_start + body_len * repeat_count != token_end) {
+    throw std::invalid_argument("grammar symbol run span length mismatch");
+  }
+
+  const ReportNodeDefId repeat_def = append_def(
+      tree, ReportNodeKind::kRepeat, "Rep x" + std::to_string(repeat_count),
+      "", SymbolId::invalid(), repeat_count, display_depth, loop_depth + 1,
+      "grammar_state_adjacent_symbol_run");
+  const ReportNodeOccurrenceId repeat_occurrence = append_occurrence(
+      tree, repeat_def, parent_id, edge_order, token_start, token_end,
+      repeat_iteration);
+  append_coverage(tree, repeat_occurrence, token_start, token_end,
+                  ReportCoverageKind::kDirectBody);
+
+  const GrammarSubtreeTemplate body_template = build_grammar_template(
+      tree, lowering, body_symbol, display_depth + 1, loop_depth + 1);
+  std::uint32_t cursor = token_start;
+  std::uint32_t child_order = 1;
+  for (std::uint32_t index = 0; index < repeat_count; ++index) {
+    child_order = append_grammar_template_occurrence(
+        tree, lowering, body_template, repeat_occurrence, child_order, cursor,
+        cursor + body_len, index + 1);
+    cursor += body_len;
+  }
+  return edge_order + 1;
+}
+
+GrammarSubtreeTemplate build_grammar_template(ReportTree& tree,
+                                              const GrammarReportLowering&
+                                                  lowering,
+                                              SymbolId symbol,
+                                              std::uint32_t display_depth,
+                                              std::uint32_t loop_depth) {
+  const auto found = lowering.macro_by_symbol.find(symbol.value());
+  if (found == lowering.macro_by_symbol.end()) {
+    GrammarSubtreeTemplate subtree;
+    subtree.def_id =
+        append_atom_def_for_symbol(tree, lowering.tokens, symbol, display_depth,
+                                   loop_depth, "grammar_state_repeat_body_atom");
+    subtree.atom_symbol = symbol;
+    subtree.span_len = 1;
+    return subtree;
+  }
+
+  const MacroDefRow& macro = *found->second;
+  GrammarSubtreeTemplate subtree;
+  subtree.span_len = expanded_symbol_len(lowering, symbol);
+  if (lp_macro_is_uniform(macro)) {
+    const std::uint32_t repeat_count =
+        static_cast<std::uint32_t>(macro.rhs_symbols.size());
+    subtree.def_id = append_def(
+        tree, ReportNodeKind::kRepeat, "Rep x" + std::to_string(repeat_count),
+        "", SymbolId::invalid(), repeat_count, display_depth, loop_depth + 1,
+        "grammar_state_repeat_body_macro_run");
+    const SymbolId body_symbol = macro.rhs_symbols.front();
+    GrammarTemplateChild child;
+    child.span_len = expanded_symbol_len(lowering, body_symbol);
+    child.subtree = build_grammar_template(tree, lowering, body_symbol,
+                                           display_depth + 1, loop_depth + 1);
+    subtree.children.push_back(std::move(child));
+    return subtree;
+  }
+
+  subtree.transparent = true;
+  for (SymbolId rhs_symbol : macro.rhs_symbols) {
+    GrammarTemplateChild child;
+    child.span_len = expanded_symbol_len(lowering, rhs_symbol);
+    child.subtree = build_grammar_template(tree, lowering, rhs_symbol,
+                                           display_depth, loop_depth);
+    subtree.children.push_back(std::move(child));
+  }
+  return subtree;
+}
+
+std::uint32_t append_grammar_template_occurrence(
+    ReportTree& tree,
+    const GrammarReportLowering& lowering,
+    const GrammarSubtreeTemplate& subtree,
+    ReportNodeOccurrenceId parent_id,
+    std::uint32_t edge_order,
+    std::uint32_t token_start,
+    std::uint32_t token_end,
+    std::uint32_t repeat_iteration) {
+  if (token_start + subtree.span_len != token_end) {
+    throw std::invalid_argument("grammar template span length mismatch");
+  }
+  if (subtree.transparent) {
+    std::uint32_t cursor = token_start;
+    std::uint32_t child_order = edge_order;
+    for (const GrammarTemplateChild& child : subtree.children) {
+      child_order = append_grammar_template_occurrence(
+          tree, lowering, child.subtree, parent_id, child_order, cursor,
+          cursor + child.span_len, repeat_iteration);
+      cursor += child.span_len;
+    }
+    if (cursor != token_end) {
+      throw std::invalid_argument(
+          "grammar transparent template did not consume span");
+    }
+    return child_order;
+  }
+
+  const ReportNodeDef& def = node_def(tree, subtree.def_id);
+  if (def.kind == ReportNodeKind::kAtom) {
+    if (token_start >= lowering.tokens.size()) {
+      throw std::invalid_argument("grammar template atom span is out of range");
+    }
+    if (lowering.tokens[token_start].symbol_id != subtree.atom_symbol) {
+      throw std::invalid_argument("grammar template atom does not match token");
+    }
+    append_atom_occurrence(tree, lowering.tokens[token_start], parent_id,
+                           edge_order, token_start, repeat_iteration,
+                           subtree.def_id);
+    return edge_order + 1;
+  }
+
+  const ReportNodeOccurrenceId occurrence = append_occurrence(
+      tree, subtree.def_id, parent_id, edge_order, token_start, token_end,
+      repeat_iteration);
+  append_coverage(tree, occurrence, token_start, token_end,
+                  ReportCoverageKind::kDirectBody);
+
+  if (def.kind == ReportNodeKind::kRepeat) {
+    if (subtree.children.size() != 1) {
+      throw std::invalid_argument("grammar repeat template must have one body");
+    }
+    const GrammarTemplateChild& body = subtree.children.front();
+    if (body.span_len == 0 || def.repeat_count == 0 ||
+        token_start + body.span_len * def.repeat_count != token_end) {
+      throw std::invalid_argument("grammar repeat template length mismatch");
+    }
+    std::uint32_t cursor = token_start;
+    std::uint32_t child_order = 1;
+    for (std::uint32_t index = 0; index < def.repeat_count; ++index) {
+      child_order = append_grammar_template_occurrence(
+          tree, lowering, body.subtree, occurrence, child_order, cursor,
+          cursor + body.span_len, index + 1);
+      cursor += body.span_len;
+    }
+    return edge_order + 1;
+  }
+
+  std::uint32_t cursor = token_start;
+  std::uint32_t child_order = 1;
+  for (const GrammarTemplateChild& child : subtree.children) {
+    child_order = append_grammar_template_occurrence(
+        tree, lowering, child.subtree, occurrence, child_order, cursor,
+        cursor + child.span_len, repeat_iteration);
+    cursor += child.span_len;
+  }
+  if (cursor != token_end) {
+    throw std::invalid_argument("grammar seq template did not consume span");
+  }
+  return edge_order + 1;
+}
+
+std::uint32_t append_grammar_symbol_tree(ReportTree& tree,
+                                         const GrammarReportLowering& lowering,
+                                         SymbolId symbol,
+                                         ReportNodeOccurrenceId parent_id,
+                                         std::uint32_t edge_order,
+                                         std::uint32_t token_start,
+                                         std::uint32_t token_end,
+                                         std::uint32_t repeat_iteration,
+                                         std::uint32_t display_depth,
+                                         std::uint32_t loop_depth) {
   const auto found = lowering.macro_by_symbol.find(symbol.value());
   if (found == lowering.macro_by_symbol.end()) {
     if (token_end != token_start + 1) {
       throw std::invalid_argument("grammar atom span length mismatch");
     }
-    append_grammar_atom(tree, lowering, symbol, parent_id, edge_order,
-                        token_start, repeat_iteration, display_depth,
-                        loop_depth);
-    return;
+    return append_grammar_atom(tree, lowering, symbol, parent_id, edge_order,
+                               token_start, repeat_iteration, display_depth,
+                               loop_depth);
   }
 
   const MacroDefRow& macro = *found->second;
   if (lp_macro_is_uniform(macro)) {
-    append_grammar_macro_repeat(tree, lowering, macro, parent_id, edge_order,
-                                token_start, token_end, repeat_iteration,
-                                display_depth, loop_depth);
-    return;
+    return append_grammar_macro_repeat(tree, lowering, macro, parent_id,
+                                       edge_order, token_start, token_end,
+                                       repeat_iteration, display_depth,
+                                       loop_depth);
   }
-  append_grammar_macro_seq(tree, lowering, macro, parent_id, edge_order,
-                           token_start, token_end, repeat_iteration,
-                           display_depth, loop_depth);
+  return append_grammar_macro_inline(tree, lowering, macro, parent_id,
+                                     edge_order, token_start, token_end,
+                                     repeat_iteration, display_depth,
+                                     loop_depth);
 }
 
 }  // namespace
@@ -623,6 +822,9 @@ ReportTree build_report_tree_from_grammar_state(
     const std::vector<ReportToken>& tokens,
     const GlobalGrammarState& state,
     ReportTreeBuildConfig config) {
+  if (config.min_run_length == 0) {
+    throw std::invalid_argument("ReportTreeBuildConfig min_run_length is zero");
+  }
   validate_tokens_for_report_anchors(tokens);
   if (state.stage != GrammarStage::kDone || state.live_node_count == 0) {
     return build_report_tree_from_tokens(tokens, config);
@@ -657,16 +859,49 @@ ReportTree build_report_tree_from_grammar_state(
                   ReportCoverageKind::kDirectBody);
 
   std::uint32_t edge_order = 1;
-  for (const GrammarSnapshotNode& node : snapshot.nodes) {
+  for (std::size_t index = 0; index < snapshot.nodes.size();) {
+    const GrammarSnapshotNode& node = snapshot.nodes[index];
     if (node.source_begin_token_index > node.source_end_token_index_exclusive ||
         node.source_end_token_index_exclusive > tokens.size()) {
       throw std::invalid_argument("grammar node source span is out of range");
     }
-    append_grammar_symbol_tree(
-        tree, lowering, node.symbol_id, root_occurrence, edge_order++,
+
+    std::size_t run_end = index + 1;
+    while (config.fold_adjacent_runs && run_end < snapshot.nodes.size()) {
+      const GrammarSnapshotNode& next = snapshot.nodes[run_end];
+      if (next.source_begin_token_index >
+              next.source_end_token_index_exclusive ||
+          next.source_end_token_index_exclusive > tokens.size()) {
+        throw std::invalid_argument("grammar node source span is out of range");
+      }
+      const GrammarSnapshotNode& previous = snapshot.nodes[run_end - 1];
+      if (next.symbol_id != node.symbol_id ||
+          previous.source_end_token_index_exclusive !=
+              next.source_begin_token_index) {
+        break;
+      }
+      ++run_end;
+    }
+
+    const std::uint32_t run_len =
+        static_cast<std::uint32_t>(run_end - index);
+    if (config.fold_adjacent_runs && run_len >= config.min_run_length) {
+      const GrammarSnapshotNode& last = snapshot.nodes[run_end - 1];
+      edge_order = append_grammar_symbol_run_repeat(
+          tree, lowering, node.symbol_id, run_len, root_occurrence,
+          edge_order, static_cast<std::uint32_t>(node.source_begin_token_index),
+          static_cast<std::uint32_t>(last.source_end_token_index_exclusive), 0,
+          1, 0);
+      index = run_end;
+      continue;
+    }
+
+    edge_order = append_grammar_symbol_tree(
+        tree, lowering, node.symbol_id, root_occurrence, edge_order,
         static_cast<std::uint32_t>(node.source_begin_token_index),
         static_cast<std::uint32_t>(node.source_end_token_index_exclusive), 0,
         1, 0);
+    ++index;
   }
 
   validate_report_tree_or_throw(tree, static_cast<std::uint32_t>(tokens.size()));

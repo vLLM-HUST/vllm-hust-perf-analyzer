@@ -76,7 +76,8 @@ int main() {
 
   CommunicationOpTable communication_ops;
   const CommunicationOpId comm0 =
-      communication_ops.append(source0, event0, 777, 55, 3, 2, SymbolId(31));
+      communication_ops.append(source0, event0, 777, 55, 3, 2, SymbolId(31),
+                               SymbolId(32), SymbolId(33), SymbolId(34));
   require(comm0.valid());
   require(communication_ops.row(comm0).source_ref_id == source0);
   require(communication_ops.row(comm0).trace_event_id == event0);
@@ -85,6 +86,11 @@ int main() {
   require(communication_ops.row(comm0).linked_task_count == 3);
   require(communication_ops.row(comm0).linked_stream_count == 2);
   require(communication_ops.row(comm0).op_name_symbol_id == SymbolId(31));
+  require(communication_ops.row(comm0).op_type_symbol_id == SymbolId(32));
+  require(communication_ops.row(comm0).linked_task_name_symbol_id ==
+          SymbolId(33));
+  require(communication_ops.row(comm0).linked_task_type_symbol_id ==
+          SymbolId(34));
 
   GraphTemplateTable graph_templates;
   const GraphTemplateId template0 =
