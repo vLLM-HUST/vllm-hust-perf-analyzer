@@ -81,6 +81,13 @@ int main() {
   require(rows.graph_replays.size() == 1);
   require(rows.graph_envelopes.size() == 2);
 
+  require(rows.anchors[0].anchor_id == "anchor-0");
+  require(rows.anchors[0].event_id == "aclgraph-subslot-subslot-b");
+  require(rows.anchors[0].step_idx == 1);
+  require(rows.anchors[1].anchor_id == "anchor-1");
+  require(rows.anchors[1].event_id == "aclgraph-subslot-subslot-a");
+  require(rows.anchors[1].step_idx == 2);
+
   require(rows.graph_replays[0].graph_provider == "aclgraph");
   require(rows.graph_replays[0].graph_kind == "aclgraph_replay");
   require(rows.graph_replays[0].graph_event_idx == 1);
@@ -116,6 +123,17 @@ int main() {
     rejected_missing_tiling = true;
   }
   require(rejected_missing_tiling);
+
+  AclGraphSemanticFixture bad_anchor_fixture = fixture;
+  bad_anchor_fixture.hlt_anchor_seeds[0].subslot_id = "missing-subslot";
+  bool rejected_missing_anchor_subslot = false;
+  try {
+    (void)compat::build_aclgraph_fixture_graph_replay_sql_rows(
+        bad_anchor_fixture, ir);
+  } catch (const std::invalid_argument&) {
+    rejected_missing_anchor_subslot = true;
+  }
+  require(rejected_missing_anchor_subslot);
 
   return 0;
 }

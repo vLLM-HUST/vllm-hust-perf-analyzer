@@ -112,6 +112,34 @@ EventSourceSqlRow source_for_event(const EventSqlRow& event,
   return source;
 }
 
+struct SyntheticEventRef {
+  std::string event_id;
+  std::uint32_t step_idx = 0;
+};
+
+void attach_anchor_rows_to_subslot_events(
+    const AclGraphSemanticFixture& fixture,
+    const std::unordered_map<std::string, SyntheticEventRef>&
+        subslot_event_refs,
+    std::vector<AnchorSqlRow>& anchors) {
+  if (fixture.hlt_anchor_seeds.size() != anchors.size()) {
+    throw std::invalid_argument(
+        "ACLGraph HLT anchor seeds must match generated anchor rows");
+  }
+  for (std::size_t index = 0; index < fixture.hlt_anchor_seeds.size();
+       ++index) {
+    const AclGraphHltAnchorSeedFixtureRow& seed =
+        fixture.hlt_anchor_seeds[index];
+    const auto found = subslot_event_refs.find(seed.subslot_id);
+    if (found == subslot_event_refs.end()) {
+      throw std::invalid_argument(
+          "ACLGraph HLT anchor seed references unknown replay subslot");
+    }
+    anchors[index].event_id = found->second.event_id;
+    anchors[index].step_idx = found->second.step_idx;
+  }
+}
+
 }  // namespace
 
 GraphReplaySqlRows build_aclgraph_fixture_graph_replay_sql_rows(
@@ -127,6 +155,7 @@ GraphReplaySqlRows build_aclgraph_fixture_graph_replay_sql_rows(
 
   std::uint32_t event_step_idx = 0;
   std::uint32_t envelope_idx = 1;
+  std::unordered_map<std::string, SyntheticEventRef> subslot_event_refs;
   for (const AclGraphReplayUnitFixtureRow& unit : fixture.replay_units) {
     const auto tiling_found = tiling_index.find(unit.replay_unit_id);
     if (tiling_found == tiling_index.end()) {
@@ -191,6 +220,9 @@ GraphReplaySqlRows build_aclgraph_fixture_graph_replay_sql_rows(
     for (const AclGraphReplaySubslotFixtureRow* subslot : subslots) {
       const std::uint32_t child_step_idx = event_step_idx++;
       const std::string child_event_id = child_event_id_for_subslot(*subslot);
+      subslot_event_refs.emplace(subslot->subslot_id,
+                                 SyntheticEventRef{child_event_id,
+                                                   child_step_idx});
 
       EventSqlRow child_event;
       child_event.event_id = child_event_id;
@@ -244,6 +276,8 @@ GraphReplaySqlRows build_aclgraph_fixture_graph_replay_sql_rows(
     }
   }
 
+  attach_anchor_rows_to_subslot_events(fixture, subslot_event_refs,
+                                       rows.anchors);
   return rows;
 }
 
