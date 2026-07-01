@@ -712,6 +712,37 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
       COMMAND traceloom_native_report_sql_compat_tests
     )
 
+    add_executable(traceloom_native_generated_sidecar_report_tests
+      tests/compat/native_generated_sidecar_report_tests.cpp
+    )
+    target_compile_definitions(
+      traceloom_native_generated_sidecar_report_tests PRIVATE
+      TRACELOOM_WORKSPACE_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../.."
+    )
+    target_link_libraries(
+      traceloom_native_generated_sidecar_report_tests PRIVATE
+      traceloom_native_adapters
+      traceloom_native_materialize
+    )
+    if(TARGET SQLite::SQLite3)
+      target_link_libraries(
+        traceloom_native_generated_sidecar_report_tests PRIVATE SQLite::SQLite3
+      )
+    else()
+      target_include_directories(
+        traceloom_native_generated_sidecar_report_tests
+        PRIVATE ${SQLite3_INCLUDE_DIRS}
+      )
+      target_link_libraries(
+        traceloom_native_generated_sidecar_report_tests
+        PRIVATE ${SQLite3_LIBRARIES}
+      )
+    endif()
+    add_test(
+      NAME traceloom_native_generated_sidecar_report_tests
+      COMMAND traceloom_native_generated_sidecar_report_tests
+    )
+
     add_test(
       NAME traceloom_native_analyze_fixture_compat_sidecar_cli
       COMMAND traceloom-native-analyze-fixture
