@@ -78,6 +78,7 @@ add_library(traceloom_native_materialize
   src/compat/anchor_sequence_rows.cpp
   src/compat/anchor_cost_breakdown_rows.cpp
   src/compat/aux_attribution_rows.cpp
+  src/compat/collective_tag_rows.cpp
   src/compat/native_sidecar_materializer.cpp
   src/compat/report_tree_rows.cpp
   src/compat/schema.cpp
@@ -473,6 +474,18 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
   add_test(
     NAME traceloom_native_aux_attribution_rows_tests
     COMMAND traceloom_native_aux_attribution_rows_tests
+  )
+
+  add_executable(traceloom_native_collective_tag_rows_tests
+    tests/compat/collective_tag_rows_tests.cpp
+  )
+  target_link_libraries(
+    traceloom_native_collective_tag_rows_tests PRIVATE
+    traceloom_native_materialize
+  )
+  add_test(
+    NAME traceloom_native_collective_tag_rows_tests
+    COMMAND traceloom_native_collective_tag_rows_tests
   )
 
   add_executable(traceloom_native_report_tree_rows_tests
