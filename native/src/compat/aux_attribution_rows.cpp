@@ -1,0 +1,125 @@
+#include "traceloom/compat/aux_attribution_rows.h"
+
+#include <algorithm>
+#include <cstdint>
+#include <map>
+#include <stdexcept>
+#include <string>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+
+#include "traceloom/compat/anchor_sequence_rows.h"
+#include "traceloom/compat/timeline_rows.h"
+
+namespace traceloom::compat {
+namespace {
+
+double ns_to_us(std::int64_t ns) {
+  return static_cast<double>(ns) / 1000.0;
+}
+
+std::string symbol_value_or_empty(const NativeIr& ir, SymbolId id) {
+  return id.valid() ? ir.symbols.value(id) : std::string();
+}
+
+std::unordered_set<TraceEventId::value_type> anchored_trace_event_ids(
+    const NativeIr& ir) {
+  std::unordered_set<TraceEventId::value_type> out;
+  for (const AnchorRow& anchor : ir.anchors.rows()) {
+    if (anchor.trace_event_id.valid()) {
+      if (anchor.trace_event_id.value() >= ir.trace_events.size()) {
+        throw std::invalid_argument("AnchorRow trace_event_id is out of range");
+      }
+      out.insert(anchor.trace_event_id.value());
+    }
+  }
+  return out;
+}
+
+const AnchorRow* following_anchor_for_aux_event(const NativeIr& ir,
+                                                const TraceEventRow& event) {
+  const AnchorRow* best = nullptr;
+  for (const AnchorRow& anchor : ir.anchors.rows()) {
+    if (anchor.device_id != event.device_id) {
+      continue;
+    }
+    if (anchor.start_ns < event.end_ns) {
+      continue;
+    }
+    if (best == nullptr || anchor.start_ns < best->start_ns ||
+        (anchor.start_ns == best->start_ns && anchor.id < best->id)) {
+      best = &anchor;
+    }
+  }
+  return best;
+}
+
+struct AuxSlotAccum {
+  AnchorAuxSlotSqlRow slot;
+  bool initialized = false;
+};
+
+}  // namespace
+
+AuxAttributionSqlRows build_aux_attribution_sql_rows(const NativeIr& ir,
+                                                     std::uint32_t db_idx) {
+  const std::unordered_set<TraceEventId::value_type> anchored_events =
+      anchored_trace_event_ids(ir);
+  AuxAttributionSqlRows rows;
+  std::map<AnchorId::value_type, AuxSlotAccum> slots;
+  std::map<AnchorId::value_type, std::uint32_t> next_aux_order;
+
+  for (const TraceEventRow& event : ir.trace_events.rows()) {
+    if (anchored_events.find(event.id.value()) != anchored_events.end()) {
+      continue;
+    }
+    const AnchorRow* anchor = following_anchor_for_aux_event(ir, event);
+    if (anchor == nullptr) {
+      continue;
+    }
+
+    const std::uint32_t aux_order = ++next_aux_order[anchor->id.value()];
+    AuxLinkSqlRow link;
+    link.anchor_id = anchor_compat_id(anchor->id);
+    link.aux_event_id = trace_event_compat_id(event.id);
+    link.db_idx = db_idx;
+    link.device_id = event.device_id;
+    link.aux_order = aux_order;
+    link.aux_step_idx = event.id.value();
+    link.link_type = "prelude";
+    link.reason = "unanchored_event_before_anchor";
+    link.aux_kind = symbol_value_or_empty(ir, event.raw_name_symbol_id);
+    link.aux_dur_us = ns_to_us(event.end_ns - event.start_ns);
+    rows.aux_links.push_back(std::move(link));
+
+    AuxSlotAccum& accum = slots[anchor->id.value()];
+    if (!accum.initialized) {
+      accum.slot.anchor_id = anchor_compat_id(anchor->id);
+      accum.slot.db_idx = db_idx;
+      accum.slot.device_id = anchor->device_id;
+      accum.slot.anchor_idx = anchor->id.value() + 1;
+      accum.slot.anchor_step_idx = anchor->trace_event_id.valid()
+                                       ? anchor->trace_event_id.value()
+                                       : anchor->id.value();
+      accum.slot.aux_start_step_idx = event.id.value();
+      accum.slot.aux_end_step_idx = event.id.value();
+      accum.initialized = true;
+    } else {
+      accum.slot.aux_start_step_idx =
+          std::min(accum.slot.aux_start_step_idx, event.id.value());
+      accum.slot.aux_end_step_idx =
+          std::max(accum.slot.aux_end_step_idx, event.id.value());
+    }
+    accum.slot.aux_event_count += 1;
+    accum.slot.aux_dur_us += ns_to_us(event.end_ns - event.start_ns);
+  }
+
+  rows.aux_slots.reserve(slots.size());
+  for (auto& entry : slots) {
+    rows.aux_slots.push_back(std::move(entry.second.slot));
+  }
+  return rows;
+}
+
+}  // namespace traceloom::compat

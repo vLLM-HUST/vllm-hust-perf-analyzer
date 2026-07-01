@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "traceloom/compat/anchor_sequence_rows.h"
+#include "traceloom/compat/aux_attribution_rows.h"
 #include "traceloom/compat/sidecar_writer.h"
 #include "traceloom/compat/report_tree_rows.h"
 #include "traceloom/compat/timeline_rows.h"
@@ -27,6 +28,9 @@ void write_basic_native_compatibility_sidecar(
   replace_event_rows(sqlite_path, build_timeline_sql_rows(ir, options.db_idx));
   replace_anchor_rows(sqlite_path,
                       build_anchor_sequence_sql_rows(ir, options.db_idx));
+  replace_aux_attribution_rows(sqlite_path,
+                               build_aux_attribution_sql_rows(ir,
+                                                              options.db_idx));
   replace_node_coverage_rows(
       sqlite_path,
       build_native_report_tree_node_coverage_sql_rows(ir, options.db_idx));
