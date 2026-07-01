@@ -379,6 +379,96 @@ int main() {
   require(run_scalar_int(db_path, "SELECT COUNT(*) FROM traceloom_anchor") ==
           1);
 
+  traceloom::compat::AuxAttributionSqlRows aux_rows;
+  traceloom::compat::AnchorAuxSlotSqlRow aux_slot;
+  aux_slot.anchor_id = "anchor-1";
+  aux_slot.anchor_idx = 1;
+  aux_slot.anchor_step_idx = 1;
+  aux_slot.aux_start_step_idx = 0;
+  aux_slot.aux_end_step_idx = 0;
+  aux_slot.aux_event_count = 1;
+  aux_slot.aux_dur_us = 0.1;
+  aux_rows.aux_slots.push_back(aux_slot);
+  traceloom::compat::AuxLinkSqlRow aux_link;
+  aux_link.anchor_id = "anchor-1";
+  aux_link.aux_event_id = "event-aux-1";
+  aux_link.aux_order = 0;
+  aux_link.aux_step_idx = 0;
+  aux_link.link_type = "prelude";
+  aux_link.reason = "step_precedes_anchor";
+  aux_link.aux_kind = "runtime";
+  aux_link.aux_dur_us = 0.1;
+  aux_rows.aux_links.push_back(aux_link);
+  traceloom::compat::replace_aux_attribution_rows(db_path, aux_rows);
+  require(run_scalar_int(db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_anchor_aux_slot") == 1);
+  require(run_scalar_int(db_path, "SELECT COUNT(*) FROM traceloom_aux_link") ==
+          1);
+  traceloom::compat::replace_aux_attribution_rows(
+      db_path, traceloom::compat::AuxAttributionSqlRows{});
+  require(run_scalar_int(db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_anchor_aux_slot") == 0);
+  require(run_scalar_int(db_path, "SELECT COUNT(*) FROM traceloom_aux_link") ==
+          0);
+
+  traceloom::compat::GraphReplayEvidenceSqlRows graph_rows;
+  traceloom::compat::GraphReplaySqlRow graph_replay;
+  graph_replay.graph_event_id = "graph-1";
+  graph_replay.graph_provider = "aclgraph";
+  graph_replay.graph_kind = "acl_graph_replay";
+  graph_replay.graph_event_idx = 10;
+  graph_replay.event_id = "event-graph-1";
+  graph_replay.step_idx = 10;
+  graph_replay.stream_id = 7;
+  graph_replay.graph_id = "graph-id-1";
+  graph_replay.graph_exec_id = "graph-exec-1";
+  graph_replay.start_ns = 1000;
+  graph_replay.end_ns = 1500;
+  graph_replay.dur_us = 0.5;
+  graph_replay.enclosed_event_count = 1;
+  graph_replay.enclosed_event_us = 0.3;
+  graph_replay.enclosed_kernel_count = 1;
+  graph_replay.enclosed_kernel_us = 0.3;
+  graph_rows.graph_replays.push_back(graph_replay);
+  traceloom::compat::GraphEnvelopeSqlRow graph_envelope;
+  graph_envelope.envelope_id = "envelope-1";
+  graph_envelope.graph_provider = graph_replay.graph_provider;
+  graph_envelope.graph_kind = graph_replay.graph_kind;
+  graph_envelope.envelope_idx = 1;
+  graph_envelope.graph_event_id = graph_replay.graph_event_id;
+  graph_envelope.child_event_id = "event-child-1";
+  graph_envelope.graph_step_idx = graph_replay.step_idx;
+  graph_envelope.child_step_idx = 11;
+  graph_envelope.relation = "encloses";
+  graph_envelope.stream_relation = "same_stream";
+  graph_envelope.graph_id = graph_replay.graph_id;
+  graph_envelope.graph_exec_id = graph_replay.graph_exec_id;
+  graph_envelope.graph_start_ns = graph_replay.start_ns;
+  graph_envelope.graph_end_ns = graph_replay.end_ns;
+  graph_envelope.child_start_ns = 1100;
+  graph_envelope.child_end_ns = 1400;
+  graph_envelope.start_offset_us = 0.1;
+  graph_envelope.end_offset_us = 0.1;
+  graph_envelope.child_dur_us = 0.3;
+  graph_rows.graph_envelopes.push_back(graph_envelope);
+  traceloom::compat::replace_graph_replay_evidence_rows(db_path, graph_rows);
+  require(run_scalar_int(db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_cuda_graph_replay") == 1);
+  require(run_scalar_int(db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_cuda_graph_envelope") == 1);
+  traceloom::compat::replace_graph_replay_evidence_rows(
+      db_path, traceloom::compat::GraphReplayEvidenceSqlRows{});
+  require(run_scalar_int(db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_cuda_graph_replay") == 0);
+  require(run_scalar_int(db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_cuda_graph_envelope") == 0);
+
   std::vector<traceloom::compat::CollectiveGlobalLinkSqlRow> local_links(2);
   local_links[0].candidate_collective_key = "collective-1";
   local_links[0].db_name = "db00.traceloom_augmented.db";

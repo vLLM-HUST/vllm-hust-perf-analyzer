@@ -1335,6 +1335,55 @@ void replace_anchor_cost_breakdown_rows(
 #endif
 }
 
+void replace_aux_attribution_rows(const std::string& sqlite_path,
+                                  const AuxAttributionSqlRows& rows) {
+#if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
+  materialize_compatibility_schema(
+      sqlite_path, {anchor_aux_slot_table_schema(), aux_link_table_schema()});
+
+  SqliteDb db(sqlite_path);
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.exec("DELETE FROM traceloom_aux_link");
+    db.exec("DELETE FROM traceloom_anchor_aux_slot");
+
+    SqliteStmt aux_slot_stmt(
+        db.get(),
+        "INSERT INTO traceloom_anchor_aux_slot ("
+        "anchor_id, db_idx, device_id, anchor_idx, anchor_step_idx, "
+        "aux_start_step_idx, aux_end_step_idx, aux_event_count, aux_dur_us, "
+        "raw_json"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    for (const AnchorAuxSlotSqlRow& row : rows.aux_slots) {
+      insert_anchor_aux_slot_row(aux_slot_stmt, row);
+    }
+
+    SqliteStmt aux_link_stmt(
+        db.get(),
+        "INSERT INTO traceloom_aux_link ("
+        "anchor_id, aux_event_id, db_idx, device_id, aux_order, aux_step_idx, "
+        "link_type, reason, aux_kind, aux_dur_us, raw_json"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    for (const AuxLinkSqlRow& row : rows.aux_links) {
+      insert_aux_link_row(aux_link_stmt, row);
+    }
+
+    db.exec("COMMIT");
+  } catch (...) {
+    try {
+      db.exec("ROLLBACK");
+    } catch (...) {
+    }
+    throw;
+  }
+#else
+  (void)sqlite_path;
+  (void)rows;
+  throw std::runtime_error(
+      "compatibility sidecar writer requires SQLite support");
+#endif
+}
+
 void replace_anchor_aux_rows(const std::string& sqlite_path,
                              const AnchorAuxSqlRows& rows) {
 #if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
@@ -1502,6 +1551,65 @@ void replace_node_coverage_rows(const std::string& sqlite_path,
     materialize_tree_node_occurrence_view(db);
     materialize_node_cost_views(db);
     materialize_tree_node_view(db);
+    db.exec("COMMIT");
+  } catch (...) {
+    try {
+      db.exec("ROLLBACK");
+    } catch (...) {
+    }
+    throw;
+  }
+#else
+  (void)sqlite_path;
+  (void)rows;
+  throw std::runtime_error(
+      "compatibility sidecar writer requires SQLite support");
+#endif
+}
+
+void replace_graph_replay_evidence_rows(
+    const std::string& sqlite_path,
+    const GraphReplayEvidenceSqlRows& rows) {
+#if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
+  materialize_compatibility_schema(
+      sqlite_path,
+      {cuda_graph_replay_table_schema(), cuda_graph_envelope_table_schema()});
+
+  SqliteDb db(sqlite_path);
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.exec("DELETE FROM traceloom_cuda_graph_envelope");
+    db.exec("DELETE FROM traceloom_cuda_graph_replay");
+
+    SqliteStmt graph_stmt(
+        db.get(),
+        "INSERT INTO traceloom_cuda_graph_replay ("
+        "graph_event_id, db_idx, device_id, graph_provider, graph_kind, "
+        "graph_event_idx, event_id, step_idx, stream_id, correlation_id, "
+        "graph_id, graph_exec_id, context_id, start_ns, end_ns, dur_us, "
+        "enclosed_event_count, enclosed_event_us, enclosed_kernel_count, "
+        "enclosed_kernel_us, raw_json"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+        "?, ?)");
+    for (const GraphReplaySqlRow& row : rows.graph_replays) {
+      insert_graph_replay_row(graph_stmt, row);
+    }
+
+    SqliteStmt envelope_stmt(
+        db.get(),
+        "INSERT INTO traceloom_cuda_graph_envelope ("
+        "envelope_id, db_idx, device_id, graph_provider, graph_kind, "
+        "envelope_idx, graph_event_id, child_event_id, graph_step_idx, "
+        "child_step_idx, relation, stream_relation, graph_id, graph_exec_id, "
+        "graph_correlation_id, graph_start_ns, graph_end_ns, child_start_ns, "
+        "child_end_ns, start_offset_us, end_offset_us, child_dur_us, raw_json"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+        "?, ?, ?, ?)");
+    for (const GraphEnvelopeSqlRow& row : rows.graph_envelopes) {
+      insert_graph_envelope_row(envelope_stmt, row);
+    }
+
+    materialize_cuda_graph_views(db);
     db.exec("COMMIT");
   } catch (...) {
     try {

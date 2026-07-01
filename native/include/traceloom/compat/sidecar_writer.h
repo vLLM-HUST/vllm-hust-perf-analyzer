@@ -106,6 +106,11 @@ struct AnchorAuxSqlRows {
   std::vector<AuxLinkSqlRow> aux_links;
 };
 
+struct AuxAttributionSqlRows {
+  std::vector<AnchorAuxSlotSqlRow> aux_slots;
+  std::vector<AuxLinkSqlRow> aux_links;
+};
+
 struct VizNodeSqlRow {
   std::string node_id;
   std::uint32_t db_idx = 0;
@@ -255,6 +260,11 @@ struct GraphReplaySqlRows {
   std::vector<EventSqlRow> events;
   std::vector<EventSourceSqlRow> event_sources;
   std::vector<AnchorSqlRow> anchors;
+  std::vector<GraphReplaySqlRow> graph_replays;
+  std::vector<GraphEnvelopeSqlRow> graph_envelopes;
+};
+
+struct GraphReplayEvidenceSqlRows {
   std::vector<GraphReplaySqlRow> graph_replays;
   std::vector<GraphEnvelopeSqlRow> graph_envelopes;
 };
@@ -434,11 +444,18 @@ void replace_anchor_cost_breakdown_rows(
     const std::string& sqlite_path,
     const std::vector<AnchorCostBreakdownSqlRow>& rows);
 
+void replace_aux_attribution_rows(const std::string& sqlite_path,
+                                  const AuxAttributionSqlRows& rows);
+
 void replace_anchor_aux_rows(const std::string& sqlite_path,
                              const AnchorAuxSqlRows& rows);
 
 void replace_node_coverage_rows(const std::string& sqlite_path,
                                 const NodeCoverageSqlRows& rows);
+
+void replace_graph_replay_evidence_rows(
+    const std::string& sqlite_path,
+    const GraphReplayEvidenceSqlRows& rows);
 
 void replace_graph_replay_rows(const std::string& sqlite_path,
                                const GraphReplaySqlRows& rows);
