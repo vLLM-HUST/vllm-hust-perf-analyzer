@@ -57,6 +57,17 @@ const char* sqlite_column_type_name(CompatColumnType type) {
   return "TEXT";
 }
 
+const CompatTableSchema& metadata_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_metadata",
+      {
+          {"key", CompatColumnType::kText, false},
+          {"value", CompatColumnType::kText, false},
+      },
+  };
+  return schema;
+}
+
 const CompatTableSchema& event_table_schema() {
   static const CompatTableSchema schema{
       "traceloom_event",
@@ -82,6 +93,23 @@ const CompatTableSchema& event_table_schema() {
           {"compute_task_type", CompatColumnType::kText, true},
           {"family", CompatColumnType::kText, true},
           {"task_type", CompatColumnType::kText, true},
+          {"raw_json", CompatColumnType::kText, true},
+      },
+  };
+  return schema;
+}
+
+const CompatTableSchema& event_source_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_event_source",
+      {
+          {"event_id", CompatColumnType::kText, false},
+          {"source_ordinal", CompatColumnType::kInteger, false},
+          {"db_idx", CompatColumnType::kInteger, false},
+          {"device_id", CompatColumnType::kInteger, false},
+          {"source_table", CompatColumnType::kText, false},
+          {"source_key", CompatColumnType::kText, false},
+          {"source_role", CompatColumnType::kText, true},
           {"raw_json", CompatColumnType::kText, true},
       },
   };
@@ -287,6 +315,46 @@ const CompatTableSchema& viz_node_anchor_table_schema() {
   return schema;
 }
 
+const CompatTableSchema& anchor_primary_node_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_anchor_primary_node",
+      {
+          {"anchor_id", CompatColumnType::kText, false},
+          {"node_id", CompatColumnType::kText, false},
+          {"db_idx", CompatColumnType::kInteger, false},
+          {"device_id", CompatColumnType::kInteger, false},
+          {"view_name", CompatColumnType::kText, false},
+          {"reason", CompatColumnType::kText, false},
+      },
+  };
+  return schema;
+}
+
+const CompatTableSchema& loop_node_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_loop_node",
+      {
+          {"node_id", CompatColumnType::kText, false},
+          {"db_idx", CompatColumnType::kInteger, false},
+          {"device_id", CompatColumnType::kInteger, false},
+          {"view_name", CompatColumnType::kText, false},
+          {"loop_rank", CompatColumnType::kInteger, true},
+          {"repeat_label", CompatColumnType::kText, true},
+          {"repeat_count", CompatColumnType::kInteger, true},
+          {"occurrence_count", CompatColumnType::kInteger, true},
+          {"anchor_count", CompatColumnType::kInteger, true},
+          {"total_us", CompatColumnType::kReal, true},
+          {"avg_total_us", CompatColumnType::kReal, true},
+          {"compute_us", CompatColumnType::kReal, true},
+          {"comm_us", CompatColumnType::kReal, true},
+          {"idle_us", CompatColumnType::kReal, true},
+          {"loop_total_pct", CompatColumnType::kReal, true},
+          {"raw_json", CompatColumnType::kText, true},
+      },
+  };
+  return schema;
+}
+
 const CompatTableSchema& semantic_tree_table_schema() {
   static const CompatTableSchema schema{
       "traceloom_semantic_tree",
@@ -400,7 +468,9 @@ const CompatTableSchema& anchor_cost_breakdown_table_schema() {
 
 std::vector<CompatTableSchema> compatibility_table_schemas() {
   return {
+      metadata_table_schema(),
       event_table_schema(),
+      event_source_table_schema(),
       anchor_table_schema(),
       anchor_aux_slot_table_schema(),
       aux_link_table_schema(),
@@ -409,6 +479,8 @@ std::vector<CompatTableSchema> compatibility_table_schemas() {
       viz_node_table_schema(),
       viz_edge_table_schema(),
       viz_node_anchor_table_schema(),
+      anchor_primary_node_table_schema(),
+      loop_node_table_schema(),
       semantic_tree_table_schema(),
       semantic_node_table_schema(),
       semantic_edge_table_schema(),

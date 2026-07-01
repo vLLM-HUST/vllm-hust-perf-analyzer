@@ -25,7 +25,9 @@ struct CompatTableSchema {
 const char* compat_column_type_name(CompatColumnType type);
 const char* sqlite_column_type_name(CompatColumnType type);
 
+const CompatTableSchema& metadata_table_schema();
 const CompatTableSchema& event_table_schema();
+const CompatTableSchema& event_source_table_schema();
 const CompatTableSchema& anchor_table_schema();
 const CompatTableSchema& anchor_aux_slot_table_schema();
 const CompatTableSchema& aux_link_table_schema();
@@ -34,6 +36,8 @@ const CompatTableSchema& cuda_graph_envelope_table_schema();
 const CompatTableSchema& viz_node_table_schema();
 const CompatTableSchema& viz_edge_table_schema();
 const CompatTableSchema& viz_node_anchor_table_schema();
+const CompatTableSchema& anchor_primary_node_table_schema();
+const CompatTableSchema& loop_node_table_schema();
 const CompatTableSchema& semantic_tree_table_schema();
 const CompatTableSchema& semantic_node_table_schema();
 const CompatTableSchema& semantic_edge_table_schema();

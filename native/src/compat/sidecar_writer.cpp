@@ -852,6 +852,9 @@ void materialize_report_compatibility_indexes(SqliteDb& db) {
       "CREATE INDEX IF NOT EXISTS idx_traceloom_event_device_step "
       "ON traceloom_event(db_idx, device_id, step_idx)");
   db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_event_source_lookup "
+      "ON traceloom_event_source(source_table, source_key)");
+  db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_anchor_device_idx "
       "ON traceloom_anchor(db_idx, device_id, anchor_idx)");
   db.exec(

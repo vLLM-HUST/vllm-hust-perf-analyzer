@@ -218,6 +218,7 @@ int main() {
               "idx_traceloom_cuda_graph_envelope_graph",
               "idx_traceloom_cuda_graph_replay_exec",
               "idx_traceloom_event_device_step",
+              "idx_traceloom_event_source_lookup",
               "idx_traceloom_node_anchor_anchor",
               "idx_traceloom_node_anchor_node",
               "idx_traceloom_semantic_edge_tree",
