@@ -478,6 +478,15 @@ std::uint32_t loop_depth_for_occurrence(const ReportTree& tree,
   return depth;
 }
 
+std::uint32_t display_occurrence_count(const ReportNodeDef& def,
+                                       const NodeAccum& accum) {
+  std::uint32_t count = accum.occurrence_count == 0 ? 1 : accum.occurrence_count;
+  if (def.kind == ReportNodeKind::kRepeat && def.repeat_count > count) {
+    count = def.repeat_count;
+  }
+  return count;
+}
+
 }  // namespace
 
 std::vector<ReportToken> build_report_tokens_from_native_ir(
@@ -543,7 +552,7 @@ NodeCoverageSqlRows build_report_tree_node_coverage_sql_rows(
   for (const ReportNodeDef& def : tree.node_defs) {
     const NodeAccum& node_accum = accum[def.id.value()];
     const std::uint32_t occurrence_count =
-        node_accum.occurrence_count == 0 ? 1 : node_accum.occurrence_count;
+        display_occurrence_count(def, node_accum);
     const double total_us =
         node_accum.compute_us + node_accum.comm_us + node_accum.idle_us;
 
@@ -566,7 +575,7 @@ NodeCoverageSqlRows build_report_tree_node_coverage_sql_rows(
     row.level = def.display_depth;
     row.repeat_label = def.kind == ReportNodeKind::kRepeat ? def.display_op : "";
     row.repeat_count = def.repeat_count;
-    row.occurrence_count = node_accum.occurrence_count;
+    row.occurrence_count = occurrence_count;
     row.anchor_count = static_cast<std::uint32_t>(node_accum.token_ordinals.size());
     row.anchors_per_occurrence =
         occurrence_count == 0
@@ -596,7 +605,7 @@ NodeCoverageSqlRows build_report_tree_node_coverage_sql_rows(
       loop.loop_rank = static_cast<std::uint32_t>(rows.loop_nodes.size() + 1);
       loop.repeat_label = def.display_op;
       loop.repeat_count = def.repeat_count;
-      loop.occurrence_count = node_accum.occurrence_count;
+      loop.occurrence_count = occurrence_count;
       loop.anchor_count =
           static_cast<std::uint32_t>(node_accum.token_ordinals.size());
       loop.total_us = total_us;
@@ -751,7 +760,7 @@ SemanticTreeSqlRows build_report_tree_semantic_sql_rows(
   for (const ReportNodeDef& def : tree.node_defs) {
     const NodeAccum& node_accum = accum[def.id.value()];
     const std::uint32_t occurrence_count =
-        node_accum.occurrence_count == 0 ? 1 : node_accum.occurrence_count;
+        display_occurrence_count(def, node_accum);
     const double total_us =
         node_accum.compute_us + node_accum.comm_us + node_accum.idle_us;
     const auto occurrence_found = first_occurrences.find(def.id.value());
@@ -776,7 +785,7 @@ SemanticTreeSqlRows build_report_tree_semantic_sql_rows(
     row.label = def.display_op;
     row.category = def.display_category;
     row.repeat_count = def.repeat_count;
-    row.occurrence_count = node_accum.occurrence_count;
+    row.occurrence_count = occurrence_count;
     row.anchor_count =
         static_cast<std::uint32_t>(node_accum.token_ordinals.size());
     row.first_anchor_idx = node_accum.first_anchor_idx;
