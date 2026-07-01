@@ -4,6 +4,7 @@
 
 #include <sqlite3.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
@@ -37,6 +38,10 @@ std::string temp_db_path() {
 std::filesystem::path report_sql_path(const std::string& filename) {
   return std::filesystem::path(TRACELOOM_REPO_ROOT) / "docs" / "report-sql" /
          filename;
+}
+
+std::filesystem::path report_sql_dir() {
+  return std::filesystem::path(TRACELOOM_REPO_ROOT) / "docs" / "report-sql";
 }
 
 std::string read_file(const std::filesystem::path& path) {
@@ -625,12 +630,39 @@ std::vector<QueryCase> active_query_cases() {
   };
 }
 
+std::vector<std::string> checked_in_report_sql_filenames() {
+  std::vector<std::string> filenames;
+  for (const std::filesystem::directory_entry& entry :
+       std::filesystem::directory_iterator(report_sql_dir())) {
+    if (entry.is_regular_file() && entry.path().extension() == ".sql") {
+      filenames.push_back(entry.path().filename().string());
+    }
+  }
+  std::sort(filenames.begin(), filenames.end());
+  return filenames;
+}
+
+std::vector<std::string> active_query_case_filenames(
+    const std::vector<QueryCase>& query_cases) {
+  std::vector<std::string> filenames;
+  filenames.reserve(query_cases.size());
+  for (const QueryCase& query_case : query_cases) {
+    filenames.push_back(query_case.filename);
+  }
+  std::sort(filenames.begin(), filenames.end());
+  return filenames;
+}
+
 }  // namespace
 
 int main() {
   using traceloom::testing::require;
 
-  for (const QueryCase& query_case : active_query_cases()) {
+  const std::vector<QueryCase> query_cases = active_query_cases();
+  require(active_query_case_filenames(query_cases) ==
+          checked_in_report_sql_filenames());
+
+  for (const QueryCase& query_case : query_cases) {
     const std::string db_path = temp_db_path();
     if (query_case.filename == "anchor-cost-breakdown.sql") {
       seed_anchor_cost_fixture(db_path);
