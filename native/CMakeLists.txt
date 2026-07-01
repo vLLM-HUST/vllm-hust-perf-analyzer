@@ -684,6 +684,34 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
       NAME traceloom_native_report_sql_compat_tests
       COMMAND traceloom_native_report_sql_compat_tests
     )
+
+    add_test(
+      NAME traceloom_native_analyze_fixture_compat_sidecar_cli
+      COMMAND traceloom-native-analyze-fixture
+        --fixture
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../drafts/refactor/80_tests_fixtures/fixtures/protected_sequence/f1_tiny_repeated_pair.json
+        --threads 2
+        --out -
+        --compat-sidecar-out ${CMAKE_CURRENT_BINARY_DIR}/fixture_cli_compat.db
+    )
+    set_tests_properties(
+      traceloom_native_analyze_fixture_compat_sidecar_cli
+      PROPERTIES PASS_REGULAR_EXPRESSION "native_in_memory_result_v1"
+    )
+
+    add_test(
+      NAME traceloom_native_analyze_aclgraph_fixture_compat_sidecar_cli
+      COMMAND traceloom-native-analyze-aclgraph-fixture
+        --fixture
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../drafts/refactor/80_tests_fixtures/fixtures/aclgraph/aclgraph_python_minimal_assets.json
+        --threads 2
+        --out -
+        --compat-sidecar-out ${CMAKE_CURRENT_BINARY_DIR}/aclgraph_fixture_cli_compat.db
+    )
+    set_tests_properties(
+      traceloom_native_analyze_aclgraph_fixture_compat_sidecar_cli
+      PROPERTIES PASS_REGULAR_EXPRESSION "native_in_memory_result_v1"
+    )
   endif()
 
   add_test(

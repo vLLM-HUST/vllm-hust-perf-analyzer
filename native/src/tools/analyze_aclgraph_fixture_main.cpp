@@ -11,6 +11,7 @@
 #include "traceloom/adapters/aclgraph_fixture_adapter.h"
 #include "traceloom/adapters/aclgraph_fixture_reader.h"
 #include "traceloom/analysis/native_pipeline.h"
+#include "traceloom/compat/native_sidecar_materializer.h"
 #include "traceloom/ir/native_ir.h"
 #include "traceloom/materialize/native_result_json.h"
 #include "traceloom/report/anchor_internal_cost_breakdown.h"
@@ -34,6 +35,7 @@ class Stopwatch {
 struct CliOptions {
   std::string fixture_path;
   std::string out_path = "-";
+  std::string compat_sidecar_out_path;
   std::size_t threads = 4;
   std::size_t top_candidate_limit = 16;
 };
@@ -41,7 +43,8 @@ struct CliOptions {
 void print_usage(const char* argv0) {
   std::cerr << "usage: " << argv0
             << " --fixture <aclgraph-fixture-v1.json> [--threads N]"
-               " [--out PATH|-] [--top-candidates N]\n";
+               " [--out PATH|-] [--top-candidates N]"
+               " [--compat-sidecar-out PATH]\n";
 }
 
 std::size_t parse_size(const std::string& text, const std::string& flag) {
@@ -71,6 +74,8 @@ CliOptions parse_args(int argc, char** argv) {
       options.threads = parse_size(require_value(arg), arg);
     } else if (arg == "--out") {
       options.out_path = require_value(arg);
+    } else if (arg == "--compat-sidecar-out") {
+      options.compat_sidecar_out_path = require_value(arg);
     } else if (arg == "--top-candidates") {
       options.top_candidate_limit = parse_size(require_value(arg), arg);
     } else if (arg == "--help" || arg == "-h") {
@@ -141,6 +146,13 @@ int main(int argc, char** argv) {
 
     std::ostringstream first_pass;
     const Stopwatch materialize_watch;
+    if (!cli.compat_sidecar_out_path.empty()) {
+      traceloom::compat::NativeCompatibilitySidecarOptions sidecar_options;
+      sidecar_options.source_kind = json_options.source_kind;
+      sidecar_options.source_path = json_options.source_path;
+      traceloom::compat::write_basic_native_compatibility_sidecar(
+          cli.compat_sidecar_out_path, ir, sidecar_options);
+    }
     traceloom::write_native_result_json(first_pass, ir.symbols, pipeline,
                                         json_options);
     json_options.materialization_ms = materialize_watch.elapsed_ms();
