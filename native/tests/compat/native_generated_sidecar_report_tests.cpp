@@ -127,6 +127,34 @@ void materialize_aux_fixture_sidecar(const std::string& db_path) {
                                                               options);
 }
 
+void materialize_repeat_fixture_sidecar(const std::string& db_path) {
+  traceloom::NativeIr ir;
+  const traceloom::SourceRefId source =
+      ir.source_refs.append("fixture", "memory", "TASK", 0);
+  const traceloom::SymbolId matmul = ir.symbols.intern("MatMul");
+
+  const traceloom::TraceEventId event0 =
+      ir.trace_events.append(source, 1, 0, 3, 1000, 2000, matmul);
+  const traceloom::TraceEventId event1 =
+      ir.trace_events.append(source, 2, 0, 3, 2500, 4500, matmul);
+  const traceloom::AnchorId anchor0 =
+      ir.anchors.append(source, event0, traceloom::ReplayUnitId::invalid(),
+                        traceloom::AnchorKind::kDeviceEvent, matmul, 0, 3,
+                        1000, 2000);
+  const traceloom::AnchorId anchor1 =
+      ir.anchors.append(source, event1, traceloom::ReplayUnitId::invalid(),
+                        traceloom::AnchorKind::kDeviceEvent, matmul, 0, 3,
+                        2500, 4500);
+  ir.tokens.append(anchor0, matmul, 0, 0, 1000, 2000);
+  ir.tokens.append(anchor1, matmul, 0, 1, 2500, 4500);
+
+  traceloom::compat::NativeCompatibilitySidecarOptions options;
+  options.source_kind = "native_repeat_fixture";
+  options.source_path = "memory";
+  traceloom::compat::write_basic_native_compatibility_sidecar(db_path, ir,
+                                                              options);
+}
+
 }  // namespace
 
 int main() {
@@ -172,5 +200,17 @@ int main() {
               "WHERE a.anchor_id IS NULL OR e.event_id IS NULL") == 0);
 
   std::remove(aux_db_path.c_str());
+
+  const std::string repeat_db_path = temp_db_path();
+  materialize_repeat_fixture_sidecar(repeat_db_path);
+
+  require(run_report_sql_row_count(repeat_db_path, "repeat-overview.sql") > 0);
+  require(run_report_sql_row_count(repeat_db_path, "repeat-children.sql") > 0);
+  require(run_scalar_int(
+              repeat_db_path,
+              "SELECT COUNT(*) FROM traceloom_viz_node "
+              "WHERE repeat_count IS NOT NULL") > 0);
+
+  std::remove(repeat_db_path.c_str());
   return 0;
 }
