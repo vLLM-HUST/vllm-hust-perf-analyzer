@@ -100,10 +100,23 @@ void materialize_aclgraph_fixture_sidecar(const std::string& db_path) {
   traceloom::compat::replace_anchor_cost_breakdown_rows(
       db_path, traceloom::compat::build_anchor_cost_breakdown_sql_rows(
                    breakdown));
-  traceloom::compat::replace_graph_replay_rows(
-      db_path,
+  const traceloom::compat::GraphReplaySqlRows graph_rows =
       traceloom::compat::build_aclgraph_fixture_graph_replay_sql_rows(fixture,
-                                                                      ir));
+                                                                      ir);
+  traceloom::compat::replace_timeline_rows(
+      db_path,
+      traceloom::compat::split_graph_replay_timeline_sql_rows(graph_rows));
+  traceloom::compat::replace_event_source_rows(
+      db_path,
+      traceloom::compat::split_graph_replay_source_lineage_sql_rows(
+          graph_rows));
+  traceloom::compat::replace_anchor_rows(
+      db_path,
+      traceloom::compat::split_graph_replay_anchor_sequence_sql_rows(
+          graph_rows));
+  traceloom::compat::replace_graph_replay_evidence_rows(
+      db_path,
+      traceloom::compat::split_graph_replay_evidence_sql_rows(graph_rows));
 }
 
 void materialize_aux_fixture_sidecar(const std::string& db_path) {

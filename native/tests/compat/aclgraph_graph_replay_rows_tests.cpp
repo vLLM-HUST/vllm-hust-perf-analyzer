@@ -80,6 +80,15 @@ int main() {
   require(rows.event_sources.size() == rows.events.size());
   require(rows.graph_replays.size() == 1);
   require(rows.graph_envelopes.size() == 2);
+  require(compat::split_graph_replay_timeline_sql_rows(rows).size() == 3);
+  require(compat::split_graph_replay_source_lineage_sql_rows(rows).size() ==
+          3);
+  require(compat::split_graph_replay_anchor_sequence_sql_rows(rows).size() ==
+          2);
+  const compat::GraphReplayEvidenceSqlRows evidence_rows =
+      compat::split_graph_replay_evidence_sql_rows(rows);
+  require(evidence_rows.graph_replays.size() == 1);
+  require(evidence_rows.graph_envelopes.size() == 2);
 
   require(rows.anchors[0].anchor_id == "anchor-0");
   require(rows.anchors[0].event_id == "aclgraph-subslot-subslot-b");

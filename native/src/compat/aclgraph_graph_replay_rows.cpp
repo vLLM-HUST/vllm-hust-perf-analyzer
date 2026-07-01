@@ -281,4 +281,27 @@ GraphReplaySqlRows build_aclgraph_fixture_graph_replay_sql_rows(
   return rows;
 }
 
+std::vector<EventSqlRow> split_graph_replay_timeline_sql_rows(
+    const GraphReplaySqlRows& rows) {
+  return rows.events;
+}
+
+std::vector<EventSourceSqlRow> split_graph_replay_source_lineage_sql_rows(
+    const GraphReplaySqlRows& rows) {
+  return rows.event_sources;
+}
+
+std::vector<AnchorSqlRow> split_graph_replay_anchor_sequence_sql_rows(
+    const GraphReplaySqlRows& rows) {
+  return rows.anchors;
+}
+
+GraphReplayEvidenceSqlRows split_graph_replay_evidence_sql_rows(
+    const GraphReplaySqlRows& rows) {
+  GraphReplayEvidenceSqlRows out;
+  out.graph_replays = rows.graph_replays;
+  out.graph_envelopes = rows.graph_envelopes;
+  return out;
+}
+
 }  // namespace traceloom::compat
