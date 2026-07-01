@@ -226,6 +226,60 @@ void require_semantic_tree_invariants(const std::string& db_path) {
       0);
 }
 
+void write_anchor_aux_fixture_via_asset_writers(
+    const std::string& db_path,
+    const traceloom::compat::AnchorAuxSqlRows& rows) {
+  traceloom::compat::replace_timeline_rows(db_path, rows.events);
+  traceloom::compat::replace_event_source_rows(db_path, rows.event_sources);
+  traceloom::compat::replace_anchor_rows(db_path, rows.anchors);
+
+  traceloom::compat::AuxAttributionSqlRows aux_rows;
+  aux_rows.aux_slots = rows.aux_slots;
+  aux_rows.aux_links = rows.aux_links;
+  traceloom::compat::replace_aux_attribution_rows(db_path, aux_rows);
+}
+
+void write_node_coverage_fixture_via_asset_writers(
+    const std::string& db_path,
+    const traceloom::compat::NodeCoverageSqlRows& rows) {
+  traceloom::compat::LoopTreeSqlRows loop_rows;
+  loop_rows.nodes = rows.nodes;
+  loop_rows.edges = rows.edges;
+  loop_rows.loop_nodes = rows.loop_nodes;
+  traceloom::compat::replace_loop_tree_rows(db_path, loop_rows);
+
+  traceloom::compat::NodeAnchorCoverageSqlRows coverage_rows;
+  coverage_rows.node_anchors = rows.node_anchors;
+  coverage_rows.anchor_primary_nodes = rows.anchor_primary_nodes;
+  traceloom::compat::replace_node_anchor_coverage_rows(db_path,
+                                                       coverage_rows);
+}
+
+void write_graph_replay_fixture_via_asset_writers(
+    const std::string& db_path,
+    const traceloom::compat::GraphReplaySqlRows& rows) {
+  traceloom::compat::replace_timeline_rows(db_path, rows.events);
+  traceloom::compat::replace_event_source_rows(db_path, rows.event_sources);
+  traceloom::compat::replace_anchor_rows(db_path, rows.anchors);
+
+  traceloom::compat::GraphReplayEvidenceSqlRows evidence_rows;
+  evidence_rows.graph_replays = rows.graph_replays;
+  evidence_rows.graph_envelopes = rows.graph_envelopes;
+  traceloom::compat::replace_graph_replay_evidence_rows(db_path,
+                                                        evidence_rows);
+}
+
+void write_semantic_tree_fixture_via_asset_writers(
+    const std::string& db_path,
+    const traceloom::compat::SemanticTreeSqlRows& rows) {
+  traceloom::compat::replace_semantic_tree_catalog_rows(db_path, rows.trees);
+
+  traceloom::compat::SemanticGraphSqlRows graph_rows;
+  graph_rows.nodes = rows.nodes;
+  graph_rows.edges = rows.edges;
+  traceloom::compat::replace_semantic_graph_rows(db_path, graph_rows);
+}
+
 void seed_anchor_cost_fixture(const std::string& db_path) {
   std::vector<traceloom::compat::AnchorCostBreakdownSqlRow> rows(2);
   rows[0].anchor_idx = 2;
@@ -358,7 +412,7 @@ void seed_anchor_aux_fixture(const std::string& db_path) {
   aux_link_b.aux_dur_us = aux_event_b.dur_us;
   rows.aux_links.push_back(aux_link_b);
 
-  traceloom::compat::replace_anchor_aux_rows(db_path, rows);
+  write_anchor_aux_fixture_via_asset_writers(db_path, rows);
 }
 
 void seed_node_event_fixture(const std::string& db_path) {
@@ -463,7 +517,7 @@ void seed_node_event_fixture(const std::string& db_path) {
   anchor_primary.reason = "self_atom";
   rows.anchor_primary_nodes.push_back(anchor_primary);
 
-  traceloom::compat::replace_node_coverage_rows(db_path, rows);
+  write_node_coverage_fixture_via_asset_writers(db_path, rows);
 }
 
 void seed_graph_replay_fixture(const std::string& db_path) {
@@ -601,7 +655,7 @@ void seed_graph_replay_fixture(const std::string& db_path) {
   envelope_b.child_dur_us = child_event_b.dur_us;
   rows.graph_envelopes.push_back(envelope_b);
 
-  traceloom::compat::replace_graph_replay_rows(db_path, rows);
+  write_graph_replay_fixture_via_asset_writers(db_path, rows);
 }
 
 void seed_semantic_tree_fixture(const std::string& db_path) {
@@ -673,7 +727,7 @@ void seed_semantic_tree_fixture(const std::string& db_path) {
   edge.edge_kind = "child";
   rows.edges.push_back(edge);
 
-  traceloom::compat::replace_semantic_tree_rows(db_path, rows);
+  write_semantic_tree_fixture_via_asset_writers(db_path, rows);
 }
 
 std::vector<QueryCase> active_query_cases() {
