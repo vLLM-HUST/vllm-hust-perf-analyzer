@@ -39,6 +39,7 @@ add_library(traceloom_native_core
   src/pattern/grammar_state.cpp
   src/pattern/pattern_candidate_table.cpp
   src/pattern/pattern_candidate_summary.cpp
+  src/report/anchor_graph_child_cost.cpp
   src/report/anchor_internal_cost_breakdown.cpp
   src/report/report_tree.cpp
   src/report/report_tree_builder.cpp
@@ -370,6 +371,17 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
   add_test(
     NAME traceloom_native_anchor_internal_cost_breakdown_tests
     COMMAND traceloom_native_anchor_internal_cost_breakdown_tests
+  )
+
+  add_executable(traceloom_native_anchor_graph_child_cost_tests
+    tests/report/anchor_graph_child_cost_tests.cpp
+  )
+  target_link_libraries(
+    traceloom_native_anchor_graph_child_cost_tests PRIVATE traceloom_native_core
+  )
+  add_test(
+    NAME traceloom_native_anchor_graph_child_cost_tests
+    COMMAND traceloom_native_anchor_graph_child_cost_tests
   )
 
   add_executable(traceloom_native_result_json_tests
