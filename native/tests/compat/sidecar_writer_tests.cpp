@@ -319,6 +319,40 @@ int main() {
   require(metadata_rows[0].key == "traceloom_schema_version");
   require(metadata_rows[0].value == "compat-v2");
 
+  traceloom::compat::EventSqlRows event_rows;
+  traceloom::compat::EventSqlRow event;
+  event.event_id = "event-1";
+  event.step_idx = 1;
+  event.source_table = "TASK";
+  event.source_key = "task-1";
+  event.stream_id = 7;
+  event.start_ns = 100;
+  event.end_ns = 300;
+  event.dur_us = 0.2;
+  event.category = "exec";
+  event.role = "compute";
+  event.semantic_role = "anchor";
+  event.symbol = "MatMul";
+  event_rows.events.push_back(event);
+  traceloom::compat::EventSourceSqlRow event_source;
+  event_source.event_id = event.event_id;
+  event_source.source_ordinal = 0;
+  event_source.source_table = event.source_table;
+  event_source.source_key = event.source_key;
+  event_source.source_role = "primary";
+  event_rows.event_sources.push_back(event_source);
+  traceloom::compat::replace_event_rows(db_path, event_rows);
+  require(run_scalar_int(db_path, "SELECT COUNT(*) FROM traceloom_event") == 1);
+  require(run_scalar_int(db_path,
+                         "SELECT COUNT(*) FROM traceloom_event_source") == 1);
+  require(run_scalar_text(db_path,
+                          "SELECT symbol FROM traceloom_event "
+                          "WHERE event_id = 'event-1'") == "MatMul");
+  event_rows.event_sources.clear();
+  traceloom::compat::replace_event_rows(db_path, event_rows);
+  require(run_scalar_int(db_path,
+                         "SELECT COUNT(*) FROM traceloom_event_source") == 0);
+
   std::vector<traceloom::compat::CollectiveGlobalLinkSqlRow> local_links(2);
   local_links[0].candidate_collective_key = "collective-1";
   local_links[0].db_name = "db00.traceloom_augmented.db";
