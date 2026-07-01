@@ -105,6 +105,14 @@ void bind_int64(SqliteStmt& stmt, int column, sqlite3_int64 value) {
   }
 }
 
+void bind_null(SqliteStmt& stmt, int column) {
+  const int rc = sqlite3_bind_null(stmt.get(), column);
+  if (rc != SQLITE_OK) {
+    throw std::runtime_error("failed to bind compatibility sidecar null: " +
+                             std::string(sqlite3_errmsg(stmt.db())));
+  }
+}
+
 void bind_double(SqliteStmt& stmt, int column, double value) {
   const int rc = sqlite3_bind_double(stmt.get(), column, value);
   if (rc != SQLITE_OK) {
@@ -253,7 +261,11 @@ void insert_viz_node_row(SqliteStmt& stmt, const VizNodeSqlRow& row) {
   bind_int64(stmt, 12, row.depth);
   bind_int64(stmt, 13, row.level);
   bind_text(stmt, 14, row.repeat_label);
-  bind_int64(stmt, 15, row.repeat_count);
+  if (row.repeat_count == 0) {
+    bind_null(stmt, 15);
+  } else {
+    bind_int64(stmt, 15, row.repeat_count);
+  }
   bind_int64(stmt, 16, row.occurrence_count);
   bind_int64(stmt, 17, row.anchor_count);
   bind_double(stmt, 18, row.anchors_per_occurrence);
@@ -275,6 +287,25 @@ void insert_viz_node_row(SqliteStmt& stmt, const VizNodeSqlRow& row) {
   const int rc = sqlite3_step(stmt.get());
   if (rc != SQLITE_DONE) {
     throw std::runtime_error("failed to insert compatibility viz node row: " +
+                             std::string(sqlite3_errmsg(stmt.db())));
+  }
+  sqlite3_reset(stmt.get());
+  sqlite3_clear_bindings(stmt.get());
+}
+
+void insert_viz_edge_row(SqliteStmt& stmt, const VizEdgeSqlRow& row) {
+  bind_text(stmt, 1, row.parent_node_id);
+  bind_text(stmt, 2, row.child_node_id);
+  bind_int64(stmt, 3, row.db_idx);
+  bind_int64(stmt, 4, row.device_id);
+  bind_text(stmt, 5, row.view_name);
+  bind_int64(stmt, 6, row.edge_order);
+  bind_text(stmt, 7, row.edge_kind);
+  bind_text(stmt, 8, row.raw_json);
+
+  const int rc = sqlite3_step(stmt.get());
+  if (rc != SQLITE_DONE) {
+    throw std::runtime_error("failed to insert compatibility viz edge row: " +
                              std::string(sqlite3_errmsg(stmt.db())));
   }
   sqlite3_reset(stmt.get());
@@ -496,6 +527,174 @@ void materialize_tree_node_occurrence_view(SqliteDb& db) {
       "AND aux.occurrence_idx = a.occurrence_idx");
 }
 
+void materialize_node_cost_views(SqliteDb& db) {
+  db.exec(
+      "CREATE VIEW IF NOT EXISTS traceloom_v_node_anchor_cost AS "
+      "SELECT "
+      "na.node_id, "
+      "na.anchor_id, "
+      "na.occurrence_idx, "
+      "na.anchor_order, "
+      "e.dur_us AS anchor_dur_us, "
+      "e.role AS anchor_role, "
+      "e.symbol AS anchor_symbol, "
+      "e.label AS anchor_label "
+      "FROM traceloom_viz_node_anchor na "
+      "JOIN traceloom_anchor a ON a.anchor_id = na.anchor_id "
+      "JOIN traceloom_event e ON e.event_id = a.event_id");
+  db.exec(
+      "CREATE VIEW IF NOT EXISTS traceloom_v_node_aux_cost AS "
+      "SELECT "
+      "na.node_id, "
+      "al.anchor_id, "
+      "al.aux_event_id, "
+      "al.aux_order, "
+      "e.dur_us AS aux_dur_us, "
+      "e.role AS aux_role, "
+      "e.symbol AS aux_symbol, "
+      "e.label AS aux_label "
+      "FROM traceloom_viz_node_anchor na "
+      "JOIN traceloom_aux_link al ON al.anchor_id = na.anchor_id "
+      "JOIN traceloom_event e ON e.event_id = al.aux_event_id");
+  db.exec(
+      "CREATE VIEW IF NOT EXISTS traceloom_v_node_cost AS "
+      "SELECT "
+      "n.*, "
+      "COALESCE(anchor_cost.anchor_dur_us, 0.0) AS sql_anchor_us, "
+      "COALESCE(aux_cost.aux_dur_us, 0.0) AS sql_aux_us "
+      "FROM traceloom_viz_node n "
+      "LEFT JOIN ("
+      "SELECT node_id, SUM(anchor_dur_us) AS anchor_dur_us "
+      "FROM traceloom_v_node_anchor_cost "
+      "GROUP BY node_id"
+      ") anchor_cost ON anchor_cost.node_id = n.node_id "
+      "LEFT JOIN ("
+      "SELECT node_id, SUM(aux_dur_us) AS aux_dur_us "
+      "FROM traceloom_v_node_aux_cost "
+      "GROUP BY node_id"
+      ") aux_cost ON aux_cost.node_id = n.node_id");
+  db.exec(
+      "CREATE VIEW IF NOT EXISTS traceloom_v_node_children AS "
+      "SELECT "
+      "e.parent_node_id, "
+      "e.child_node_id, "
+      "e.edge_order, "
+      "child.* "
+      "FROM traceloom_viz_edge e "
+      "JOIN traceloom_viz_node child ON child.node_id = e.child_node_id");
+}
+
+void materialize_tree_node_view(SqliteDb& db) {
+  db.exec(
+      "CREATE VIEW IF NOT EXISTS traceloom_v_tree_node AS "
+      "WITH RECURSIVE tree AS ("
+      "SELECT "
+      "n.node_id, "
+      "CAST(NULL AS TEXT) AS parent_node_id, "
+      "n.db_idx, "
+      "n.device_id, "
+      "n.view_name, "
+      "n.local_node_id, "
+      "CAST(SUBSTR(n.local_node_id, 2) AS INTEGER) AS display_order, "
+      "n.path, "
+      "n.depth AS tree_depth, "
+      "n.level AS depth, "
+      "CASE WHEN n.kind = 'repeat' THEN 1 ELSE 0 END AS loop_depth, "
+      "n.node_type, "
+      "n.kind, "
+      "n.symbol, "
+      "n.label, "
+      "n.category, "
+      "n.repeat_label, "
+      "n.repeat_count, "
+      "n.occurrence_count, "
+      "n.anchor_count, "
+      "n.anchors_per_occurrence, "
+      "n.anchors_per_occurrence AS avg_anchor, "
+      "n.first_anchor_idx, "
+      "n.last_anchor_idx, "
+      "n.compute_us, "
+      "n.comm_us, "
+      "n.idle_us, "
+      "n.total_us, "
+      "n.avg_compute_us, "
+      "n.avg_comm_us, "
+      "n.avg_idle_us, "
+      "n.avg_total_us, "
+      "n.self_us, "
+      "ROUND(COALESCE(n.self_us, 0.0) / CASE WHEN "
+      "COALESCE(n.occurrence_count, 0) = 0 THEN 1 ELSE "
+      "n.occurrence_count END, 3) AS avg_self_us, "
+      "n.aux_events, "
+      "n.aux_us, "
+      "ROUND(COALESCE(n.aux_us, 0.0) / CASE WHEN "
+      "COALESCE(n.occurrence_count, 0) = 0 THEN 1 ELSE "
+      "n.occurrence_count END, 3) AS avg_aux_us, "
+      "ROUND(CASE WHEN COALESCE(n.total_us, 0.0) = 0.0 THEN 0.0 ELSE "
+      "COALESCE(n.comm_us, 0.0) / n.total_us END, 6) AS comm_pct, "
+      "ROUND(CASE WHEN COALESCE(n.total_us, 0.0) = 0.0 THEN 0.0 ELSE "
+      "COALESCE(n.idle_us, 0.0) / n.total_us END, 6) AS idle_pct "
+      "FROM traceloom_viz_node n "
+      "WHERE NOT EXISTS ("
+      "SELECT 1 FROM traceloom_viz_edge e WHERE e.child_node_id = n.node_id"
+      ") "
+      "UNION ALL "
+      "SELECT "
+      "child.node_id, "
+      "e.parent_node_id, "
+      "child.db_idx, "
+      "child.device_id, "
+      "child.view_name, "
+      "child.local_node_id, "
+      "CAST(SUBSTR(child.local_node_id, 2) AS INTEGER) AS display_order, "
+      "child.path, "
+      "child.depth AS tree_depth, "
+      "child.level AS depth, "
+      "tree.loop_depth + CASE WHEN child.kind = 'repeat' THEN 1 ELSE 0 END "
+      "AS loop_depth, "
+      "child.node_type, "
+      "child.kind, "
+      "child.symbol, "
+      "child.label, "
+      "child.category, "
+      "child.repeat_label, "
+      "child.repeat_count, "
+      "child.occurrence_count, "
+      "child.anchor_count, "
+      "child.anchors_per_occurrence, "
+      "child.anchors_per_occurrence AS avg_anchor, "
+      "child.first_anchor_idx, "
+      "child.last_anchor_idx, "
+      "child.compute_us, "
+      "child.comm_us, "
+      "child.idle_us, "
+      "child.total_us, "
+      "child.avg_compute_us, "
+      "child.avg_comm_us, "
+      "child.avg_idle_us, "
+      "child.avg_total_us, "
+      "child.self_us, "
+      "ROUND(COALESCE(child.self_us, 0.0) / CASE WHEN "
+      "COALESCE(child.occurrence_count, 0) = 0 THEN 1 ELSE "
+      "child.occurrence_count END, 3) AS avg_self_us, "
+      "child.aux_events, "
+      "child.aux_us, "
+      "ROUND(COALESCE(child.aux_us, 0.0) / CASE WHEN "
+      "COALESCE(child.occurrence_count, 0) = 0 THEN 1 ELSE "
+      "child.occurrence_count END, 3) AS avg_aux_us, "
+      "ROUND(CASE WHEN COALESCE(child.total_us, 0.0) = 0.0 THEN 0.0 "
+      "ELSE COALESCE(child.comm_us, 0.0) / child.total_us END, 6) "
+      "AS comm_pct, "
+      "ROUND(CASE WHEN COALESCE(child.total_us, 0.0) = 0.0 THEN 0.0 "
+      "ELSE COALESCE(child.idle_us, 0.0) / child.total_us END, 6) "
+      "AS idle_pct "
+      "FROM tree "
+      "JOIN traceloom_viz_edge e ON e.parent_node_id = tree.node_id "
+      "JOIN traceloom_viz_node child ON child.node_id = e.child_node_id"
+      ") "
+      "SELECT * FROM tree");
+}
+
 }  // namespace
 
 #endif
@@ -656,12 +855,14 @@ void replace_node_coverage_rows(const std::string& sqlite_path,
       sqlite_path,
       {event_table_schema(), anchor_table_schema(),
        anchor_aux_slot_table_schema(), aux_link_table_schema(),
-       viz_node_table_schema(), viz_node_anchor_table_schema()});
+       viz_node_table_schema(), viz_edge_table_schema(),
+       viz_node_anchor_table_schema()});
 
   SqliteDb db(sqlite_path);
   db.exec("BEGIN IMMEDIATE");
   try {
     db.exec("DELETE FROM traceloom_viz_node_anchor");
+    db.exec("DELETE FROM traceloom_viz_edge");
     db.exec("DELETE FROM traceloom_viz_node");
 
     SqliteStmt node_stmt(
@@ -680,6 +881,16 @@ void replace_node_coverage_rows(const std::string& sqlite_path,
       insert_viz_node_row(node_stmt, row);
     }
 
+    SqliteStmt edge_stmt(
+        db.get(),
+        "INSERT INTO traceloom_viz_edge ("
+        "parent_node_id, child_node_id, db_idx, device_id, view_name, "
+        "edge_order, edge_kind, raw_json"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+    for (const VizEdgeSqlRow& row : rows.edges) {
+      insert_viz_edge_row(edge_stmt, row);
+    }
+
     SqliteStmt node_anchor_stmt(
         db.get(),
         "INSERT INTO traceloom_viz_node_anchor ("
@@ -692,6 +903,8 @@ void replace_node_coverage_rows(const std::string& sqlite_path,
 
     materialize_tree_node_anchor_view(db);
     materialize_tree_node_occurrence_view(db);
+    materialize_node_cost_views(db);
+    materialize_tree_node_view(db);
     db.exec("COMMIT");
   } catch (...) {
     try {

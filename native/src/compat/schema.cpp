@@ -252,6 +252,23 @@ const CompatTableSchema& viz_node_table_schema() {
   return schema;
 }
 
+const CompatTableSchema& viz_edge_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_viz_edge",
+      {
+          {"parent_node_id", CompatColumnType::kText, false},
+          {"child_node_id", CompatColumnType::kText, false},
+          {"db_idx", CompatColumnType::kInteger, false},
+          {"device_id", CompatColumnType::kInteger, false},
+          {"view_name", CompatColumnType::kText, false},
+          {"edge_order", CompatColumnType::kInteger, false},
+          {"edge_kind", CompatColumnType::kText, true},
+          {"raw_json", CompatColumnType::kText, true},
+      },
+  };
+  return schema;
+}
+
 const CompatTableSchema& viz_node_anchor_table_schema() {
   static const CompatTableSchema schema{
       "traceloom_viz_node_anchor",
@@ -299,6 +316,7 @@ std::vector<CompatTableSchema> compatibility_table_schemas() {
       cuda_graph_replay_table_schema(),
       cuda_graph_envelope_table_schema(),
       viz_node_table_schema(),
+      viz_edge_table_schema(),
       viz_node_anchor_table_schema(),
       anchor_cost_breakdown_table_schema(),
   };

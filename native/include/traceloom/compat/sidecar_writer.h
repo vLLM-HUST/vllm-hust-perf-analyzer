@@ -99,7 +99,8 @@ struct VizNodeSqlRow {
   std::uint32_t depth = 0;
   std::uint32_t level = 0;
   std::string repeat_label;
-  std::uint32_t repeat_count = 1;
+  // Zero materializes as SQL NULL for non-repeat nodes.
+  std::uint32_t repeat_count = 0;
   std::uint32_t occurrence_count = 1;
   std::uint32_t anchor_count = 0;
   double anchors_per_occurrence = 0.0;
@@ -131,8 +132,20 @@ struct VizNodeAnchorSqlRow {
   std::string repeat_context;
 };
 
+struct VizEdgeSqlRow {
+  std::string parent_node_id;
+  std::string child_node_id;
+  std::uint32_t db_idx = 0;
+  std::uint32_t device_id = 0;
+  std::string view_name = "default";
+  std::uint32_t edge_order = 0;
+  std::string edge_kind;
+  std::string raw_json;
+};
+
 struct NodeCoverageSqlRows {
   std::vector<VizNodeSqlRow> nodes;
+  std::vector<VizEdgeSqlRow> edges;
   std::vector<VizNodeAnchorSqlRow> node_anchors;
 };
 

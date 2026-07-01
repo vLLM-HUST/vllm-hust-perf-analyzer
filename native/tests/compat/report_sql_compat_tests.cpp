@@ -203,35 +203,84 @@ void seed_anchor_aux_fixture(const std::string& db_path) {
 void seed_node_event_fixture(const std::string& db_path) {
   traceloom::compat::NodeCoverageSqlRows rows;
 
+  traceloom::compat::VizNodeSqlRow parent;
+  parent.node_id = "node-1";
+  parent.local_node_id = "N001";
+  parent.view_name = "semantic_tree";
+  parent.path = "/N001";
+  parent.node_type = "Repeat";
+  parent.kind = "repeat";
+  parent.symbol = "repeat";
+  parent.label = "repeat x2";
+  parent.category = "loop";
+  parent.repeat_label = "x2";
+  parent.repeat_count = 2;
+  parent.occurrence_count = 2;
+  parent.anchor_count = 1;
+  parent.anchors_per_occurrence = 0.5;
+  parent.first_anchor_idx = 1;
+  parent.last_anchor_idx = 1;
+  parent.compute_us = 10.0;
+  parent.total_us = 12.0;
+  parent.avg_compute_us = 5.0;
+  parent.avg_total_us = 6.0;
+  parent.self_us = 10.0;
+  parent.aux_events = 2.0;
+  parent.aux_us = 5.5;
+  rows.nodes.push_back(parent);
+
   traceloom::compat::VizNodeSqlRow node;
   node.node_id = "node-27";
   node.local_node_id = "N027";
   node.view_name = "semantic_tree";
-  node.path = "/N027";
+  node.path = "/N001/N027";
   node.node_type = "Atom";
   node.kind = "leaf";
   node.symbol = "MatMul";
   node.label = "MatMul";
   node.category = "compute";
+  node.depth = 1;
+  node.level = 1;
   node.anchor_count = 1;
   node.anchors_per_occurrence = 1.0;
   node.first_anchor_idx = 1;
   node.last_anchor_idx = 1;
   node.compute_us = 5.0;
-  node.total_us = 5.0;
+  node.total_us = 10.5;
   node.avg_compute_us = 5.0;
-  node.avg_total_us = 5.0;
+  node.avg_total_us = 10.5;
   node.self_us = 5.0;
+  node.aux_events = 2.0;
+  node.aux_us = 5.5;
   rows.nodes.push_back(node);
 
-  traceloom::compat::VizNodeAnchorSqlRow coverage;
-  coverage.node_id = node.node_id;
-  coverage.anchor_id = "anchor-1";
-  coverage.view_name = node.view_name;
-  coverage.occurrence_idx = 0;
-  coverage.anchor_order = 0;
-  coverage.coverage_kind = "self";
-  rows.node_anchors.push_back(coverage);
+  traceloom::compat::VizEdgeSqlRow edge;
+  edge.parent_node_id = parent.node_id;
+  edge.child_node_id = node.node_id;
+  edge.view_name = node.view_name;
+  edge.edge_order = 0;
+  edge.edge_kind = "child";
+  rows.edges.push_back(edge);
+
+  traceloom::compat::VizNodeAnchorSqlRow parent_coverage;
+  parent_coverage.node_id = parent.node_id;
+  parent_coverage.anchor_id = "anchor-1";
+  parent_coverage.view_name = parent.view_name;
+  parent_coverage.occurrence_idx = 0;
+  parent_coverage.anchor_order = 0;
+  parent_coverage.coverage_kind = "self";
+  parent_coverage.repeat_context = "N001#0";
+  rows.node_anchors.push_back(parent_coverage);
+
+  traceloom::compat::VizNodeAnchorSqlRow node_coverage;
+  node_coverage.node_id = node.node_id;
+  node_coverage.anchor_id = "anchor-1";
+  node_coverage.view_name = node.view_name;
+  node_coverage.occurrence_idx = 0;
+  node_coverage.anchor_order = 0;
+  node_coverage.coverage_kind = "self";
+  node_coverage.repeat_context = "N001#0";
+  rows.node_anchors.push_back(node_coverage);
 
   traceloom::compat::replace_node_coverage_rows(db_path, rows);
 }
@@ -441,6 +490,76 @@ std::vector<QueryCase> active_query_cases() {
           1,
       },
       QueryCase{
+          "repeat-overview.sql",
+          {
+              "local_node_id",
+              "level",
+              "kind",
+              "node_type",
+              "repeat_count",
+              "occurrence_count",
+              "anchor_count",
+              "total_us",
+              "avg_total_us",
+              "anchor_us",
+              "aux_us",
+          },
+          1,
+      },
+      QueryCase{
+          "repeat-children.sql",
+          {
+              "local_node_id",
+              "level",
+              "kind",
+              "node_type",
+              "repeat_count",
+              "occurrence_count",
+              "anchor_count",
+              "total_us",
+              "avg_total_us",
+          },
+          1,
+      },
+      QueryCase{
+          "tree-map.sql",
+          {
+              "node",
+              "label",
+              "depth",
+              "occ",
+              "avg_total_us",
+              "avg_aux_us",
+              "total_us",
+          },
+          1,
+      },
+      QueryCase{
+          "node-cost-breakdown.sql",
+          {
+              "node",
+              "depth",
+              "loop_depth",
+              "kind",
+              "label",
+              "repeat_count",
+              "occurrence_count",
+              "total_us",
+              "avg_total_us",
+              "avg_compute_us",
+              "avg_comm_us",
+              "avg_idle_us",
+              "avg_self_us",
+              "avg_aux_us",
+              "compute_pct",
+              "comm_pct",
+              "idle_pct",
+              "self_pct",
+              "aux_pct",
+          },
+          1,
+      },
+      QueryCase{
           "anchor-cost-breakdown.sql",
           traceloom::compat::column_names(
               traceloom::compat::anchor_cost_breakdown_table_schema()),
@@ -463,7 +582,11 @@ int main() {
     } else if (query_case.filename == "cuda-graph-envelope.sql") {
       seed_graph_replay_fixture(db_path);
     } else if (query_case.filename == "node-events.sql" ||
-               query_case.filename == "node-occurrences.sql") {
+               query_case.filename == "node-occurrences.sql" ||
+               query_case.filename == "repeat-overview.sql" ||
+               query_case.filename == "repeat-children.sql" ||
+               query_case.filename == "tree-map.sql" ||
+               query_case.filename == "node-cost-breakdown.sql") {
       seed_anchor_aux_fixture(db_path);
       seed_node_event_fixture(db_path);
     }
@@ -515,6 +638,37 @@ int main() {
       require(result.first_row[8] == "5.0" || result.first_row[8] == "5");
       require(result.first_row[9] == "5.0" || result.first_row[9] == "5");
       require(result.first_row[12] == "5.5");
+    } else if (query_case.filename == "repeat-overview.sql") {
+      require(result.row_count == 1);
+      require(result.first_row[0] == "N001");
+      require(result.first_row[2] == "repeat");
+      require(result.first_row[4] == "2");
+      require(result.first_row[7] == "12.0" || result.first_row[7] == "12");
+      require(result.first_row[9] == "5.0" || result.first_row[9] == "5");
+      require(result.first_row[10] == "5.5");
+    } else if (query_case.filename == "repeat-children.sql") {
+      require(result.row_count == 1);
+      require(result.first_row[0] == "N027");
+      require(result.first_row[1] == "1");
+      require(result.first_row[2] == "leaf");
+      require(result.first_row[3] == "Atom");
+      require(result.first_row[7] == "10.5");
+    } else if (query_case.filename == "tree-map.sql") {
+      require(result.row_count == 2);
+      require(result.first_row[0] == "N001");
+      require(result.first_row[1] == "repeat x2");
+      require(result.first_row[2] == "0");
+      require(result.first_row[3] == "2");
+    } else if (query_case.filename == "node-cost-breakdown.sql") {
+      require(result.row_count == 1);
+      require(result.first_row[0] == "N027");
+      require(result.first_row[1] == "1");
+      require(result.first_row[2] == "1");
+      require(result.first_row[3] == "leaf");
+      require(result.first_row[7] == "10.5");
+      require(result.first_row[13] == "5.5");
+      require(result.first_row[14] == "47.62");
+      require(result.first_row[18] == "52.38");
     }
     std::remove(db_path.c_str());
   }
