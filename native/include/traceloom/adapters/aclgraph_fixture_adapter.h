@@ -2,6 +2,7 @@
 
 #include "traceloom/adapters/aclgraph_fixture_reader.h"
 #include "traceloom/adapters/source_adapter.h"
+#include "traceloom/report/anchor_internal_cost_breakdown.h"
 
 namespace traceloom {
 
@@ -16,5 +17,9 @@ class AclGraphFixtureAdapter final : public SourceAdapter {
 };
 
 AnchorKind aclgraph_anchor_kind_for_slot_symbol(const std::string& slot_symbol);
+
+AnchorInternalCostBreakdown build_aclgraph_fixture_anchor_cost_breakdown(
+    const AclGraphSemanticFixture& fixture,
+    const NativeIr& ir);
 
 }  // namespace traceloom

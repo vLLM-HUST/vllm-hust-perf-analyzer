@@ -1,6 +1,10 @@
 #include "traceloom/adapters/aclgraph_fixture_adapter.h"
 
+#include "traceloom/report/anchor_graph_child_cost.h"
+#include "traceloom/report/report_tree_builder.h"
+
 #include <algorithm>
+#include <cstdint>
 #include <map>
 #include <stdexcept>
 #include <utility>
@@ -29,6 +33,50 @@ RoleId role_id_for_slot_symbol(const std::string& slot_symbol) {
     return RoleId(3);
   }
   return RoleId(0);
+}
+
+ReportAnchorKind report_anchor_kind_for_anchor_kind(AnchorKind anchor_kind) {
+  switch (anchor_kind) {
+    case AnchorKind::kDeviceEvent:
+      return ReportAnchorKind::kExec;
+    case AnchorKind::kCommunication:
+      return ReportAnchorKind::kCollective;
+    case AnchorKind::kGraphH:
+      return ReportAnchorKind::kGraphH;
+    case AnchorKind::kGraphL:
+      return ReportAnchorKind::kGraphL;
+    case AnchorKind::kGraphT:
+      return ReportAnchorKind::kGraphT;
+    default:
+      return ReportAnchorKind::kUnknown;
+  }
+}
+
+std::vector<ReportToken> report_tokens_from_ir(const NativeIr& ir) {
+  std::vector<ReportToken> tokens;
+  tokens.reserve(ir.tokens.size());
+  for (const TokenRow& token : ir.tokens.rows()) {
+    const AnchorRow& anchor = ir.anchors.row(token.anchor_id);
+    ReportToken out;
+    out.ordinal = token.sequence_index;
+    out.symbol_id = token.symbol_id;
+    out.display_op = ir.symbols.value(token.symbol_id);
+    out.display_category = "graph";
+    out.anchor_kind = report_anchor_kind_for_anchor_kind(anchor.kind);
+    out.anchor_id = token.anchor_id;
+    out.start_ns = token.start_ns;
+    out.end_ns = token.end_ns;
+    tokens.push_back(std::move(out));
+  }
+  return tokens;
+}
+
+void add_error(AnchorInternalCostBreakdown& breakdown,
+               std::string code,
+               std::string message) {
+  breakdown.diagnostics.push_back(
+      Diagnostic{DiagnosticSeverity::kError, std::move(code),
+                 std::move(message)});
 }
 
 }  // namespace
@@ -120,6 +168,50 @@ NativeIr AclGraphFixtureAdapter::load() const {
   }
 
   return ir;
+}
+
+AnchorInternalCostBreakdown build_aclgraph_fixture_anchor_cost_breakdown(
+    const AclGraphSemanticFixture& fixture,
+    const NativeIr& ir) {
+  AnchorInternalCostBreakdown breakdown;
+  if (fixture.hlt_anchor_seeds.size() != ir.tokens.size()) {
+    add_error(breakdown, "aclgraph_fixture_cost_token_seed_mismatch",
+              "ACLGraph fixture HLT anchor seed count must match NativeIr "
+              "token count before building fixture cost breakdown");
+    return breakdown;
+  }
+
+  std::vector<AnchorGraphChildSummary> summaries;
+  summaries.reserve(fixture.hlt_anchor_seeds.size());
+  for (std::size_t index = 0; index < fixture.hlt_anchor_seeds.size();
+       ++index) {
+    const AclGraphHltAnchorSeedFixtureRow& seed =
+        fixture.hlt_anchor_seeds[index];
+    // Semantic fixtures carry already-aggregated graph-child evidence. Until a
+    // real DB adapter can scan raw tasks, use the slot window as the stable
+    // golden-sample cost carrier.
+    summaries.push_back(AnchorGraphChildSummary{
+        static_cast<std::uint32_t>(index),
+        seed.start_ns,
+        seed.end_ns,
+        seed.end_ns - seed.start_ns,
+        seed.raw_child_task_count,
+        0,
+        seed.raw_top_ops,
+        "",
+    });
+  }
+
+  const AnchorGraphChildCostResult graph_cost =
+      build_anchor_graph_child_summary_components(summaries);
+  const std::vector<ReportToken> report_tokens = report_tokens_from_ir(ir);
+  const ReportTree tree = build_report_tree_from_tokens(report_tokens);
+  breakdown = build_anchor_internal_cost_breakdown(
+      tree, report_tokens, graph_cost.component_leaves);
+  breakdown.diagnostics.insert(breakdown.diagnostics.begin(),
+                               graph_cost.diagnostics.begin(),
+                               graph_cost.diagnostics.end());
+  return breakdown;
 }
 
 }  // namespace traceloom

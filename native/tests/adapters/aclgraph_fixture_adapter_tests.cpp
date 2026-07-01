@@ -1,8 +1,5 @@
 #include "traceloom/adapters/aclgraph_fixture_adapter.h"
 #include "traceloom/analysis/native_pipeline.h"
-#include "traceloom/report/anchor_graph_child_cost.h"
-#include "traceloom/report/anchor_internal_cost_breakdown.h"
-#include "traceloom/report/report_tree_builder.h"
 #include "traceloom/testing/test_util.h"
 
 #include <map>
@@ -43,41 +40,6 @@ std::map<std::string, std::size_t> candidate_counts(
     counts.emplace(key, row.occurrence_count);
   }
   return counts;
-}
-
-traceloom::ReportAnchorKind report_anchor_kind(
-    traceloom::AnchorKind anchor_kind) {
-  switch (anchor_kind) {
-    case traceloom::AnchorKind::kGraphH:
-      return traceloom::ReportAnchorKind::kGraphH;
-    case traceloom::AnchorKind::kGraphL:
-      return traceloom::ReportAnchorKind::kGraphL;
-    case traceloom::AnchorKind::kGraphT:
-      return traceloom::ReportAnchorKind::kGraphT;
-    default:
-      return traceloom::ReportAnchorKind::kUnknown;
-  }
-}
-
-std::vector<traceloom::ReportToken> report_tokens_from_ir(
-    const traceloom::NativeIr& ir) {
-  std::vector<traceloom::ReportToken> tokens;
-  tokens.reserve(ir.tokens.size());
-  for (const traceloom::TokenRow& token : ir.tokens.rows()) {
-    const traceloom::AnchorRow& anchor = ir.anchors.row(token.anchor_id);
-    traceloom::ReportToken out;
-    out.ordinal = token.sequence_index;
-    out.symbol_id = token.symbol_id;
-    out.display_op = ir.symbols.value(token.symbol_id);
-    out.display_category = "graph";
-    out.anchor_kind = report_anchor_kind(anchor.kind);
-    out.anchor_id = token.anchor_id;
-    out.launch_activity_id = "";
-    out.start_ns = token.start_ns;
-    out.end_ns = token.end_ns;
-    tokens.push_back(out);
-  }
-  return tokens;
 }
 
 }  // namespace
@@ -198,37 +160,8 @@ int main() {
             AnchorId(3));
     require(ir.replay_units.row(ReplayUnitId(1)).last_anchor_id == AnchorId(4));
 
-    std::vector<AnchorGraphChildSummary> summaries;
-    summaries.reserve(fixture.hlt_anchor_seeds.size());
-    for (std::size_t index = 0; index < fixture.hlt_anchor_seeds.size();
-         ++index) {
-      const AclGraphHltAnchorSeedFixtureRow& seed =
-          fixture.hlt_anchor_seeds[index];
-      summaries.push_back(AnchorGraphChildSummary{
-          static_cast<std::uint32_t>(index),
-          seed.start_ns,
-          seed.end_ns,
-          seed.end_ns - seed.start_ns,
-          seed.raw_child_task_count,
-          0,
-          seed.raw_top_ops,
-          "",
-      });
-    }
-    const AnchorGraphChildCostResult graph_cost =
-        build_anchor_graph_child_summary_components(summaries);
-    require(graph_cost.diagnostics.empty());
-    require(graph_cost.component_leaves.size() == 5);
-    require(graph_cost.component_leaves[1].token_ordinal == 1);
-    require(graph_cost.component_leaves[1].duration_ns == 100);
-    require(graph_cost.component_leaves[1].raw_child_task_count == 20);
-    require(graph_cost.component_leaves[1].top_ops == "MatMul:16");
-
-    const std::vector<ReportToken> report_tokens = report_tokens_from_ir(ir);
-    const ReportTree tree = build_report_tree_from_tokens(report_tokens);
     const AnchorInternalCostBreakdown breakdown =
-        build_anchor_internal_cost_breakdown(
-            tree, report_tokens, graph_cost.component_leaves);
+        build_aclgraph_fixture_anchor_cost_breakdown(fixture, ir);
     require(breakdown.diagnostics.empty());
     require(breakdown.rows.size() == 5);
     require(breakdown.rows[1].symbol == "ACLL");
@@ -236,6 +169,12 @@ int main() {
     require(breakdown.rows[1].graph_child_ns == 100);
     require(breakdown.rows[1].raw_child_task_count == 20);
     require(breakdown.rows[1].top_ops == "MatMul:16");
+
+    const AnchorInternalCostBreakdown invalid =
+        build_aclgraph_fixture_anchor_cost_breakdown(fixture, NativeIr{});
+    require(!invalid.diagnostics.empty());
+    require(invalid.diagnostics[0].code ==
+            "aclgraph_fixture_cost_token_seed_mismatch");
   }
 
   return 0;
