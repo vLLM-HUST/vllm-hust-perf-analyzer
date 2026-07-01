@@ -1,5 +1,7 @@
+import json
 import unittest
 from collections import Counter
+from pathlib import Path
 
 from traceloom.compute_prelude_timeline import (
     MainEvent,
@@ -717,7 +719,11 @@ class AclGraphAtomProjectionTests(unittest.TestCase):
 
         fixture = aclgraph_analysis_to_semantic_fixture(
             analysis,
-            fixture_id="unit_aclgraph_python_assets",
+            fixture_id="aclgraph_python_minimal_assets",
+            description=(
+                "Golden asset emitted by the Python AclGraphAnalysis "
+                "semantic fixture exporter."
+            ),
         )
 
         self.assertEqual(fixture["schema_version"], "aclgraph-fixture-v1")
@@ -739,6 +745,18 @@ class AclGraphAtomProjectionTests(unittest.TestCase):
             fixture["golden"]["diagnostic_codes"],
             {"replay_tiling_partial_coverage": 1},
         )
+        golden_path = (
+            Path(__file__).resolve().parents[2]
+            / "drafts"
+            / "refactor"
+            / "80_tests_fixtures"
+            / "fixtures"
+            / "aclgraph"
+            / "aclgraph_python_minimal_assets.json"
+        )
+        with golden_path.open("r", encoding="utf-8") as handle:
+            golden_fixture = json.load(handle)
+        self.assertEqual(fixture, golden_fixture)
 
 
 if __name__ == "__main__":

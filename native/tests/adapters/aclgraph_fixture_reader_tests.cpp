@@ -133,5 +133,24 @@ int main() {
     }
   }
 
+  {
+    const AclGraphSemanticFixture fixture =
+        load_aclgraph_semantic_fixture(
+            fixture_path("aclgraph_python_minimal_assets"));
+    require(fixture.fixture_id == "aclgraph_python_minimal_assets");
+    require(fixture.capture_slots.size() == fixture.golden.capture_slot_count);
+    require(fixture.capture_dictionary.size() ==
+            fixture.golden.capture_dictionary_count);
+    require(fixture.replay_activities.size() ==
+            fixture.golden.replay_activity_count);
+    require(fixture.replay_units.size() == fixture.golden.replay_unit_count);
+    require(fixture.replay_subslots.size() == 6);
+    require(fixture.hlt_anchor_seeds.size() == fixture.golden.hlt_anchor_count);
+    require(flat_hlt_anchor_sequence(fixture) ==
+            fixture.golden.flat_hlt_sequence);
+    require(derive_aclgraph_diagnostic_counts(fixture)
+                .at("replay_tiling_partial_coverage") == 1);
+  }
+
   return 0;
 }

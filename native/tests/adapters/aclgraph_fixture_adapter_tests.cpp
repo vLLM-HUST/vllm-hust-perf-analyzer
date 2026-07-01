@@ -140,5 +140,25 @@ int main() {
     require(token_sequence(ir) == "ACLH ACLT");
   }
 
+  {
+    const AclGraphSemanticFixture fixture =
+        load_aclgraph_semantic_fixture(
+            fixture_path("aclgraph_python_minimal_assets"));
+    const NativeIr ir = AclGraphFixtureAdapter(fixture).load();
+    require(ir.graph_templates.size() == 1);
+    require(ir.capture_slots.size() == 3);
+    require(ir.replay_units.size() == 2);
+    require(ir.anchors.size() == 5);
+    require(ir.tokens.size() == 5);
+    require(ir.protected_intervals.size() == 2);
+    require(token_sequence(ir) == "ACLH ACLL ACLT ACLH ACLT");
+    require(ir.replay_units.row(ReplayUnitId(0)).first_anchor_id ==
+            AnchorId(0));
+    require(ir.replay_units.row(ReplayUnitId(0)).last_anchor_id == AnchorId(2));
+    require(ir.replay_units.row(ReplayUnitId(1)).first_anchor_id ==
+            AnchorId(3));
+    require(ir.replay_units.row(ReplayUnitId(1)).last_anchor_id == AnchorId(4));
+  }
+
   return 0;
 }
