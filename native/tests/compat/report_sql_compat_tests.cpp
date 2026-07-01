@@ -104,7 +104,18 @@ int run_scalar_int(const std::string& db_path, const std::string& sql) {
   return value;
 }
 
+void require_event_source_invariants(const std::string& db_path) {
+  traceloom::testing::require(run_scalar_int(
+                                  db_path,
+                                  "SELECT COUNT(*) FROM "
+                                  "traceloom_event_source s "
+                                  "LEFT JOIN traceloom_event e ON "
+                                  "e.event_id = s.event_id "
+                                  "WHERE e.event_id IS NULL") == 0);
+}
+
 void require_anchor_aux_invariants(const std::string& db_path) {
+  require_event_source_invariants(db_path);
   traceloom::testing::require(run_scalar_int(
                                   db_path,
                                   "SELECT COUNT(*) FROM traceloom_anchor a "
@@ -150,6 +161,7 @@ void require_node_coverage_invariants(const std::string& db_path) {
 }
 
 void require_graph_replay_invariants(const std::string& db_path) {
+  require_event_source_invariants(db_path);
   traceloom::testing::require(
       run_scalar_int(db_path,
                      "SELECT COUNT(*) FROM traceloom_cuda_graph_replay g "
@@ -242,6 +254,14 @@ void seed_anchor_aux_fixture(const std::string& db_path) {
   anchor_event.label = "MatMul";
   rows.events.push_back(anchor_event);
 
+  traceloom::compat::EventSourceSqlRow anchor_source;
+  anchor_source.event_id = anchor_event.event_id;
+  anchor_source.source_ordinal = 0;
+  anchor_source.source_table = anchor_event.source_table;
+  anchor_source.source_key = anchor_event.source_key;
+  anchor_source.source_role = "primary";
+  rows.event_sources.push_back(anchor_source);
+
   traceloom::compat::EventSqlRow aux_event_a;
   aux_event_a.event_id = "event-aux-1";
   aux_event_a.step_idx = 8;
@@ -256,6 +276,14 @@ void seed_anchor_aux_fixture(const std::string& db_path) {
   aux_event_a.semantic_role = "aux";
   aux_event_a.symbol = "Memcpy";
   rows.events.push_back(aux_event_a);
+
+  traceloom::compat::EventSourceSqlRow aux_source;
+  aux_source.event_id = aux_event_a.event_id;
+  aux_source.source_ordinal = 0;
+  aux_source.source_table = aux_event_a.source_table;
+  aux_source.source_key = aux_event_a.source_key;
+  aux_source.source_role = "aux";
+  rows.event_sources.push_back(aux_source);
 
   traceloom::compat::EventSqlRow aux_event_b;
   aux_event_b.event_id = "event-aux-2";
@@ -425,6 +453,14 @@ void seed_graph_replay_fixture(const std::string& db_path) {
   graph_event.label = "ACLGraphReplay";
   graph_event.task_type = "ACL_GRAPH";
   rows.events.push_back(graph_event);
+
+  traceloom::compat::EventSourceSqlRow graph_source;
+  graph_source.event_id = graph_event.event_id;
+  graph_source.source_ordinal = 0;
+  graph_source.source_table = graph_event.source_table;
+  graph_source.source_key = graph_event.source_key;
+  graph_source.source_role = "synthetic_graph";
+  rows.event_sources.push_back(graph_source);
 
   traceloom::compat::EventSqlRow child_event_a;
   child_event_a.event_id = "event-graph-child-1";

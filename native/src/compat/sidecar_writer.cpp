@@ -177,6 +177,26 @@ void insert_event_row(SqliteStmt& stmt, const EventSqlRow& row) {
   sqlite3_clear_bindings(stmt.get());
 }
 
+void insert_event_source_row(SqliteStmt& stmt, const EventSourceSqlRow& row) {
+  bind_text(stmt, 1, row.event_id);
+  bind_int64(stmt, 2, row.source_ordinal);
+  bind_int64(stmt, 3, row.db_idx);
+  bind_int64(stmt, 4, row.device_id);
+  bind_text(stmt, 5, row.source_table);
+  bind_text(stmt, 6, row.source_key);
+  bind_text(stmt, 7, row.source_role);
+  bind_text(stmt, 8, row.raw_json);
+
+  const int rc = sqlite3_step(stmt.get());
+  if (rc != SQLITE_DONE) {
+    throw std::runtime_error(
+        "failed to insert compatibility event source row: " +
+        std::string(sqlite3_errmsg(stmt.db())));
+  }
+  sqlite3_reset(stmt.get());
+  sqlite3_clear_bindings(stmt.get());
+}
+
 void insert_anchor_row(SqliteStmt& stmt, const AnchorSqlRow& row) {
   bind_text(stmt, 1, row.anchor_id);
   bind_int64(stmt, 2, row.db_idx);
@@ -997,7 +1017,7 @@ void replace_anchor_aux_rows(const std::string& sqlite_path,
 #if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
   materialize_compatibility_schema(
       sqlite_path,
-      {event_table_schema(), anchor_table_schema(),
+      {event_table_schema(), event_source_table_schema(), anchor_table_schema(),
        anchor_aux_slot_table_schema(), aux_link_table_schema()});
 
   SqliteDb db(sqlite_path);
@@ -1006,6 +1026,7 @@ void replace_anchor_aux_rows(const std::string& sqlite_path,
     db.exec("DELETE FROM traceloom_aux_link");
     db.exec("DELETE FROM traceloom_anchor_aux_slot");
     db.exec("DELETE FROM traceloom_anchor");
+    db.exec("DELETE FROM traceloom_event_source");
     db.exec("DELETE FROM traceloom_event");
 
     SqliteStmt event_stmt(
@@ -1019,6 +1040,16 @@ void replace_anchor_aux_rows(const std::string& sqlite_path,
         "?, ?, ?)");
     for (const EventSqlRow& row : rows.events) {
       insert_event_row(event_stmt, row);
+    }
+
+    SqliteStmt event_source_stmt(
+        db.get(),
+        "INSERT INTO traceloom_event_source ("
+        "event_id, source_ordinal, db_idx, device_id, source_table, "
+        "source_key, source_role, raw_json"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+    for (const EventSourceSqlRow& row : rows.event_sources) {
+      insert_event_source_row(event_source_stmt, row);
     }
 
     SqliteStmt anchor_stmt(
@@ -1146,7 +1177,7 @@ void replace_graph_replay_rows(const std::string& sqlite_path,
 #if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
   materialize_compatibility_schema(
       sqlite_path,
-      {event_table_schema(), anchor_table_schema(),
+      {event_table_schema(), event_source_table_schema(), anchor_table_schema(),
        cuda_graph_replay_table_schema(), cuda_graph_envelope_table_schema()});
 
   SqliteDb db(sqlite_path);
@@ -1155,6 +1186,7 @@ void replace_graph_replay_rows(const std::string& sqlite_path,
     db.exec("DELETE FROM traceloom_cuda_graph_envelope");
     db.exec("DELETE FROM traceloom_cuda_graph_replay");
     db.exec("DELETE FROM traceloom_anchor");
+    db.exec("DELETE FROM traceloom_event_source");
     db.exec("DELETE FROM traceloom_event");
 
     SqliteStmt event_stmt(
@@ -1168,6 +1200,16 @@ void replace_graph_replay_rows(const std::string& sqlite_path,
         "?, ?, ?)");
     for (const EventSqlRow& row : rows.events) {
       insert_event_row(event_stmt, row);
+    }
+
+    SqliteStmt event_source_stmt(
+        db.get(),
+        "INSERT INTO traceloom_event_source ("
+        "event_id, source_ordinal, db_idx, device_id, source_table, "
+        "source_key, source_role, raw_json"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+    for (const EventSourceSqlRow& row : rows.event_sources) {
+      insert_event_source_row(event_source_stmt, row);
     }
 
     SqliteStmt anchor_stmt(

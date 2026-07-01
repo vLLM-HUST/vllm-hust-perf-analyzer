@@ -34,6 +34,17 @@ struct EventSqlRow {
   std::string raw_json;
 };
 
+struct EventSourceSqlRow {
+  std::string event_id;
+  std::uint32_t source_ordinal = 0;
+  std::uint32_t db_idx = 0;
+  std::uint32_t device_id = 0;
+  std::string source_table;
+  std::string source_key;
+  std::string source_role;
+  std::string raw_json;
+};
+
 struct AnchorSqlRow {
   std::string anchor_id;
   std::uint32_t db_idx = 0;
@@ -79,6 +90,7 @@ struct AnchorAuxSlotSqlRow {
 
 struct AnchorAuxSqlRows {
   std::vector<EventSqlRow> events;
+  std::vector<EventSourceSqlRow> event_sources;
   std::vector<AnchorSqlRow> anchors;
   std::vector<AnchorAuxSlotSqlRow> aux_slots;
   std::vector<AuxLinkSqlRow> aux_links;
@@ -201,6 +213,7 @@ struct GraphEnvelopeSqlRow {
 
 struct GraphReplaySqlRows {
   std::vector<EventSqlRow> events;
+  std::vector<EventSourceSqlRow> event_sources;
   std::vector<AnchorSqlRow> anchors;
   std::vector<GraphReplaySqlRow> graph_replays;
   std::vector<GraphEnvelopeSqlRow> graph_envelopes;
