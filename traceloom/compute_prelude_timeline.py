@@ -3214,6 +3214,7 @@ def _augment_tree_node_cost_metrics(
         denom = float(occurrence_count or 1)
         compute_us = totals["compute_us"]
         comm_us = totals["comm_us"]
+        active_us = compute_us + comm_us
         idle_us = totals["idle_us"]
         total_us = totals["total_us"]
         row = dict(record)
@@ -3226,10 +3227,12 @@ def _augment_tree_node_cost_metrics(
                 "last_anchor_idx": last_anchor_idx,
                 "compute_us": round(compute_us, 3),
                 "comm_us": round(comm_us, 3),
+                "active_us": round(active_us, 3),
                 "idle_us": round(idle_us, 3),
                 "total_us": round(total_us, 3),
                 "avg_compute_us": round(compute_us / denom, 3),
                 "avg_comm_us": round(comm_us / denom, 3),
+                "avg_active_us": round(active_us / denom, 3),
                 "avg_idle_us": round(idle_us / denom, 3),
                 "avg_total_us": round(total_us / denom, 3),
                 "comm_pct": round(comm_us / total_us, 6) if total_us else 0.0,
@@ -3545,10 +3548,12 @@ def _attach_aclgraph_replay_nodes(
             "end_ns": replay.get("end_ns", ""),
             "compute_us": kernel_us,
             "comm_us": 0.0,
+            "active_us": kernel_us,
             "idle_us": round(max(0.0, duration_us - kernel_us), 3),
             "total_us": duration_us,
             "avg_compute_us": kernel_us,
             "avg_comm_us": 0.0,
+            "avg_active_us": kernel_us,
             "avg_idle_us": round(max(0.0, duration_us - kernel_us), 3),
             "avg_total_us": duration_us,
             "comm_pct": 0.0,
@@ -4208,11 +4213,11 @@ def _render_root_tree_rows_with_costs(root: Dict[str, object], cost_by_node: Dic
     cat_width = max(5, min(8, max(len(cols[2]) for cols, _node_id in display_rows)))
     header = (
         f"{'node':<{node_width}}  {'op':<{op_width}}  {'cat':<{cat_width}}"
-        f"  | {'occ':>4} {'total_us':>10} {'avg_us':>9} {'avg_idle':>9} {'avg_aux':>8} {'avg_self':>8}"
+        f"  | {'occ':>4} {'total_us':>10} {'avg_us':>9} {'avg_idle':>9} {'avg_aux':>8} {'avg_active':>10}"
     )
     sep = (
         f"{'-' * node_width}  {'-' * op_width}  {'-' * cat_width}"
-        f"  | {'-' * 4} {'-' * 10} {'-' * 9} {'-' * 9} {'-' * 8} {'-' * 8}"
+        f"  | {'-' * 4} {'-' * 10} {'-' * 9} {'-' * 9} {'-' * 8} {'-' * 10}"
     )
     out = [header, sep]
     for (node_text, op_text, cat_text), node_id in display_rows:
@@ -4224,10 +4229,10 @@ def _render_root_tree_rows_with_costs(root: Dict[str, object], cost_by_node: Dic
                 f"{_format_tree_cost_value(row.get('avg_total_us', 0.0)):>9} "
                 f"{_format_tree_cost_value(row.get('avg_idle_us', 0.0)):>9} "
                 f"{_format_tree_cost_value(row.get('avg_aux_us', 0.0)):>8}"
-                f" {_format_tree_cost_value(row.get('avg_self_us', 0.0)):>8}"
+                f" {_format_tree_cost_value(row.get('avg_active_us', 0.0)):>10}"
             )
         else:
-            cost = f"{'':>4} {'':>10} {'':>9} {'':>9} {'':>8} {'':>8}"
+            cost = f"{'':>4} {'':>10} {'':>9} {'':>9} {'':>8} {'':>10}"
         out.append(
             f"{_clip_tree_cell(node_text, node_width):<{node_width}}  "
             f"{_clip_tree_cell(op_text, op_width):<{op_width}}  "
@@ -4656,9 +4661,11 @@ def _loop_cost_rows(
                 "avg_total_us": round(avg_total_us, 3),
                 "compute_us": row.get("compute_us", 0.0),
                 "comm_us": row.get("comm_us", 0.0),
+                "active_us": row.get("active_us", 0.0),
                 "idle_us": row.get("idle_us", 0.0),
                 "avg_compute_us": row.get("avg_compute_us", 0.0),
                 "avg_comm_us": row.get("avg_comm_us", 0.0),
+                "avg_active_us": row.get("avg_active_us", 0.0),
                 "avg_idle_us": row.get("avg_idle_us", 0.0),
                 "comm_pct": row.get("comm_pct", 0.0),
                 "idle_pct": row.get("idle_pct", 0.0),
