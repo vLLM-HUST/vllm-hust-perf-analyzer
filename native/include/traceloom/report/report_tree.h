@@ -30,6 +30,7 @@ enum class ReportNodeKind {
 
 struct ReportToken {
   std::uint32_t ordinal = 0;
+  std::uint32_t device_id = 0;
   SymbolId symbol_id;
   std::string display_op;
   std::string display_category;
@@ -38,6 +39,9 @@ struct ReportToken {
   std::string launch_activity_id;
   std::int64_t start_ns = 0;
   std::int64_t end_ns = 0;
+  double prelude_exec_aux_us = 0.0;
+  double prelude_comm_us = 0.0;
+  double prelude_idle_us = 0.0;
 };
 
 struct ReportNodeDef {

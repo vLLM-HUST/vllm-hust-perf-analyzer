@@ -1,11 +1,14 @@
 #include "traceloom/compat/report_tree_rows.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdint>
 #include <map>
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -107,10 +110,194 @@ struct NodeAccum {
   std::int64_t end_ns = 0;
   double compute_us = 0.0;
   double comm_us = 0.0;
+  double idle_us = 0.0;
   double self_us = 0.0;
   double aux_event_count = 0.0;
   double aux_us = 0.0;
 };
+
+struct PreludeCost {
+  double exec_aux_us = 0.0;
+  double comm_us = 0.0;
+  double idle_us = 0.0;
+};
+
+std::string lower_ascii(std::string value) {
+  for (char& ch : value) {
+    ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+  }
+  return value;
+}
+
+std::unordered_set<TraceEventId::value_type> anchored_trace_event_ids(
+    const NativeIr& ir) {
+  std::unordered_set<TraceEventId::value_type> out;
+  for (const AnchorRow& anchor : ir.anchors.rows()) {
+    if (!anchor.trace_event_id.valid()) {
+      continue;
+    }
+    if (anchor.trace_event_id.value() >= ir.trace_events.size()) {
+      throw std::invalid_argument("AnchorRow trace_event_id is out of range");
+    }
+    out.insert(anchor.trace_event_id.value());
+  }
+  return out;
+}
+
+std::unordered_map<TraceEventId::value_type, const TaskRow*> tasks_by_event(
+    const NativeIr& ir) {
+  std::unordered_map<TraceEventId::value_type, const TaskRow*> out;
+  for (const TaskRow& task : ir.tasks.rows()) {
+    if (!task.trace_event_id.valid() ||
+        task.trace_event_id.value() >= ir.trace_events.size()) {
+      throw std::invalid_argument("TaskRow trace_event_id is out of range");
+    }
+    out.emplace(task.trace_event_id.value(), &task);
+  }
+  return out;
+}
+
+std::unordered_set<TraceEventId::value_type> communication_event_ids(
+    const NativeIr& ir) {
+  std::unordered_set<TraceEventId::value_type> out;
+  for (const CommunicationOpRow& comm : ir.communication_ops.rows()) {
+    if (!comm.trace_event_id.valid() ||
+        comm.trace_event_id.value() >= ir.trace_events.size()) {
+      throw std::invalid_argument(
+          "CommunicationOpRow trace_event_id is out of range");
+    }
+    out.insert(comm.trace_event_id.value());
+  }
+  return out;
+}
+
+bool is_wait_event(const NativeIr& ir,
+                   const TraceEventRow& event,
+                   const TaskRow* task) {
+  std::string blob = symbol_value_or_empty(ir, event.raw_name_symbol_id);
+  if (task != nullptr) {
+    blob += " " + symbol_value_or_empty(ir, task->task_type_symbol_id);
+    blob += " " + symbol_value_or_empty(ir, task->op_name_symbol_id);
+    blob += " " + symbol_value_or_empty(ir, task->op_type_symbol_id);
+  }
+  blob = lower_ascii(std::move(blob));
+  return blob.find("event_wait") != std::string::npos ||
+         blob.find("wait") != std::string::npos;
+}
+
+std::vector<PreludeCost> compute_prelude_costs(
+    const NativeIr& ir,
+    const std::vector<ReportToken>& tokens) {
+  constexpr std::int64_t kMaxPreludeGapNs = 5'000'000;
+  std::vector<PreludeCost> costs(tokens.size());
+  if (tokens.empty()) {
+    return costs;
+  }
+
+  const std::unordered_set<TraceEventId::value_type> anchored_events =
+      anchored_trace_event_ids(ir);
+  const std::unordered_map<TraceEventId::value_type, const TaskRow*>
+      task_index = tasks_by_event(ir);
+  const std::unordered_set<TraceEventId::value_type> comm_events =
+      communication_event_ids(ir);
+
+  std::vector<const TraceEventRow*> events;
+  events.reserve(ir.trace_events.size());
+  for (const TraceEventRow& event : ir.trace_events.rows()) {
+    events.push_back(&event);
+  }
+  std::sort(events.begin(), events.end(),
+            [](const TraceEventRow* lhs, const TraceEventRow* rhs) {
+              if (lhs->start_ns != rhs->start_ns) {
+                return lhs->start_ns < rhs->start_ns;
+              }
+              if (lhs->end_ns != rhs->end_ns) {
+                return lhs->end_ns < rhs->end_ns;
+              }
+              return lhs->id < rhs->id;
+            });
+
+  for (std::size_t token_index = 0; token_index < tokens.size();
+       ++token_index) {
+    const ReportToken& token = tokens[token_index];
+    const std::int64_t previous_end =
+        token_index == 0 ? token.start_ns : tokens[token_index - 1].end_ns;
+    const std::int64_t prelude_start = std::min(previous_end, token.start_ns);
+    const std::int64_t prelude_end = token.start_ns;
+    if (prelude_end <= prelude_start ||
+        prelude_end - prelude_start > kMaxPreludeGapNs) {
+      continue;
+    }
+
+    const auto lower =
+        std::lower_bound(events.begin(), events.end(), prelude_start,
+                         [](const TraceEventRow* event, std::int64_t value) {
+                           return event->start_ns < value;
+                         });
+    const auto upper =
+        std::lower_bound(events.begin(), events.end(), prelude_end,
+                         [](const TraceEventRow* event, std::int64_t value) {
+                           return event->start_ns < value;
+                         });
+
+    std::vector<std::pair<std::int64_t, std::int64_t>> active_intervals;
+    PreludeCost cost;
+    for (auto it = lower; it != upper; ++it) {
+      const TraceEventRow& event = **it;
+      if (event.device_id != token.device_id ||
+          anchored_events.find(event.id.value()) != anchored_events.end()) {
+        continue;
+      }
+      const std::int64_t overlap_start =
+          std::max(prelude_start, event.start_ns);
+      const std::int64_t overlap_end = std::min(prelude_end, event.end_ns);
+      if (overlap_end <= overlap_start) {
+        continue;
+      }
+
+      active_intervals.emplace_back(overlap_start, overlap_end);
+      const double duration_us = ns_to_us(overlap_end - overlap_start);
+      const auto task_found = task_index.find(event.id.value());
+      const TaskRow* task =
+          task_found == task_index.end() ? nullptr : task_found->second;
+      if (comm_events.find(event.id.value()) != comm_events.end() ||
+          (task != nullptr && task->comm_name_symbol_id.valid())) {
+        cost.comm_us += duration_us;
+      } else if (!is_wait_event(ir, event, task)) {
+        cost.exec_aux_us += duration_us;
+      }
+    }
+
+    std::sort(active_intervals.begin(), active_intervals.end());
+    std::int64_t active_union_ns = 0;
+    std::int64_t current_start = 0;
+    std::int64_t current_end = 0;
+    bool has_current = false;
+    for (const auto& interval : active_intervals) {
+      if (!has_current) {
+        current_start = interval.first;
+        current_end = interval.second;
+        has_current = true;
+        continue;
+      }
+      if (interval.first <= current_end) {
+        current_end = std::max(current_end, interval.second);
+        continue;
+      }
+      active_union_ns += current_end - current_start;
+      current_start = interval.first;
+      current_end = interval.second;
+    }
+    if (has_current) {
+      active_union_ns += current_end - current_start;
+    }
+
+    const double gap_us = ns_to_us(prelude_end - prelude_start);
+    cost.idle_us = std::max(0.0, gap_us - ns_to_us(active_union_ns));
+    costs[token_index] = cost;
+  }
+  return costs;
+}
 
 struct AuxAttributionIndex {
   std::map<std::string, std::vector<const AuxLinkSqlRow*>> links_by_anchor;
@@ -196,6 +383,9 @@ std::vector<NodeAccum> accumulate_nodes(
         } else {
           accum.compute_us += token_duration_us(token);
         }
+        accum.compute_us += token.prelude_exec_aux_us;
+        accum.comm_us += token.prelude_comm_us;
+        accum.idle_us += token.prelude_idle_us;
       }
       if (coverage.kind == ReportCoverageKind::kAtomLeaf) {
         accum.self_us += token_duration_us(token);
@@ -291,6 +481,7 @@ std::vector<ReportToken> build_report_tokens_from_native_ir(
 
     ReportToken out;
     out.ordinal = token.sequence_index;
+    out.device_id = anchor.device_id;
     out.symbol_id = token.symbol_id;
     out.display_op = symbol_value_or_empty(ir, token.symbol_id);
     out.display_category = report_anchor_kind_name(
@@ -300,6 +491,13 @@ std::vector<ReportToken> build_report_tokens_from_native_ir(
     out.start_ns = token.start_ns;
     out.end_ns = token.end_ns;
     tokens.push_back(std::move(out));
+  }
+  const std::vector<PreludeCost> prelude_costs =
+      compute_prelude_costs(ir, tokens);
+  for (std::size_t i = 0; i < tokens.size(); ++i) {
+    tokens[i].prelude_exec_aux_us = prelude_costs[i].exec_aux_us;
+    tokens[i].prelude_comm_us = prelude_costs[i].comm_us;
+    tokens[i].prelude_idle_us = prelude_costs[i].idle_us;
   }
   return tokens;
 }
@@ -332,7 +530,8 @@ NodeCoverageSqlRows build_report_tree_node_coverage_sql_rows(
     const NodeAccum& node_accum = accum[def.id.value()];
     const std::uint32_t occurrence_count =
         node_accum.occurrence_count == 0 ? 1 : node_accum.occurrence_count;
-    const double total_us = node_accum.compute_us + node_accum.comm_us;
+    const double total_us =
+        node_accum.compute_us + node_accum.comm_us + node_accum.idle_us;
 
     VizNodeSqlRow row;
     row.node_id = node_id_for_def(def);
@@ -363,9 +562,11 @@ NodeCoverageSqlRows build_report_tree_node_coverage_sql_rows(
     row.last_anchor_idx = node_accum.last_anchor_idx;
     row.compute_us = node_accum.compute_us;
     row.comm_us = node_accum.comm_us;
+    row.idle_us = node_accum.idle_us;
     row.total_us = total_us;
     row.avg_compute_us = node_accum.compute_us / occurrence_count;
     row.avg_comm_us = node_accum.comm_us / occurrence_count;
+    row.avg_idle_us = node_accum.idle_us / occurrence_count;
     row.avg_total_us = total_us / occurrence_count;
     row.self_us = node_accum.self_us;
     row.aux_events = node_accum.aux_event_count;
@@ -388,6 +589,7 @@ NodeCoverageSqlRows build_report_tree_node_coverage_sql_rows(
       loop.avg_total_us = total_us / occurrence_count;
       loop.compute_us = node_accum.compute_us;
       loop.comm_us = node_accum.comm_us;
+      loop.idle_us = node_accum.idle_us;
       rows.loop_nodes.push_back(std::move(loop));
     }
   }
@@ -536,7 +738,8 @@ SemanticTreeSqlRows build_report_tree_semantic_sql_rows(
     const NodeAccum& node_accum = accum[def.id.value()];
     const std::uint32_t occurrence_count =
         node_accum.occurrence_count == 0 ? 1 : node_accum.occurrence_count;
-    const double total_us = node_accum.compute_us + node_accum.comm_us;
+    const double total_us =
+        node_accum.compute_us + node_accum.comm_us + node_accum.idle_us;
     const auto occurrence_found = first_occurrences.find(def.id.value());
 
     SemanticNodeSqlRow row;
@@ -568,9 +771,11 @@ SemanticTreeSqlRows build_report_tree_semantic_sql_rows(
     row.end_ns = node_accum.end_ns;
     row.compute_us = node_accum.compute_us;
     row.comm_us = node_accum.comm_us;
+    row.idle_us = node_accum.idle_us;
     row.total_us = total_us;
     row.avg_compute_us = node_accum.compute_us / occurrence_count;
     row.avg_comm_us = node_accum.comm_us / occurrence_count;
+    row.avg_idle_us = node_accum.idle_us / occurrence_count;
     row.avg_total_us = total_us / occurrence_count;
     row.self_us = node_accum.self_us;
     row.aux_event_count = node_accum.aux_event_count;
