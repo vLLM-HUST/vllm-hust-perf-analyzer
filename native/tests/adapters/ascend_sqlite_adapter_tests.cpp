@@ -137,6 +137,11 @@ void create_aclgraph_profile(const std::filesystem::path& dir) {
            "(11, 'MODEL_EXECUTE'), "
            "(12, 'NOTIFY_WAIT'), "
            "(13, 'MIX_AIC'), "
+           "(14, 'aclmdlRIExecuteAsync'), "
+           "(15, 'aclmdlRICaptureBegin'), "
+           "(16, 'aclmdlRICaptureEnd'), "
+           "(17, 'aclnnGather'), "
+           "(18, 'aclnnMm'), "
            "(20, 'GatherV2'), "
            "(21, 'MatMulV2'), "
            "(30, 'hcclAllGather'), "
@@ -162,7 +167,7 @@ void create_aclgraph_profile(const std::filesystem::path& dir) {
            "taskType) VALUES "
            "(1, 20, 20, 13), "
            "(2, 21, 21, 13), "
-           "(3, 20, 20, 13), "
+           "(3, 21, 21, 13), "
            "(4, 21, 21, 13);"
            "CREATE TABLE COMMUNICATION_OP("
            "opName INTEGER, "
@@ -176,7 +181,22 @@ void create_aclgraph_profile(const std::filesystem::path& dir) {
            "INSERT INTO COMMUNICATION_OP(opName, opType, startNs, endNs, "
            "connectionId, groupName, opId, deviceId) VALUES "
            "(30, 31, 105, 109, 3000, NULL, 1, 0), "
-           "(30, 31, 300, 320, 3001, NULL, 2, 0);");
+           "(30, 31, 300, 320, 3001, NULL, 2, 0);"
+           "CREATE TABLE CANN_API("
+           "startNs INTEGER, endNs INTEGER, type INTEGER, globalTid INTEGER, "
+           "connectionId INTEGER, name INTEGER);"
+           "INSERT INTO CANN_API(startNs, endNs, type, globalTid, "
+           "connectionId, name) VALUES "
+           "(10, 11, 0, 1, 9000, 15), "
+           "(12, 13, 0, 1, 9001, 17), "
+           "(14, 15, 0, 1, 9002, 16), "
+           "(20, 21, 0, 1, 9003, 15), "
+           "(22, 23, 0, 1, 9004, 18), "
+           "(24, 25, 0, 1, 9005, 16), "
+           "(90, 95, 0, 1, 2000, 14), "
+           "(115, 118, 0, 1, 2001, 14), "
+           "(190, 195, 0, 1, 2002, 14), "
+           "(215, 218, 0, 1, 2003, 14);");
   sqlite3_close(db);
 
   sqlite3* stream_db = nullptr;
@@ -192,7 +212,8 @@ void create_aclgraph_profile(const std::filesystem::path& dir) {
            "model_stream_id INTEGER);"
            "INSERT INTO CaptureStreamInfo(device_id, model_id, "
            "original_stream_id, model_stream_id) VALUES "
-           "(0, 7, 3, 36);");
+           "(0, 7, 3, 36), "
+           "(0, 8, 3, 37);");
   sqlite3_close(stream_db);
 }
 

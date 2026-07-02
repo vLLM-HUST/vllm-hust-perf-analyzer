@@ -124,17 +124,40 @@ struct GraphTaskView {
 
 struct GraphReplayUnitView {
   std::vector<GraphTaskView> rows;
+  bool has_window = false;
+  std::int64_t start_ns = 0;
+  std::int64_t end_ns = 0;
+  std::string template_signature;
 };
+
+GraphReplayUnitView replay_unit_for_rows(std::vector<GraphTaskView> rows) {
+  GraphReplayUnitView unit;
+  unit.rows = std::move(rows);
+  return unit;
+}
 
 struct ReplayUnitWindow {
   std::int64_t start_ns = 0;
   std::int64_t end_ns = 0;
 };
 
+struct GraphLaunchView {
+  std::int64_t start_ns = 0;
+  std::int64_t end_ns = 0;
+  std::int64_t connection_id = 0;
+};
+
+struct CaptureSlotSignature {
+  std::uint32_t slot_index = 0;
+  std::string host_api_signature;
+};
+
 struct AclGraphCaptureInfo {
   std::unordered_map<std::uint32_t, std::unordered_set<std::uint64_t>>
       model_streams_by_device;
   std::uint32_t capture_group_size = 0;
+  std::vector<CaptureSlotSignature> capture_slots;
+  std::string replay_unit_signature;
 };
 
 std::int64_t sqlite_i64(sqlite3_stmt* stmt,
@@ -465,8 +488,83 @@ std::vector<GraphReplayUnitView> split_rows_by_boundaries(
   }
   for (const GraphReplayUnitView& unit : out) {
     if (unit.rows.empty()) {
-      return {GraphReplayUnitView{rows}};
+      return {replay_unit_for_rows(rows)};
     }
+  }
+  return out;
+}
+
+std::vector<GraphReplayUnitView> split_rows_by_execute_waves(
+    const std::vector<GraphTaskView>& rows,
+    const std::vector<GraphLaunchView>& launches,
+    std::uint32_t capture_group_size) {
+  if (rows.empty() || capture_group_size <= 1 ||
+      launches.size() < capture_group_size ||
+      launches.size() % capture_group_size != 0) {
+    return {};
+  }
+
+  std::vector<GraphLaunchView> ordered_launches = launches;
+  std::sort(ordered_launches.begin(), ordered_launches.end(),
+            [](const GraphLaunchView& lhs, const GraphLaunchView& rhs) {
+              if (lhs.start_ns != rhs.start_ns) {
+                return lhs.start_ns < rhs.start_ns;
+              }
+              if (lhs.end_ns != rhs.end_ns) {
+                return lhs.end_ns < rhs.end_ns;
+              }
+              return lhs.connection_id < rhs.connection_id;
+            });
+
+  const std::size_t group_size = static_cast<std::size_t>(capture_group_size);
+  const std::size_t wave_count = ordered_launches.size() / group_size;
+  if (wave_count <= 1) {
+    return {};
+  }
+
+  std::vector<std::int64_t> boundaries;
+  boundaries.reserve(wave_count - 1);
+  for (std::size_t wave = 1; wave < wave_count; ++wave) {
+    boundaries.push_back(ordered_launches[wave * group_size].start_ns);
+  }
+  boundaries = valid_inner_boundaries(std::move(boundaries));
+  if (boundaries.size() + 1 != wave_count) {
+    return {};
+  }
+
+  std::vector<GraphReplayUnitView> waves(wave_count);
+  std::size_t cursor = 0;
+  for (const GraphTaskView& row : rows) {
+    while (cursor < boundaries.size() &&
+           row.event->start_ns >= boundaries[cursor]) {
+      ++cursor;
+    }
+    waves[cursor].rows.push_back(row);
+  }
+
+  std::vector<GraphReplayUnitView> out;
+  out.reserve(wave_count);
+  for (std::size_t wave = 0; wave < wave_count; ++wave) {
+    GraphReplayUnitView& unit = waves[wave];
+    if (unit.rows.empty()) {
+      continue;
+    }
+    const std::size_t launch_index = wave * group_size;
+    unit.has_window = true;
+    unit.start_ns = ordered_launches[launch_index].start_ns;
+    if (wave + 1 < wave_count) {
+      unit.end_ns = ordered_launches[(wave + 1) * group_size].start_ns;
+    } else {
+      unit.end_ns = ordered_launches.back().end_ns;
+    }
+    for (const GraphTaskView& row : unit.rows) {
+      unit.start_ns = std::min(unit.start_ns, row.event->start_ns);
+      unit.end_ns = std::max(unit.end_ns, row.event->end_ns);
+    }
+    if (unit.end_ns <= unit.start_ns) {
+      unit.has_window = false;
+    }
+    out.push_back(std::move(unit));
   }
   return out;
 }
@@ -511,7 +609,7 @@ std::vector<GraphReplayUnitView> split_activity(
   const std::uint32_t expected_count =
       infer_replay_unit_count(body_counts, control_counts, capture_group_size);
   if (expected_count <= 1 || rows.size() <= 1) {
-    return {GraphReplayUnitView{rows}};
+    return {replay_unit_for_rows(rows)};
   }
   (void)ir;
   std::vector<std::int64_t> boundaries =
@@ -520,7 +618,7 @@ std::vector<GraphReplayUnitView> split_activity(
     boundaries = control_boundaries(notify_waits, expected_count);
   }
   if (boundaries.empty()) {
-    return {GraphReplayUnitView{rows}};
+    return {replay_unit_for_rows(rows)};
   }
   return split_rows_by_boundaries(rows, boundaries);
 }
@@ -595,6 +693,56 @@ std::unordered_map<std::int64_t, ComputeInfo> load_compute_info(
   return out;
 }
 
+std::vector<GraphLaunchView> load_aclgraph_execute_launches(
+    SqliteDb& db,
+    const std::unordered_map<std::int64_t, std::string>& string_ids) {
+  std::vector<std::int64_t> execute_name_ids;
+  for (const auto& item : string_ids) {
+    if (item.second == "aclmdlRIExecuteAsync") {
+      execute_name_ids.push_back(item.first);
+    }
+  }
+  if (execute_name_ids.empty() || !table_has_column(db, "CANN_API", "name")) {
+    return {};
+  }
+  std::sort(execute_name_ids.begin(), execute_name_ids.end());
+  std::string placeholders;
+  for (std::size_t index = 0; index < execute_name_ids.size(); ++index) {
+    if (index != 0) {
+      placeholders += ",";
+    }
+    placeholders += "?";
+  }
+  const std::string sql =
+      "SELECT startNs, endNs, connectionId "
+      "FROM CANN_API "
+      "WHERE name IN (" +
+      placeholders +
+      ") AND startNs IS NOT NULL AND endNs IS NOT NULL AND endNs > startNs "
+      "ORDER BY startNs, endNs, connectionId";
+  SqliteStmt stmt(db.get(), sql.c_str());
+  for (std::size_t index = 0; index < execute_name_ids.size(); ++index) {
+    sqlite3_bind_int64(stmt.get(), static_cast<int>(index + 1),
+                       execute_name_ids[index]);
+  }
+  std::vector<GraphLaunchView> out;
+  while (true) {
+    const int rc = sqlite3_step(stmt.get());
+    if (rc == SQLITE_ROW) {
+      out.push_back(GraphLaunchView{sqlite_i64(stmt.get(), 0, 0),
+                                    sqlite_i64(stmt.get(), 1, 0),
+                                    sqlite_i64(stmt.get(), 2, 0)});
+      continue;
+    }
+    if (rc == SQLITE_DONE) {
+      break;
+    }
+    throw std::runtime_error("failed to load ACLGraph execute launches: " +
+                             std::string(sqlite3_errmsg(stmt.db())));
+  }
+  return out;
+}
+
 std::unordered_map<std::int64_t, CommunicationTaskInfo>
 load_communication_task_info(
     SqliteDb& db,
@@ -632,6 +780,197 @@ load_communication_task_info(
     }
     throw std::runtime_error("failed to load COMMUNICATION_TASK_INFO: " +
                              std::string(sqlite3_errmsg(stmt.db())));
+  }
+  return out;
+}
+
+std::vector<std::int64_t> string_ids_for_value(
+    const std::unordered_map<std::int64_t, std::string>& string_ids,
+    const std::string& value) {
+  std::vector<std::int64_t> out;
+  for (const auto& item : string_ids) {
+    if (item.second == value) {
+      out.push_back(item.first);
+    }
+  }
+  std::sort(out.begin(), out.end());
+  return out;
+}
+
+bool contains_i64(const std::vector<std::int64_t>& values,
+                  std::int64_t value) {
+  return std::binary_search(values.begin(), values.end(), value);
+}
+
+std::string capture_host_api_token(const std::string& name) {
+  if (name.empty()) {
+    return "";
+  }
+  if (name.size() >= std::string("GetWorkspaceSize").size() &&
+      name.rfind("GetWorkspaceSize") ==
+          name.size() - std::string("GetWorkspaceSize").size()) {
+    return "";
+  }
+  if (name.rfind("aclnn", 0) == 0 ||
+      name.find("Operation::Execute") != std::string::npos) {
+    return name;
+  }
+  return "";
+}
+
+std::string join_capture_tokens(const std::vector<std::string>& tokens) {
+  std::string out;
+  for (const std::string& token : tokens) {
+    out += token;
+    out += "\n";
+  }
+  return out;
+}
+
+std::string build_capture_replay_unit_signature(
+    const std::vector<CaptureSlotSignature>& slots,
+    std::uint32_t capture_group_size) {
+  if (slots.empty() || capture_group_size == 0) {
+    return "";
+  }
+  std::string out = "aclgraph_capture_dictionary\n";
+  out += "capture_group_size=" + std::to_string(capture_group_size) + "\n";
+  out += "capture_slot_count=" + std::to_string(slots.size()) + "\n";
+  for (std::size_t index = 0; index < slots.size(); ++index) {
+    if (index % capture_group_size == 0) {
+      out += "group=" + std::to_string(index / capture_group_size) + "\n";
+    }
+    out += "slot=" + std::to_string(slots[index].slot_index) + "\n";
+    out += slots[index].host_api_signature;
+  }
+  return out;
+}
+
+std::vector<CaptureSlotSignature> load_aclgraph_capture_slots(
+    SqliteDb& db,
+    const std::unordered_map<std::int64_t, std::string>& string_ids) {
+  if (!table_has_column(db, "CANN_API", "name")) {
+    return {};
+  }
+  const std::vector<std::int64_t> begin_ids =
+      string_ids_for_value(string_ids, "aclmdlRICaptureBegin");
+  const std::vector<std::int64_t> end_ids =
+      string_ids_for_value(string_ids, "aclmdlRICaptureEnd");
+  if (begin_ids.empty() || end_ids.empty()) {
+    return {};
+  }
+
+  struct CaptureInterval {
+    std::int64_t start_ns = 0;
+    std::int64_t end_ns = 0;
+  };
+
+  std::string placeholders;
+  for (std::size_t index = 0; index < begin_ids.size() + end_ids.size();
+       ++index) {
+    if (index != 0) {
+      placeholders += ",";
+    }
+    placeholders += "?";
+  }
+  const std::string interval_sql =
+      "SELECT startNs, endNs, name "
+      "FROM CANN_API "
+      "WHERE name IN (" +
+      placeholders +
+      ") AND startNs IS NOT NULL AND endNs IS NOT NULL AND endNs > startNs "
+      "ORDER BY startNs, endNs, connectionId";
+  SqliteStmt interval_stmt(db.get(), interval_sql.c_str());
+  int bind_index = 1;
+  for (std::int64_t id : begin_ids) {
+    sqlite3_bind_int64(interval_stmt.get(), bind_index++, id);
+  }
+  for (std::int64_t id : end_ids) {
+    sqlite3_bind_int64(interval_stmt.get(), bind_index++, id);
+  }
+
+  std::vector<CaptureInterval> intervals;
+  std::vector<CaptureInterval> pending;
+  while (true) {
+    const int rc = sqlite3_step(interval_stmt.get());
+    if (rc == SQLITE_ROW) {
+      const std::int64_t start_ns = sqlite_i64(interval_stmt.get(), 0, 0);
+      const std::int64_t end_ns = sqlite_i64(interval_stmt.get(), 1, 0);
+      const std::int64_t name_id = sqlite_i64(interval_stmt.get(), 2, -1);
+      if (contains_i64(begin_ids, name_id)) {
+        pending.push_back(CaptureInterval{start_ns, end_ns});
+      } else if (contains_i64(end_ids, name_id) && !pending.empty()) {
+        CaptureInterval interval = pending.front();
+        pending.erase(pending.begin());
+        interval.end_ns = end_ns;
+        if (interval.end_ns > interval.start_ns) {
+          intervals.push_back(interval);
+        }
+      }
+      continue;
+    }
+    if (rc == SQLITE_DONE) {
+      break;
+    }
+    throw std::runtime_error("failed to load ACLGraph capture intervals: " +
+                             std::string(sqlite3_errmsg(interval_stmt.db())));
+  }
+  if (intervals.empty()) {
+    return {};
+  }
+
+  const std::int64_t min_start = intervals.front().start_ns;
+  std::int64_t max_end = intervals.front().end_ns;
+  for (const CaptureInterval& interval : intervals) {
+    max_end = std::max(max_end, interval.end_ns);
+  }
+
+  std::vector<std::vector<std::string>> tokens(intervals.size());
+  static constexpr const char* kApiSql =
+      "SELECT startNs, endNs, name "
+      "FROM CANN_API "
+      "WHERE startNs >= ? AND endNs <= ? "
+      "ORDER BY startNs, endNs, connectionId";
+  SqliteStmt api_stmt(db.get(), kApiSql);
+  sqlite3_bind_int64(api_stmt.get(), 1, min_start);
+  sqlite3_bind_int64(api_stmt.get(), 2, max_end);
+  std::size_t cursor = 0;
+  while (true) {
+    const int rc = sqlite3_step(api_stmt.get());
+    if (rc == SQLITE_ROW) {
+      const std::int64_t start_ns = sqlite_i64(api_stmt.get(), 0, 0);
+      const std::int64_t end_ns = sqlite_i64(api_stmt.get(), 1, 0);
+      while (cursor < intervals.size() &&
+             start_ns > intervals[cursor].end_ns) {
+        ++cursor;
+      }
+      if (cursor >= intervals.size() ||
+          start_ns < intervals[cursor].start_ns ||
+          end_ns > intervals[cursor].end_ns) {
+        continue;
+      }
+      const auto name_found = string_ids.find(sqlite_i64(api_stmt.get(), 2, -1));
+      if (name_found == string_ids.end()) {
+        continue;
+      }
+      const std::string token = capture_host_api_token(name_found->second);
+      if (!token.empty()) {
+        tokens[cursor].push_back(token);
+      }
+      continue;
+    }
+    if (rc == SQLITE_DONE) {
+      break;
+    }
+    throw std::runtime_error("failed to load ACLGraph capture APIs: " +
+                             std::string(sqlite3_errmsg(api_stmt.db())));
+  }
+
+  std::vector<CaptureSlotSignature> out;
+  out.reserve(intervals.size());
+  for (std::size_t index = 0; index < intervals.size(); ++index) {
+    out.push_back(CaptureSlotSignature{static_cast<std::uint32_t>(index),
+                                       join_capture_tokens(tokens[index])});
   }
   return out;
 }
@@ -963,8 +1302,10 @@ void materialize_aclgraph_replay_units(
     const std::unordered_map<std::uint32_t,
                              std::unordered_set<std::uint64_t>>&
         model_streams_by_device,
+    const std::vector<GraphLaunchView>& execute_launches,
     SourceRefId source_ref,
-    std::uint32_t capture_group_size) {
+    std::uint32_t capture_group_size,
+    const std::string& capture_replay_unit_signature) {
   if (model_streams_by_device.empty()) {
     return;
   }
@@ -1020,44 +1361,58 @@ void materialize_aclgraph_replay_units(
   const std::vector<GraphTaskView> model_execute_rows =
       controls_with_key(control_rows, "MODEL_EXECUTE", ir);
 
-  static constexpr std::int64_t kGapNs = 5'000'000;
-  std::vector<std::vector<GraphTaskView>> activities;
-  std::vector<GraphTaskView> current;
-  std::int64_t last_end = model_rows.front().event->end_ns;
-  for (const GraphTaskView& row : model_rows) {
-    if (!current.empty() && row.event->start_ns - last_end > kGapNs) {
-      activities.push_back(std::move(current));
-      current = {};
-    }
-    current.push_back(row);
-    last_end = std::max(last_end, row.event->end_ns);
-  }
-  if (!current.empty()) {
-    activities.push_back(std::move(current));
+  std::vector<GraphReplayUnitView> units;
+  bool used_execute_waves = false;
+  if (!execute_launches.empty()) {
+    units = split_rows_by_execute_waves(model_rows, execute_launches,
+                                        capture_group_size);
+    used_execute_waves = !units.empty();
   }
 
-  std::vector<GraphReplayUnitView> units;
-  std::size_t notify_wait_cursor = 0;
-  std::size_t model_execute_cursor = 0;
-  for (const std::vector<GraphTaskView>& activity : activities) {
-    const std::int64_t start_ns = activity.front().event->start_ns;
-    std::int64_t end_ns = activity.front().event->end_ns;
-    for (const GraphTaskView& row : activity) {
-      end_ns = std::max(end_ns, row.event->end_ns);
+  static constexpr std::int64_t kGapNs = 5'000'000;
+  if (units.empty()) {
+    std::vector<std::vector<GraphTaskView>> activities;
+    std::vector<GraphTaskView> current;
+    std::int64_t last_end = model_rows.front().event->end_ns;
+    for (const GraphTaskView& row : model_rows) {
+      if (!current.empty() && row.event->start_ns - last_end > kGapNs) {
+        activities.push_back(std::move(current));
+        current = {};
+      }
+      current.push_back(row);
+      last_end = std::max(last_end, row.event->end_ns);
     }
-    std::vector<GraphTaskView> notify_waits =
-        controls_in_interval_from_sorted(notify_wait_rows, start_ns, end_ns,
-                                         notify_wait_cursor);
-    std::vector<GraphTaskView> model_execs =
-        controls_in_interval_from_sorted(model_execute_rows, start_ns, end_ns,
-                                         model_execute_cursor);
-    std::vector<GraphReplayUnitView> split =
-        split_activity(ir, activity, notify_waits, model_execs,
-                       capture_group_size);
-    units.insert(units.end(), split.begin(), split.end());
+    if (!current.empty()) {
+      activities.push_back(std::move(current));
+    }
+
+    std::size_t notify_wait_cursor = 0;
+    std::size_t model_execute_cursor = 0;
+    for (const std::vector<GraphTaskView>& activity : activities) {
+      const std::int64_t start_ns = activity.front().event->start_ns;
+      std::int64_t end_ns = activity.front().event->end_ns;
+      for (const GraphTaskView& row : activity) {
+        end_ns = std::max(end_ns, row.event->end_ns);
+      }
+      std::vector<GraphTaskView> notify_waits =
+          controls_in_interval_from_sorted(notify_wait_rows, start_ns, end_ns,
+                                           notify_wait_cursor);
+      std::vector<GraphTaskView> model_execs =
+          controls_in_interval_from_sorted(model_execute_rows, start_ns, end_ns,
+                                           model_execute_cursor);
+      std::vector<GraphReplayUnitView> split =
+          split_activity(ir, activity, notify_waits, model_execs,
+                         capture_group_size);
+      units.insert(units.end(), split.begin(), split.end());
+    }
   }
   if (units.empty()) {
     return;
+  }
+  if (!capture_replay_unit_signature.empty()) {
+    for (GraphReplayUnitView& unit : units) {
+      unit.template_signature = capture_replay_unit_signature;
+    }
   }
 
   std::vector<ReplayUnitWindow> windows;
@@ -1065,6 +1420,10 @@ void materialize_aclgraph_replay_units(
   for (const GraphReplayUnitView& unit : units) {
     if (unit.rows.empty()) {
       windows.push_back(ReplayUnitWindow{});
+      continue;
+    }
+    if (unit.has_window) {
+      windows.push_back(ReplayUnitWindow{unit.start_ns, unit.end_ns});
       continue;
     }
     std::int64_t start_ns = unit.rows.front().event->start_ns;
@@ -1075,13 +1434,16 @@ void materialize_aclgraph_replay_units(
     }
     windows.push_back(ReplayUnitWindow{start_ns, end_ns});
   }
-  for (std::size_t index = 0; index + 1 < windows.size(); ++index) {
-    if (windows[index].end_ns <= 0 || windows[index + 1].start_ns <= 0) {
-      continue;
-    }
-    const std::int64_t gap = windows[index + 1].start_ns - windows[index].end_ns;
-    if (gap > 0 && gap <= kGapNs) {
-      windows[index].end_ns = windows[index + 1].start_ns;
+  if (!used_execute_waves) {
+    for (std::size_t index = 0; index + 1 < windows.size(); ++index) {
+      if (windows[index].end_ns <= 0 || windows[index + 1].start_ns <= 0) {
+        continue;
+      }
+      const std::int64_t gap =
+          windows[index + 1].start_ns - windows[index].end_ns;
+      if (gap > 0 && gap <= kGapNs) {
+        windows[index].end_ns = windows[index + 1].start_ns;
+      }
     }
   }
 
@@ -1109,7 +1471,9 @@ void materialize_aclgraph_replay_units(
       }
     }
 
-    const std::string signature = body_signature(ir, unit.rows);
+    const std::string signature = unit.template_signature.empty()
+                                      ? body_signature(ir, unit.rows)
+                                      : unit.template_signature;
     const std::uint64_t hash = stable_hash64(signature);
     auto template_found = templates_by_signature.find(signature);
     GraphTemplateId graph_template;
@@ -1194,6 +1558,10 @@ NativeIr AscendSQLiteAdapter::load() const {
       table_refs.find("COMPUTE_TASK_INFO") == table_refs.end()
           ? std::unordered_map<std::int64_t, ComputeInfo>()
           : load_compute_info(db, ir, string_ids);
+  const std::vector<GraphLaunchView> aclgraph_execute_launches =
+      table_refs.find("CANN_API") == table_refs.end()
+          ? std::vector<GraphLaunchView>()
+          : load_aclgraph_execute_launches(db, string_ids);
   const std::unordered_map<std::int64_t, CommunicationTaskInfo>
       communication_task_info =
           table_refs.find("COMMUNICATION_TASK_INFO") == table_refs.end()
@@ -1216,14 +1584,21 @@ NativeIr AscendSQLiteAdapter::load() const {
   }
   const std::string stream_info_path =
       stream_info_db_path_for_msprof(options_.db_path);
-  const AclGraphCaptureInfo capture_info =
+  AclGraphCaptureInfo capture_info =
       load_aclgraph_capture_info(stream_info_path);
+  if (table_refs.find("CANN_API") != table_refs.end()) {
+    capture_info.capture_slots = load_aclgraph_capture_slots(db, string_ids);
+    capture_info.replay_unit_signature = build_capture_replay_unit_signature(
+        capture_info.capture_slots, capture_info.capture_group_size);
+  }
   if (!capture_info.model_streams_by_device.empty()) {
     const SourceRefId replay_source_ref = ir.source_refs.append(
         options_.source_kind, stream_info_path, "ACLGRAPH_REPLAY_UNIT", 0);
     materialize_aclgraph_replay_units(ir, capture_info.model_streams_by_device,
+                                      aclgraph_execute_launches,
                                       replay_source_ref,
-                                      capture_info.capture_group_size);
+                                      capture_info.capture_group_size,
+                                      capture_info.replay_unit_signature);
   }
 
   return ir;
