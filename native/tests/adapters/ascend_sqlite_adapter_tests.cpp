@@ -1,4 +1,5 @@
 #include "traceloom/adapters/ascend_sqlite_adapter.h"
+#include "traceloom/analysis/flat_anchor_builder.h"
 
 #include <sqlite3.h>
 
@@ -104,6 +105,82 @@ void create_minimal_db(const std::string& path) {
   sqlite3_close(db);
 }
 
+std::filesystem::path temp_prof_dir(const char* suffix) {
+  const auto now = std::chrono::steady_clock::now().time_since_epoch().count();
+  return std::filesystem::temp_directory_path() /
+         ("traceloom_ascend_sqlite_adapter_" + std::to_string(now) + suffix);
+}
+
+void exec_sql(sqlite3* db, const char* sql) {
+  char* error = nullptr;
+  const int rc = sqlite3_exec(db, sql, nullptr, nullptr, &error);
+  if (rc != SQLITE_OK) {
+    std::cerr << "failed to execute SQL: "
+              << (error == nullptr ? "unknown" : error) << '\n';
+    sqlite3_free(error);
+    sqlite3_close(db);
+    std::exit(1);
+  }
+}
+
+void create_aclgraph_profile(const std::filesystem::path& dir) {
+  std::filesystem::create_directories(dir / "host" / "sqlite");
+
+  sqlite3* db = nullptr;
+  int rc = sqlite3_open_v2((dir / "msprof.db").string().c_str(), &db,
+                           SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
+  require(rc == SQLITE_OK, "failed to create aclgraph msprof DB");
+  exec_sql(db,
+           "CREATE TABLE STRING_IDS(id INTEGER PRIMARY KEY, value TEXT);"
+           "INSERT INTO STRING_IDS(id, value) VALUES "
+           "(10, 'AI_CORE'), "
+           "(11, 'MODEL_EXECUTE'), "
+           "(12, 'NOTIFY_WAIT'), "
+           "(13, 'MIX_AIC'), "
+           "(20, 'GatherV2'), "
+           "(21, 'MatMulV2');"
+           "CREATE TABLE TASK("
+           "startNs INTEGER, endNs INTEGER, deviceId INTEGER, "
+           "connectionId INTEGER, globalTaskId INTEGER, globalPid INTEGER, "
+           "taskType INTEGER, contextId INTEGER, streamId INTEGER, "
+           "taskId INTEGER, modelId INTEGER);"
+           "INSERT INTO TASK(startNs, endNs, deviceId, connectionId, "
+           "globalTaskId, globalPid, taskType, contextId, streamId, taskId, "
+           "modelId) VALUES "
+           "(100, 110, 0, 1000, 1, 1, 13, 0, 36, 1, 7), "
+           "(120, 130, 0, 1001, 2, 1, 13, 0, 36, 2, 7), "
+           "(200, 210, 0, 1002, 3, 1, 13, 0, 36, 3, 7), "
+           "(220, 230, 0, 1003, 4, 1, 13, 0, 36, 4, 7), "
+           "(100, 101, 0, 2000, 5, 1, 11, 0, 3, 5, 7), "
+           "(200, 201, 0, 2001, 6, 1, 11, 0, 3, 6, 7);"
+           "CREATE TABLE COMPUTE_TASK_INFO("
+           "globalTaskId INTEGER, name INTEGER, opType INTEGER, "
+           "taskType INTEGER);"
+           "INSERT INTO COMPUTE_TASK_INFO(globalTaskId, name, opType, "
+           "taskType) VALUES "
+           "(1, 20, 20, 13), "
+           "(2, 21, 21, 13), "
+           "(3, 20, 20, 13), "
+           "(4, 21, 21, 13);");
+  sqlite3_close(db);
+
+  sqlite3* stream_db = nullptr;
+  rc = sqlite3_open_v2((dir / "host" / "sqlite" / "stream_info.db")
+                           .string()
+                           .c_str(),
+                       &stream_db,
+                       SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
+  require(rc == SQLITE_OK, "failed to create stream_info DB");
+  exec_sql(stream_db,
+           "CREATE TABLE CaptureStreamInfo("
+           "device_id INTEGER, model_id INTEGER, original_stream_id INTEGER, "
+           "model_stream_id INTEGER);"
+           "INSERT INTO CaptureStreamInfo(device_id, model_id, "
+           "original_stream_id, model_stream_id) VALUES "
+           "(0, 7, 3, 36);");
+  sqlite3_close(stream_db);
+}
+
 }  // namespace
 
 int main() {
@@ -206,6 +283,33 @@ int main() {
               "hcom_allReduce_",
           "COMMUNICATION_OP linked task type mismatch");
 
+  const std::filesystem::path graph_dir = temp_prof_dir("_graph");
+  create_aclgraph_profile(graph_dir);
+  const AscendSQLiteAdapter graph_adapter(
+      AscendSQLiteAdapterOptions{(graph_dir / "msprof.db").string(),
+                                 "ascend_graph_smoke"});
+  NativeIr graph_ir = graph_adapter.load();
+  require(graph_ir.replay_units.size() == 2,
+          "ACLGraph replay units were not reconstructed");
+  require(graph_ir.graph_templates.size() == 1,
+          "ACLGraph equivalent units should share one template");
+
+  FlatAnchorBuildConfig anchor_config;
+  anchor_config.filter_auxiliary_task_anchors = true;
+  anchor_config.skip_tasks_covered_by_replay_units = true;
+  const FlatAnchorBuildStats graph_stats =
+      build_flat_anchors(graph_ir, anchor_config);
+  require(graph_stats.device_event_anchors == 2,
+          "ACLGraph replay units should become device anchors");
+  require(graph_ir.tokens.size() == 2,
+          "covered graph TASK rows should be replaced by replay-unit tokens");
+  require(graph_ir.anchors.row(AnchorId(0)).kind == AnchorKind::kGraphReplayUnit,
+          "first graph anchor kind mismatch");
+  require(graph_ir.anchors.row(AnchorId(1)).kind == AnchorKind::kGraphReplayUnit,
+          "second graph anchor kind mismatch");
+  require(graph_ir.protected_intervals.size() == 2,
+          "GraphReplayUnit anchors should create protected intervals");
+
   bool caught_missing = false;
   try {
     const AscendSQLiteAdapter missing(temp_db_path("_missing"));
@@ -216,5 +320,6 @@ int main() {
   require(caught_missing, "missing DB path did not raise invalid_argument");
 
   std::remove(db_path.c_str());
+  std::filesystem::remove_all(graph_dir);
   return 0;
 }

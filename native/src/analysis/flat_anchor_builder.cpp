@@ -13,11 +13,17 @@ namespace {
 
 struct AnchorCandidate {
   TraceEventId trace_event_id;
+  ReplayUnitId replay_unit_id = ReplayUnitId::invalid();
   AnchorKind kind = AnchorKind::kUnknown;
   SymbolId symbol_id;
 };
 
 struct CommunicationSpan {
+  std::int64_t start_ns = 0;
+  std::int64_t end_ns = 0;
+};
+
+struct ReplayUnitSpan {
   std::int64_t start_ns = 0;
   std::int64_t end_ns = 0;
 };
@@ -260,6 +266,28 @@ std::uint64_t connection_key(std::uint32_t device_id,
          (static_cast<std::uint64_t>(connection_id) & 0xffffffffu);
 }
 
+std::unordered_map<std::uint32_t, std::vector<ReplayUnitSpan>>
+replay_unit_spans_by_device(const NativeIr& ir) {
+  std::unordered_map<std::uint32_t, std::vector<ReplayUnitSpan>> out;
+  for (const ReplayUnitRow& replay : ir.replay_units.rows()) {
+    if (!replay.launch_trace_event_id.valid()) {
+      continue;
+    }
+    const TraceEventRow& event = ir.trace_events.row(replay.launch_trace_event_id);
+    out[event.device_id].push_back(ReplayUnitSpan{event.start_ns, event.end_ns});
+  }
+  for (auto& item : out) {
+    std::sort(item.second.begin(), item.second.end(),
+              [](const ReplayUnitSpan& lhs, const ReplayUnitSpan& rhs) {
+                if (lhs.start_ns != rhs.start_ns) {
+                  return lhs.start_ns < rhs.start_ns;
+                }
+                return lhs.end_ns < rhs.end_ns;
+              });
+  }
+  return out;
+}
+
 std::unordered_map<std::uint64_t, std::vector<CommunicationSpan>>
 communication_spans_by_connection(const NativeIr& ir) {
   std::unordered_map<std::uint64_t, std::vector<CommunicationSpan>> out;
@@ -306,6 +334,27 @@ bool task_is_covered_by_communication_op(
     }
   }
   return false;
+}
+
+bool task_is_covered_by_replay_unit(
+    const TraceEventRow& task_event,
+    const std::unordered_map<std::uint32_t, std::vector<ReplayUnitSpan>>&
+        replay_spans) {
+  const auto found = replay_spans.find(task_event.device_id);
+  if (found == replay_spans.end()) {
+    return false;
+  }
+  const std::vector<ReplayUnitSpan>& spans = found->second;
+  const auto first_after_start =
+      std::upper_bound(spans.begin(), spans.end(), task_event.start_ns,
+                       [](std::int64_t value, const ReplayUnitSpan& span) {
+                         return value < span.start_ns;
+                       });
+  if (first_after_start == spans.begin()) {
+    return false;
+  }
+  const ReplayUnitSpan& span = *(first_after_start - 1);
+  return task_event.start_ns >= span.start_ns && task_event.end_ns <= span.end_ns;
 }
 
 bool candidate_less(const NativeIr& ir,
@@ -375,9 +424,12 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
       communication_trace_event_ids(ir.communication_ops);
   const std::unordered_map<std::uint64_t, std::vector<CommunicationSpan>>
       comm_spans = communication_spans_by_connection(ir);
+  const std::unordered_map<std::uint32_t, std::vector<ReplayUnitSpan>>
+      replay_spans = replay_unit_spans_by_device(ir);
 
   std::vector<AnchorCandidate> candidates;
-  candidates.reserve(ir.tasks.size() + ir.communication_ops.size());
+  candidates.reserve(ir.tasks.size() + ir.communication_ops.size() +
+                     ir.replay_units.size());
   FlatAnchorBuildStats stats;
   if (config.filter_auxiliary_task_anchors) {
     stats.projection_kind = "anchor_compute_collective_only";
@@ -396,6 +448,12 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
       ++stats.skipped_task_events;
       continue;
     }
+    const TraceEventRow& task_event = ir.trace_events.row(task.trace_event_id);
+    if (config.skip_tasks_covered_by_replay_units &&
+        task_is_covered_by_replay_unit(task_event, replay_spans)) {
+      ++stats.skipped_task_events;
+      continue;
+    }
     if (config.filter_auxiliary_task_anchors &&
         !is_semantic_anchor_task(ir, task)) {
       ++stats.skipped_task_events;
@@ -406,8 +464,19 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
       continue;
     }
     candidates.push_back(
-        AnchorCandidate{task.trace_event_id, AnchorKind::kDeviceEvent,
+        AnchorCandidate{task.trace_event_id, ReplayUnitId::invalid(),
+                        AnchorKind::kDeviceEvent,
                         choose_task_anchor_symbol(ir, task)});
+  }
+
+  for (const ReplayUnitRow& replay : ir.replay_units.rows()) {
+    if (!replay.launch_trace_event_id.valid()) {
+      continue;
+    }
+    const TraceEventRow& event = ir.trace_events.row(replay.launch_trace_event_id);
+    candidates.push_back(AnchorCandidate{
+        replay.launch_trace_event_id, replay.id, AnchorKind::kGraphReplayUnit,
+        event.raw_name_symbol_id});
   }
 
   for (const CommunicationOpRow& comm : ir.communication_ops.rows()) {
@@ -415,7 +484,8 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
       continue;
     }
     candidates.push_back(
-        AnchorCandidate{comm.trace_event_id, AnchorKind::kCommunication,
+        AnchorCandidate{comm.trace_event_id, ReplayUnitId::invalid(),
+                        AnchorKind::kCommunication,
                         choose_communication_symbol(ir, comm)});
   }
 
@@ -428,11 +498,19 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
   for (const AnchorCandidate& candidate : candidates) {
     const TraceEventRow& event = ir.trace_events.row(candidate.trace_event_id);
     const AnchorId anchor = ir.anchors.append(
-        event.source_ref_id, candidate.trace_event_id, ReplayUnitId::invalid(),
+        event.source_ref_id, candidate.trace_event_id, candidate.replay_unit_id,
         candidate.kind, candidate.symbol_id, event.device_id, event.stream_id,
         event.start_ns, event.end_ns);
-    ir.tokens.append(anchor, candidate.symbol_id, event.device_id,
-                     sequence_index++, event.start_ns, event.end_ns);
+    const TokenId token = ir.tokens.append(anchor, candidate.symbol_id,
+                                           event.device_id, sequence_index++,
+                                           event.start_ns, event.end_ns);
+
+    if (candidate.replay_unit_id.valid()) {
+      ir.replay_units.set_anchor_bounds(candidate.replay_unit_id, anchor, anchor);
+      ir.protected_intervals.append(
+          ProtectedIntervalKind::kGraphReplayUnit, BoundaryPolicy::kNoCross,
+          token, token, anchor, anchor, event.source_ref_id);
+    }
 
     if (candidate.kind == AnchorKind::kCommunication) {
       ++stats.communication_anchors;

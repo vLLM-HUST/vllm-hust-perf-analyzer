@@ -124,6 +124,10 @@ struct PreludeCost {
   double aux_us = 0.0;
 };
 
+std::uint32_t primary_device_id(const std::vector<ReportToken>& tokens) {
+  return tokens.empty() ? 0 : tokens.front().device_id;
+}
+
 std::string lower_ascii(std::string value) {
   for (char& ch : value) {
     ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
@@ -543,6 +547,7 @@ NodeCoverageSqlRows build_report_tree_node_coverage_sql_rows(
   validate_report_tree_or_throw(tree, static_cast<std::uint32_t>(tokens.size()));
 
   NodeCoverageSqlRows rows;
+  const std::uint32_t device_id = primary_device_id(tokens);
   const AuxAttributionIndex aux_index = build_aux_attribution_index(aux_rows);
   const std::vector<NodeAccum> accum =
       accumulate_nodes(tree, tokens, aux_index);
@@ -559,7 +564,7 @@ NodeCoverageSqlRows build_report_tree_node_coverage_sql_rows(
     VizNodeSqlRow row;
     row.node_id = node_id_for_def(def);
     row.db_idx = db_idx;
-    row.device_id = 0;
+    row.device_id = device_id;
     row.view_name = view_name;
     row.local_node_id = def.local_node_id;
     const auto occurrence_found = first_occurrences.find(def.id.value());
@@ -600,7 +605,7 @@ NodeCoverageSqlRows build_report_tree_node_coverage_sql_rows(
       LoopNodeSqlRow loop;
       loop.node_id = node_id_for_def(def);
       loop.db_idx = db_idx;
-      loop.device_id = 0;
+      loop.device_id = device_id;
       loop.view_name = view_name;
       loop.loop_rank = static_cast<std::uint32_t>(rows.loop_nodes.size() + 1);
       loop.repeat_label = def.display_op;
@@ -634,7 +639,7 @@ NodeCoverageSqlRows build_report_tree_node_coverage_sql_rows(
     row.parent_node_id = key.first;
     row.child_node_id = key.second;
     row.db_idx = db_idx;
-    row.device_id = 0;
+    row.device_id = device_id;
     row.view_name = view_name;
     row.edge_order = edge.edge_order;
     row.edge_kind = "tree";
@@ -659,7 +664,7 @@ NodeCoverageSqlRows build_report_tree_node_coverage_sql_rows(
       row.node_id = node_id_for_def(def);
       row.anchor_id = anchor_id;
       row.db_idx = db_idx;
-      row.device_id = 0;
+      row.device_id = device_id;
       row.view_name = view_name;
       row.occurrence_idx = occurrence.occurrence_index_for_def + 1;
       row.anchor_order = anchor_order++;
@@ -673,7 +678,7 @@ NodeCoverageSqlRows build_report_tree_node_coverage_sql_rows(
         primary.anchor_id = anchor_id;
         primary.node_id = node_id_for_def(def);
         primary.db_idx = db_idx;
-        primary.device_id = 0;
+        primary.device_id = device_id;
         primary.view_name = view_name;
         primary.reason = "atom_leaf";
         rows.anchor_primary_nodes.push_back(std::move(primary));
@@ -733,6 +738,7 @@ SemanticTreeSqlRows build_report_tree_semantic_sql_rows(
   validate_report_tree_or_throw(tree, static_cast<std::uint32_t>(tokens.size()));
 
   SemanticTreeSqlRows rows;
+  const std::uint32_t device_id = primary_device_id(tokens);
   const AuxAttributionIndex aux_index = build_aux_attribution_index(aux_rows);
   const std::vector<NodeAccum> accum =
       accumulate_nodes(tree, tokens, aux_index);
@@ -741,7 +747,7 @@ SemanticTreeSqlRows build_report_tree_semantic_sql_rows(
   SemanticTreeHeaderSqlRow header;
   header.tree_id = tree_id;
   header.db_idx = db_idx;
-  header.device_id = 0;
+  header.device_id = device_id;
   header.view_name = view_name;
   header.tree_kind = "semantic";
   header.stem = "native_report_tree";
@@ -769,7 +775,7 @@ SemanticTreeSqlRows build_report_tree_semantic_sql_rows(
     row.node_id = node_id_for_def(def);
     row.tree_id = tree_id;
     row.db_idx = db_idx;
-    row.device_id = 0;
+    row.device_id = device_id;
     row.view_name = view_name;
     row.tree_kind = "semantic";
     row.local_node_id = def.local_node_id;
@@ -838,7 +844,7 @@ SemanticTreeSqlRows build_report_tree_semantic_sql_rows(
     row.child_node_id = key.second;
     row.tree_id = tree_id;
     row.db_idx = db_idx;
-    row.device_id = 0;
+    row.device_id = device_id;
     row.view_name = view_name;
     row.tree_kind = "semantic";
     row.edge_order = edge.edge_order;
