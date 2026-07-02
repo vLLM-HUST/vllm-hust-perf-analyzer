@@ -165,13 +165,14 @@ void write_loop_tree_markdown(std::ostream& out,
 
   out << "\n## Root\n\n";
   out << "```\n";
-  out << "tree                                                       cat    |  occ   "
+  out << "tree                                                              cat    |  occ   "
          "total_us    avg_us  avg_idle  avg_aux avg_self\n";
-  out << "---------------------------------------------------------  -----  | ---- "
+  out << "----------------------------------------------------------------  -----  | ---- "
          "---------- --------- --------- -------- --------\n";
 
+  constexpr std::size_t kTreeColumnWidth = 64;
   for (const compat::VizNodeSqlRow* row : selected) {
-    const std::string indent(row->depth * 2, ' ');
+    const std::string indent(row->depth * 4, ' ');
     const std::string tree_label =
         indent + row->local_node_id +
         (row->label.empty() ? std::string() : " " + row->label);
@@ -179,7 +180,7 @@ void write_loop_tree_markdown(std::ostream& out,
         row->occurrence_count == 0 ? 1 : row->occurrence_count;
     const double avg_aux_us = row->aux_us / occurrences;
     const double avg_self_us = row->self_us / occurrences;
-    out << pad_right(shorten(tree_label, 57), 57) << "  "
+    out << pad_right(shorten(tree_label, kTreeColumnWidth), kTreeColumnWidth) << "  "
         << pad_right(shorten(row->category, 5), 5) << "  | "
         << pad_left(fmt(row->occurrence_count), 4) << " "
         << pad_left(fmt(row->total_us), 10) << " "
