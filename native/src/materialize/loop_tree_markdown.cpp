@@ -7,6 +7,8 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace traceloom {
@@ -96,6 +98,126 @@ std::uint32_t local_node_order(const std::string& local_node_id) {
   return static_cast<std::uint32_t>(value);
 }
 
+struct RenderRow {
+  const compat::VizNodeSqlRow* row = nullptr;
+  std::uint32_t depth = 0;
+};
+
+std::vector<RenderRow> edge_ordered_rows(
+    const compat::NodeCoverageSqlRows& rows,
+    const std::vector<const compat::VizNodeSqlRow*>& selected,
+    std::uint32_t db_idx,
+    bool filter_device,
+    std::uint32_t device_id) {
+  std::unordered_map<std::string, const compat::VizNodeSqlRow*> node_by_id;
+  node_by_id.reserve(selected.size());
+  for (const compat::VizNodeSqlRow* row : selected) {
+    node_by_id.emplace(row->node_id, row);
+  }
+
+  std::unordered_map<std::string, std::vector<const compat::VizEdgeSqlRow*>>
+      children_by_parent;
+  std::unordered_set<std::string> child_node_ids;
+  for (const compat::VizEdgeSqlRow& edge : rows.edges) {
+    if (edge.view_name != "native_report_tree" || edge.db_idx != db_idx) {
+      continue;
+    }
+    if (filter_device && edge.device_id != device_id) {
+      continue;
+    }
+    if (node_by_id.find(edge.parent_node_id) == node_by_id.end() ||
+        node_by_id.find(edge.child_node_id) == node_by_id.end()) {
+      continue;
+    }
+    children_by_parent[edge.parent_node_id].push_back(&edge);
+    child_node_ids.insert(edge.child_node_id);
+  }
+
+  if (children_by_parent.empty()) {
+    std::vector<RenderRow> fallback;
+    fallback.reserve(selected.size());
+    for (const compat::VizNodeSqlRow* row : selected) {
+      fallback.push_back(RenderRow{row, row->depth});
+    }
+    return fallback;
+  }
+
+  for (auto& entry : children_by_parent) {
+    std::stable_sort(entry.second.begin(), entry.second.end(),
+                     [&](const compat::VizEdgeSqlRow* left,
+                         const compat::VizEdgeSqlRow* right) {
+                       if (left->edge_order != right->edge_order) {
+                         return left->edge_order < right->edge_order;
+                       }
+                       const compat::VizNodeSqlRow* left_row =
+                           node_by_id[left->child_node_id];
+                       const compat::VizNodeSqlRow* right_row =
+                           node_by_id[right->child_node_id];
+                       const std::uint32_t left_order =
+                           local_node_order(left_row->local_node_id);
+                       const std::uint32_t right_order =
+                           local_node_order(right_row->local_node_id);
+                       if (left_order != right_order) {
+                         return left_order < right_order;
+                       }
+                       return left_row->local_node_id < right_row->local_node_id;
+                     });
+  }
+
+  std::vector<const compat::VizNodeSqlRow*> roots;
+  for (const compat::VizNodeSqlRow* row : selected) {
+    if (child_node_ids.find(row->node_id) == child_node_ids.end()) {
+      roots.push_back(row);
+    }
+  }
+  if (roots.empty()) {
+    roots.push_back(selected.front());
+  }
+  std::stable_sort(roots.begin(), roots.end(),
+                   [](const compat::VizNodeSqlRow* left,
+                      const compat::VizNodeSqlRow* right) {
+                     const std::uint32_t left_order =
+                         local_node_order(left->local_node_id);
+                     const std::uint32_t right_order =
+                         local_node_order(right->local_node_id);
+                     if (left_order != right_order) {
+                       return left_order < right_order;
+                     }
+                     return left->local_node_id < right->local_node_id;
+                   });
+
+  std::vector<RenderRow> ordered;
+  ordered.reserve(selected.size());
+  std::unordered_set<std::string> emitted;
+  std::unordered_set<std::string> path;
+  auto append = [&](auto&& self,
+                    const compat::VizNodeSqlRow* row,
+                    std::uint32_t depth) -> void {
+    if (!path.insert(row->node_id).second) {
+      return;
+    }
+    ordered.push_back(RenderRow{row, depth});
+    emitted.insert(row->node_id);
+    const auto children = children_by_parent.find(row->node_id);
+    if (children != children_by_parent.end()) {
+      for (const compat::VizEdgeSqlRow* edge : children->second) {
+        self(self, node_by_id[edge->child_node_id], depth + 1);
+      }
+    }
+    path.erase(row->node_id);
+  };
+
+  for (const compat::VizNodeSqlRow* root : roots) {
+    append(append, root, 0);
+  }
+  for (const compat::VizNodeSqlRow* row : selected) {
+    if (emitted.find(row->node_id) == emitted.end()) {
+      append(append, row, row->depth);
+    }
+  }
+  return ordered;
+}
+
 }  // namespace
 
 void write_loop_tree_markdown(std::ostream& out,
@@ -163,16 +285,22 @@ void write_loop_tree_markdown(std::ostream& out,
   out << "- trace_event_count: `" << options.trace_event_count << "`\n";
   out << "- anchor_count: `" << options.anchor_count << "`\n";
 
+  constexpr std::size_t kTreeColumnWidth = 58;
+
   out << "\n## Root\n\n";
   out << "```\n";
-  out << "tree                                                              cat    |  occ   "
-         "total_us    avg_us  avg_idle  avg_aux avg_self\n";
-  out << "----------------------------------------------------------------  -----  | ---- "
-         "---------- --------- --------- -------- --------\n";
+  out << pad_right("tree", kTreeColumnWidth)
+      << "  cat    |  occ   total_us    avg_us  avg_idle  avg_aux avg_self\n";
+  out << std::string(kTreeColumnWidth, '-')
+      << "  -----  | ---- ---------- --------- --------- -------- --------\n";
 
-  constexpr std::size_t kTreeColumnWidth = 64;
-  for (const compat::VizNodeSqlRow* row : selected) {
-    const std::string indent(row->depth * 4, ' ');
+  const std::vector<RenderRow> render_rows =
+      edge_ordered_rows(rows, selected, options.db_idx, filter_device,
+                        device_id);
+
+  for (std::size_t row_index = 0; row_index < render_rows.size(); ++row_index) {
+    const compat::VizNodeSqlRow* row = render_rows[row_index].row;
+    const std::string indent(render_rows[row_index].depth * 2, ' ');
     const std::string tree_label =
         indent + row->local_node_id +
         (row->label.empty() ? std::string() : " " + row->label);

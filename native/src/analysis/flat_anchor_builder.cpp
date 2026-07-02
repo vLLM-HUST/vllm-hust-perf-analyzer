@@ -39,6 +39,22 @@ std::string symbol_text(const NativeIr& ir, SymbolId id) {
   return id.valid() ? ir.symbols.value(id) : std::string();
 }
 
+bool is_matmul_backend_variant(const std::string& text) {
+  return text == "MatMulV1" || text == "MatMulV2" || text == "MatMulV3" ||
+         text == "BatchMatMulV1" || text == "BatchMatMulV2" ||
+         text == "BatchMatMulV3";
+}
+
+SymbolId normalize_compute_symbol(NativeIr& ir, SymbolId symbol) {
+  if (!symbol.valid()) {
+    return symbol;
+  }
+  if (is_matmul_backend_variant(symbol_text(ir, symbol))) {
+    return ir.symbols.intern("MatMul");
+  }
+  return symbol;
+}
+
 std::string lower_ascii(std::string value) {
   for (char& ch : value) {
     ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
@@ -157,7 +173,7 @@ SymbolId choose_task_anchor_symbol(NativeIr& ir, const TaskRow& task) {
   if (is_device_allreduce_label(blob)) {
     return ir.symbols.intern("AIV_AllReduce");
   }
-  return symbol;
+  return normalize_compute_symbol(ir, symbol);
 }
 
 bool is_hccl_sync_label(const std::string& lower_text) {

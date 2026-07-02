@@ -179,5 +179,33 @@ int main() {
               normalized_aiv.tokens.row(TokenId(0)).symbol_id) ==
           "AIV_AllReduce");
 
+  NativeIr normalized_matmul;
+  const SourceRefId normalized_matmul_source =
+      normalized_matmul.source_refs.append("fixture", "memory", "TASK", 0);
+  const SymbolId ai_core_task = normalized_matmul.symbols.intern("AI_CORE");
+  const SymbolId matmul_v2 = normalized_matmul.symbols.intern("MatMulV2");
+  const SymbolId matmul_v3 = normalized_matmul.symbols.intern("MatMulV3");
+  const TraceEventId matmul_event0 = normalized_matmul.trace_events.append(
+      normalized_matmul_source, 501, 0, 3, 0, 10, matmul_v2);
+  const TraceEventId matmul_event1 = normalized_matmul.trace_events.append(
+      normalized_matmul_source, 502, 0, 3, 20, 30, matmul_v3);
+  normalized_matmul.tasks.append(
+      normalized_matmul_source, matmul_event0, 41, 9401, -1, ai_core_task,
+      SymbolId::invalid(), matmul_v2, SymbolId::invalid(),
+      SymbolId::invalid());
+  normalized_matmul.tasks.append(
+      normalized_matmul_source, matmul_event1, 42, 9402, -1, ai_core_task,
+      SymbolId::invalid(), matmul_v3, SymbolId::invalid(),
+      SymbolId::invalid());
+  const FlatAnchorBuildStats normalized_matmul_stats =
+      build_flat_anchors(normalized_matmul);
+  require(normalized_matmul_stats.device_event_anchors == 2);
+  require(normalized_matmul.tokens.size() == 2);
+  require(normalized_matmul.tokens.row(TokenId(0)).symbol_id ==
+          normalized_matmul.tokens.row(TokenId(1)).symbol_id);
+  require(normalized_matmul.symbols.value(
+              normalized_matmul.tokens.row(TokenId(0)).symbol_id) ==
+          "MatMul");
+
   return 0;
 }
