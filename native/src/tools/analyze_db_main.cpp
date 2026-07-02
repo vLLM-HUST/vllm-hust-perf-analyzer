@@ -1,4 +1,5 @@
 #include <chrono>
+#include <algorithm>
 #include <cstddef>
 #include <cstdlib>
 #include <exception>
@@ -7,6 +8,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <thread>
 
 #include "traceloom/adapters/ascend_sqlite_adapter.h"
 #include "traceloom/analysis/native_pipeline.h"
@@ -38,16 +40,26 @@ struct CliOptions {
   std::string out_path = "-";
   std::string grammar_debug_out_path;
   std::string compat_sidecar_out_path;
-  std::size_t threads = 4;
+  bool sidecar_only = false;
+  std::size_t threads = 0;
   std::size_t top_candidate_limit = 16;
 };
+
+std::size_t default_thread_count() {
+  const unsigned int hardware = std::thread::hardware_concurrency();
+  if (hardware <= 1) {
+    return 1;
+  }
+  return std::max<std::size_t>(1, static_cast<std::size_t>(hardware / 2));
+}
 
 void print_usage(const char* argv0) {
   std::cerr << "usage: " << argv0
             << " --source-db <ascend-msprof.db> [--threads N]"
                " [--out PATH|-] [--top-candidates N]"
                " [--grammar-debug-out PATH|-]"
-               " [--compat-sidecar-out PATH]\n";
+               " [--compat-sidecar-out PATH]"
+               " [--sidecar-only]\n";
 }
 
 std::size_t parse_size(const std::string& text, const std::string& flag) {
@@ -81,6 +93,8 @@ CliOptions parse_args(int argc, char** argv) {
       options.grammar_debug_out_path = require_value(arg);
     } else if (arg == "--compat-sidecar-out") {
       options.compat_sidecar_out_path = require_value(arg);
+    } else if (arg == "--sidecar-only") {
+      options.sidecar_only = true;
     } else if (arg == "--top-candidates") {
       options.top_candidate_limit = parse_size(require_value(arg), arg);
     } else if (arg == "--help" || arg == "-h") {
@@ -95,11 +109,17 @@ CliOptions parse_args(int argc, char** argv) {
     throw std::invalid_argument("--source-db is required");
   }
   if (options.threads == 0) {
+    options.threads = default_thread_count();
+  }
+  if (options.threads == 0) {
     throw std::invalid_argument("--threads must be greater than zero");
   }
   if (options.out_path == "-" && options.grammar_debug_out_path == "-") {
     throw std::invalid_argument(
         "--out - and --grammar-debug-out - cannot be used together");
+  }
+  if (options.sidecar_only && options.compat_sidecar_out_path.empty()) {
+    throw std::invalid_argument("--sidecar-only requires --compat-sidecar-out");
   }
   return options;
 }
@@ -159,6 +179,9 @@ int main(int argc, char** argv) {
           pipeline_options.partition_config.target_tokens_per_partition;
       traceloom::compat::write_basic_native_compatibility_sidecar(
           cli.compat_sidecar_out_path, ir, sidecar_options);
+    }
+    if (cli.sidecar_only) {
+      return 0;
     }
     traceloom::write_native_result_json(first_pass, ir.symbols, pipeline,
                                         json_options);

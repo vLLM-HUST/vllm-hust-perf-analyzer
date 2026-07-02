@@ -1,4 +1,5 @@
 #include <chrono>
+#include <algorithm>
 #include <cstddef>
 #include <cstdlib>
 #include <exception>
@@ -7,6 +8,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <thread>
 
 #include "traceloom/adapters/fixture_adapter.h"
 #include "traceloom/adapters/protected_sequence_fixture_reader.h"
@@ -39,9 +41,17 @@ struct CliOptions {
   std::string out_path = "-";
   std::string grammar_debug_out_path;
   std::string compat_sidecar_out_path;
-  std::size_t threads = 4;
+  std::size_t threads = 0;
   std::size_t top_candidate_limit = 16;
 };
+
+std::size_t default_thread_count() {
+  const unsigned int hardware = std::thread::hardware_concurrency();
+  if (hardware <= 1) {
+    return 1;
+  }
+  return std::max<std::size_t>(1, static_cast<std::size_t>(hardware / 2));
+}
 
 void print_usage(const char* argv0) {
   std::cerr << "usage: " << argv0
@@ -94,6 +104,9 @@ CliOptions parse_args(int argc, char** argv) {
 
   if (options.fixture_path.empty()) {
     throw std::invalid_argument("--fixture is required");
+  }
+  if (options.threads == 0) {
+    options.threads = default_thread_count();
   }
   if (options.threads == 0) {
     throw std::invalid_argument("--threads must be greater than zero");
