@@ -336,17 +336,17 @@ bool task_is_covered_by_communication_op(
   return false;
 }
 
-bool task_is_covered_by_replay_unit(
-    const TraceEventRow& task_event,
+bool event_is_covered_by_replay_unit(
+    const TraceEventRow& event,
     const std::unordered_map<std::uint32_t, std::vector<ReplayUnitSpan>>&
         replay_spans) {
-  const auto found = replay_spans.find(task_event.device_id);
+  const auto found = replay_spans.find(event.device_id);
   if (found == replay_spans.end()) {
     return false;
   }
   const std::vector<ReplayUnitSpan>& spans = found->second;
   const auto first_after_start =
-      std::upper_bound(spans.begin(), spans.end(), task_event.start_ns,
+      std::upper_bound(spans.begin(), spans.end(), event.start_ns,
                        [](std::int64_t value, const ReplayUnitSpan& span) {
                          return value < span.start_ns;
                        });
@@ -354,7 +354,7 @@ bool task_is_covered_by_replay_unit(
     return false;
   }
   const ReplayUnitSpan& span = *(first_after_start - 1);
-  return task_event.start_ns >= span.start_ns && task_event.end_ns <= span.end_ns;
+  return event.start_ns >= span.start_ns && event.end_ns <= span.end_ns;
 }
 
 bool candidate_less(const NativeIr& ir,
@@ -426,6 +426,9 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
       comm_spans = communication_spans_by_connection(ir);
   const std::unordered_map<std::uint32_t, std::vector<ReplayUnitSpan>>
       replay_spans = replay_unit_spans_by_device(ir);
+  const bool skip_replay_covered_tasks =
+      config.skip_tasks_covered_by_replay_units ||
+      config.skip_events_covered_by_replay_units;
 
   std::vector<AnchorCandidate> candidates;
   candidates.reserve(ir.tasks.size() + ir.communication_ops.size() +
@@ -449,8 +452,8 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
       continue;
     }
     const TraceEventRow& task_event = ir.trace_events.row(task.trace_event_id);
-    if (config.skip_tasks_covered_by_replay_units &&
-        task_is_covered_by_replay_unit(task_event, replay_spans)) {
+    if (skip_replay_covered_tasks &&
+        event_is_covered_by_replay_unit(task_event, replay_spans)) {
       ++stats.skipped_task_events;
       continue;
     }
@@ -483,6 +486,11 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
     if (!comm.trace_event_id.valid()) {
       continue;
     }
+    const TraceEventRow& event = ir.trace_events.row(comm.trace_event_id);
+    if (config.skip_events_covered_by_replay_units &&
+        event_is_covered_by_replay_unit(event, replay_spans)) {
+      continue;
+    }
     candidates.push_back(
         AnchorCandidate{comm.trace_event_id, ReplayUnitId::invalid(),
                         AnchorKind::kCommunication,
@@ -501,15 +509,11 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
         event.source_ref_id, candidate.trace_event_id, candidate.replay_unit_id,
         candidate.kind, candidate.symbol_id, event.device_id, event.stream_id,
         event.start_ns, event.end_ns);
-    const TokenId token = ir.tokens.append(anchor, candidate.symbol_id,
-                                           event.device_id, sequence_index++,
-                                           event.start_ns, event.end_ns);
+    ir.tokens.append(anchor, candidate.symbol_id, event.device_id,
+                     sequence_index++, event.start_ns, event.end_ns);
 
     if (candidate.replay_unit_id.valid()) {
       ir.replay_units.set_anchor_bounds(candidate.replay_unit_id, anchor, anchor);
-      ir.protected_intervals.append(
-          ProtectedIntervalKind::kGraphReplayUnit, BoundaryPolicy::kNoCross,
-          token, token, anchor, anchor, event.source_ref_id);
     }
 
     if (candidate.kind == AnchorKind::kCommunication) {

@@ -12,6 +12,7 @@ struct FlatAnchorBuildConfig {
   std::vector<std::string> skipped_task_type_symbols;
   bool skip_tasks_covered_by_communication_ops = false;
   bool skip_tasks_covered_by_replay_units = false;
+  bool skip_events_covered_by_replay_units = false;
   bool filter_auxiliary_task_anchors = false;
 };
 

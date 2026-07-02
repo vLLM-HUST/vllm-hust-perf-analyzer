@@ -138,7 +138,9 @@ void create_aclgraph_profile(const std::filesystem::path& dir) {
            "(12, 'NOTIFY_WAIT'), "
            "(13, 'MIX_AIC'), "
            "(20, 'GatherV2'), "
-           "(21, 'MatMulV2');"
+           "(21, 'MatMulV2'), "
+           "(30, 'hcclAllGather'), "
+           "(31, 'hcom_allGather_');"
            "CREATE TABLE TASK("
            "startNs INTEGER, endNs INTEGER, deviceId INTEGER, "
            "connectionId INTEGER, globalTaskId INTEGER, globalPid INTEGER, "
@@ -161,7 +163,20 @@ void create_aclgraph_profile(const std::filesystem::path& dir) {
            "(1, 20, 20, 13), "
            "(2, 21, 21, 13), "
            "(3, 20, 20, 13), "
-           "(4, 21, 21, 13);");
+           "(4, 21, 21, 13);"
+           "CREATE TABLE COMMUNICATION_OP("
+           "opName INTEGER, "
+           "opType INTEGER, "
+           "startNs INTEGER, "
+           "endNs INTEGER, "
+           "connectionId INTEGER, "
+           "groupName INTEGER, "
+           "opId INTEGER, "
+           "deviceId INTEGER);"
+           "INSERT INTO COMMUNICATION_OP(opName, opType, startNs, endNs, "
+           "connectionId, groupName, opId, deviceId) VALUES "
+           "(30, 31, 105, 109, 3000, NULL, 1, 0), "
+           "(30, 31, 300, 320, 3001, NULL, 2, 0);");
   sqlite3_close(db);
 
   sqlite3* stream_db = nullptr;
@@ -296,19 +311,23 @@ int main() {
 
   FlatAnchorBuildConfig anchor_config;
   anchor_config.filter_auxiliary_task_anchors = true;
-  anchor_config.skip_tasks_covered_by_replay_units = true;
+  anchor_config.skip_events_covered_by_replay_units = true;
   const FlatAnchorBuildStats graph_stats =
       build_flat_anchors(graph_ir, anchor_config);
   require(graph_stats.device_event_anchors == 2,
           "ACLGraph replay units should become device anchors");
-  require(graph_ir.tokens.size() == 2,
-          "covered graph TASK rows should be replaced by replay-unit tokens");
+  require(graph_stats.communication_anchors == 1,
+          "only communication outside graph replay units should remain");
+  require(graph_ir.tokens.size() == 3,
+          "covered graph events should be replaced by replay-unit tokens");
   require(graph_ir.anchors.row(AnchorId(0)).kind == AnchorKind::kGraphReplayUnit,
           "first graph anchor kind mismatch");
   require(graph_ir.anchors.row(AnchorId(1)).kind == AnchorKind::kGraphReplayUnit,
           "second graph anchor kind mismatch");
-  require(graph_ir.protected_intervals.size() == 2,
-          "GraphReplayUnit anchors should create protected intervals");
+  require(graph_ir.anchors.row(AnchorId(2)).kind == AnchorKind::kCommunication,
+          "outside communication anchor should remain");
+  require(graph_ir.protected_intervals.empty(),
+          "single-token GraphReplayUnit anchors should remain grammar-compressible");
 
   bool caught_missing = false;
   try {
