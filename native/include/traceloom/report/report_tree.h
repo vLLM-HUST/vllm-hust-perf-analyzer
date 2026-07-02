@@ -96,6 +96,7 @@ struct ReportTree {
   std::vector<ReportTreeEdge> edges;
   std::vector<ReportNodeCoverage> coverage;
   std::vector<Diagnostic> diagnostics;
+  std::vector<std::uint32_t> occurrence_counts_by_def;
 };
 
 const ReportNodeDef& node_def(const ReportTree& tree, ReportNodeDefId id);

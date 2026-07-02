@@ -5,6 +5,7 @@
 #include <map>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 
@@ -86,6 +87,7 @@ ReportNodeDefId append_def(ReportTree& tree,
   def.loop_depth = loop_depth;
   def.visibility_reason = std::move(visibility_reason);
   tree.node_defs.push_back(std::move(def));
+  tree.occurrence_counts_by_def.push_back(0);
   return id;
 }
 
@@ -98,12 +100,20 @@ ReportNodeOccurrenceId append_occurrence(ReportTree& tree,
                                          std::uint32_t repeat_iteration) {
   const ReportNodeOccurrenceId id =
       checked_next_id<ReportNodeOccurrenceId>(tree.occurrences.size());
-  std::uint32_t occurrence_index = 0;
-  for (const ReportNodeOccurrence& existing : tree.occurrences) {
-    if (existing.node_def_id == def_id) {
-      ++occurrence_index;
+  if (!def_id.valid() || def_id.value() >= tree.node_defs.size()) {
+    throw std::invalid_argument("occurrence references bad node def");
+  }
+  if (tree.occurrence_counts_by_def.size() < tree.node_defs.size()) {
+    tree.occurrence_counts_by_def.resize(tree.node_defs.size(), 0);
+    for (const ReportNodeOccurrence& existing : tree.occurrences) {
+      if (existing.node_def_id.valid() &&
+          existing.node_def_id.value() < tree.occurrence_counts_by_def.size()) {
+        ++tree.occurrence_counts_by_def[existing.node_def_id.value()];
+      }
     }
   }
+  const std::uint32_t occurrence_index =
+      tree.occurrence_counts_by_def[def_id.value()]++;
 
   ReportNodeOccurrence occurrence;
   occurrence.id = id;
@@ -214,12 +224,6 @@ ReportNodeDefId append_atom_def_for_symbol(ReportTree& tree,
                     loop_depth, std::move(reason));
 }
 
-struct GrammarReportLowering {
-  const std::vector<ReportToken>& tokens;
-  const GrammarSnapshot& snapshot;
-  std::map<SymbolId::value_type, const MacroDefRow*> macro_by_symbol;
-};
-
 struct GrammarTemplateChild;
 
 struct GrammarSubtreeTemplate {
@@ -233,6 +237,37 @@ struct GrammarSubtreeTemplate {
 struct GrammarTemplateChild {
   GrammarSubtreeTemplate subtree;
   std::uint32_t span_len = 0;
+};
+
+struct GrammarTemplateCacheKey {
+  SymbolId::value_type symbol = 0;
+  std::uint32_t display_depth = 0;
+  std::uint32_t loop_depth = 0;
+
+  bool operator==(const GrammarTemplateCacheKey& other) const noexcept {
+    return symbol == other.symbol && display_depth == other.display_depth &&
+           loop_depth == other.loop_depth;
+  }
+};
+
+struct GrammarTemplateCacheKeyHash {
+  std::size_t operator()(const GrammarTemplateCacheKey& key) const noexcept {
+    std::size_t value = static_cast<std::size_t>(key.symbol);
+    value ^= static_cast<std::size_t>(key.display_depth) + 0x9e3779b9u +
+             (value << 6) + (value >> 2);
+    value ^= static_cast<std::size_t>(key.loop_depth) + 0x9e3779b9u +
+             (value << 6) + (value >> 2);
+    return value;
+  }
+};
+
+struct GrammarReportLowering {
+  const std::vector<ReportToken>& tokens;
+  const GrammarSnapshot& snapshot;
+  std::map<SymbolId::value_type, const MacroDefRow*> macro_by_symbol;
+  mutable std::unordered_map<GrammarTemplateCacheKey, GrammarSubtreeTemplate,
+                             GrammarTemplateCacheKeyHash>
+      template_cache;
 };
 
 std::uint32_t expanded_symbol_len(const GrammarReportLowering& lowering,
@@ -448,6 +483,15 @@ GrammarSubtreeTemplate build_grammar_template(ReportTree& tree,
     return subtree;
   }
 
+  const GrammarTemplateCacheKey cache_key{
+      symbol.valid() ? symbol.value() : SymbolId::invalid().value(),
+      display_depth,
+      loop_depth};
+  const auto cached = lowering.template_cache.find(cache_key);
+  if (cached != lowering.template_cache.end()) {
+    return cached->second;
+  }
+
   const MacroDefRow& macro = *found->second;
   GrammarSubtreeTemplate subtree;
   subtree.span_len = expanded_symbol_len(lowering, symbol);
@@ -464,6 +508,7 @@ GrammarSubtreeTemplate build_grammar_template(ReportTree& tree,
     child.subtree = build_grammar_template(tree, lowering, body_symbol,
                                            display_depth + 1, loop_depth + 1);
     subtree.children.push_back(std::move(child));
+    lowering.template_cache.emplace(cache_key, subtree);
     return subtree;
   }
 
@@ -475,6 +520,7 @@ GrammarSubtreeTemplate build_grammar_template(ReportTree& tree,
                                            display_depth, loop_depth);
     subtree.children.push_back(std::move(child));
   }
+  lowering.template_cache.emplace(cache_key, subtree);
   return subtree;
 }
 
@@ -835,7 +881,7 @@ ReportTree build_report_tree_from_grammar_state(
     return build_report_tree_from_tokens(tokens, config);
   }
 
-  GrammarReportLowering lowering{tokens, snapshot, {}};
+  GrammarReportLowering lowering{tokens, snapshot, {}, {}};
   for (const MacroDefRow& macro : snapshot.macro_defs) {
     if (!macro.symbol_id.valid()) {
       throw std::invalid_argument("grammar macro has invalid symbol");
@@ -896,11 +942,12 @@ ReportTree build_report_tree_from_grammar_state(
       continue;
     }
 
-    edge_order = append_grammar_symbol_tree(
-        tree, lowering, node.symbol_id, root_occurrence, edge_order,
+    const GrammarSubtreeTemplate subtree =
+        build_grammar_template(tree, lowering, node.symbol_id, 1, 0);
+    edge_order = append_grammar_template_occurrence(
+        tree, lowering, subtree, root_occurrence, edge_order,
         static_cast<std::uint32_t>(node.source_begin_token_index),
-        static_cast<std::uint32_t>(node.source_end_token_index_exclusive), 0,
-        1, 0);
+        static_cast<std::uint32_t>(node.source_end_token_index_exclusive), 0);
     ++index;
   }
 

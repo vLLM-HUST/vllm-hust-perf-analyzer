@@ -85,6 +85,7 @@ add_library(traceloom_native_materialize
   src/compat/sidecar_writer.cpp
   src/compat/timeline_rows.cpp
   src/materialize/grammar_debug_json.cpp
+  src/materialize/loop_tree_markdown.cpp
   src/materialize/native_result_json.cpp
 )
 

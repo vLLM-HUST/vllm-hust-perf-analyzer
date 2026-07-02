@@ -1,6 +1,8 @@
 #include "traceloom/compat/native_sidecar_materializer.h"
 
+#include <chrono>
 #include <exception>
+#include <iostream>
 #include <string>
 #include <vector>
 
@@ -17,6 +19,20 @@
 
 namespace traceloom::compat {
 namespace {
+
+class Stopwatch {
+ public:
+  Stopwatch() : start_(Clock::now()) {}
+
+  double elapsed_ms() const {
+    return std::chrono::duration<double, std::milli>(Clock::now() - start_)
+        .count();
+  }
+
+ private:
+  using Clock = std::chrono::steady_clock;
+  Clock::time_point start_;
+};
 
 std::string basename_or_default(const std::string& path,
                                 const std::string& fallback) {
@@ -54,6 +70,28 @@ ReportTree build_sidecar_report_tree(
         grammar_state.metadata.full_discovery_cap;
     const GrammarEngineResult grammar_result =
         run_grammar_state_machine(grammar_state, grammar_engine_config);
+    if (options.timing_diagnostics) {
+      std::cerr << "timing loop_tree_grammar_stop_reason="
+                << grammar_engine_stop_reason_name(grammar_result.stop_reason)
+                << "\n";
+      std::cerr << "timing loop_tree_grammar_steps="
+                << grammar_result.steps.size() << "\n";
+      std::cerr << "timing loop_tree_grammar_live_nodes="
+                << grammar_state.live_node_count << "\n";
+      std::cerr << "timing loop_tree_grammar_macro_defs="
+                << grammar_state.macro_defs.size() << "\n";
+      if (!grammar_result.steps.empty()) {
+        const GrammarEngineStep& last_step = grammar_result.steps.back();
+        std::cerr << "timing loop_tree_grammar_last_before_nodes="
+                  << last_step.before_live_node_count << "\n";
+        std::cerr << "timing loop_tree_grammar_last_after_nodes="
+                  << last_step.after_live_node_count << "\n";
+        std::cerr << "timing loop_tree_grammar_last_gain="
+                  << last_step.gain << "\n";
+        std::cerr << "timing loop_tree_grammar_last_replace_count="
+                  << last_step.replace_count << "\n";
+      }
+    }
     if (!grammar_result.ok() || grammar_state.stage != GrammarStage::kDone ||
         grammar_state.macro_defs.empty()) {
       return build_report_tree_from_tokens(report_tokens);
@@ -65,6 +103,42 @@ ReportTree build_sidecar_report_tree(
 }
 
 }  // namespace
+
+NodeCoverageSqlRows build_native_loop_tree_node_coverage_rows(
+    const NativeIr& ir,
+    const NativeCompatibilitySidecarOptions& options) {
+  const Stopwatch tokens_watch;
+  const std::vector<ReportToken> report_tokens =
+      build_report_tokens_from_native_ir(ir);
+  if (options.timing_diagnostics) {
+    std::cerr << "timing loop_tree_tokens_ms=" << tokens_watch.elapsed_ms()
+              << "\n";
+  }
+  const Stopwatch aux_watch;
+  const AuxAttributionSqlRows aux_rows =
+      options.materialize_aux_attribution
+          ? build_aux_attribution_sql_rows(ir, options.db_idx)
+          : AuxAttributionSqlRows{};
+  if (options.timing_diagnostics) {
+    std::cerr << "timing loop_tree_aux_rows_ms=" << aux_watch.elapsed_ms()
+              << "\n";
+  }
+  const Stopwatch tree_watch;
+  const ReportTree report_tree =
+      build_sidecar_report_tree(ir, options, report_tokens);
+  if (options.timing_diagnostics) {
+    std::cerr << "timing loop_tree_report_tree_ms="
+              << tree_watch.elapsed_ms() << "\n";
+  }
+  const Stopwatch coverage_watch;
+  NodeCoverageSqlRows rows = build_report_tree_node_coverage_sql_rows(
+      report_tree, report_tokens, aux_rows, options.db_idx);
+  if (options.timing_diagnostics) {
+    std::cerr << "timing loop_tree_coverage_rows_ms="
+              << coverage_watch.elapsed_ms() << "\n";
+  }
+  return rows;
+}
 
 void write_basic_native_compatibility_sidecar(
     const std::string& sqlite_path,
@@ -89,7 +163,9 @@ void write_basic_native_compatibility_sidecar(
       build_anchor_sequence_sql_rows(ir, options.db_idx);
   replace_anchor_rows(sqlite_path, anchor_rows);
   const AuxAttributionSqlRows aux_rows =
-      build_aux_attribution_sql_rows(ir, options.db_idx);
+      options.materialize_aux_attribution
+          ? build_aux_attribution_sql_rows(ir, options.db_idx)
+          : AuxAttributionSqlRows{};
   replace_aux_attribution_rows(sqlite_path, aux_rows);
   replace_anchor_cost_breakdown_rows(
       sqlite_path, build_native_anchor_cost_breakdown_sql_rows(ir, aux_rows));

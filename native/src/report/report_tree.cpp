@@ -43,6 +43,9 @@ const ReportNodeOccurrence& node_occurrence(const ReportTree& tree,
 
 std::size_t occurrence_count_for_def(const ReportTree& tree,
                                      ReportNodeDefId id) {
+  if (id.valid() && id.value() < tree.occurrence_counts_by_def.size()) {
+    return tree.occurrence_counts_by_def[id.value()];
+  }
   std::size_t count = 0;
   for (const ReportNodeOccurrence& occurrence : tree.occurrences) {
     if (occurrence.node_def_id == id) {
