@@ -34,6 +34,8 @@ struct NativePipelineStats {
   std::size_t trace_event_count = 0;
   std::size_t task_count = 0;
   std::size_t communication_op_count = 0;
+  std::size_t graph_template_count = 0;
+  std::size_t replay_unit_count = 0;
   std::size_t anchor_count = 0;
   std::size_t token_count = 0;
   std::size_t protected_interval_count = 0;

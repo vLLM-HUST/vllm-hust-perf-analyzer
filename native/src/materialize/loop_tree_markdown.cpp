@@ -285,14 +285,17 @@ void write_loop_tree_markdown(std::ostream& out,
   out << "- trace_event_count: `" << options.trace_event_count << "`\n";
   out << "- anchor_count: `" << options.anchor_count << "`\n";
 
-  constexpr std::size_t kTreeColumnWidth = 58;
+  constexpr std::size_t kTreeColumnWidth = 48;
+  constexpr std::size_t kCategoryColumnWidth = 14;
 
   out << "\n## Root\n\n";
   out << "```\n";
-  out << pad_right("tree", kTreeColumnWidth)
-      << "  cat    |  occ   total_us    avg_us  avg_idle  avg_aux avg_self\n";
+  out << pad_right("tree", kTreeColumnWidth) << "  "
+      << pad_right("cat", kCategoryColumnWidth)
+      << "  |  occ   total_us    avg_us  avg_idle  avg_aux avg_self\n";
   out << std::string(kTreeColumnWidth, '-')
-      << "  -----  | ---- ---------- --------- --------- -------- --------\n";
+      << "  " << std::string(kCategoryColumnWidth, '-')
+      << "  | ---- ---------- --------- --------- -------- --------\n";
 
   const std::vector<RenderRow> render_rows =
       edge_ordered_rows(rows, selected, options.db_idx, filter_device,
@@ -309,7 +312,9 @@ void write_loop_tree_markdown(std::ostream& out,
     const double avg_aux_us = row->aux_us / occurrences;
     const double avg_self_us = row->self_us / occurrences;
     out << pad_right(shorten(tree_label, kTreeColumnWidth), kTreeColumnWidth) << "  "
-        << pad_right(shorten(row->category, 5), 5) << "  | "
+        << pad_right(shorten(row->category, kCategoryColumnWidth),
+                     kCategoryColumnWidth)
+        << "  | "
         << pad_left(fmt(row->occurrence_count), 4) << " "
         << pad_left(fmt(row->total_us), 10) << " "
         << pad_left(fmt(row->avg_total_us), 9) << " "

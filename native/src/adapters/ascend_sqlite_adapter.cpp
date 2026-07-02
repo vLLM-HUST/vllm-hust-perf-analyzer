@@ -131,6 +131,12 @@ struct ReplayUnitWindow {
   std::int64_t end_ns = 0;
 };
 
+struct AclGraphCaptureInfo {
+  std::unordered_map<std::uint32_t, std::unordered_set<std::uint64_t>>
+      model_streams_by_device;
+  std::uint32_t capture_group_size = 0;
+};
+
 std::int64_t sqlite_i64(sqlite3_stmt* stmt,
                         int column,
                         std::int64_t fallback = -1) {
@@ -401,28 +407,33 @@ std::string body_signature(const NativeIr& ir,
 
 std::uint32_t infer_replay_unit_count(
     const std::map<std::string, std::uint32_t>& body_counts,
-    const std::map<std::string, std::uint32_t>& control_counts) {
-  for (const char* token : {"index|Index", "attention|Attention"}) {
-    const auto found = body_counts.find(token);
-    if (found != body_counts.end() && found->second > 0) {
-      return found->second;
-    }
+    const std::map<std::string, std::uint32_t>& control_counts,
+    std::uint32_t capture_group_size) {
+  (void)body_counts;
+  const auto model_execute = control_counts.find("MODEL_EXECUTE");
+  if (capture_group_size > 1 && model_execute != control_counts.end() &&
+      model_execute->second > 0) {
+    return std::max<std::uint32_t>(
+        1, (model_execute->second + capture_group_size / 2) /
+               capture_group_size);
   }
   const auto notify_wait = control_counts.find("NOTIFY_WAIT");
+  if (capture_group_size > 1 && notify_wait != control_counts.end() &&
+      notify_wait->second > 0) {
+    return std::max<std::uint32_t>(
+        1, (notify_wait->second + capture_group_size / 2) /
+               capture_group_size);
+  }
+  if (model_execute != control_counts.end() && model_execute->second > 0) {
+    return model_execute->second;
+  }
   if (notify_wait != control_counts.end() && notify_wait->second > 0) {
     if (notify_wait->second % 29 == 0) {
       return std::max<std::uint32_t>(1, notify_wait->second / 29);
     }
     return notify_wait->second;
   }
-  std::uint32_t common = 0;
-  for (const auto& item : body_counts) {
-    if (item.second == 0) {
-      continue;
-    }
-    common = common == 0 ? item.second : std::gcd(common, item.second);
-  }
-  return common > 1 ? common : 1;
+  return 1;
 }
 
 std::vector<std::int64_t> valid_inner_boundaries(
@@ -460,28 +471,6 @@ std::vector<GraphReplayUnitView> split_rows_by_boundaries(
   return out;
 }
 
-std::vector<std::int64_t> body_landmark_boundaries(
-    const NativeIr& ir,
-    const std::vector<GraphTaskView>& rows,
-    std::uint32_t expected_count) {
-  std::vector<std::int64_t> landmarks;
-  for (const GraphTaskView& row : rows) {
-    const std::string token = graph_body_token(ir, *row.task);
-    if (token == "index|Index" || token == "attention|Attention") {
-      landmarks.push_back(row.event->start_ns);
-    }
-  }
-  if (landmarks.size() != expected_count || expected_count <= 1) {
-    return {};
-  }
-  std::sort(landmarks.begin(), landmarks.end());
-  std::vector<std::int64_t> boundaries;
-  for (std::size_t index = 1; index < landmarks.size(); ++index) {
-    boundaries.push_back((landmarks[index - 1] + landmarks[index]) / 2);
-  }
-  return valid_inner_boundaries(std::move(boundaries));
-}
-
 std::vector<std::int64_t> control_boundaries(
     const std::vector<GraphTaskView>& controls,
     std::uint32_t expected_count) {
@@ -507,7 +496,8 @@ std::vector<GraphReplayUnitView> split_activity(
     const NativeIr& ir,
     const std::vector<GraphTaskView>& rows,
     const std::vector<GraphTaskView>& notify_waits,
-    const std::vector<GraphTaskView>& model_execs) {
+    const std::vector<GraphTaskView>& model_execs,
+    std::uint32_t capture_group_size) {
   std::map<std::string, std::uint32_t> body_counts;
   for (const GraphTaskView& row : rows) {
     const std::string token = graph_body_token(ir, *row.task);
@@ -519,63 +509,20 @@ std::vector<GraphReplayUnitView> split_activity(
   control_counts["NOTIFY_WAIT"] = static_cast<std::uint32_t>(notify_waits.size());
   control_counts["MODEL_EXECUTE"] = static_cast<std::uint32_t>(model_execs.size());
   const std::uint32_t expected_count =
-      infer_replay_unit_count(body_counts, control_counts);
+      infer_replay_unit_count(body_counts, control_counts, capture_group_size);
   if (expected_count <= 1 || rows.size() <= 1) {
     return {GraphReplayUnitView{rows}};
   }
+  (void)ir;
   std::vector<std::int64_t> boundaries =
-      body_landmark_boundaries(ir, rows, expected_count);
+      control_boundaries(model_execs, expected_count);
   if (boundaries.empty()) {
     boundaries = control_boundaries(notify_waits, expected_count);
-  }
-  if (boundaries.empty()) {
-    boundaries = control_boundaries(model_execs, expected_count);
   }
   if (boundaries.empty()) {
     return {GraphReplayUnitView{rows}};
   }
   return split_rows_by_boundaries(rows, boundaries);
-}
-
-std::vector<GraphReplayUnitView> split_activities_by_global_landmarks(
-    const NativeIr& ir,
-    const std::vector<std::vector<GraphTaskView>>& segments) {
-  std::vector<GraphTaskView> rows;
-  for (const auto& segment : segments) {
-    rows.insert(rows.end(), segment.begin(), segment.end());
-  }
-  std::sort(rows.begin(), rows.end(), [](const GraphTaskView& lhs,
-                                         const GraphTaskView& rhs) {
-    if (lhs.event->start_ns != rhs.event->start_ns) {
-      return lhs.event->start_ns < rhs.event->start_ns;
-    }
-    if (lhs.event->end_ns != rhs.event->end_ns) {
-      return lhs.event->end_ns < rhs.event->end_ns;
-    }
-    return lhs.task->raw_task_id < rhs.task->raw_task_id;
-  });
-  std::vector<std::int64_t> landmarks;
-  for (const GraphTaskView& row : rows) {
-    const std::string token = graph_body_token(ir, *row.task);
-    if (token == "index|Index" || token == "attention|Attention") {
-      landmarks.push_back(row.event->start_ns);
-    }
-  }
-  if (landmarks.size() <= 1) {
-    return {};
-  }
-  std::sort(landmarks.begin(), landmarks.end());
-  std::vector<std::int64_t> boundaries;
-  for (std::size_t index = 1; index < landmarks.size(); ++index) {
-    boundaries.push_back((landmarks[index - 1] + landmarks[index]) / 2);
-  }
-  boundaries = valid_inner_boundaries(std::move(boundaries));
-  if (boundaries.size() != landmarks.size() - 1) {
-    return {};
-  }
-  std::vector<GraphReplayUnitView> units =
-      split_rows_by_boundaries(rows, boundaries);
-  return units.size() == landmarks.size() ? units : std::vector<GraphReplayUnitView>{};
 }
 
 std::unordered_map<std::int64_t, std::string> load_string_ids(SqliteDb& db,
@@ -897,9 +844,31 @@ std::string stream_info_db_path_for_msprof(const std::string& db_path) {
   return (path.parent_path() / "host" / "sqlite" / "stream_info.db").string();
 }
 
-std::unordered_map<std::uint32_t, std::unordered_set<std::uint64_t>>
-load_aclgraph_model_streams(const std::string& stream_info_path) {
-  std::unordered_map<std::uint32_t, std::unordered_set<std::uint64_t>> out;
+std::uint32_t infer_capture_group_size_from_stream_info(
+    const std::set<std::uint64_t>& model_ids,
+    const std::set<std::uint64_t>& original_stream_ids) {
+  if (model_ids.empty()) {
+    return 0;
+  }
+  if (original_stream_ids.size() > 1 &&
+      model_ids.size() % original_stream_ids.size() == 0) {
+    return static_cast<std::uint32_t>(model_ids.size() /
+                                      original_stream_ids.size());
+  }
+  for (std::uint32_t candidate : {29u, 37u}) {
+    if (model_ids.size() % candidate == 0) {
+      return candidate;
+    }
+  }
+  if (model_ids.size() <= 64) {
+    return static_cast<std::uint32_t>(model_ids.size());
+  }
+  return 0;
+}
+
+AclGraphCaptureInfo load_aclgraph_capture_info(
+    const std::string& stream_info_path) {
+  AclGraphCaptureInfo out;
   if (!file_exists(stream_info_path)) {
     return out;
   }
@@ -907,15 +876,35 @@ load_aclgraph_model_streams(const std::string& stream_info_path) {
   if (!table_has_column(db, "CaptureStreamInfo", "model_stream_id")) {
     return out;
   }
-  static constexpr const char* kSql =
+  const bool has_model_id =
+      table_has_column(db, "CaptureStreamInfo", "model_id");
+  const bool has_original_stream_id =
+      table_has_column(db, "CaptureStreamInfo", "original_stream_id");
+  const char* kSql =
+      "SELECT device_id, model_id, original_stream_id, model_stream_id "
+      "FROM CaptureStreamInfo "
+      "ORDER BY device_id, model_id, model_stream_id";
+  const char* kLegacySql =
       "SELECT device_id, model_stream_id "
       "FROM CaptureStreamInfo "
       "ORDER BY device_id, model_stream_id";
-  SqliteStmt stmt(db.get(), kSql);
+  SqliteStmt stmt(db.get(),
+                  has_model_id && has_original_stream_id ? kSql : kLegacySql);
+  std::set<std::uint64_t> model_ids;
+  std::set<std::uint64_t> original_stream_ids;
   while (true) {
     const int rc = sqlite3_step(stmt.get());
     if (rc == SQLITE_ROW) {
-      out[sqlite_u32(stmt.get(), 0)].insert(sqlite_u64(stmt.get(), 1));
+      const std::uint32_t device_id = sqlite_u32(stmt.get(), 0);
+      if (has_model_id && has_original_stream_id) {
+        model_ids.insert(sqlite_u64(stmt.get(), 1));
+        original_stream_ids.insert(sqlite_u64(stmt.get(), 2));
+        out.model_streams_by_device[device_id].insert(
+            sqlite_u64(stmt.get(), 3));
+      } else {
+        out.model_streams_by_device[device_id].insert(
+            sqlite_u64(stmt.get(), 1));
+      }
       continue;
     }
     if (rc == SQLITE_DONE) {
@@ -924,6 +913,8 @@ load_aclgraph_model_streams(const std::string& stream_info_path) {
     throw std::runtime_error("failed to load CaptureStreamInfo: " +
                              std::string(sqlite3_errmsg(stmt.db())));
   }
+  out.capture_group_size =
+      infer_capture_group_size_from_stream_info(model_ids, original_stream_ids);
   return out;
 }
 
@@ -933,19 +924,36 @@ bool event_overlaps(const TraceEventRow& event,
   return event.start_ns <= end_ns && event.end_ns >= start_ns;
 }
 
-std::vector<GraphTaskView> controls_in_interval(
+std::vector<GraphTaskView> controls_with_key(
     const std::vector<GraphTaskView>& controls,
     const std::string& key,
-    std::int64_t start_ns,
-    std::int64_t end_ns,
     const NativeIr& ir) {
   std::vector<GraphTaskView> out;
   for (const GraphTaskView& row : controls) {
     const std::string task_key =
         normalize_key(symbol_value_or_empty(ir, row.task->task_type_symbol_id));
-    if (task_key == key && event_overlaps(*row.event, start_ns, end_ns)) {
+    if (task_key == key) {
       out.push_back(row);
     }
+  }
+  return out;
+}
+
+std::vector<GraphTaskView> controls_in_interval_from_sorted(
+    const std::vector<GraphTaskView>& controls,
+    std::int64_t start_ns,
+    std::int64_t end_ns,
+    std::size_t& cursor) {
+  while (cursor < controls.size() && controls[cursor].event->end_ns < start_ns) {
+    ++cursor;
+  }
+  std::vector<GraphTaskView> out;
+  std::size_t scan = cursor;
+  while (scan < controls.size() && controls[scan].event->start_ns <= end_ns) {
+    if (event_overlaps(*controls[scan].event, start_ns, end_ns)) {
+      out.push_back(controls[scan]);
+    }
+    ++scan;
   }
   return out;
 }
@@ -955,7 +963,8 @@ void materialize_aclgraph_replay_units(
     const std::unordered_map<std::uint32_t,
                              std::unordered_set<std::uint64_t>>&
         model_streams_by_device,
-    SourceRefId source_ref) {
+    SourceRefId source_ref,
+    std::uint32_t capture_group_size) {
   if (model_streams_by_device.empty()) {
     return;
   }
@@ -1006,6 +1015,10 @@ void materialize_aclgraph_replay_units(
               }
               return lhs.task->raw_task_id < rhs.task->raw_task_id;
             });
+  const std::vector<GraphTaskView> notify_wait_rows =
+      controls_with_key(control_rows, "NOTIFY_WAIT", ir);
+  const std::vector<GraphTaskView> model_execute_rows =
+      controls_with_key(control_rows, "MODEL_EXECUTE", ir);
 
   static constexpr std::int64_t kGapNs = 5'000'000;
   std::vector<std::vector<GraphTaskView>> activities;
@@ -1023,23 +1036,25 @@ void materialize_aclgraph_replay_units(
     activities.push_back(std::move(current));
   }
 
-  std::vector<GraphReplayUnitView> units =
-      split_activities_by_global_landmarks(ir, activities);
-  if (units.empty()) {
-    for (const std::vector<GraphTaskView>& activity : activities) {
-      const std::int64_t start_ns = activity.front().event->start_ns;
-      std::int64_t end_ns = activity.front().event->end_ns;
-      for (const GraphTaskView& row : activity) {
-        end_ns = std::max(end_ns, row.event->end_ns);
-      }
-      std::vector<GraphTaskView> notify_waits = controls_in_interval(
-          control_rows, "NOTIFY_WAIT", start_ns, end_ns, ir);
-      std::vector<GraphTaskView> model_execs = controls_in_interval(
-          control_rows, "MODEL_EXECUTE", start_ns, end_ns, ir);
-      std::vector<GraphReplayUnitView> split =
-          split_activity(ir, activity, notify_waits, model_execs);
-      units.insert(units.end(), split.begin(), split.end());
+  std::vector<GraphReplayUnitView> units;
+  std::size_t notify_wait_cursor = 0;
+  std::size_t model_execute_cursor = 0;
+  for (const std::vector<GraphTaskView>& activity : activities) {
+    const std::int64_t start_ns = activity.front().event->start_ns;
+    std::int64_t end_ns = activity.front().event->end_ns;
+    for (const GraphTaskView& row : activity) {
+      end_ns = std::max(end_ns, row.event->end_ns);
     }
+    std::vector<GraphTaskView> notify_waits =
+        controls_in_interval_from_sorted(notify_wait_rows, start_ns, end_ns,
+                                         notify_wait_cursor);
+    std::vector<GraphTaskView> model_execs =
+        controls_in_interval_from_sorted(model_execute_rows, start_ns, end_ns,
+                                         model_execute_cursor);
+    std::vector<GraphReplayUnitView> split =
+        split_activity(ir, activity, notify_waits, model_execs,
+                       capture_group_size);
+    units.insert(units.end(), split.begin(), split.end());
   }
   if (units.empty()) {
     return;
@@ -1201,13 +1216,14 @@ NativeIr AscendSQLiteAdapter::load() const {
   }
   const std::string stream_info_path =
       stream_info_db_path_for_msprof(options_.db_path);
-  const auto model_streams_by_device =
-      load_aclgraph_model_streams(stream_info_path);
-  if (!model_streams_by_device.empty()) {
+  const AclGraphCaptureInfo capture_info =
+      load_aclgraph_capture_info(stream_info_path);
+  if (!capture_info.model_streams_by_device.empty()) {
     const SourceRefId replay_source_ref = ir.source_refs.append(
         options_.source_kind, stream_info_path, "ACLGRAPH_REPLAY_UNIT", 0);
-    materialize_aclgraph_replay_units(ir, model_streams_by_device,
-                                      replay_source_ref);
+    materialize_aclgraph_replay_units(ir, capture_info.model_streams_by_device,
+                                      replay_source_ref,
+                                      capture_info.capture_group_size);
   }
 
   return ir;

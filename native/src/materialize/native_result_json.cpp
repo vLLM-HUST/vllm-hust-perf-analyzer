@@ -153,6 +153,10 @@ void write_native_result_json(std::ostream& out,
   out << "    \"task_count\": " << result.stats.task_count << ",\n";
   out << "    \"communication_op_count\": "
       << result.stats.communication_op_count << ",\n";
+  out << "    \"graph_template_count\": "
+      << result.stats.graph_template_count << ",\n";
+  out << "    \"replay_unit_count\": " << result.stats.replay_unit_count
+      << ",\n";
   out << "    \"anchor_count\": " << result.stats.anchor_count << ",\n";
   out << "    \"token_count\": " << result.stats.token_count << ",\n";
   out << "    \"protected_interval_count\": "

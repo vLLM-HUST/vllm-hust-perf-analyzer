@@ -63,6 +63,8 @@ NativePipelineStats collect_stats(
   stats.trace_event_count = ir.trace_events.size();
   stats.task_count = ir.tasks.size();
   stats.communication_op_count = ir.communication_ops.size();
+  stats.graph_template_count = ir.graph_templates.size();
+  stats.replay_unit_count = ir.replay_units.size();
   stats.anchor_count = ir.anchors.size();
   stats.token_count = ir.tokens.size();
   stats.protected_interval_count = ir.protected_intervals.size();
