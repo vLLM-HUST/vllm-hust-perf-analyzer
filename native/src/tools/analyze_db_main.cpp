@@ -3,12 +3,15 @@
 #include <cstddef>
 #include <cstdlib>
 #include <exception>
+#include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "traceloom/adapters/ascend_sqlite_adapter.h"
 #include "traceloom/analysis/flat_anchor_builder.h"
@@ -22,6 +25,8 @@
 #include "traceloom/pattern/grammar_state.h"
 
 namespace {
+
+namespace fs = std::filesystem;
 
 class Stopwatch {
  public:
@@ -38,11 +43,14 @@ class Stopwatch {
 };
 
 struct CliOptions {
-  std::string source_db;
-  std::string out_path = "-";
+  std::string source_input;
+  std::vector<std::string> source_dbs;
+  std::string out_path;
+  bool out_path_set = false;
   std::string grammar_debug_out_path;
   std::string compat_sidecar_out_path;
   std::string loop_tree_out_path;
+  bool loop_tree_out_path_set = false;
   std::string loop_tree_db_label;
   bool has_loop_tree_device_id = false;
   std::uint32_t loop_tree_device_id = 0;
@@ -55,6 +63,8 @@ struct CliOptions {
   std::size_t top_candidate_limit = 16;
 };
 
+std::vector<std::string> discover_msprof_dbs(const std::string& input);
+
 std::size_t default_thread_count() {
   const unsigned int hardware = std::thread::hardware_concurrency();
   if (hardware <= 1) {
@@ -65,18 +75,28 @@ std::size_t default_thread_count() {
 
 void print_usage(const char* argv0) {
   std::cerr << "usage: " << argv0
+            << " <msprof.db-or-msprof-dir> [--threads N]"
+               " [--loop-tree-out PATH|-]"
+               " [--loop-tree-db-label LABEL]"
+               " [--timings]\n\n"
+            << "Writes loop-tree reports under a neighboring traceloom/ "
+               "directory by default.\n"
+            << "Use --help-advanced for compatibility and debug options.\n";
+}
+
+void print_advanced_usage(const char* argv0) {
+  std::cerr << "usage: " << argv0
             << " --source-db <ascend-msprof.db> [--threads N]"
                " [--out PATH|-] [--top-candidates N]"
                " [--grammar-debug-out PATH|-]"
-               " [--compat-sidecar-out PATH]"
+               " [--compat-db-out PATH]"
                " [--loop-tree-out PATH|-]"
                " [--loop-tree-db-label LABEL]"
                " [--loop-tree-device-id N]"
                " [--loop-tree-grammar|--loop-tree-no-grammar]"
                " [--loop-tree-full-discovery-cap N]"
                " [--loop-tree-aux]"
-               " [--timings]"
-               " [--sidecar-only]\n";
+               " [--timings]\n";
 }
 
 std::size_t parse_size(const std::string& text, const std::string& flag) {
@@ -90,6 +110,7 @@ std::size_t parse_size(const std::string& text, const std::string& flag) {
 
 CliOptions parse_args(int argc, char** argv) {
   CliOptions options;
+  bool source_db_from_flag = false;
   for (int index = 1; index < argc; ++index) {
     const std::string arg = argv[index];
     auto require_value = [&](const std::string& flag) -> std::string {
@@ -100,18 +121,24 @@ CliOptions parse_args(int argc, char** argv) {
       return argv[index];
     };
 
-    if (arg == "--source-db") {
-      options.source_db = require_value(arg);
+    if (arg == "analyze" && options.source_input.empty()) {
+      std::cerr << "warning: 'traceloom analyze <path>' is deprecated; use "
+                   "'traceloom <path>'\n";
+    } else if (arg == "--source-db") {
+      options.source_input = require_value(arg);
+      source_db_from_flag = true;
     } else if (arg == "--threads") {
       options.threads = parse_size(require_value(arg), arg);
     } else if (arg == "--out") {
       options.out_path = require_value(arg);
+      options.out_path_set = true;
     } else if (arg == "--grammar-debug-out") {
       options.grammar_debug_out_path = require_value(arg);
-    } else if (arg == "--compat-sidecar-out") {
+    } else if (arg == "--compat-db-out" || arg == "--compat-sidecar-out") {
       options.compat_sidecar_out_path = require_value(arg);
     } else if (arg == "--loop-tree-out") {
       options.loop_tree_out_path = require_value(arg);
+      options.loop_tree_out_path_set = true;
     } else if (arg == "--loop-tree-db-label") {
       options.loop_tree_db_label = require_value(arg);
     } else if (arg == "--loop-tree-device-id") {
@@ -135,13 +162,33 @@ CliOptions parse_args(int argc, char** argv) {
     } else if (arg == "--help" || arg == "-h") {
       print_usage(argc > 0 ? argv[0] : "traceloom-native-analyze-db");
       std::exit(0);
+    } else if (arg == "--help-advanced") {
+      print_advanced_usage(argc > 0 ? argv[0] : "traceloom-native-analyze-db");
+      std::exit(0);
+    } else if (!arg.empty() && arg[0] != '-' && options.source_input.empty()) {
+      options.source_input = arg;
     } else {
       throw std::invalid_argument("unknown argument: " + arg);
     }
   }
 
-  if (options.source_db.empty()) {
-    throw std::invalid_argument("--source-db is required");
+  if (options.source_input.empty()) {
+    throw std::invalid_argument(
+        "input path is required: pass an msprof_*.db file or a Huawei msprof "
+        "directory");
+  }
+  options.source_dbs = discover_msprof_dbs(options.source_input);
+  if (options.source_dbs.empty()) {
+    throw std::invalid_argument("no msprof_*.db found under input path: " +
+                                options.source_input);
+  }
+  if (options.source_dbs.size() > 1 &&
+      (options.out_path_set || !options.grammar_debug_out_path.empty() ||
+       !options.compat_sidecar_out_path.empty() ||
+       options.loop_tree_out_path_set)) {
+    throw std::invalid_argument(
+        "explicit output paths are only supported for a single input DB; pass "
+        "one msprof_*.db or omit output flags for directory input");
   }
   if (options.threads == 0) {
     options.threads = default_thread_count();
@@ -149,8 +196,17 @@ CliOptions parse_args(int argc, char** argv) {
   if (options.threads == 0) {
     throw std::invalid_argument("--threads must be greater than zero");
   }
+  const bool has_explicit_output =
+      options.out_path_set || !options.grammar_debug_out_path.empty() ||
+      !options.compat_sidecar_out_path.empty() || options.loop_tree_out_path_set;
+  if (!has_explicit_output && !source_db_from_flag) {
+    options.loop_tree_out_path_set = true;
+  }
+  if (!has_explicit_output && source_db_from_flag) {
+    options.loop_tree_out_path_set = true;
+  }
   int stdout_outputs = 0;
-  if (!options.sidecar_only && options.out_path == "-") {
+  if (!options.sidecar_only && options.out_path_set && options.out_path == "-") {
     ++stdout_outputs;
   }
   if (options.grammar_debug_out_path == "-") {
@@ -163,17 +219,116 @@ CliOptions parse_args(int argc, char** argv) {
     throw std::invalid_argument("multiple outputs cannot use '-' together");
   }
   if (options.sidecar_only && options.compat_sidecar_out_path.empty() &&
-      options.loop_tree_out_path.empty()) {
+      !options.loop_tree_out_path_set) {
     throw std::invalid_argument(
-        "--sidecar-only requires --compat-sidecar-out or --loop-tree-out");
+        "--sidecar-only requires --compat-db-out or --loop-tree-out");
   }
   return options;
+}
+
+bool looks_like_msprof_db(const fs::path& path) {
+  if (!fs::is_regular_file(path)) {
+    return false;
+  }
+  const std::string name = path.filename().string();
+  return name.rfind("msprof_", 0) == 0 && path.extension() == ".db";
+}
+
+std::vector<std::string> discover_msprof_dbs(const std::string& input) {
+  const fs::path root(input);
+  std::vector<fs::path> dbs;
+  std::error_code ec;
+  if (looks_like_msprof_db(root)) {
+    dbs.push_back(root);
+  } else if (fs::is_directory(root, ec)) {
+    for (const auto& entry : fs::recursive_directory_iterator(root)) {
+      if (looks_like_msprof_db(entry.path())) {
+        dbs.push_back(entry.path());
+      }
+    }
+  } else if (!fs::exists(root, ec)) {
+    throw std::invalid_argument("input path does not exist: " + input);
+  } else {
+    throw std::invalid_argument(
+        "input is not an msprof_*.db file or directory: " + input);
+  }
+  std::sort(dbs.begin(), dbs.end());
+  std::vector<std::string> result;
+  result.reserve(dbs.size());
+  for (const auto& db : dbs) {
+    result.push_back(db.string());
+  }
+  return result;
+}
+
+fs::path default_output_root(const std::string& input) {
+  const fs::path root(input);
+  if (fs::is_regular_file(root)) {
+    return root.parent_path() / "traceloom";
+  }
+  return root / "traceloom";
+}
+
+std::string default_loop_tree_output_path(const CliOptions& cli,
+                                          std::size_t db_index,
+                                          bool has_device_id,
+                                          std::uint32_t device_id) {
+  const fs::path output_root = default_output_root(cli.source_input);
+  if (cli.source_dbs.size() == 1) {
+    return (output_root / "loop_tree_v2.md").string();
+  }
+  std::ostringstream filename;
+  if (has_device_id) {
+    filename << "device" << device_id << "_loop_tree_v2.md";
+  } else {
+    filename << "db" << std::setw(2) << std::setfill('0') << (db_index + 1)
+             << "_loop_tree_v2.md";
+  }
+  return (output_root / filename.str()).string();
+}
+
+std::string default_db_label(const std::string& source_db,
+                             std::size_t db_index,
+                             std::size_t db_count) {
+  if (db_count == 1) {
+    return fs::path(source_db).parent_path().filename().string();
+  }
+  std::ostringstream label;
+  label << "db" << std::setw(2) << std::setfill('0') << (db_index + 1) << "_"
+        << fs::path(source_db).parent_path().filename().string();
+  return label.str();
+}
+
+bool infer_single_device_id(const traceloom::NativeIr& ir,
+                            std::uint32_t& device_id) {
+  bool found = false;
+  for (const auto& event : ir.trace_events.rows()) {
+    if (!found) {
+      device_id = event.device_id;
+      found = true;
+      continue;
+    }
+    if (device_id != event.device_id) {
+      return false;
+    }
+  }
+  return found;
 }
 
 void write_text_output(const std::string& path, const std::string& contents) {
   if (path == "-") {
     std::cout << contents;
     return;
+  }
+  const fs::path output_path(path);
+  if (output_path.has_parent_path()) {
+    std::error_code ec;
+    fs::create_directories(output_path.parent_path(), ec);
+    if (ec) {
+      throw std::runtime_error("failed to create output directory: " +
+                               output_path.parent_path().string() + ": " +
+                               ec.message());
+    }
   }
   std::ofstream out(path);
   if (!out) {
@@ -182,13 +337,14 @@ void write_text_output(const std::string& path, const std::string& contents) {
   out << contents;
 }
 
-}  // namespace
+int analyze_one_db(const CliOptions& cli, const std::string& source_db,
+                   std::size_t db_index) {
+  const bool report_only =
+      cli.sidecar_only || (!cli.out_path_set &&
+                           cli.grammar_debug_out_path.empty() &&
+                           cli.compat_sidecar_out_path.empty());
 
-int main(int argc, char** argv) {
-  try {
-    const CliOptions cli = parse_args(argc, argv);
-
-    const traceloom::AscendSQLiteAdapter adapter(cli.source_db);
+    const traceloom::AscendSQLiteAdapter adapter(source_db);
     traceloom::NativeIr ir;
     const Stopwatch load_watch;
     ir = adapter.load();
@@ -209,7 +365,7 @@ int main(int argc, char** argv) {
     pipeline_options.anchor_config.filter_auxiliary_task_anchors = true;
 
     traceloom::NativePipelineResult pipeline;
-    if (cli.sidecar_only) {
+    if (report_only) {
       const Stopwatch anchor_watch;
       traceloom::build_flat_anchors(ir, pipeline_options.anchor_config);
       if (cli.timings) {
@@ -227,7 +383,7 @@ int main(int argc, char** argv) {
 
     traceloom::NativeResultJsonOptions json_options;
     json_options.source_kind = "ascend_sqlite_hot_path";
-    json_options.source_path = cli.source_db;
+    json_options.source_path = source_db;
     json_options.thread_count = cli.threads;
     json_options.top_candidate_limit = cli.top_candidate_limit;
     json_options.load_source_adapter_ms = load_ms;
@@ -247,11 +403,11 @@ int main(int argc, char** argv) {
       traceloom::compat::write_basic_native_compatibility_sidecar(
           cli.compat_sidecar_out_path, ir, sidecar_options);
       if (cli.timings) {
-        std::cerr << "timing compat_sidecar_ms="
+        std::cerr << "timing compat_db_ms="
                   << sidecar_watch.elapsed_ms() << "\n";
       }
     }
-    if (!cli.loop_tree_out_path.empty()) {
+    if (cli.loop_tree_out_path_set) {
       traceloom::compat::NativeCompatibilitySidecarOptions loop_tree_options;
       loop_tree_options.source_kind = sidecar_options.source_kind;
       loop_tree_options.source_path = sidecar_options.source_path;
@@ -273,8 +429,14 @@ int main(int argc, char** argv) {
         std::cerr << "timing loop_tree_rows_ms="
                   << loop_tree_rows_watch.elapsed_ms() << "\n";
       }
+      std::uint32_t inferred_device_id = 0;
+      const bool has_inferred_device_id =
+          infer_single_device_id(ir, inferred_device_id);
       traceloom::LoopTreeMarkdownOptions markdown_options;
-      markdown_options.db_label = cli.loop_tree_db_label;
+      markdown_options.db_label =
+          cli.loop_tree_db_label.empty()
+              ? default_db_label(source_db, db_index, cli.source_dbs.size())
+              : cli.loop_tree_db_label;
       markdown_options.source_kind = json_options.source_kind;
       markdown_options.source_path = json_options.source_path;
       markdown_options.db_idx = sidecar_options.db_idx;
@@ -286,13 +448,26 @@ int main(int argc, char** argv) {
       std::ostringstream markdown;
       traceloom::write_loop_tree_markdown(markdown, loop_tree_rows,
                                           markdown_options);
-      write_text_output(cli.loop_tree_out_path, markdown.str());
+      const std::string loop_tree_out =
+          cli.loop_tree_out_path.empty()
+              ? default_loop_tree_output_path(cli, db_index,
+                                              has_inferred_device_id,
+                                              inferred_device_id)
+              : cli.loop_tree_out_path;
+      write_text_output(loop_tree_out, markdown.str());
+      if (cli.loop_tree_out_path != "-") {
+        std::cerr << "wrote loop tree: " << loop_tree_out << "\n";
+        std::cerr << "  source_db: " << source_db << "\n";
+        if (has_inferred_device_id) {
+          std::cerr << "  device_id: " << inferred_device_id << "\n";
+        }
+      }
       if (cli.timings) {
         std::cerr << "timing loop_tree_markdown_ms="
                   << loop_tree_render_watch.elapsed_ms() << "\n";
       }
     }
-    if (cli.sidecar_only) {
+    if (report_only) {
       return 0;
     }
     traceloom::write_native_result_json(first_pass, ir.symbols, pipeline,
@@ -303,7 +478,9 @@ int main(int argc, char** argv) {
     traceloom::write_native_result_json(final_json, ir.symbols, pipeline,
                                         json_options);
 
-    write_text_output(cli.out_path, final_json.str());
+    if (cli.out_path_set) {
+      write_text_output(cli.out_path, final_json.str());
+    }
 
     if (!cli.grammar_debug_out_path.empty()) {
       traceloom::GrammarStateConfig grammar_state_config;
@@ -329,6 +506,17 @@ int main(int argc, char** argv) {
                                           grammar_debug_options);
       write_text_output(cli.grammar_debug_out_path,
                         grammar_debug_json.str());
+    }
+  return 0;
+}
+
+}  // namespace
+
+int main(int argc, char** argv) {
+  try {
+    const CliOptions cli = parse_args(argc, argv);
+    for (std::size_t index = 0; index < cli.source_dbs.size(); ++index) {
+      analyze_one_db(cli, cli.source_dbs[index], index);
     }
   } catch (const std::exception& ex) {
     std::cerr << "error: " << ex.what() << "\n";

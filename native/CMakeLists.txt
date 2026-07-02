@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.16)
 
 project(traceloom_native LANGUAGES CXX)
 
+include(GNUInstallDirs)
+
 option(TRACELOOM_NATIVE_BUILD_TESTS "Build TraceLoom native tests" ON)
 option(
   TRACELOOM_NATIVE_ENABLE_ASCEND_SQLITE
@@ -159,6 +161,29 @@ if(TRACELOOM_NATIVE_ASCEND_SQLITE_AVAILABLE)
     traceloom_native_adapters
     traceloom_native_materialize
   )
+
+  add_executable(traceloom-native
+    src/tools/analyze_db_main.cpp
+  )
+  target_link_libraries(
+    traceloom-native PRIVATE
+    traceloom_native_adapters
+    traceloom_native_materialize
+  )
+
+  add_executable(traceloom
+    src/tools/analyze_db_main.cpp
+  )
+  target_link_libraries(
+    traceloom PRIVATE
+    traceloom_native_adapters
+    traceloom_native_materialize
+  )
+
+  install(
+    TARGETS traceloom
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+  )
 endif()
 
 add_executable(traceloom-native-analyze-fixture
@@ -181,6 +206,23 @@ target_link_libraries(
 
 if(TRACELOOM_NATIVE_BUILD_TESTS)
   enable_testing()
+
+  set(
+    TRACELOOM_NATIVE_EXTERNAL_FIXTURE_ROOT
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../drafts/refactor/80_tests_fixtures/fixtures"
+  )
+  if(
+    EXISTS "${TRACELOOM_NATIVE_EXTERNAL_FIXTURE_ROOT}/protected_sequence/f1_tiny_repeated_pair.json"
+    AND EXISTS "${TRACELOOM_NATIVE_EXTERNAL_FIXTURE_ROOT}/aclgraph/aclgraph_python_minimal_assets.json"
+  )
+    set(TRACELOOM_NATIVE_HAS_EXTERNAL_FIXTURES ON)
+  else()
+    set(TRACELOOM_NATIVE_HAS_EXTERNAL_FIXTURES OFF)
+    message(
+      STATUS
+      "External native fixture tests disabled; ${TRACELOOM_NATIVE_EXTERNAL_FIXTURE_ROOT} is not present"
+    )
+  endif()
 
   add_executable(traceloom_native_id_tests
     tests/core/id_tests.cpp
@@ -836,6 +878,27 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
       PROPERTIES
         DEPENDS traceloom_native_analyze_aclgraph_fixture_compat_sidecar_cli
     )
+  endif()
+
+  if(NOT TRACELOOM_NATIVE_HAS_EXTERNAL_FIXTURES)
+    set(TRACELOOM_NATIVE_EXTERNAL_FIXTURE_TESTS
+      traceloom_native_analyze_fixture_grammar_debug_cli
+      traceloom_native_analyze_fixture_stdout_conflict
+      traceloom_native_analyze_aclgraph_fixture_cli
+      traceloom_native_aclgraph_fixture_reader_tests
+      traceloom_native_aclgraph_fixture_adapter_tests
+      traceloom_native_protected_sequence_fixture_reader_tests
+      traceloom_native_generated_sidecar_report_tests
+      traceloom_native_analyze_fixture_compat_sidecar_cli
+      traceloom_native_analyze_fixture_compat_sidecar_db
+      traceloom_native_analyze_aclgraph_fixture_compat_sidecar_cli
+      traceloom_native_analyze_aclgraph_fixture_compat_sidecar_db
+    )
+    foreach(test_name IN LISTS TRACELOOM_NATIVE_EXTERNAL_FIXTURE_TESTS)
+      if(TEST ${test_name})
+        set_tests_properties(${test_name} PROPERTIES DISABLED TRUE)
+      endif()
+    endforeach()
   endif()
 
   add_test(

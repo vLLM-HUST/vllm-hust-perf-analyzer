@@ -141,19 +141,20 @@ On the kickstart bundle, TraceLoom immediately reveals:
 Have a try after installation:
 
 ```bash
-traceloom analyze examples/kickstart_smoke/msprof_raw
+traceloom examples/kickstart_smoke/msprof_raw
 ```
 
 The result is written back to:
 
 ```text
-examples/kickstart_smoke/msprof_raw/traceloom/
+examples/kickstart_smoke/msprof_raw/traceloom/device0_loop_tree_v2.md
+examples/kickstart_smoke/msprof_raw/traceloom/device1_loop_tree_v2.md
 ```
 
-Open `tree-map.md` there and you should see two device sections. Device 0 has
-`N014 Repeat x36` with nested `N017 Repeat x24`; device 1 has `N010 Repeat x36`
-with nested `N013 Repeat x24`. That is the useful compression: hundreds of
-thousands of low-level rows become a small, comparable execution structure.
+Open the generated Loop Tree reports and you should see repeated decode/layer
+structure, communication nodes, and kernel-level cost columns. That is the
+useful compression: hundreds of thousands of low-level rows become a small,
+comparable execution structure.
 
 ## Key Capabilities
 
@@ -210,10 +211,49 @@ TraceLoom uses a small vocabulary for execution semantic reconstruction:
 
 ## Quick Start
 
-Install from the repository root:
+Build and install the native analyzer from the repository root:
+
+```bash
+cmake --preset dev
+cmake --build --preset dev -j "$(nproc)"
+cmake --install build/native --prefix "$HOME/.local"
+```
+
+Analyze an existing Ascend/CANN profile DB:
+
+```bash
+traceloom /path/to/PROF_.../msprof_YYYYMMDDHHMMSS.db
+```
+
+or point TraceLoom at a Huawei profiler bundle directory:
+
+```bash
+traceloom /path/to/msprof_output
+```
+
+Most users only need this command. The native analyzer discovers
+`PROF_*/msprof_*.db`, analyzes the trace, and writes Loop Tree reports back next
+to the original profile.
+
+TraceLoom writes reports under a neighboring `traceloom/` directory:
+
+```text
+/path/to/PROF_.../traceloom/loop_tree_v2.md
+/path/to/msprof_output/traceloom/device0_loop_tree_v2.md
+```
+
+Use `--threads` when you want to control native parallelism:
+
+```bash
+traceloom /path/to/msprof_output --threads 48
+```
+
+The older Python command is retained for legacy bundle generation, SQL
+drill-down surfaces, and non-native backend work:
 
 ```bash
 python3 -m pip install -e .
+traceloom analyze /path/to/msprof_output
 ```
 
 If editable install fails on an older system Python with a `build_editable`
@@ -224,60 +264,22 @@ python3 -m pip install --user --upgrade pip setuptools wheel
 python3 -m pip install --user -e .
 ```
 
-Analyze an existing Ascend/CANN profile directory:
-
-```bash
-traceloom analyze /path/to/msprof_output
-```
-
-Most users only need this command. Give TraceLoom the profiler output directory;
-it will discover `PROF_*/msprof_*.db`, analyze the trace, and write the result
-bundle back next to the original profile.
-
-TraceLoom writes the analysis bundle back into the original profile directory:
-
-```text
-/path/to/msprof_output/traceloom/
-```
-
-TraceLoom accepts either a raw `msprof` directory or a run directory containing
-`msprof_raw`:
-
-```text
-<run_dir>/msprof_raw/PROF_*/msprof_*.db
-<raw_dir>/PROF_*/msprof_*.db
-```
-
-Use `--out-dir <dir>` only when you want to place the results somewhere else:
-
-```bash
-traceloom analyze /path/to/msprof_output --out-dir out/qwen2-decode-analysis
-```
-
 For large shared experiment repositories, especially when raw `msprof` output
-is tracked by Git LFS, prefer an explicit output directory outside the raw
-artifact tree:
+is tracked by Git LFS, restore the raw artifact first and run native TraceLoom
+on the restored profiler directory:
 
 ```bash
 git lfs pull
 git lfs fsck --objects
-traceloom analyze experiments/profiler/exp_001/profiler/msprof \
-  --out-dir /tmp/traceloom-exp001
+traceloom experiments/profiler/exp_001/profiler/msprof
 ```
 
-This keeps the raw LFS artifact directory read-only and avoids committing
-generated `traceloom/` bundles by accident. Commit only small summaries or
-links back to the generated bundle unless the analysis DBs are intentionally
-part of the experiment artifact policy.
+The Python compatibility route still supports older options such as
+`--out-dir`, `--top-devices-global`, `--devices`, `--kernel-role-file`, and
+`--output-mode full`.
 
-Common options for larger traces:
-
-- `--top-devices-global 4`: analyze only the highest-ranked devices.
-- `--devices 3,4,5,6`: pin analysis to physical device IDs.
-- `--kernel-role-file roles.csv`: provide role overrides for local kernels.
-- `--output-mode full`: also write legacy CSV/JSON debug exports.
-
-Tag candidate cross-device collectives after an analysis run:
+Tag candidate cross-device collectives after a Python compatibility analysis
+run:
 
 ```bash
 traceloom collective-tag /path/to/msprof_output/traceloom
@@ -320,16 +322,25 @@ TraceLoom is organized as a layered offline analysis pipeline:
   structure.
 - Attribution layer: separates anchor kernels from auxiliary/prelude work and
   attaches cost to loop nodes.
-- Report layer: writes augmented SQLite databases, Markdown summaries, SQL
-  report queries, and optional full debug exports.
-- CLI layer: exposes `traceloom analyze`, `traceloom analysis`,
-  `traceloom report`, and `traceloom collective-tag`.
+- Report layer: writes native Loop Tree Markdown reports, with compatibility
+  bundle and SQL report surfaces still available for legacy workflows.
+- CLI layer: exposes the native `traceloom <input>` command. Legacy Python
+  commands such as `traceloom analyze`, `traceloom report`, and
+  `traceloom collective-tag` remain for compatibility workflows.
 
 See [docs/architecture.md](docs/architecture.md).
 
 ## Outputs
 
-The default bundle is intentionally small:
+The native default output is intentionally small:
+
+- `loop_tree_v2.md`: single-DB report written next to the input DB under
+  `PROF_.../traceloom/`.
+- `deviceN_loop_tree_v2.md`: one report per discovered DB/device when the input
+  is a Huawei profiler bundle directory.
+
+The Python compatibility bundle is retained for legacy SQL drill-down and
+non-native backend work. It can include:
 
 - `dbNN.traceloom_augmented.db`: one augmented SQLite sidecar per discovered
   `msprof` DB. The original profiler tables remain intact; TraceLoom adds

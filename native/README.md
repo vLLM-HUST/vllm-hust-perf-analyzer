@@ -1,97 +1,85 @@
 # TraceLoom Native
 
-Native C++ analysis core for TraceLoom.
+Native C++ analyzer for TraceLoom. This is the recommended entry point for
+current Ascend `msprof` profiles.
 
-## Build
+## Install
 
-Use the dev preset:
+From the TraceLoom repository root:
 
 ```bash
-cd native
 cmake --preset dev
-cmake --build --preset dev -j
-ctest --preset dev
+cmake --build --preset dev -j "$(nproc)"
+cmake --install build/native --prefix "$HOME/.local"
+```
+
+This installs the native command as:
+
+```bash
+traceloom
 ```
 
 The `dev` preset searches `$HOME/.local` through `CMAKE_PREFIX_PATH`, so a
 user-local SQLite install such as `~/.local/include/sqlite3.h` and
-`~/.local/lib/libsqlite3.a` is enough to enable the optional Ascend SQLite
-adapter.
+`~/.local/lib/libsqlite3.a` is enough to enable Ascend `msprof` DB loading.
 
-When SQLite is available, the build also provides a manual inventory smoke
-tool for real Ascend profiler databases:
+## Analyze A Profile
+
+Pass either one Huawei `msprof_*.db` file:
 
 ```bash
-../build/traceloom-native/traceloom-native-ascend-sqlite-inventory \
-  ../examples/kickstart_smoke/msprof_raw/.../msprof_*.db
+traceloom examples/kickstart_smoke/msprof_raw/PROF_000001_20260609064648517_AJJGNKPPJMEGGLFA/msprof_20260609064817.db
 ```
 
-This is intentionally a human inspection tool rather than a hard sample-DB
-test; real profiler fixtures can drift as the examples evolve.
-
-The first shallow native analysis executable emits debug JSON using the
-`native_in_memory_result_v1` schema:
+or a Huawei profiler bundle directory containing `PROF_*/msprof_*.db` files:
 
 ```bash
-../build/traceloom-native/traceloom-native-analyze-db \
-  --source-db ../examples/kickstart_smoke/msprof_raw/.../msprof_*.db \
-  --threads 8 \
+traceloom examples/kickstart_smoke/msprof_raw
+```
+
+TraceLoom discovers the DB files automatically and writes reports under a
+neighboring `traceloom/` directory:
+
+```text
+PROF_.../traceloom/loop_tree_v2.md
+msprof_raw/traceloom/device0_loop_tree_v2.md
+msprof_raw/traceloom/device1_loop_tree_v2.md
+```
+
+Use more or fewer worker threads when needed:
+
+```bash
+traceloom /path/to/msprof_output --threads 48
+```
+
+## Developer Commands
+
+Build with native tests enabled:
+
+```bash
+cmake --preset dev-tests
+cmake --build --preset dev-tests -j "$(nproc)"
+ctest --preset dev-tests
+```
+
+Some deep regression tests use external design fixtures from the larger
+research workspace. Fresh standalone clones skip those tests when the fixtures
+are not present; normal unit tests still run.
+
+The compatibility/debug tools remain available for development:
+
+```bash
+build/native/native/traceloom-native-analyze-db \
+  --source-db examples/kickstart_smoke/msprof_raw/.../msprof_*.db \
   --out native_result.json
+
+build/native/native/traceloom-native-ascend-sqlite-inventory \
+  examples/kickstart_smoke/msprof_raw/.../msprof_*.db
 ```
 
-This output is a candidate/debug surface. It is not the final TraceLoom report
-model and should not be consumed as report-stable semantics yet.
-
-The same tool can optionally emit the Phase 5A grammar state-machine debug
-surface as a separate JSON document:
+To test the core build without SQLite support:
 
 ```bash
-../build/traceloom-native/traceloom-native-analyze-db \
-  --source-db ../examples/kickstart_smoke/msprof_raw/.../msprof_*.db \
-  --threads 8 \
-  --out native_result.json \
-  --grammar-debug-out native_grammar_debug.json
-```
-
-The grammar debug output records the algorithm mode, producer sequence, known
-native-v1 deltas, engine steps, macro definitions, and final compressed
-sequence. It is not the final `PatternModel`. Use either the main result or
-the grammar debug output on stdout, not both; `--out - --grammar-debug-out -`
-is rejected so the two JSON documents cannot be mixed.
-
-Protected-sequence fixtures can run through the same native pipeline:
-
-```bash
-../build/traceloom-native/traceloom-native-analyze-fixture \
-  --fixture ../../drafts/refactor/80_tests_fixtures/fixtures/protected_sequence/f2_hard_replay_unit_boundary.json \
-  --threads 8 \
-  --out native_fixture_result.json \
-  --grammar-debug-out native_fixture_grammar_debug.json
-```
-
-ACLGraph semantic fixtures have a dedicated golden-sample entry point. It
-projects H/L/T replay units into Native IR and emits the optional
-`anchor_internal_cost_breakdown` section in the result JSON:
-
-```bash
-../build/traceloom-native/traceloom-native-analyze-aclgraph-fixture \
-  --fixture ../../drafts/refactor/80_tests_fixtures/fixtures/aclgraph/aclgraph_python_minimal_assets.json \
-  --threads 8 \
-  --out native_aclgraph_fixture_result.json
-```
-
-This path is for semantic calibration and regression checks. Real DB-backed
-H/L/T child-cost aggregation is still owned by the future ACLGraph DB adapter
-slice.
-
-To test the build without SQLite support:
-
-```bash
-cd native
 cmake --preset dev-no-sqlite
-cmake --build --preset dev-no-sqlite -j
-ctest --preset dev-no-sqlite
+cmake --build --preset dev-no-sqlite -j "$(nproc)"
 ```
-
-The core target must stay independent of SQLite, Python, JSON, CLI parsers, and
-adapter headers. The boundary test enforces this for native core directories.

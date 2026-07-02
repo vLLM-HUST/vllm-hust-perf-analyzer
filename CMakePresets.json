@@ -5,7 +5,7 @@
       "name": "dev",
       "displayName": "TraceLoom native dev",
       "generator": "Unix Makefiles",
-      "binaryDir": "${sourceParentDir}/build/traceloom-native",
+      "binaryDir": "${sourceDir}/build/native",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "CMAKE_PREFIX_PATH": "$env{HOME}/.local",
@@ -17,7 +17,7 @@
       "name": "dev-tests",
       "displayName": "TraceLoom native dev with tests",
       "inherits": "dev",
-      "binaryDir": "${sourceParentDir}/build/traceloom-native-tests",
+      "binaryDir": "${sourceDir}/build/native-tests",
       "cacheVariables": {
         "TRACELOOM_NATIVE_BUILD_TESTS": "ON"
       }
@@ -26,7 +26,7 @@
       "name": "dev-no-sqlite",
       "displayName": "TraceLoom native dev without SQLite",
       "inherits": "dev",
-      "binaryDir": "${sourceParentDir}/build/traceloom-native-no-sqlite",
+      "binaryDir": "${sourceDir}/build/native-no-sqlite",
       "cacheVariables": {
         "CMAKE_PREFIX_PATH": null,
         "TRACELOOM_NATIVE_ENABLE_ASCEND_SQLITE": "OFF"
@@ -51,13 +51,6 @@
     {
       "name": "dev-tests",
       "configurePreset": "dev-tests",
-      "output": {
-        "outputOnFailure": true
-      }
-    },
-    {
-      "name": "dev-no-sqlite",
-      "configurePreset": "dev-no-sqlite",
       "output": {
         "outputOnFailure": true
       }
