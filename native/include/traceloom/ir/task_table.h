@@ -37,6 +37,7 @@ class TaskTable {
 
   std::size_t size() const noexcept { return rows_.size(); }
   bool empty() const noexcept { return rows_.empty(); }
+  void reserve(std::size_t count) { rows_.reserve(count); }
   const TaskRow& row(TaskId id) const;
   const std::vector<TaskRow>& rows() const noexcept { return rows_; }
 

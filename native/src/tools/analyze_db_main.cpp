@@ -344,7 +344,11 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
                            cli.grammar_debug_out_path.empty() &&
                            cli.compat_sidecar_out_path.empty());
 
-    const traceloom::AscendSQLiteAdapter adapter(source_db);
+    traceloom::AscendSQLiteAdapterOptions adapter_options;
+    adapter_options.db_path = source_db;
+    adapter_options.thread_count = cli.threads;
+    adapter_options.timing_diagnostics = cli.timings;
+    const traceloom::AscendSQLiteAdapter adapter(std::move(adapter_options));
     traceloom::NativeIr ir;
     const Stopwatch load_watch;
     ir = adapter.load();

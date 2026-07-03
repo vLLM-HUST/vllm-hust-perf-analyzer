@@ -1,12 +1,17 @@
 #include "traceloom/adapters/ascend_sqlite_adapter.h"
 
+#include "traceloom/runtime/thread_pool.h"
+
 #include <sqlite3.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cctype>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <numeric>
@@ -20,6 +25,62 @@
 
 namespace traceloom {
 namespace {
+
+class Stopwatch {
+ public:
+  Stopwatch() : start_(Clock::now()) {}
+
+  double elapsed_ms() const {
+    const auto elapsed = Clock::now() - start_;
+    return std::chrono::duration<double, std::milli>(elapsed).count();
+  }
+
+ private:
+  using Clock = std::chrono::steady_clock;
+  Clock::time_point start_;
+};
+
+template <typename Fn>
+double time_stage(Fn&& fn) {
+  const Stopwatch stopwatch;
+  fn();
+  return stopwatch.elapsed_ms();
+}
+
+struct AscendLoadTiming {
+  double sqlite_open_ms = 0.0;
+  double inventory_ms = 0.0;
+  double string_ids_ms = 0.0;
+  double compute_info_ms = 0.0;
+  double aclgraph_execute_launches_ms = 0.0;
+  double communication_task_info_ms = 0.0;
+  double task_rows_ms = 0.0;
+  double communication_op_rows_ms = 0.0;
+  double stream_info_capture_ms = 0.0;
+  double cann_api_capture_slots_ms = 0.0;
+  double aclgraph_replay_units_ms = 0.0;
+};
+
+void print_load_timing(const AscendLoadTiming& timing) {
+  std::cerr << "timing load_sqlite_open_ms=" << timing.sqlite_open_ms << "\n";
+  std::cerr << "timing load_inventory_ms=" << timing.inventory_ms << "\n";
+  std::cerr << "timing load_string_ids_ms=" << timing.string_ids_ms << "\n";
+  std::cerr << "timing load_compute_info_ms=" << timing.compute_info_ms
+            << "\n";
+  std::cerr << "timing load_aclgraph_execute_launches_ms="
+            << timing.aclgraph_execute_launches_ms << "\n";
+  std::cerr << "timing load_communication_task_info_ms="
+            << timing.communication_task_info_ms << "\n";
+  std::cerr << "timing load_task_rows_ms=" << timing.task_rows_ms << "\n";
+  std::cerr << "timing load_communication_op_rows_ms="
+            << timing.communication_op_rows_ms << "\n";
+  std::cerr << "timing load_stream_info_capture_ms="
+            << timing.stream_info_capture_ms << "\n";
+  std::cerr << "timing load_cann_api_capture_slots_ms="
+            << timing.cann_api_capture_slots_ms << "\n";
+  std::cerr << "timing load_aclgraph_replay_units_ms="
+            << timing.aclgraph_replay_units_ms << "\n";
+}
 
 class SqliteDb {
  public:
@@ -116,6 +177,23 @@ struct TaskLink {
 };
 
 using TaskLinkIndex = std::unordered_map<std::uint64_t, std::vector<TaskLink>>;
+
+struct RawTaskRow {
+  std::uint64_t row_id = 0;
+  std::int64_t start_ns = 0;
+  std::int64_t end_ns = 0;
+  std::uint32_t device_id = 0;
+  std::uint64_t raw_stream_id = 0;
+  std::uint64_t raw_task_id = 0;
+  std::int64_t raw_global_task_id = -1;
+  std::int64_t raw_connection_id = -1;
+  std::int64_t raw_task_type_id = -1;
+};
+
+struct RowidRange {
+  std::int64_t first = 0;
+  std::int64_t last = -1;
+};
 
 struct GraphTaskView {
   const TaskRow* task = nullptr;
@@ -1001,8 +1079,153 @@ StreamId find_or_append_stream(StreamIndex& streams,
   return stream;
 }
 
+bool raw_task_row_less(const RawTaskRow& lhs, const RawTaskRow& rhs) {
+  if (lhs.device_id != rhs.device_id) {
+    return lhs.device_id < rhs.device_id;
+  }
+  if (lhs.raw_stream_id != rhs.raw_stream_id) {
+    return lhs.raw_stream_id < rhs.raw_stream_id;
+  }
+  if (lhs.start_ns != rhs.start_ns) {
+    return lhs.start_ns < rhs.start_ns;
+  }
+  if (lhs.end_ns != rhs.end_ns) {
+    return lhs.end_ns < rhs.end_ns;
+  }
+  if (lhs.raw_global_task_id != rhs.raw_global_task_id) {
+    return lhs.raw_global_task_id < rhs.raw_global_task_id;
+  }
+  if (lhs.raw_task_id != rhs.raw_task_id) {
+    return lhs.raw_task_id < rhs.raw_task_id;
+  }
+  return lhs.row_id < rhs.row_id;
+}
+
+std::vector<RowidRange> task_rowid_ranges(SqliteDb& db,
+                                          std::size_t thread_count) {
+  SqliteStmt stmt(
+      db.get(),
+      "SELECT MIN(rowid), MAX(rowid), COUNT(*) FROM TASK");
+  const int rc = sqlite3_step(stmt.get());
+  if (rc != SQLITE_ROW) {
+    if (rc == SQLITE_DONE) {
+      return {};
+    }
+    throw std::runtime_error("failed to inspect TASK rowid ranges: " +
+                             std::string(sqlite3_errmsg(stmt.db())));
+  }
+  if (sqlite3_column_type(stmt.get(), 0) == SQLITE_NULL ||
+      sqlite3_column_type(stmt.get(), 1) == SQLITE_NULL) {
+    return {};
+  }
+  const std::int64_t min_rowid = sqlite_i64(stmt.get(), 0, 0);
+  const std::int64_t max_rowid = sqlite_i64(stmt.get(), 1, 0);
+  const std::uint64_t row_count = sqlite_u64(stmt.get(), 2);
+  if (row_count == 0 || max_rowid < min_rowid) {
+    return {};
+  }
+  const std::uint64_t desired_chunks =
+      static_cast<std::uint64_t>(std::max<std::size_t>(1, thread_count)) * 4u;
+  const std::size_t target_chunks = static_cast<std::size_t>(
+      std::max<std::uint64_t>(1, std::min(row_count, desired_chunks)));
+  const std::uint64_t span =
+      static_cast<std::uint64_t>(max_rowid - min_rowid) + 1u;
+  std::vector<RowidRange> ranges;
+  ranges.reserve(target_chunks);
+  for (std::size_t index = 0; index < target_chunks; ++index) {
+    const std::int64_t first =
+        min_rowid + static_cast<std::int64_t>((span * index) / target_chunks);
+    const std::int64_t next =
+        min_rowid +
+        static_cast<std::int64_t>((span * (index + 1u)) / target_chunks);
+    const std::int64_t last = next - 1;
+    if (first <= last) {
+      ranges.push_back(RowidRange{first, last});
+    }
+  }
+  return ranges;
+}
+
+std::vector<RawTaskRow> read_task_raw_rows(SqliteDb& db,
+                                           const RowidRange* range,
+                                           bool ordered) {
+  std::string sql =
+      "SELECT rowid, startNs, endNs, deviceId, streamId, taskId, "
+      "globalTaskId, connectionId, taskType "
+      "FROM TASK ";
+  if (range != nullptr) {
+    sql += "WHERE rowid BETWEEN ? AND ? ";
+  }
+  if (ordered) {
+    sql +=
+        "ORDER BY deviceId, streamId, startNs, endNs, globalTaskId, taskId";
+  }
+  SqliteStmt stmt(db.get(), sql.c_str());
+  if (range != nullptr) {
+    sqlite3_bind_int64(stmt.get(), 1, range->first);
+    sqlite3_bind_int64(stmt.get(), 2, range->last);
+  }
+
+  std::vector<RawTaskRow> raw_rows;
+  while (true) {
+    const int rc = sqlite3_step(stmt.get());
+    if (rc == SQLITE_ROW) {
+      raw_rows.push_back(RawTaskRow{
+          sqlite_u64(stmt.get(), 0), sqlite_i64(stmt.get(), 1, 0),
+          sqlite_i64(stmt.get(), 2, 0), sqlite_u32(stmt.get(), 3),
+          sqlite_u64(stmt.get(), 4), sqlite_u64(stmt.get(), 5),
+          sqlite_i64(stmt.get(), 6), sqlite_i64(stmt.get(), 7),
+          sqlite_i64(stmt.get(), 8)});
+      continue;
+    }
+    if (rc == SQLITE_DONE) {
+      break;
+    }
+    throw std::runtime_error("failed to load TASK rows: " +
+                             std::string(sqlite3_errmsg(stmt.db())));
+  }
+  return raw_rows;
+}
+
+std::vector<RawTaskRow> load_task_raw_rows(SqliteDb& db,
+                                           const std::string& db_path,
+                                           std::size_t thread_count) {
+  static constexpr std::size_t kMaxTaskReaderThreads = 8;
+  const std::size_t reader_count =
+      std::min(std::max<std::size_t>(1, thread_count), kMaxTaskReaderThreads);
+  if (reader_count <= 1) {
+    return read_task_raw_rows(db, nullptr, true);
+  }
+  const std::vector<RowidRange> ranges = task_rowid_ranges(db, reader_count);
+  if (ranges.size() <= 1) {
+    return read_task_raw_rows(db, nullptr, true);
+  }
+
+  std::vector<std::vector<RawTaskRow>> chunks(ranges.size());
+  ThreadPool pool(reader_count);
+  pool.parallel_for(ranges.size(), [&](std::size_t index) {
+    SqliteDb worker_db(db_path);
+    chunks[index] = read_task_raw_rows(worker_db, &ranges[index], false);
+  });
+
+  std::size_t total_rows = 0;
+  for (const std::vector<RawTaskRow>& chunk : chunks) {
+    total_rows += chunk.size();
+  }
+  std::vector<RawTaskRow> raw_rows;
+  raw_rows.reserve(total_rows);
+  for (std::vector<RawTaskRow>& chunk : chunks) {
+    raw_rows.insert(raw_rows.end(), std::make_move_iterator(chunk.begin()),
+                    std::make_move_iterator(chunk.end()));
+  }
+  std::sort(raw_rows.begin(), raw_rows.end(), raw_task_row_less);
+  return raw_rows;
+}
+
 void load_task_rows(
     SqliteDb& db,
+    const std::string& db_path,
+    std::size_t thread_count,
     NativeIr& ir,
     StreamIndex& streams,
     TaskLinkIndex& task_links,
@@ -1011,60 +1234,53 @@ void load_task_rows(
     const std::unordered_map<std::int64_t, CommunicationTaskInfo>&
         communication_task_info,
     SourceRefId task_table_ref) {
-  static constexpr const char* kSql =
-      "SELECT rowid, startNs, endNs, deviceId, streamId, taskId, "
-      "globalTaskId, connectionId, taskType "
-      "FROM TASK "
-      "ORDER BY deviceId, streamId, startNs, endNs, globalTaskId, taskId";
-  SqliteStmt stmt(db.get(), kSql);
-  while (true) {
-    const int rc = sqlite3_step(stmt.get());
-    if (rc == SQLITE_ROW) {
-      const std::uint64_t row_id = sqlite_u64(stmt.get(), 0);
-      const std::int64_t start_ns = sqlite_i64(stmt.get(), 1, 0);
-      const std::int64_t end_ns = sqlite_i64(stmt.get(), 2, 0);
-      const std::uint32_t device_id = sqlite_u32(stmt.get(), 3);
-      const std::uint64_t raw_stream_id = sqlite_u64(stmt.get(), 4);
-      const std::uint64_t raw_task_id = sqlite_u64(stmt.get(), 5);
-      const std::int64_t raw_global_task_id = sqlite_i64(stmt.get(), 6);
-      const std::int64_t raw_connection_id = sqlite_i64(stmt.get(), 7);
-      const std::int64_t raw_task_type_id = sqlite_i64(stmt.get(), 8);
-      const SymbolId task_type_symbol =
-          ir.symbols.intern(decode_string_id(string_ids, raw_task_type_id));
-      const auto compute_found = compute_info.find(raw_global_task_id);
-      const ComputeInfo compute =
-          compute_found == compute_info.end() ? ComputeInfo()
-                                              : compute_found->second;
-      const auto comm_task_found =
-          communication_task_info.find(raw_global_task_id);
-      const CommunicationTaskInfo comm_task =
-          comm_task_found == communication_task_info.end()
-              ? CommunicationTaskInfo()
-              : comm_task_found->second;
-      task_links[connection_key(device_id, raw_connection_id)].push_back(
-          TaskLink{raw_stream_id, start_ns, end_ns, comm_task.comm_name_symbol_id,
-                   comm_task.task_type_symbol_id});
+  std::vector<RawTaskRow> raw_rows =
+      load_task_raw_rows(db, db_path, thread_count);
 
-      const StreamId stream =
-          find_or_append_stream(streams, ir, task_table_ref, device_id,
-                                raw_stream_id);
+  ir.trace_events.reserve(ir.trace_events.size() + raw_rows.size());
+  ir.tasks.reserve(ir.tasks.size() + raw_rows.size());
 
-      const TraceEventId event =
-          ir.trace_events.append(task_table_ref, row_id, device_id,
-                                 ir.streams.row(stream).raw_stream_id,
-                                 start_ns, end_ns, task_type_symbol);
-      ir.tasks.append(task_table_ref, event, raw_task_id, raw_global_task_id,
-                      raw_connection_id, task_type_symbol,
-                      compute.op_name_symbol_id, compute.op_type_symbol_id,
-                      compute.compute_task_type_symbol_id,
-                      comm_task.comm_name_symbol_id);
-      continue;
+  std::unordered_map<std::int64_t, SymbolId> task_type_symbols;
+  for (const RawTaskRow& row : raw_rows) {
+    auto task_type_found = task_type_symbols.find(row.raw_task_type_id);
+    if (task_type_found == task_type_symbols.end()) {
+      task_type_found =
+          task_type_symbols
+              .emplace(row.raw_task_type_id,
+                       ir.symbols.intern(decode_string_id(
+                           string_ids, row.raw_task_type_id)))
+              .first;
     }
-    if (rc == SQLITE_DONE) {
-      break;
-    }
-    throw std::runtime_error("failed to load TASK rows: " +
-                             std::string(sqlite3_errmsg(stmt.db())));
+    const SymbolId task_type_symbol = task_type_found->second;
+    const auto compute_found = compute_info.find(row.raw_global_task_id);
+    const ComputeInfo compute =
+        compute_found == compute_info.end() ? ComputeInfo()
+                                            : compute_found->second;
+    const auto comm_task_found =
+        communication_task_info.find(row.raw_global_task_id);
+    const CommunicationTaskInfo comm_task =
+        comm_task_found == communication_task_info.end()
+            ? CommunicationTaskInfo()
+            : comm_task_found->second;
+    task_links[connection_key(row.device_id, row.raw_connection_id)].push_back(
+        TaskLink{row.raw_stream_id, row.start_ns, row.end_ns,
+                 comm_task.comm_name_symbol_id,
+                 comm_task.task_type_symbol_id});
+
+    const StreamId stream =
+        find_or_append_stream(streams, ir, task_table_ref, row.device_id,
+                              row.raw_stream_id);
+
+    const TraceEventId event = ir.trace_events.append(
+        task_table_ref, row.row_id, row.device_id,
+        ir.streams.row(stream).raw_stream_id, row.start_ns, row.end_ns,
+        task_type_symbol);
+    ir.tasks.append(task_table_ref, event, row.raw_task_id,
+                    row.raw_global_task_id, row.raw_connection_id,
+                    task_type_symbol, compute.op_name_symbol_id,
+                    compute.op_type_symbol_id,
+                    compute.compute_task_type_symbol_id,
+                    comm_task.comm_name_symbol_id);
   }
 }
 
@@ -1310,6 +1526,7 @@ void materialize_aclgraph_replay_units(
     return;
   }
 
+  ir.trace_events.reserve(ir.trace_events.size() + ir.tasks.size());
   std::vector<GraphTaskView> model_rows;
   std::vector<GraphTaskView> control_rows;
   for (const TaskRow& task : ir.tasks.rows()) {
@@ -1515,7 +1732,10 @@ NativeIr AscendSQLiteAdapter::load() const {
                                 options_.db_path);
   }
 
+  AscendLoadTiming timing;
+  const Stopwatch sqlite_open_watch;
   SqliteDb db(options_.db_path);
+  timing.sqlite_open_ms = sqlite_open_watch.elapsed_ms();
   NativeIr ir;
 
   static constexpr const char* kInventorySql =
@@ -1523,82 +1743,105 @@ NativeIr AscendSQLiteAdapter::load() const {
       "WHERE type IN ('table', 'view') "
       "ORDER BY name";
 
-  SqliteStmt stmt(db.get(), kInventorySql);
   bool saw_schema_object = false;
   std::unordered_map<std::string, SourceRefId> table_refs;
-  while (true) {
-    const int rc = sqlite3_step(stmt.get());
-    if (rc == SQLITE_ROW) {
-      const std::string table_name = sqlite_text(stmt.get(), 0);
-      const SourceRefId source_ref = ir.source_refs.append(
-          options_.source_kind, options_.db_path, table_name, 0);
-      table_refs.emplace(table_name, source_ref);
-      saw_schema_object = true;
-      continue;
-    }
-    if (rc == SQLITE_DONE) {
-      break;
-    }
+  timing.inventory_ms = time_stage([&]() {
+    SqliteStmt stmt(db.get(), kInventorySql);
+    while (true) {
+      const int rc = sqlite3_step(stmt.get());
+      if (rc == SQLITE_ROW) {
+        const std::string table_name = sqlite_text(stmt.get(), 0);
+        const SourceRefId source_ref = ir.source_refs.append(
+            options_.source_kind, options_.db_path, table_name, 0);
+        table_refs.emplace(table_name, source_ref);
+        saw_schema_object = true;
+        continue;
+      }
+      if (rc == SQLITE_DONE) {
+        break;
+      }
 
-    const std::string message = sqlite3_errmsg(stmt.db());
-    throw std::runtime_error("failed to read Ascend SQLite inventory: " +
-                             message);
-  }
+      const std::string message = sqlite3_errmsg(stmt.db());
+      throw std::runtime_error("failed to read Ascend SQLite inventory: " +
+                               message);
+    }
+  });
 
   if (!saw_schema_object) {
     ir.source_refs.append(options_.source_kind, options_.db_path,
                           "sqlite_schema", 0);
   }
 
-  const std::unordered_map<std::int64_t, std::string> string_ids =
-      table_refs.find("STRING_IDS") == table_refs.end()
-          ? std::unordered_map<std::int64_t, std::string>()
-          : load_string_ids(db, ir);
-  const std::unordered_map<std::int64_t, ComputeInfo> compute_info =
-      table_refs.find("COMPUTE_TASK_INFO") == table_refs.end()
-          ? std::unordered_map<std::int64_t, ComputeInfo>()
-          : load_compute_info(db, ir, string_ids);
-  const std::vector<GraphLaunchView> aclgraph_execute_launches =
-      table_refs.find("CANN_API") == table_refs.end()
-          ? std::vector<GraphLaunchView>()
-          : load_aclgraph_execute_launches(db, string_ids);
-  const std::unordered_map<std::int64_t, CommunicationTaskInfo>
-      communication_task_info =
-          table_refs.find("COMMUNICATION_TASK_INFO") == table_refs.end()
-              ? std::unordered_map<std::int64_t, CommunicationTaskInfo>()
-              : load_communication_task_info(
-                    db, ir, string_ids,
-                    table_has_column(db, "COMMUNICATION_TASK_INFO",
-                                     "taskType"));
+  std::unordered_map<std::int64_t, std::string> string_ids;
+  timing.string_ids_ms = time_stage([&]() {
+    if (table_refs.find("STRING_IDS") != table_refs.end()) {
+      string_ids = load_string_ids(db, ir);
+    }
+  });
+  std::unordered_map<std::int64_t, ComputeInfo> compute_info;
+  timing.compute_info_ms = time_stage([&]() {
+    if (table_refs.find("COMPUTE_TASK_INFO") != table_refs.end()) {
+      compute_info = load_compute_info(db, ir, string_ids);
+    }
+  });
+  std::vector<GraphLaunchView> aclgraph_execute_launches;
+  timing.aclgraph_execute_launches_ms = time_stage([&]() {
+    if (table_refs.find("CANN_API") != table_refs.end()) {
+      aclgraph_execute_launches =
+          load_aclgraph_execute_launches(db, string_ids);
+    }
+  });
+  std::unordered_map<std::int64_t, CommunicationTaskInfo>
+      communication_task_info;
+  timing.communication_task_info_ms = time_stage([&]() {
+    if (table_refs.find("COMMUNICATION_TASK_INFO") != table_refs.end()) {
+      communication_task_info = load_communication_task_info(
+          db, ir, string_ids,
+          table_has_column(db, "COMMUNICATION_TASK_INFO", "taskType"));
+    }
+  });
   StreamIndex streams;
   TaskLinkIndex task_links;
-  if (table_refs.find("TASK") != table_refs.end()) {
-    load_task_rows(db, ir, streams, task_links, string_ids, compute_info,
-                   communication_task_info, table_refs.at("TASK"));
-  }
-  if (table_refs.find("COMMUNICATION_OP") != table_refs.end()) {
-    load_communication_op_rows(db, ir, streams, task_links, string_ids,
-                               table_refs.at("COMMUNICATION_OP"),
-                               table_has_column(db, "COMMUNICATION_OP",
-                                                "opType"));
-  }
+  timing.task_rows_ms = time_stage([&]() {
+    if (table_refs.find("TASK") != table_refs.end()) {
+      load_task_rows(db, options_.db_path, options_.thread_count, ir, streams,
+                     task_links, string_ids, compute_info,
+                     communication_task_info, table_refs.at("TASK"));
+    }
+  });
+  timing.communication_op_rows_ms = time_stage([&]() {
+    if (table_refs.find("COMMUNICATION_OP") != table_refs.end()) {
+      load_communication_op_rows(db, ir, streams, task_links, string_ids,
+                                 table_refs.at("COMMUNICATION_OP"),
+                                 table_has_column(db, "COMMUNICATION_OP",
+                                                  "opType"));
+    }
+  });
   const std::string stream_info_path =
       stream_info_db_path_for_msprof(options_.db_path);
-  AclGraphCaptureInfo capture_info =
-      load_aclgraph_capture_info(stream_info_path);
-  if (table_refs.find("CANN_API") != table_refs.end()) {
-    capture_info.capture_slots = load_aclgraph_capture_slots(db, string_ids);
-    capture_info.replay_unit_signature = build_capture_replay_unit_signature(
-        capture_info.capture_slots, capture_info.capture_group_size);
-  }
-  if (!capture_info.model_streams_by_device.empty()) {
-    const SourceRefId replay_source_ref = ir.source_refs.append(
-        options_.source_kind, stream_info_path, "ACLGRAPH_REPLAY_UNIT", 0);
-    materialize_aclgraph_replay_units(ir, capture_info.model_streams_by_device,
-                                      aclgraph_execute_launches,
-                                      replay_source_ref,
-                                      capture_info.capture_group_size,
-                                      capture_info.replay_unit_signature);
+  AclGraphCaptureInfo capture_info;
+  timing.stream_info_capture_ms = time_stage(
+      [&]() { capture_info = load_aclgraph_capture_info(stream_info_path); });
+  timing.cann_api_capture_slots_ms = time_stage([&]() {
+    if (table_refs.find("CANN_API") != table_refs.end()) {
+      capture_info.capture_slots = load_aclgraph_capture_slots(db, string_ids);
+      capture_info.replay_unit_signature = build_capture_replay_unit_signature(
+          capture_info.capture_slots, capture_info.capture_group_size);
+    }
+  });
+  timing.aclgraph_replay_units_ms = time_stage([&]() {
+    if (!capture_info.model_streams_by_device.empty()) {
+      const SourceRefId replay_source_ref = ir.source_refs.append(
+          options_.source_kind, stream_info_path, "ACLGRAPH_REPLAY_UNIT", 0);
+      materialize_aclgraph_replay_units(
+          ir, capture_info.model_streams_by_device, aclgraph_execute_launches,
+          replay_source_ref, capture_info.capture_group_size,
+          capture_info.replay_unit_signature);
+    }
+  });
+
+  if (options_.timing_diagnostics) {
+    print_load_timing(timing);
   }
 
   return ir;

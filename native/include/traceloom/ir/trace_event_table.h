@@ -31,6 +31,7 @@ class TraceEventTable {
 
   std::size_t size() const noexcept { return rows_.size(); }
   bool empty() const noexcept { return rows_.empty(); }
+  void reserve(std::size_t count) { rows_.reserve(count); }
   const TraceEventRow& row(TraceEventId id) const;
   const std::vector<TraceEventRow>& rows() const noexcept { return rows_; }
 

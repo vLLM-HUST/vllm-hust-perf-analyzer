@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -11,6 +12,8 @@ namespace traceloom {
 struct AscendSQLiteAdapterOptions {
   std::string db_path;
   std::string source_kind = "ascend_sqlite";
+  std::size_t thread_count = 1;
+  bool timing_diagnostics = false;
 };
 
 class AscendSQLiteAdapter final : public SourceAdapter {
