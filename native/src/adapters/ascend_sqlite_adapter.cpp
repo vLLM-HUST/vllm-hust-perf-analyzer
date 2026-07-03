@@ -257,6 +257,12 @@ struct AclGraphCaptureInfo {
   std::string replay_unit_signature;
 };
 
+struct GraphTaskSymbolSets {
+  std::unordered_set<std::uint32_t> graph_control;
+  std::unordered_set<std::uint32_t> notify_wait;
+  std::unordered_set<std::uint32_t> model_execute;
+};
+
 std::int64_t sqlite_i64(sqlite3_stmt* stmt,
                         int column,
                         std::int64_t fallback = -1) {
@@ -1081,6 +1087,46 @@ std::uint64_t connection_key(std::uint32_t device_id,
          (static_cast<std::uint64_t>(connection_id) & 0xffffffffu);
 }
 
+bool symbol_in_set(const std::unordered_set<std::uint32_t>& symbols,
+                   SymbolId symbol_id) {
+  return symbol_id.valid() && symbols.find(symbol_id.value()) != symbols.end();
+}
+
+GraphTaskSymbolSets build_graph_task_symbol_sets(const SymbolTable& symbols) {
+  GraphTaskSymbolSets out;
+  for (std::size_t index = 0; index < symbols.size(); ++index) {
+    const SymbolId symbol_id(static_cast<SymbolId::value_type>(index));
+    const std::string key = normalize_key(symbols.value(symbol_id));
+    if (graph_task_key(key)) {
+      out.graph_control.insert(symbol_id.value());
+    }
+    if (key == "NOTIFY_WAIT") {
+      out.notify_wait.insert(symbol_id.value());
+    }
+    if (key == "MODEL_EXECUTE") {
+      out.model_execute.insert(symbol_id.value());
+    }
+  }
+  return out;
+}
+
+std::unordered_set<std::uint64_t> flatten_model_stream_keys(
+    const std::unordered_map<std::uint32_t, std::unordered_set<std::uint64_t>>&
+        model_streams_by_device) {
+  std::unordered_set<std::uint64_t> out;
+  std::size_t stream_count = 0;
+  for (const auto& item : model_streams_by_device) {
+    stream_count += item.second.size();
+  }
+  out.reserve(stream_count);
+  for (const auto& item : model_streams_by_device) {
+    for (std::uint64_t raw_stream_id : item.second) {
+      out.insert(stream_key(item.first, raw_stream_id));
+    }
+  }
+  return out;
+}
+
 StreamId find_or_append_stream(StreamIndex& streams,
                                NativeIr& ir,
                                SourceRefId source_ref,
@@ -1496,15 +1542,12 @@ bool event_overlaps(const TraceEventRow& event,
   return event.start_ns <= end_ns && event.end_ns >= start_ns;
 }
 
-std::vector<GraphTaskView> controls_with_key(
+std::vector<GraphTaskView> controls_with_symbol_set(
     const std::vector<GraphTaskView>& controls,
-    const std::string& key,
-    const NativeIr& ir) {
+    const std::unordered_set<std::uint32_t>& task_type_symbols) {
   std::vector<GraphTaskView> out;
   for (const GraphTaskView& row : controls) {
-    const std::string task_key =
-        normalize_key(symbol_value_or_empty(ir, row.task->task_type_symbol_id));
-    if (task_key == key) {
+    if (symbol_in_set(task_type_symbols, row.task->task_type_symbol_id)) {
       out.push_back(row);
     }
   }
@@ -1543,24 +1586,28 @@ void materialize_aclgraph_replay_units(
     return;
   }
 
+  const std::unordered_set<std::uint64_t> model_stream_keys =
+      flatten_model_stream_keys(model_streams_by_device);
+  const GraphTaskSymbolSets graph_symbols =
+      build_graph_task_symbol_sets(ir.symbols);
   ir.trace_events.reserve(ir.trace_events.size() + ir.tasks.size());
   std::vector<GraphTaskView> model_rows;
   std::vector<GraphTaskView> control_rows;
+  model_rows.reserve(ir.tasks.size() / 2u);
+  control_rows.reserve(ir.tasks.size() / 8u);
   for (const TaskRow& task : ir.tasks.rows()) {
     if (!task.trace_event_id.valid()) {
       continue;
     }
     const TraceEventRow& event = ir.trace_events.row(task.trace_event_id);
-    const auto streams_found = model_streams_by_device.find(event.device_id);
     const bool is_model_stream =
-        streams_found != model_streams_by_device.end() &&
-        streams_found->second.find(event.stream_id) != streams_found->second.end();
-    const std::string task_key =
-        normalize_key(symbol_value_or_empty(ir, task.task_type_symbol_id));
+        model_stream_keys.find(stream_key(event.device_id, event.stream_id)) !=
+        model_stream_keys.end();
     if (is_model_stream && event.end_ns > event.start_ns) {
       model_rows.push_back(GraphTaskView{&task, &event});
     }
-    if (graph_task_key(task_key) && event.end_ns > event.start_ns) {
+    if (symbol_in_set(graph_symbols.graph_control, task.task_type_symbol_id) &&
+        event.end_ns > event.start_ns) {
       control_rows.push_back(GraphTaskView{&task, &event});
     }
   }
@@ -1591,9 +1638,9 @@ void materialize_aclgraph_replay_units(
               return lhs.task->raw_task_id < rhs.task->raw_task_id;
             });
   const std::vector<GraphTaskView> notify_wait_rows =
-      controls_with_key(control_rows, "NOTIFY_WAIT", ir);
+      controls_with_symbol_set(control_rows, graph_symbols.notify_wait);
   const std::vector<GraphTaskView> model_execute_rows =
-      controls_with_key(control_rows, "MODEL_EXECUTE", ir);
+      controls_with_symbol_set(control_rows, graph_symbols.model_execute);
 
   std::vector<GraphReplayUnitView> units;
   bool used_execute_waves = false;
