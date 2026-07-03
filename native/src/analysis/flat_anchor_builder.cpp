@@ -203,6 +203,9 @@ bool is_semantic_anchor_task(const NativeIr& ir, const TaskRow& task) {
   if (task_type == "MODEL_MAINTAINCE" || task_type == "MODEL_MAINTENANCE") {
     return false;
   }
+  if (task_type == "HIP_KERNEL_AUX") {
+    return false;
+  }
 
   const std::string label = symbol_text(ir, choose_task_symbol(task));
   const std::string blob = lower_ascii(
@@ -232,7 +235,8 @@ bool is_semantic_anchor_task(const NativeIr& ir, const TaskRow& task) {
                           "flashattention", "fusedinferattention",
                           "pagedattention", "attention", "rmsnorm",
                           "rms_norm", "layernorm", "layer_norm", "swiglu",
-                          "siluandmul", "moe", "ffn", "rotary", "rope"})) {
+                          "siluandmul", "moe", "ffn", "rotary", "rope",
+                          "mamba"})) {
     return true;
   }
 

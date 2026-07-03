@@ -107,6 +107,7 @@ if(TRACELOOM_NATIVE_ENABLE_ASCEND_SQLITE)
     target_sources(traceloom_native_adapters
       PRIVATE
         src/adapters/ascend_sqlite_adapter.cpp
+        src/adapters/hygon_sqlite_adapter.cpp
     )
     if(TARGET SQLite::SQLite3)
       target_link_libraries(traceloom_native_adapters PRIVATE SQLite::SQLite3)
@@ -693,6 +694,32 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     add_test(
       NAME traceloom_native_ascend_sqlite_adapter_tests
       COMMAND traceloom_native_ascend_sqlite_adapter_tests
+    )
+
+    add_executable(traceloom_native_hygon_sqlite_adapter_tests
+      tests/adapters/hygon_sqlite_adapter_tests.cpp
+    )
+    target_link_libraries(
+      traceloom_native_hygon_sqlite_adapter_tests PRIVATE
+      traceloom_native_adapters
+    )
+    if(TARGET SQLite::SQLite3)
+      target_link_libraries(
+        traceloom_native_hygon_sqlite_adapter_tests PRIVATE SQLite::SQLite3
+      )
+    else()
+      target_include_directories(
+        traceloom_native_hygon_sqlite_adapter_tests
+        PRIVATE ${SQLite3_INCLUDE_DIRS}
+      )
+      target_link_libraries(
+        traceloom_native_hygon_sqlite_adapter_tests
+        PRIVATE ${SQLite3_LIBRARIES}
+      )
+    endif()
+    add_test(
+      NAME traceloom_native_hygon_sqlite_adapter_tests
+      COMMAND traceloom_native_hygon_sqlite_adapter_tests
     )
 
     add_executable(traceloom_native_sidecar_writer_tests

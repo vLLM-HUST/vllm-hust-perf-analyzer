@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "traceloom/adapters/ascend_sqlite_adapter.h"
+#include "traceloom/adapters/hygon_sqlite_adapter.h"
 #include "traceloom/analysis/flat_anchor_builder.h"
 #include "traceloom/analysis/native_pipeline.h"
 #include "traceloom/compat/native_sidecar_materializer.h"
@@ -63,7 +64,7 @@ struct CliOptions {
   std::size_t top_candidate_limit = 16;
 };
 
-std::vector<std::string> discover_msprof_dbs(const std::string& input);
+std::vector<std::string> discover_profile_dbs(const std::string& input);
 
 std::size_t default_thread_count() {
   const unsigned int hardware = std::thread::hardware_concurrency();
@@ -75,7 +76,7 @@ std::size_t default_thread_count() {
 
 void print_usage(const char* argv0) {
   std::cerr << "usage: " << argv0
-            << " <msprof.db-or-msprof-dir> [--threads N]"
+            << " <profile.db-or-profile-dir> [--threads N]"
                " [--loop-tree-out PATH|-]"
                " [--loop-tree-db-label LABEL]"
                " [--timings]\n\n"
@@ -86,7 +87,7 @@ void print_usage(const char* argv0) {
 
 void print_advanced_usage(const char* argv0) {
   std::cerr << "usage: " << argv0
-            << " --source-db <ascend-msprof.db> [--threads N]"
+            << " --source-db <ascend-msprof-or-hygon-hipprof.db> [--threads N]"
                " [--out PATH|-] [--top-candidates N]"
                " [--grammar-debug-out PATH|-]"
                " [--compat-db-out PATH]"
@@ -174,12 +175,13 @@ CliOptions parse_args(int argc, char** argv) {
 
   if (options.source_input.empty()) {
     throw std::invalid_argument(
-        "input path is required: pass an msprof_*.db file or a Huawei msprof "
-        "directory");
+        "input path is required: pass an msprof_*.db, Hygon hipprof SQLite DB, "
+        "or profile directory");
   }
-  options.source_dbs = discover_msprof_dbs(options.source_input);
+  options.source_dbs = discover_profile_dbs(options.source_input);
   if (options.source_dbs.empty()) {
-    throw std::invalid_argument("no msprof_*.db found under input path: " +
+    throw std::invalid_argument("no supported msprof or Hygon profile DB found "
+                                "under input path: " +
                                 options.source_input);
   }
   if (options.source_dbs.size() > 1 &&
@@ -234,15 +236,26 @@ bool looks_like_msprof_db(const fs::path& path) {
   return name.rfind("msprof_", 0) == 0 && path.extension() == ".db";
 }
 
-std::vector<std::string> discover_msprof_dbs(const std::string& input) {
+bool looks_like_supported_profile_db(const fs::path& path) {
+  if (!fs::is_regular_file(path)) {
+    return false;
+  }
+  if (looks_like_msprof_db(path)) {
+    return true;
+  }
+  return path.extension() == ".db" &&
+         traceloom::looks_like_hygon_sqlite_profile(path.string());
+}
+
+std::vector<std::string> discover_profile_dbs(const std::string& input) {
   const fs::path root(input);
   std::vector<fs::path> dbs;
   std::error_code ec;
-  if (looks_like_msprof_db(root)) {
+  if (looks_like_supported_profile_db(root)) {
     dbs.push_back(root);
   } else if (fs::is_directory(root, ec)) {
     for (const auto& entry : fs::recursive_directory_iterator(root)) {
-      if (looks_like_msprof_db(entry.path())) {
+      if (looks_like_supported_profile_db(entry.path())) {
         dbs.push_back(entry.path());
       }
     }
@@ -250,7 +263,8 @@ std::vector<std::string> discover_msprof_dbs(const std::string& input) {
     throw std::invalid_argument("input path does not exist: " + input);
   } else {
     throw std::invalid_argument(
-        "input is not an msprof_*.db file or directory: " + input);
+        "input is not a supported msprof/Hygon profile DB or directory: " +
+        input);
   }
   std::sort(dbs.begin(), dbs.end());
   std::vector<std::string> result;
@@ -344,17 +358,31 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
                            cli.grammar_debug_out_path.empty() &&
                            cli.compat_sidecar_out_path.empty());
 
-    traceloom::AscendSQLiteAdapterOptions adapter_options;
-    adapter_options.db_path = source_db;
-    adapter_options.thread_count = cli.threads;
-    adapter_options.timing_diagnostics = cli.timings;
-    const traceloom::AscendSQLiteAdapter adapter(std::move(adapter_options));
+    const bool is_hygon =
+        traceloom::looks_like_hygon_sqlite_profile(source_db);
+    const std::string source_kind =
+        is_hygon ? "hygon_sqlite" : "ascend_sqlite_hot_path";
     traceloom::NativeIr ir;
     const Stopwatch load_watch;
-    ir = adapter.load();
+    if (is_hygon) {
+      traceloom::HygonSQLiteAdapterOptions adapter_options;
+      adapter_options.db_path = source_db;
+      adapter_options.thread_count = cli.threads;
+      adapter_options.timing_diagnostics = cli.timings;
+      const traceloom::HygonSQLiteAdapter adapter(std::move(adapter_options));
+      ir = adapter.load();
+    } else {
+      traceloom::AscendSQLiteAdapterOptions adapter_options;
+      adapter_options.db_path = source_db;
+      adapter_options.thread_count = cli.threads;
+      adapter_options.timing_diagnostics = cli.timings;
+      const traceloom::AscendSQLiteAdapter adapter(std::move(adapter_options));
+      ir = adapter.load();
+    }
     const double load_ms = load_watch.elapsed_ms();
     if (cli.timings) {
       std::cerr << "timing load_ms=" << load_ms << "\n";
+      std::cerr << "timing source_kind=" << source_kind << "\n";
     }
 
     traceloom::NativePipelineOptions pipeline_options;
@@ -386,7 +414,7 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
     }
 
     traceloom::NativeResultJsonOptions json_options;
-    json_options.source_kind = "ascend_sqlite_hot_path";
+    json_options.source_kind = source_kind;
     json_options.source_path = source_db;
     json_options.thread_count = cli.threads;
     json_options.top_candidate_limit = cli.top_candidate_limit;
