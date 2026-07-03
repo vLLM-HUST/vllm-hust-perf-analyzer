@@ -52,6 +52,7 @@ struct AscendLoadTiming {
   double inventory_ms = 0.0;
   double string_ids_ms = 0.0;
   double compute_info_ms = 0.0;
+  double cann_api_metadata_ms = 0.0;
   double aclgraph_execute_launches_ms = 0.0;
   double communication_task_info_ms = 0.0;
   double task_rows_ms = 0.0;
@@ -67,6 +68,8 @@ void print_load_timing(const AscendLoadTiming& timing) {
   std::cerr << "timing load_string_ids_ms=" << timing.string_ids_ms << "\n";
   std::cerr << "timing load_compute_info_ms=" << timing.compute_info_ms
             << "\n";
+  std::cerr << "timing load_cann_api_metadata_ms="
+            << timing.cann_api_metadata_ms << "\n";
   std::cerr << "timing load_aclgraph_execute_launches_ms="
             << timing.aclgraph_execute_launches_ms << "\n";
   std::cerr << "timing load_communication_task_info_ms="
@@ -228,6 +231,22 @@ struct GraphLaunchView {
 struct CaptureSlotSignature {
   std::uint32_t slot_index = 0;
   std::string host_api_signature;
+};
+
+struct CaptureInterval {
+  std::int64_t start_ns = 0;
+  std::int64_t end_ns = 0;
+};
+
+struct CaptureTokenCandidate {
+  std::int64_t start_ns = 0;
+  std::int64_t end_ns = 0;
+  std::string token;
+};
+
+struct AclGraphCannApiMetadata {
+  std::vector<GraphLaunchView> execute_launches;
+  std::vector<CaptureSlotSignature> capture_slots;
 };
 
 struct AclGraphCaptureInfo {
@@ -771,56 +790,6 @@ std::unordered_map<std::int64_t, ComputeInfo> load_compute_info(
   return out;
 }
 
-std::vector<GraphLaunchView> load_aclgraph_execute_launches(
-    SqliteDb& db,
-    const std::unordered_map<std::int64_t, std::string>& string_ids) {
-  std::vector<std::int64_t> execute_name_ids;
-  for (const auto& item : string_ids) {
-    if (item.second == "aclmdlRIExecuteAsync") {
-      execute_name_ids.push_back(item.first);
-    }
-  }
-  if (execute_name_ids.empty() || !table_has_column(db, "CANN_API", "name")) {
-    return {};
-  }
-  std::sort(execute_name_ids.begin(), execute_name_ids.end());
-  std::string placeholders;
-  for (std::size_t index = 0; index < execute_name_ids.size(); ++index) {
-    if (index != 0) {
-      placeholders += ",";
-    }
-    placeholders += "?";
-  }
-  const std::string sql =
-      "SELECT startNs, endNs, connectionId "
-      "FROM CANN_API "
-      "WHERE name IN (" +
-      placeholders +
-      ") AND startNs IS NOT NULL AND endNs IS NOT NULL AND endNs > startNs "
-      "ORDER BY startNs, endNs, connectionId";
-  SqliteStmt stmt(db.get(), sql.c_str());
-  for (std::size_t index = 0; index < execute_name_ids.size(); ++index) {
-    sqlite3_bind_int64(stmt.get(), static_cast<int>(index + 1),
-                       execute_name_ids[index]);
-  }
-  std::vector<GraphLaunchView> out;
-  while (true) {
-    const int rc = sqlite3_step(stmt.get());
-    if (rc == SQLITE_ROW) {
-      out.push_back(GraphLaunchView{sqlite_i64(stmt.get(), 0, 0),
-                                    sqlite_i64(stmt.get(), 1, 0),
-                                    sqlite_i64(stmt.get(), 2, 0)});
-      continue;
-    }
-    if (rc == SQLITE_DONE) {
-      break;
-    }
-    throw std::runtime_error("failed to load ACLGraph execute launches: " +
-                             std::string(sqlite3_errmsg(stmt.db())));
-  }
-  return out;
-}
-
 std::unordered_map<std::int64_t, CommunicationTaskInfo>
 load_communication_task_info(
     SqliteDb& db,
@@ -924,124 +893,69 @@ std::string build_capture_replay_unit_signature(
   return out;
 }
 
-std::vector<CaptureSlotSignature> load_aclgraph_capture_slots(
-    SqliteDb& db,
-    const std::unordered_map<std::int64_t, std::string>& string_ids) {
-  if (!table_has_column(db, "CANN_API", "name")) {
+std::vector<CaptureInterval> build_capture_intervals(
+    std::vector<CaptureInterval> begin_markers,
+    std::vector<CaptureInterval> end_markers) {
+  if (begin_markers.empty() || end_markers.empty()) {
     return {};
   }
-  const std::vector<std::int64_t> begin_ids =
-      string_ids_for_value(string_ids, "aclmdlRICaptureBegin");
-  const std::vector<std::int64_t> end_ids =
-      string_ids_for_value(string_ids, "aclmdlRICaptureEnd");
-  if (begin_ids.empty() || end_ids.empty()) {
-    return {};
-  }
-
-  struct CaptureInterval {
-    std::int64_t start_ns = 0;
-    std::int64_t end_ns = 0;
+  auto by_start = [](const CaptureInterval& lhs,
+                     const CaptureInterval& rhs) {
+    if (lhs.start_ns != rhs.start_ns) {
+      return lhs.start_ns < rhs.start_ns;
+    }
+    return lhs.end_ns < rhs.end_ns;
   };
-
-  std::string placeholders;
-  for (std::size_t index = 0; index < begin_ids.size() + end_ids.size();
-       ++index) {
-    if (index != 0) {
-      placeholders += ",";
-    }
-    placeholders += "?";
-  }
-  const std::string interval_sql =
-      "SELECT startNs, endNs, name "
-      "FROM CANN_API "
-      "WHERE name IN (" +
-      placeholders +
-      ") AND startNs IS NOT NULL AND endNs IS NOT NULL AND endNs > startNs "
-      "ORDER BY startNs, endNs, connectionId";
-  SqliteStmt interval_stmt(db.get(), interval_sql.c_str());
-  int bind_index = 1;
-  for (std::int64_t id : begin_ids) {
-    sqlite3_bind_int64(interval_stmt.get(), bind_index++, id);
-  }
-  for (std::int64_t id : end_ids) {
-    sqlite3_bind_int64(interval_stmt.get(), bind_index++, id);
-  }
-
+  std::sort(begin_markers.begin(), begin_markers.end(), by_start);
+  std::sort(end_markers.begin(), end_markers.end(), by_start);
   std::vector<CaptureInterval> intervals;
-  std::vector<CaptureInterval> pending;
-  while (true) {
-    const int rc = sqlite3_step(interval_stmt.get());
-    if (rc == SQLITE_ROW) {
-      const std::int64_t start_ns = sqlite_i64(interval_stmt.get(), 0, 0);
-      const std::int64_t end_ns = sqlite_i64(interval_stmt.get(), 1, 0);
-      const std::int64_t name_id = sqlite_i64(interval_stmt.get(), 2, -1);
-      if (contains_i64(begin_ids, name_id)) {
-        pending.push_back(CaptureInterval{start_ns, end_ns});
-      } else if (contains_i64(end_ids, name_id) && !pending.empty()) {
-        CaptureInterval interval = pending.front();
-        pending.erase(pending.begin());
-        interval.end_ns = end_ns;
-        if (interval.end_ns > interval.start_ns) {
-          intervals.push_back(interval);
-        }
-      }
-      continue;
-    }
-    if (rc == SQLITE_DONE) {
+  intervals.reserve(std::min(begin_markers.size(), end_markers.size()));
+  std::size_t begin_cursor = 0;
+  for (const CaptureInterval& end_marker : end_markers) {
+    if (begin_cursor >= begin_markers.size()) {
       break;
     }
-    throw std::runtime_error("failed to load ACLGraph capture intervals: " +
-                             std::string(sqlite3_errmsg(interval_stmt.db())));
+    CaptureInterval interval = begin_markers[begin_cursor++];
+    interval.end_ns = end_marker.end_ns;
+    if (interval.end_ns > interval.start_ns) {
+      intervals.push_back(interval);
+    }
   }
+  return intervals;
+}
+
+std::vector<CaptureSlotSignature> build_aclgraph_capture_slots(
+    const std::vector<CaptureInterval>& intervals,
+    std::vector<CaptureTokenCandidate> token_candidates) {
   if (intervals.empty()) {
     return {};
   }
 
-  const std::int64_t min_start = intervals.front().start_ns;
-  std::int64_t max_end = intervals.front().end_ns;
-  for (const CaptureInterval& interval : intervals) {
-    max_end = std::max(max_end, interval.end_ns);
-  }
+  std::sort(token_candidates.begin(), token_candidates.end(),
+            [](const CaptureTokenCandidate& lhs,
+               const CaptureTokenCandidate& rhs) {
+              if (lhs.start_ns != rhs.start_ns) {
+                return lhs.start_ns < rhs.start_ns;
+              }
+              if (lhs.end_ns != rhs.end_ns) {
+                return lhs.end_ns < rhs.end_ns;
+              }
+              return lhs.token < rhs.token;
+            });
 
   std::vector<std::vector<std::string>> tokens(intervals.size());
-  static constexpr const char* kApiSql =
-      "SELECT startNs, endNs, name "
-      "FROM CANN_API "
-      "WHERE startNs >= ? AND endNs <= ? "
-      "ORDER BY startNs, endNs, connectionId";
-  SqliteStmt api_stmt(db.get(), kApiSql);
-  sqlite3_bind_int64(api_stmt.get(), 1, min_start);
-  sqlite3_bind_int64(api_stmt.get(), 2, max_end);
   std::size_t cursor = 0;
-  while (true) {
-    const int rc = sqlite3_step(api_stmt.get());
-    if (rc == SQLITE_ROW) {
-      const std::int64_t start_ns = sqlite_i64(api_stmt.get(), 0, 0);
-      const std::int64_t end_ns = sqlite_i64(api_stmt.get(), 1, 0);
-      while (cursor < intervals.size() &&
-             start_ns > intervals[cursor].end_ns) {
-        ++cursor;
-      }
-      if (cursor >= intervals.size() ||
-          start_ns < intervals[cursor].start_ns ||
-          end_ns > intervals[cursor].end_ns) {
-        continue;
-      }
-      const auto name_found = string_ids.find(sqlite_i64(api_stmt.get(), 2, -1));
-      if (name_found == string_ids.end()) {
-        continue;
-      }
-      const std::string token = capture_host_api_token(name_found->second);
-      if (!token.empty()) {
-        tokens[cursor].push_back(token);
-      }
+  for (const CaptureTokenCandidate& candidate : token_candidates) {
+    while (cursor < intervals.size() &&
+           candidate.start_ns > intervals[cursor].end_ns) {
+      ++cursor;
+    }
+    if (cursor >= intervals.size() ||
+        candidate.start_ns < intervals[cursor].start_ns ||
+        candidate.end_ns > intervals[cursor].end_ns) {
       continue;
     }
-    if (rc == SQLITE_DONE) {
-      break;
-    }
-    throw std::runtime_error("failed to load ACLGraph capture APIs: " +
-                             std::string(sqlite3_errmsg(api_stmt.db())));
+    tokens[cursor].push_back(candidate.token);
   }
 
   std::vector<CaptureSlotSignature> out;
@@ -1051,6 +965,109 @@ std::vector<CaptureSlotSignature> load_aclgraph_capture_slots(
                                        join_capture_tokens(tokens[index])});
   }
   return out;
+}
+
+AclGraphCannApiMetadata load_aclgraph_cann_api_metadata(
+    SqliteDb& db,
+    const std::unordered_map<std::int64_t, std::string>& string_ids) {
+  AclGraphCannApiMetadata metadata;
+  if (!table_has_column(db, "CANN_API", "name")) {
+    return metadata;
+  }
+
+  const std::vector<std::int64_t> execute_ids =
+      string_ids_for_value(string_ids, "aclmdlRIExecuteAsync");
+  const std::vector<std::int64_t> begin_ids =
+      string_ids_for_value(string_ids, "aclmdlRICaptureBegin");
+  const std::vector<std::int64_t> end_ids =
+      string_ids_for_value(string_ids, "aclmdlRICaptureEnd");
+  std::unordered_map<std::int64_t, std::string> capture_token_by_id;
+  for (const auto& item : string_ids) {
+    const std::string token = capture_host_api_token(item.second);
+    if (!token.empty()) {
+      capture_token_by_id.emplace(item.first, token);
+    }
+  }
+  if (execute_ids.empty() && begin_ids.empty() && end_ids.empty() &&
+      capture_token_by_id.empty()) {
+    return metadata;
+  }
+
+  std::unordered_set<std::int64_t> interesting_names;
+  interesting_names.insert(execute_ids.begin(), execute_ids.end());
+  interesting_names.insert(begin_ids.begin(), begin_ids.end());
+  interesting_names.insert(end_ids.begin(), end_ids.end());
+  for (const auto& item : capture_token_by_id) {
+    interesting_names.insert(item.first);
+  }
+  std::string placeholders;
+  for (std::size_t index = 0; index < interesting_names.size(); ++index) {
+    if (index != 0) {
+      placeholders += ",";
+    }
+    placeholders += "?";
+  }
+  const std::string sql =
+      "SELECT startNs, endNs, connectionId, name "
+      "FROM CANN_API "
+      "WHERE name IN (" +
+      placeholders +
+      ") AND startNs IS NOT NULL AND endNs IS NOT NULL AND endNs > startNs";
+  SqliteStmt stmt(db.get(), sql.c_str());
+  int bind_index = 1;
+  for (std::int64_t name_id : interesting_names) {
+    sqlite3_bind_int64(stmt.get(), bind_index++, name_id);
+  }
+
+  std::vector<CaptureInterval> begin_markers;
+  std::vector<CaptureInterval> end_markers;
+  std::vector<CaptureTokenCandidate> token_candidates;
+  while (true) {
+    const int rc = sqlite3_step(stmt.get());
+    if (rc == SQLITE_ROW) {
+      const std::int64_t start_ns = sqlite_i64(stmt.get(), 0, 0);
+      const std::int64_t end_ns = sqlite_i64(stmt.get(), 1, 0);
+      const std::int64_t connection_id = sqlite_i64(stmt.get(), 2, 0);
+      const std::int64_t name_id = sqlite_i64(stmt.get(), 3, -1);
+      if (contains_i64(execute_ids, name_id)) {
+        metadata.execute_launches.push_back(
+            GraphLaunchView{start_ns, end_ns, connection_id});
+      }
+      if (contains_i64(begin_ids, name_id)) {
+        begin_markers.push_back(CaptureInterval{start_ns, end_ns});
+      }
+      if (contains_i64(end_ids, name_id)) {
+        end_markers.push_back(CaptureInterval{start_ns, end_ns});
+      }
+      const auto token_found = capture_token_by_id.find(name_id);
+      if (token_found != capture_token_by_id.end()) {
+        token_candidates.push_back(
+            CaptureTokenCandidate{start_ns, end_ns, token_found->second});
+      }
+      continue;
+    }
+    if (rc == SQLITE_DONE) {
+      break;
+    }
+    throw std::runtime_error("failed to load ACLGraph CANN_API metadata: " +
+                             std::string(sqlite3_errmsg(stmt.db())));
+  }
+
+  std::sort(metadata.execute_launches.begin(), metadata.execute_launches.end(),
+            [](const GraphLaunchView& lhs, const GraphLaunchView& rhs) {
+              if (lhs.start_ns != rhs.start_ns) {
+                return lhs.start_ns < rhs.start_ns;
+              }
+              if (lhs.end_ns != rhs.end_ns) {
+                return lhs.end_ns < rhs.end_ns;
+              }
+              return lhs.connection_id < rhs.connection_id;
+            });
+  const std::vector<CaptureInterval> intervals =
+      build_capture_intervals(std::move(begin_markers), std::move(end_markers));
+  metadata.capture_slots =
+      build_aclgraph_capture_slots(intervals, std::move(token_candidates));
+  return metadata;
 }
 
 std::uint64_t stream_key(std::uint32_t device_id, std::uint64_t stream_id) {
@@ -1784,11 +1801,10 @@ NativeIr AscendSQLiteAdapter::load() const {
       compute_info = load_compute_info(db, ir, string_ids);
     }
   });
-  std::vector<GraphLaunchView> aclgraph_execute_launches;
-  timing.aclgraph_execute_launches_ms = time_stage([&]() {
+  AclGraphCannApiMetadata cann_api_metadata;
+  timing.cann_api_metadata_ms = time_stage([&]() {
     if (table_refs.find("CANN_API") != table_refs.end()) {
-      aclgraph_execute_launches =
-          load_aclgraph_execute_launches(db, string_ids);
+      cann_api_metadata = load_aclgraph_cann_api_metadata(db, string_ids);
     }
   });
   std::unordered_map<std::int64_t, CommunicationTaskInfo>
@@ -1824,7 +1840,7 @@ NativeIr AscendSQLiteAdapter::load() const {
       [&]() { capture_info = load_aclgraph_capture_info(stream_info_path); });
   timing.cann_api_capture_slots_ms = time_stage([&]() {
     if (table_refs.find("CANN_API") != table_refs.end()) {
-      capture_info.capture_slots = load_aclgraph_capture_slots(db, string_ids);
+      capture_info.capture_slots = std::move(cann_api_metadata.capture_slots);
       capture_info.replay_unit_signature = build_capture_replay_unit_signature(
           capture_info.capture_slots, capture_info.capture_group_size);
     }
@@ -1834,8 +1850,9 @@ NativeIr AscendSQLiteAdapter::load() const {
       const SourceRefId replay_source_ref = ir.source_refs.append(
           options_.source_kind, stream_info_path, "ACLGRAPH_REPLAY_UNIT", 0);
       materialize_aclgraph_replay_units(
-          ir, capture_info.model_streams_by_device, aclgraph_execute_launches,
-          replay_source_ref, capture_info.capture_group_size,
+          ir, capture_info.model_streams_by_device,
+          cann_api_metadata.execute_launches, replay_source_ref,
+          capture_info.capture_group_size,
           capture_info.replay_unit_signature);
     }
   });
