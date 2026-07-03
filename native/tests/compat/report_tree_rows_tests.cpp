@@ -14,19 +14,20 @@ int main() {
   const SymbolId memcpy = ir.symbols.intern("Memcpy");
   const SymbolId matmul = ir.symbols.intern("MatMul");
 
-  ir.trace_events.append(source, 9, 0, 3, 500, 800, memcpy);
+  ir.trace_events.append(source, 9, 0, 3, 0, 1000, memcpy);
   const TraceEventId event0 =
-      ir.trace_events.append(source, 10, 0, 3, 1000, 2000, matmul);
+      ir.trace_events.append(source, 10, 0, 3, 2000, 3000, matmul);
   const TraceEventId event1 =
-      ir.trace_events.append(source, 11, 0, 3, 2500, 4500, matmul);
+      ir.trace_events.append(source, 11, 0, 3, 10003000, 10005000, matmul);
   const AnchorId anchor0 =
       ir.anchors.append(source, event0, ReplayUnitId::invalid(),
-                        AnchorKind::kDeviceEvent, matmul, 0, 3, 1000, 2000);
+                        AnchorKind::kDeviceEvent, matmul, 0, 3, 2000, 3000);
   const AnchorId anchor1 =
       ir.anchors.append(source, event1, ReplayUnitId::invalid(),
-                        AnchorKind::kDeviceEvent, matmul, 0, 3, 2500, 4500);
-  ir.tokens.append(anchor0, matmul, 0, 0, 1000, 2000);
-  ir.tokens.append(anchor1, matmul, 0, 1, 2500, 4500);
+                        AnchorKind::kDeviceEvent, matmul, 0, 3, 10003000,
+                        10005000);
+  ir.tokens.append(anchor0, matmul, 0, 0, 2000, 3000);
+  ir.tokens.append(anchor1, matmul, 0, 1, 10003000, 10005000);
 
   const compat::NodeCoverageSqlRows rows =
       compat::build_native_report_tree_node_coverage_sql_rows(ir, 7, "tree");
@@ -41,32 +42,32 @@ int main() {
   require(rows.nodes[0].local_node_id == "N001");
   require(rows.nodes[0].kind == "seq");
   require(rows.nodes[0].anchor_count == 2);
-  require(rows.nodes[0].compute_us == 3.0);
-  require(rows.nodes[0].idle_us == 0.5);
-  require(rows.nodes[0].avg_idle_us == 0.5);
-  require(rows.nodes[0].avg_total_us == 3.5);
-  require(rows.nodes[0].aux_events == 0.0);
-  require(rows.nodes[0].aux_us == 0.0);
+  require(rows.nodes[0].compute_us == 4.0);
+  require(rows.nodes[0].idle_us == 10001.0);
+  require(rows.nodes[0].avg_idle_us == 10001.0);
+  require(rows.nodes[0].avg_total_us == 10005.0);
+  require(rows.nodes[0].aux_events == 1.0);
+  require(rows.nodes[0].aux_us == 1.0);
 
   require(rows.nodes[1].kind == "repeat");
   require(rows.nodes[1].repeat_count == 2);
   require(rows.nodes[1].anchor_count == 2);
-  require(rows.nodes[1].aux_events == 0.0);
-  require(rows.nodes[1].aux_us == 0.0);
+  require(rows.nodes[1].aux_events == 1.0);
+  require(rows.nodes[1].aux_us == 1.0);
   require(rows.loop_nodes[0].node_id == rows.nodes[1].node_id);
   require(rows.loop_nodes[0].repeat_count == 2);
-  require(rows.loop_nodes[0].idle_us == 0.5);
-  require(rows.loop_nodes[0].total_us == 3.5);
+  require(rows.loop_nodes[0].idle_us == 10001.0);
+  require(rows.loop_nodes[0].total_us == 10005.0);
 
   require(rows.nodes[2].kind == "atom");
   require(rows.nodes[2].occurrence_count == 2);
   require(rows.nodes[2].anchor_count == 2);
   require(rows.nodes[2].anchors_per_occurrence == 1.0);
-  require(rows.nodes[2].idle_us == 0.5);
-  require(rows.nodes[2].avg_idle_us == 0.25);
+  require(rows.nodes[2].idle_us == 10001.0);
+  require(rows.nodes[2].avg_idle_us == 5000.5);
   require(rows.nodes[2].self_us == 3.0);
-  require(rows.nodes[2].aux_events == 0.0);
-  require(rows.nodes[2].aux_us == 0.0);
+  require(rows.nodes[2].aux_events == 1.0);
+  require(rows.nodes[2].aux_us == 1.0);
 
   require(rows.node_anchors[0].node_id == "node-N001");
   require(rows.node_anchors[0].anchor_id == "anchor-0");
@@ -114,13 +115,13 @@ int main() {
   require(semantic_rows.nodes[0].node_type == "Seq");
   require(semantic_rows.nodes[0].semantic_kind == "seq");
   require(semantic_rows.nodes[0].anchor_count == 2);
-  require(semantic_rows.nodes[0].start_ns == 1000);
-  require(semantic_rows.nodes[0].end_ns == 4500);
-  require(semantic_rows.nodes[0].idle_us == 0.5);
-  require(semantic_rows.nodes[0].avg_idle_us == 0.5);
-  require(semantic_rows.nodes[0].total_us == 3.5);
-  require(semantic_rows.nodes[0].aux_event_count == 0.0);
-  require(semantic_rows.nodes[0].aux_us == 0.0);
+  require(semantic_rows.nodes[0].start_ns == 2000);
+  require(semantic_rows.nodes[0].end_ns == 10005000);
+  require(semantic_rows.nodes[0].idle_us == 10001.0);
+  require(semantic_rows.nodes[0].avg_idle_us == 10001.0);
+  require(semantic_rows.nodes[0].total_us == 10005.0);
+  require(semantic_rows.nodes[0].aux_event_count == 1.0);
+  require(semantic_rows.nodes[0].aux_us == 1.0);
 
   require(semantic_rows.nodes[1].parent_node_id == "node-N001");
   require(semantic_rows.nodes[1].node_type == "Repeat");
@@ -128,8 +129,8 @@ int main() {
   require(semantic_rows.nodes[2].parent_node_id == "node-N002");
   require(semantic_rows.nodes[2].parent_local_node_id == "N002");
   require(semantic_rows.nodes[2].self_us == 3.0);
-  require(semantic_rows.nodes[2].aux_event_count == 0.0);
-  require(semantic_rows.nodes[2].aux_us == 0.0);
+  require(semantic_rows.nodes[2].aux_event_count == 1.0);
+  require(semantic_rows.nodes[2].aux_us == 1.0);
   require(semantic_rows.edges[0].tree_id == "tree-1");
   require(semantic_rows.edges[0].parent_node_id == "node-N001");
   require(semantic_rows.edges[0].child_node_id == "node-N002");

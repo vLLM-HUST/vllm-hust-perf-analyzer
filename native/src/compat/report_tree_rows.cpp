@@ -122,6 +122,14 @@ struct PreludeCost {
   double idle_us = 0.0;
   double aux_event_count = 0.0;
   double aux_us = 0.0;
+
+  void add(const PreludeCost& other) {
+    exec_aux_us += other.exec_aux_us;
+    comm_us += other.comm_us;
+    idle_us += other.idle_us;
+    aux_event_count += other.aux_event_count;
+    aux_us += other.aux_us;
+  }
 };
 
 std::uint32_t primary_device_id(const std::vector<ReportToken>& tokens) {
@@ -191,10 +199,95 @@ bool is_wait_event(const NativeIr& ir,
          blob.find("wait") != std::string::npos;
 }
 
+PreludeCost compute_interval_cost(
+    const NativeIr& ir,
+    const std::vector<const TraceEventRow*>& events,
+    const std::unordered_set<TraceEventId::value_type>& anchored_events,
+    const std::unordered_map<TraceEventId::value_type, const TaskRow*>&
+        task_index,
+    const std::unordered_set<TraceEventId::value_type>& comm_events,
+    std::uint32_t device_id,
+    std::int64_t interval_start,
+    std::int64_t interval_end) {
+  PreludeCost cost;
+  if (interval_end <= interval_start) {
+    return cost;
+  }
+
+  const auto lower =
+      std::lower_bound(events.begin(), events.end(), interval_start,
+                       [](const TraceEventRow* event, std::int64_t value) {
+                         return event->start_ns < value;
+                       });
+  const auto upper =
+      std::lower_bound(events.begin(), events.end(), interval_end,
+                       [](const TraceEventRow* event, std::int64_t value) {
+                         return event->start_ns < value;
+                       });
+
+  std::vector<std::pair<std::int64_t, std::int64_t>> active_intervals;
+  for (auto it = lower; it != upper; ++it) {
+    const TraceEventRow& event = **it;
+    if (event.device_id != device_id ||
+        anchored_events.find(event.id.value()) != anchored_events.end()) {
+      continue;
+    }
+    const std::int64_t overlap_start =
+        std::max(interval_start, event.start_ns);
+    const std::int64_t overlap_end = std::min(interval_end, event.end_ns);
+    if (overlap_end <= overlap_start) {
+      continue;
+    }
+
+    active_intervals.emplace_back(overlap_start, overlap_end);
+    const double duration_us = ns_to_us(overlap_end - overlap_start);
+    const auto task_found = task_index.find(event.id.value());
+    const TaskRow* task =
+        task_found == task_index.end() ? nullptr : task_found->second;
+    if (comm_events.find(event.id.value()) != comm_events.end() ||
+        (task != nullptr && task->comm_name_symbol_id.valid())) {
+      cost.comm_us += duration_us;
+      cost.aux_event_count += 1.0;
+      cost.aux_us += duration_us;
+    } else if (!is_wait_event(ir, event, task)) {
+      cost.exec_aux_us += duration_us;
+      cost.aux_event_count += 1.0;
+      cost.aux_us += duration_us;
+    }
+  }
+
+  std::sort(active_intervals.begin(), active_intervals.end());
+  std::int64_t active_union_ns = 0;
+  std::int64_t current_start = 0;
+  std::int64_t current_end = 0;
+  bool has_current = false;
+  for (const auto& interval : active_intervals) {
+    if (!has_current) {
+      current_start = interval.first;
+      current_end = interval.second;
+      has_current = true;
+      continue;
+    }
+    if (interval.first <= current_end) {
+      current_end = std::max(current_end, interval.second);
+      continue;
+    }
+    active_union_ns += current_end - current_start;
+    current_start = interval.first;
+    current_end = interval.second;
+  }
+  if (has_current) {
+    active_union_ns += current_end - current_start;
+  }
+
+  const double gap_us = ns_to_us(interval_end - interval_start);
+  cost.idle_us = std::max(0.0, gap_us - ns_to_us(active_union_ns));
+  return cost;
+}
+
 std::vector<PreludeCost> compute_prelude_costs(
     const NativeIr& ir,
     const std::vector<ReportToken>& tokens) {
-  constexpr std::int64_t kMaxPreludeGapNs = 5'000'000;
   std::vector<PreludeCost> costs(tokens.size());
   if (tokens.empty()) {
     return costs;
@@ -223,88 +316,55 @@ std::vector<PreludeCost> compute_prelude_costs(
               return lhs->id < rhs->id;
             });
 
+  std::unordered_map<std::uint32_t, std::int64_t> first_event_start_by_device;
+  std::unordered_map<std::uint32_t, std::int64_t> last_event_end_by_device;
+  for (const TraceEventRow& event : ir.trace_events.rows()) {
+    auto first = first_event_start_by_device.find(event.device_id);
+    if (first == first_event_start_by_device.end() ||
+        event.start_ns < first->second) {
+      first_event_start_by_device[event.device_id] = event.start_ns;
+    }
+    auto last = last_event_end_by_device.find(event.device_id);
+    if (last == last_event_end_by_device.end() || event.end_ns > last->second) {
+      last_event_end_by_device[event.device_id] = event.end_ns;
+    }
+  }
+
+  std::unordered_map<std::uint32_t, std::int64_t> previous_token_end_by_device;
+  std::unordered_map<std::uint32_t, std::size_t> last_token_index_by_device;
   for (std::size_t token_index = 0; token_index < tokens.size();
        ++token_index) {
     const ReportToken& token = tokens[token_index];
+    const auto previous_found =
+        previous_token_end_by_device.find(token.device_id);
+    const auto first_event_found =
+        first_event_start_by_device.find(token.device_id);
     const std::int64_t previous_end =
-        token_index == 0 ? token.start_ns : tokens[token_index - 1].end_ns;
+        previous_found == previous_token_end_by_device.end()
+            ? (first_event_found == first_event_start_by_device.end()
+                   ? token.start_ns
+                   : first_event_found->second)
+            : previous_found->second;
     const std::int64_t prelude_start = std::min(previous_end, token.start_ns);
-    const std::int64_t prelude_end = token.start_ns;
-    if (prelude_end <= prelude_start ||
-        prelude_end - prelude_start > kMaxPreludeGapNs) {
+    costs[token_index] =
+        compute_interval_cost(ir, events, anchored_events, task_index,
+                              comm_events, token.device_id, prelude_start,
+                              token.start_ns);
+    previous_token_end_by_device[token.device_id] = token.end_ns;
+    last_token_index_by_device[token.device_id] = token_index;
+  }
+
+  for (const auto& item : last_token_index_by_device) {
+    const std::uint32_t device_id = item.first;
+    const std::size_t token_index = item.second;
+    const auto last_event_found = last_event_end_by_device.find(device_id);
+    if (last_event_found == last_event_end_by_device.end()) {
       continue;
     }
-
-    const auto lower =
-        std::lower_bound(events.begin(), events.end(), prelude_start,
-                         [](const TraceEventRow* event, std::int64_t value) {
-                           return event->start_ns < value;
-                         });
-    const auto upper =
-        std::lower_bound(events.begin(), events.end(), prelude_end,
-                         [](const TraceEventRow* event, std::int64_t value) {
-                           return event->start_ns < value;
-                         });
-
-    std::vector<std::pair<std::int64_t, std::int64_t>> active_intervals;
-    PreludeCost cost;
-    for (auto it = lower; it != upper; ++it) {
-      const TraceEventRow& event = **it;
-      if (event.device_id != token.device_id ||
-          anchored_events.find(event.id.value()) != anchored_events.end()) {
-        continue;
-      }
-      const std::int64_t overlap_start =
-          std::max(prelude_start, event.start_ns);
-      const std::int64_t overlap_end = std::min(prelude_end, event.end_ns);
-      if (overlap_end <= overlap_start) {
-        continue;
-      }
-
-      active_intervals.emplace_back(overlap_start, overlap_end);
-      const double duration_us = ns_to_us(overlap_end - overlap_start);
-      const auto task_found = task_index.find(event.id.value());
-      const TaskRow* task =
-          task_found == task_index.end() ? nullptr : task_found->second;
-      if (comm_events.find(event.id.value()) != comm_events.end() ||
-          (task != nullptr && task->comm_name_symbol_id.valid())) {
-        cost.comm_us += duration_us;
-        cost.aux_event_count += 1.0;
-        cost.aux_us += duration_us;
-      } else if (!is_wait_event(ir, event, task)) {
-        cost.exec_aux_us += duration_us;
-        cost.aux_event_count += 1.0;
-        cost.aux_us += duration_us;
-      }
-    }
-
-    std::sort(active_intervals.begin(), active_intervals.end());
-    std::int64_t active_union_ns = 0;
-    std::int64_t current_start = 0;
-    std::int64_t current_end = 0;
-    bool has_current = false;
-    for (const auto& interval : active_intervals) {
-      if (!has_current) {
-        current_start = interval.first;
-        current_end = interval.second;
-        has_current = true;
-        continue;
-      }
-      if (interval.first <= current_end) {
-        current_end = std::max(current_end, interval.second);
-        continue;
-      }
-      active_union_ns += current_end - current_start;
-      current_start = interval.first;
-      current_end = interval.second;
-    }
-    if (has_current) {
-      active_union_ns += current_end - current_start;
-    }
-
-    const double gap_us = ns_to_us(prelude_end - prelude_start);
-    cost.idle_us = std::max(0.0, gap_us - ns_to_us(active_union_ns));
-    costs[token_index] = cost;
+    const ReportToken& token = tokens[token_index];
+    costs[token_index].add(compute_interval_cost(
+        ir, events, anchored_events, task_index, comm_events, device_id,
+        token.end_ns, last_event_found->second));
   }
   return costs;
 }
