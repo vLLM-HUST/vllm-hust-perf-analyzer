@@ -302,6 +302,23 @@ LiftedKernel lift_hygon_kernel_label(const std::string& raw_label) {
   if (low.find("fused_gdn_gating_kernel") != std::string::npos) {
     return lifted_anchor("MambaGate", "fused_gdn_gating");
   }
+  if (low.find("fused_qwen35_gdn_decode_packed_kernel") !=
+      std::string::npos) {
+    return lifted_anchor("Qwen35GDNDecode", "qwen35_gdn_decode_packed");
+  }
+  if (low.find("fused_qwen35_gdn_post_norm_kernel") != std::string::npos) {
+    return lifted_anchor("Qwen35GDNPostNorm", "qwen35_gdn_post_norm");
+  }
+  if (low.find("_qwen35_flat_kv_decode_stage1_b1_direct") !=
+      std::string::npos) {
+    return lifted_anchor("Qwen35KVDecodeStage1",
+                         "qwen35_flat_kv_decode_stage1");
+  }
+  if (low.find("_qwen35_dense_kv_decode_stage2_b1_direct") !=
+      std::string::npos) {
+    return lifted_anchor("Qwen35KVDecodeStage2",
+                         "qwen35_dense_kv_decode_stage2");
+  }
 
   if (low.find("_zero_kv_blocks_kernel") != std::string::npos) {
     return lifted_aux("KVCacheInit", "KVCacheInit");
@@ -343,7 +360,7 @@ LiftedKernel lift_hygon_kernel_label(const std::string& raw_label) {
   if (contains_any(low, {"argmaxops", "sum_functor", "reduceop"})) {
     return lifted_aux("ReductionHelper", "ReductionHelper");
   }
-  return lifted_aux("Unknown", "unclassified");
+  return lifted_anchor("HygonKernel", "default_anchor_unclassified");
 }
 
 using StreamKey = std::pair<std::uint32_t, std::uint64_t>;

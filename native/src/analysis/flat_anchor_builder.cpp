@@ -206,6 +206,9 @@ bool is_semantic_anchor_task(const NativeIr& ir, const TaskRow& task) {
   if (task_type == "HIP_KERNEL_AUX") {
     return false;
   }
+  if (task_type == "HIP_KERNEL") {
+    return true;
+  }
 
   const std::string label = symbol_text(ir, choose_task_symbol(task));
   const std::string blob = lower_ascii(

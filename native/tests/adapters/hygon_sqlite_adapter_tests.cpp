@@ -52,7 +52,12 @@ void create_minimal_hygon_db(const std::string& path) {
            "(2, 'Cijk_Alik_Bljk_BBH_MT256x256x16_MI250'), "
            "(3, 'Cijk_B_PostGSU'), "
            "(4, 'chunk_local_cumsum_scalar_kernel'), "
-           "(5, 'direct_copy_kernel');"
+           "(5, 'direct_copy_kernel'), "
+           "(6, 'fused_qwen35_gdn_decode_packed_kernel'), "
+           "(7, 'fused_qwen35_gdn_post_norm_kernel'), "
+           "(8, '_qwen35_flat_kv_decode_stage1_b1_direct'), "
+           "(9, '_qwen35_dense_kv_decode_stage2_b1_direct'), "
+           "(10, 'my_custom_decode_kernel');"
            "CREATE TABLE HIPOPS_0("
            "BeginNs INTEGER, EndNs INTEGER, dev_id INTEGER, "
            "queue_id INTEGER, Name INTEGER, _Index INTEGER);"
@@ -61,14 +66,19 @@ void create_minimal_hygon_db(const std::string& path) {
            "(100, 200, 0, 7, 1, 10), "
            "(210, 250, 0, 7, 2, 11), "
            "(260, 270, 0, 7, 3, 12), "
-           "(280, 300, 0, 7, 4, 13);"
+           "(280, 300, 0, 7, 4, 13), "
+           "(310, 340, 0, 7, 6, 14), "
+           "(350, 370, 0, 7, 7, 15), "
+           "(380, 410, 0, 7, 8, 16), "
+           "(420, 450, 0, 7, 9, 17), "
+           "(460, 490, 0, 7, 10, 18);"
            "CREATE TABLE HIPCOPY_0("
            "BeginNs INTEGER, EndNs INTEGER, dev_id INTEGER, "
            "queue_id INTEGER, Kind INTEGER, _Index INTEGER, Bytes INTEGER, "
            "MemoryType INTEGER);"
            "INSERT INTO HIPCOPY_0(BeginNs, EndNs, dev_id, queue_id, Kind, "
            "_Index, Bytes, MemoryType) VALUES "
-           "(305, 315, 0, 9, 1, 20, 4096, 2);");
+           "(500, 510, 0, 9, 1, 20, 4096, 2);");
 
   sqlite3_close(db);
 }
@@ -124,9 +134,9 @@ int main() {
   require(!ir.source_refs.empty(), "adapter did not emit SourceRef rows");
   require(ir.source_refs.row(SourceRefId(0)).source_kind == "hygon_sqlite_test",
           "SourceRef source_kind mismatch");
-  require(ir.trace_events.size() == 5,
+  require(ir.trace_events.size() == 10,
           "adapter did not load HIPOPS/HIPCOPY trace events");
-  require(ir.tasks.size() == 5, "adapter did not load HIPOPS/HIPCOPY tasks");
+  require(ir.tasks.size() == 10, "adapter did not load HIPOPS/HIPCOPY tasks");
   require(ir.streams.size() == 2, "adapter did not normalize Hygon streams");
 
   require(has_task_op_type(ir, "FlashAttention"),
@@ -135,6 +145,16 @@ int main() {
           "Tensile GEMM kernel was not lifted to MatMul");
   require(has_task_op_type(ir, "MambaScan"),
           "Mamba scan kernel was not lifted to MambaScan");
+  require(has_task_op_type(ir, "Qwen35GDNDecode"),
+          "Qwen35 GDN decode kernel was not lifted to an anchor label");
+  require(has_task_op_type(ir, "Qwen35GDNPostNorm"),
+          "Qwen35 GDN post-norm kernel was not lifted to an anchor label");
+  require(has_task_op_type(ir, "Qwen35KVDecodeStage1"),
+          "Qwen35 flat KV decode stage1 was not lifted to an anchor label");
+  require(has_task_op_type(ir, "Qwen35KVDecodeStage2"),
+          "Qwen35 dense KV decode stage2 was not lifted to an anchor label");
+  require(has_task_op_type(ir, "HygonKernel"),
+          "unclassified Hygon kernel did not default to an anchor label");
   require(has_task_op_type(ir, "HygonAux:GemmEpilogue"),
           "Tensile PostGSU kernel was not classified as Hygon auxiliary");
   require(has_task_op_type(ir, "DataMove"),
@@ -145,13 +165,23 @@ int main() {
   FlatAnchorBuildConfig anchor_config;
   anchor_config.filter_auxiliary_task_anchors = true;
   const FlatAnchorBuildStats stats = build_flat_anchors(ir, anchor_config);
-  require(stats.device_event_anchors == 3,
+  require(stats.device_event_anchors == 8,
           "semantic anchor filtering should keep only compute Hygon anchors");
-  require(ir.anchors.size() == 3, "unexpected Hygon anchor count");
+  require(ir.anchors.size() == 8, "unexpected Hygon anchor count");
   require(count_anchor_label(ir, "FlashAttention") == 1,
           "FlashAttention anchor missing");
   require(count_anchor_label(ir, "MatMul") == 1, "MatMul anchor missing");
   require(count_anchor_label(ir, "MambaScan") == 1, "MambaScan anchor missing");
+  require(count_anchor_label(ir, "Qwen35GDNDecode") == 1,
+          "Qwen35GDNDecode anchor missing");
+  require(count_anchor_label(ir, "Qwen35GDNPostNorm") == 1,
+          "Qwen35GDNPostNorm anchor missing");
+  require(count_anchor_label(ir, "Qwen35KVDecodeStage1") == 1,
+          "Qwen35KVDecodeStage1 anchor missing");
+  require(count_anchor_label(ir, "Qwen35KVDecodeStage2") == 1,
+          "Qwen35KVDecodeStage2 anchor missing");
+  require(count_anchor_label(ir, "HygonKernel") == 1,
+          "default HygonKernel anchor missing");
   require(count_anchor_label(ir, "HygonAux:GemmEpilogue") == 0,
           "auxiliary Hygon kernel became an anchor");
   require(count_anchor_label(ir, "DataMove") == 0,
