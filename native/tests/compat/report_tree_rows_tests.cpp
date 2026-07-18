@@ -53,7 +53,9 @@ int main() {
   require(rows.nodes[1].repeat_count == 2);
   require(rows.nodes[1].occurrence_count == 1);
   require(rows.nodes[1].anchor_count == 2);
-  require(rows.nodes[1].avg_total_us == rows.nodes[1].total_us);
+  require(rows.nodes[1].avg_compute_us == 1.5);
+  require(rows.nodes[1].avg_idle_us == 5000.0);
+  require(rows.nodes[1].avg_total_us == 5001.5);
   require(rows.nodes[1].aux_events == 0.0);
   require(rows.nodes[1].aux_us == 0.0);
   require(rows.loop_nodes[0].node_id == rows.nodes[1].node_id);
@@ -61,6 +63,7 @@ int main() {
   require(rows.loop_nodes[0].occurrence_count == 1);
   require(rows.loop_nodes[0].idle_us == 10000.0);
   require(rows.loop_nodes[0].total_us == 10003.0);
+  require(rows.loop_nodes[0].avg_total_us == 5001.5);
 
   require(rows.nodes[2].kind == "atom");
   require(rows.nodes[2].occurrence_count == 2);
@@ -135,6 +138,7 @@ int main() {
   require(semantic_rows.nodes[1].parent_node_id == "node-N001");
   require(semantic_rows.nodes[1].node_type == "Repeat");
   require(semantic_rows.nodes[1].loop_depth == 1);
+  require(semantic_rows.nodes[1].avg_total_us == 5001.5);
   require(semantic_rows.nodes[2].parent_node_id == "node-N002");
   require(semantic_rows.nodes[2].parent_local_node_id == "N002");
   require(semantic_rows.nodes[2].self_us == 3.0);

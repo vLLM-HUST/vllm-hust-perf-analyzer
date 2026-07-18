@@ -437,8 +437,8 @@ void seed_node_event_fixture(const std::string& db_path) {
   parent.last_anchor_idx = 1;
   parent.compute_us = 10.0;
   parent.total_us = 12.0;
-  parent.avg_compute_us = 10.0;
-  parent.avg_total_us = 12.0;
+  parent.avg_compute_us = 5.0;
+  parent.avg_total_us = 6.0;
   parent.aux_events = 2.0;
   parent.aux_us = 5.5;
   rows.nodes.push_back(parent);
@@ -1019,6 +1019,7 @@ int main() {
       require(result.first_row[2] == "repeat");
       require(result.first_row[4] == "2");
       require(result.first_row[7] == "12.0" || result.first_row[7] == "12");
+      require(result.first_row[8] == "6.0" || result.first_row[8] == "6");
       require(result.first_row[9] == "5.0" || result.first_row[9] == "5");
       require(result.first_row[10] == "5.5");
     } else if (query_case.filename == "repeat-children.sql") {
@@ -1034,6 +1035,8 @@ int main() {
       require(result.first_row[1] == "repeat x2");
       require(result.first_row[2] == "0");
       require(result.first_row[3] == "1");
+      require(result.first_row[4] == "6.0" || result.first_row[4] == "6");
+      require(result.first_row[5] == "2.75");
     } else if (query_case.filename == "node-cost-breakdown.sql") {
       require(result.row_count == 1);
       require(result.first_row[0] == "N027");

@@ -75,6 +75,15 @@ std::string pad_left(std::string text, std::size_t width) {
   return text;
 }
 
+double cost_average_divisor(const compat::VizNodeSqlRow& row) {
+  double divisor =
+      static_cast<double>(row.occurrence_count == 0 ? 1 : row.occurrence_count);
+  if (row.kind == "repeat" && row.repeat_count > 0) {
+    divisor *= static_cast<double>(row.repeat_count);
+  }
+  return divisor;
+}
+
 std::uint32_t local_node_order(const std::string& local_node_id) {
   std::size_t index = 0;
   while (index < local_node_id.size() &&
@@ -307,10 +316,9 @@ void write_loop_tree_markdown(std::ostream& out,
     const std::string tree_label =
         indent + row->local_node_id +
         (row->label.empty() ? std::string() : " " + row->label);
-    const std::uint32_t occurrences =
-        row->occurrence_count == 0 ? 1 : row->occurrence_count;
-    const double avg_aux_us = row->aux_us / occurrences;
-    const double avg_self_us = row->self_us / occurrences;
+    const double average_divisor = cost_average_divisor(*row);
+    const double avg_aux_us = row->aux_us / average_divisor;
+    const double avg_self_us = row->self_us / average_divisor;
     out << pad_right(shorten(tree_label, kTreeColumnWidth), kTreeColumnWidth) << "  "
         << pad_right(shorten(row->category, kCategoryColumnWidth),
                      kCategoryColumnWidth)

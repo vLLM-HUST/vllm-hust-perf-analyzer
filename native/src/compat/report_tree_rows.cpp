@@ -641,6 +641,15 @@ std::uint32_t display_occurrence_count(const NodeAccum& accum) {
   return accum.occurrence_count == 0 ? 1 : accum.occurrence_count;
 }
 
+double cost_average_divisor(const ReportNodeDef& def,
+                            std::uint32_t occurrence_count) {
+  double divisor = static_cast<double>(occurrence_count);
+  if (def.kind == ReportNodeKind::kRepeat && def.repeat_count > 0) {
+    divisor *= static_cast<double>(def.repeat_count);
+  }
+  return divisor;
+}
+
 }  // namespace
 
 std::vector<ReportToken> build_report_tokens_from_native_ir(
@@ -710,6 +719,8 @@ NodeCoverageSqlRows build_report_tree_node_coverage_sql_rows(
   for (const ReportNodeDef& def : tree.node_defs) {
     const NodeAccum& node_accum = accum[def.id.value()];
     const std::uint32_t occurrence_count = display_occurrence_count(node_accum);
+    const double average_divisor =
+        cost_average_divisor(def, occurrence_count);
     const double total_us =
         node_accum.compute_us + node_accum.comm_us + node_accum.idle_us;
 
@@ -744,10 +755,10 @@ NodeCoverageSqlRows build_report_tree_node_coverage_sql_rows(
     row.comm_us = node_accum.comm_us;
     row.idle_us = node_accum.idle_us;
     row.total_us = total_us;
-    row.avg_compute_us = node_accum.compute_us / occurrence_count;
-    row.avg_comm_us = node_accum.comm_us / occurrence_count;
-    row.avg_idle_us = node_accum.idle_us / occurrence_count;
-    row.avg_total_us = total_us / occurrence_count;
+    row.avg_compute_us = node_accum.compute_us / average_divisor;
+    row.avg_comm_us = node_accum.comm_us / average_divisor;
+    row.avg_idle_us = node_accum.idle_us / average_divisor;
+    row.avg_total_us = total_us / average_divisor;
     row.self_us = node_accum.self_us;
     row.aux_events = node_accum.aux_event_count;
     row.aux_us = node_accum.aux_us;
@@ -766,7 +777,7 @@ NodeCoverageSqlRows build_report_tree_node_coverage_sql_rows(
       loop.anchor_count =
           static_cast<std::uint32_t>(node_accum.token_ordinals.size());
       loop.total_us = total_us;
-      loop.avg_total_us = total_us / occurrence_count;
+      loop.avg_total_us = total_us / average_divisor;
       loop.compute_us = node_accum.compute_us;
       loop.comm_us = node_accum.comm_us;
       loop.idle_us = node_accum.idle_us;
@@ -928,6 +939,8 @@ SemanticTreeSqlRows build_report_tree_semantic_sql_rows(
   for (const ReportNodeDef& def : tree.node_defs) {
     const NodeAccum& node_accum = accum[def.id.value()];
     const std::uint32_t occurrence_count = display_occurrence_count(node_accum);
+    const double average_divisor =
+        cost_average_divisor(def, occurrence_count);
     const double total_us =
         node_accum.compute_us + node_accum.comm_us + node_accum.idle_us;
     const auto occurrence_found = first_occurrences.find(def.id.value());
@@ -963,10 +976,10 @@ SemanticTreeSqlRows build_report_tree_semantic_sql_rows(
     row.comm_us = node_accum.comm_us;
     row.idle_us = node_accum.idle_us;
     row.total_us = total_us;
-    row.avg_compute_us = node_accum.compute_us / occurrence_count;
-    row.avg_comm_us = node_accum.comm_us / occurrence_count;
-    row.avg_idle_us = node_accum.idle_us / occurrence_count;
-    row.avg_total_us = total_us / occurrence_count;
+    row.avg_compute_us = node_accum.compute_us / average_divisor;
+    row.avg_comm_us = node_accum.comm_us / average_divisor;
+    row.avg_idle_us = node_accum.idle_us / average_divisor;
+    row.avg_total_us = total_us / average_divisor;
     row.self_us = node_accum.self_us;
     row.aux_event_count = node_accum.aux_event_count;
     row.aux_us = node_accum.aux_us;

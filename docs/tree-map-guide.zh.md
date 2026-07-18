@@ -37,8 +37,8 @@ aux 是被归因到后续 anchor 的前置或辅助成本，例如等待、runti
 | `label` | 节点标签。可能是算子名、通信名、`Seq[...]` 或 `Repeat xN`。 | 用来识别热点结构和算子类型。 |
 | `depth` | 树深度。0 是根，数字越大越靠近内部循环或具体算子。 | 结合 `Repeat xN` 判断循环层级。 |
 | `occ` | 这个 tree node 在展开 timeline 里出现了多少次。 | 估计该节点是单个结构节点还是循环 body 中反复出现的节点。 |
-| `avg_total_us` | 单次 node occurrence 的平均总成本。 | 看一次执行有多贵。 |
-| `avg_aux_us` | 单次 occurrence 平均辅助成本。 | 判断 launch、等待、前置准备等是否值得继续查。 |
+| `avg_total_us` | 普通节点是单次 occurrence 平均成本；Repeat 节点是单次 body iteration 平均成本。 | 和循环体节点直接比较单次执行成本。 |
+| `avg_aux_us` | 与 `avg_total_us` 使用相同分母的平均辅助成本。 | 判断 launch、等待、前置准备等是否值得继续查。 |
 | `total_us` | 该 node 所有 occurrence 的总成本。 | 用来排序热点，决定优先分析对象。 |
 
 注意 `Repeat x47` 这种节点本身通常 `occ=1`，表示它是一个被压缩后的循环结构节点；它下面的 body 节点可能 `occ=47`，表示这个算子在展开执行中出现了 47 次。也就是说，`occ` 统计的是当前 node 的 occurrence，不是 anchor 数量。
@@ -135,8 +135,9 @@ traceloom report /path/to/traceloom/db01.traceloom_augmented.db \
   重叠时它可以大于 `total_us`。`self_us` 同样保留原始 leaf anchor 耗时，
   不用于相加得到 `total_us`。
 - `occurrence_count` 是 tree node 实际展开出现的次数；Repeat 的
-  `repeat_count` 是单次 Repeat occurrence 内 body 的重复因子。所有平均值
-  都除以 `occurrence_count`，不会拿 `repeat_count` 代替 occurrence。
+  `repeat_count` 是单次 Repeat occurrence 内 body 的重复因子。Repeat 的
+  成本平均值除以 `occurrence_count * repeat_count`，表示一次 body iteration；
+  普通节点仍然只除以 `occurrence_count`。
 
 ## 让 agent 帮忙做后续分析
 

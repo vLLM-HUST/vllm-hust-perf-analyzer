@@ -182,8 +182,10 @@ The additive node cost is wall-clock based:
 
 `occurrence_count` counts actual expanded structural occurrences of a node.
 For a Repeat node, `repeat_count` instead describes how many times its body is
-expanded inside one Repeat occurrence. Averages always divide by
-`occurrence_count`, never by `repeat_count`.
+expanded inside one Repeat occurrence. Cost averages for a Repeat node divide
+by `occurrence_count * repeat_count`, so they represent one body iteration and
+can be compared directly with body-node averages. Other nodes divide by
+`occurrence_count`.
 
 ### `traceloom_semantic_edge`
 
