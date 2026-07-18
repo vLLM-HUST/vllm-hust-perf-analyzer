@@ -33,8 +33,9 @@ shape. For that, use the curated package under
 From the repository root:
 
 ```bash
-python3 -m pip install -e .
-traceloom analyze examples/kickstart_smoke/msprof_raw
+cmake --preset dev
+cmake --build --preset dev -j "$(nproc)"
+build/native/native/traceloom examples/kickstart_smoke/msprof_raw
 ```
 
 TraceLoom writes the analysis back into:
@@ -43,7 +44,7 @@ TraceLoom writes the analysis back into:
 examples/kickstart_smoke/msprof_raw/traceloom/
 ```
 
-Start with `summary.md`, then open `tree-map.md`.
+Open `device0_loop_tree_v2.md` and `device1_loop_tree_v2.md` first.
 
 ## What To Look For
 

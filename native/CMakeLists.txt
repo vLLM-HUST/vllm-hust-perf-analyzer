@@ -154,24 +154,6 @@ if(TRACELOOM_NATIVE_ASCEND_SQLITE_AVAILABLE)
     traceloom-native-ascend-sqlite-inventory PRIVATE traceloom_native_adapters
   )
 
-  add_executable(traceloom-native-analyze-db
-    src/tools/analyze_db_main.cpp
-  )
-  target_link_libraries(
-    traceloom-native-analyze-db PRIVATE
-    traceloom_native_adapters
-    traceloom_native_materialize
-  )
-
-  add_executable(traceloom-native
-    src/tools/analyze_db_main.cpp
-  )
-  target_link_libraries(
-    traceloom-native PRIVATE
-    traceloom_native_adapters
-    traceloom_native_materialize
-  )
-
   add_executable(traceloom
     src/tools/analyze_db_main.cpp
   )
@@ -181,22 +163,12 @@ if(TRACELOOM_NATIVE_ASCEND_SQLITE_AVAILABLE)
     traceloom_native_materialize
   )
 
-  foreach(
-    cli_target
-    IN ITEMS traceloom-native-analyze-db traceloom-native traceloom
+  target_compile_definitions(
+    traceloom PRIVATE TRACELOOM_NATIVE_VERSION="${PROJECT_VERSION}"
   )
-    target_compile_definitions(
-      ${cli_target}
-      PRIVATE TRACELOOM_NATIVE_VERSION="${PROJECT_VERSION}"
-    )
-  endforeach()
 
   install(
-    TARGETS
-      traceloom-native-analyze-db
-      traceloom-native-ascend-sqlite-inventory
-      traceloom-native
-      traceloom
+    TARGETS traceloom
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
   )
 

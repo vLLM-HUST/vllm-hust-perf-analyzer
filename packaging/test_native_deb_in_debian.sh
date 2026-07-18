@@ -18,11 +18,11 @@ package=$(find "$build_dir" -maxdepth 1 -name 'traceloom-native_*.deb' -print -q
 test -n "$package"
 dpkg -i "$package"
 
-traceloom-native-analyze-db --version
-traceloom-native-analyze-db --help
+traceloom --version
+traceloom --help
 
 sample=examples/kickstart_smoke/msprof_raw/PROF_000001_20260609064648517_AJJGNKPPJMEGGLFA/msprof_20260609064817.db
-traceloom-native-analyze-db "$sample" \
+traceloom "$sample" \
   --threads 2 \
   --loop-tree-out /tmp/loop_tree_v2.md \
   --out /tmp/native_result.json
@@ -30,7 +30,8 @@ test -s /tmp/loop_tree_v2.md
 test -s /tmp/native_result.json
 
 dpkg -r traceloom-native
-if command -v traceloom-native-analyze-db >/dev/null 2>&1; then
-  echo "traceloom-native-analyze-db remains installed after package removal" >&2
+hash -r 2>/dev/null || true
+if command -v traceloom >/dev/null 2>&1; then
+  echo "traceloom remains installed after package removal" >&2
   exit 1
 fi

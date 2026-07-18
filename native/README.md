@@ -19,13 +19,12 @@ cpack --config build/traceloom-native-package/CPackConfig.cmake \
 sudo apt install ./build/traceloom-native-package/traceloom-native_*.deb
 ```
 
-The package installs the stable entry point
-`/usr/bin/traceloom-native-analyze-db`, together with the shorter
-`traceloom-native` and `traceloom` aliases. Verify the installation with:
+The package installs one stable entry point: `/usr/bin/traceloom`. Verify the
+installation with:
 
 ```bash
-traceloom-native-analyze-db --version
-traceloom-native-analyze-db --help
+traceloom --version
+traceloom --help
 ```
 
 Remove it with:
@@ -97,10 +96,11 @@ Some deep regression tests use external design fixtures from the larger
 research workspace. Fresh standalone clones skip those tests when the fixtures
 are not present; normal unit tests still run.
 
-The compatibility/debug tools remain available for development:
+Advanced analyzer output and the inventory tool remain available for
+development:
 
 ```bash
-build/native/native/traceloom-native-analyze-db \
+build/native/native/traceloom \
   --source-db examples/kickstart_smoke/msprof_raw/.../msprof_*.db \
   --out native_result.json
 

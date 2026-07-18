@@ -221,11 +221,9 @@ statistics relation. Use `traceloom_viz_node_anchor` for node cost queries.
 
 ### `traceloom_collective_global_link`
 
-Optional cross-device collective tags written by:
-
-```bash
-traceloom collective-tag <analysis_dir>
-```
+Optional cross-device collective tags. The native analyzer reserves this table
+for external correlation tooling; the installed `traceloom` command does not
+run a separate collective-tagging workflow.
 
 This table is local to each sidecar DB. It maps a local collective anchor to a
 candidate run-level collective key. The key is structural evidence, not a final
@@ -323,7 +321,7 @@ order by na.occurrence_idx, na.anchor_order;
 
 ## Cross-Device Collective Summary
 
-`traceloom collective-tag` also writes a run-level database:
+External cross-device correlation tooling may write a run-level database:
 
 ```text
 <analysis_dir>/global_collectives.db

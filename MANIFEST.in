@@ -1,3 +1,0 @@
-include README.md README.zh.md LICENSE
-recursive-include docs *
-recursive-include examples *

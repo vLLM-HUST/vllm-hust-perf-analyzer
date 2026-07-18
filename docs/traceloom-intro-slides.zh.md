@@ -52,27 +52,26 @@ queries/node-cost-breakdown.sql
 
 # 怎么用
 
-开发模式安装：
+开发模式构建：
 
 ```bash
 cd traceloom
-python3 -m pip install -e .
+cmake --preset dev
+cmake --build --preset dev -j "$(nproc)"
 ```
 
 分析已有 `msprof` 产物：
 
 ```bash
-traceloom analyze /path/to/msprof_raw
+build/native/native/traceloom /path/to/msprof_raw
 ```
 
 默认输出：
 
 ```text
 /path/to/msprof_raw/traceloom/
-  tree-map.md
-  summary.md
-  db01.traceloom_augmented.db
-  queries/*.sql
+  device0_loop_tree_v2.md
+  device1_loop_tree_v2.md
 ```
 
 推荐读法：从 `tree-map.md` 复制 node id，例如 `N060`，再用 SQL 查询对应区间里的事件和成本构成。

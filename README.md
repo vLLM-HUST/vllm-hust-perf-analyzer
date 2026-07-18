@@ -3,7 +3,7 @@
 [中文说明](README.zh.md)
 
 ![Status](https://img.shields.io/badge/status-alpha-orange)
-![Python](https://img.shields.io/badge/python-3.10%2B-blue)
+[![C++](https://img.shields.io/badge/C%2B%2B-17-blue.svg)](native/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 Structured trace analysis framework for Ascend inference runtime traces.
@@ -155,7 +155,7 @@ cmake --build build/traceloom-native-package -j "$(nproc)"
 cpack --config build/traceloom-native-package/CPackConfig.cmake \
   -B build/traceloom-native-package
 sudo apt install ./build/traceloom-native-package/traceloom-native_*.deb
-traceloom-native-analyze-db --version
+traceloom --version
 ```
 
 See [the native analyzer guide](native/README.md) for package removal and
@@ -265,22 +265,6 @@ Use `--threads` when you want to control native parallelism:
 traceloom /path/to/msprof_output --threads 48
 ```
 
-The older Python command is retained for legacy bundle generation, SQL
-drill-down surfaces, and non-native backend work:
-
-```bash
-python3 -m pip install -e .
-traceloom analyze /path/to/msprof_output
-```
-
-If editable install fails on an older system Python with a `build_editable`
-message, upgrade the user-local build tools and retry:
-
-```bash
-python3 -m pip install --user --upgrade pip setuptools wheel
-python3 -m pip install --user -e .
-```
-
 For large shared experiment repositories, especially when raw `msprof` output
 is tracked by Git LFS, restore the raw artifact first and run native TraceLoom
 on the restored profiler directory:
@@ -291,26 +275,10 @@ git lfs fsck --objects
 traceloom experiments/profiler/exp_001/profiler/msprof
 ```
 
-The Python compatibility route still supports older options such as
-`--out-dir`, `--top-devices-global`, `--devices`, `--kernel-role-file`, and
-`--output-mode full`.
-
-Tag candidate cross-device collectives after a Python compatibility analysis
-run:
+For local development without installation, run the built binary directly:
 
 ```bash
-traceloom collective-tag /path/to/msprof_output/traceloom
-```
-
-This writes `global_collectives.db`, `collective_summary.md`, and a
-`traceloom_collective_global_link` table in each augmented sidecar DB. The
-candidate key is based on matched repeat-loop position, occurrence index,
-normalized collective type, and order inside the occurrence.
-
-For local development without installation:
-
-```bash
-PYTHONPATH="$PWD" python3 -m traceloom analyze <run_dir-or-raw-msprof-dir>
+build/native/native/traceloom <run_dir-or-raw-msprof-dir>
 ```
 
 ## Example Workflow
@@ -339,11 +307,9 @@ TraceLoom is organized as a layered offline analysis pipeline:
   structure.
 - Attribution layer: separates anchor kernels from auxiliary/prelude work and
   attaches cost to loop nodes.
-- Report layer: writes native Loop Tree Markdown reports, with compatibility
-  bundle and SQL report surfaces still available for legacy workflows.
-- CLI layer: exposes the native `traceloom <input>` command. Legacy Python
-  commands such as `traceloom analyze`, `traceloom report`, and
-  `traceloom collective-tag` remain for compatibility workflows.
+- Report layer: writes native Loop Tree Markdown and optional SQLite/JSON
+  evidence artifacts.
+- CLI layer: exposes the single `traceloom <input>` command.
 
 See [docs/architecture.md](docs/architecture.md).
 
@@ -356,35 +322,17 @@ The native default output is intentionally small:
 - `deviceN_loop_tree_v2.md`: one report per discovered DB/device when the input
   is a Huawei profiler bundle directory.
 
-The Python compatibility bundle is retained for legacy SQL drill-down and
-non-native backend work. It can include:
+Use `traceloom --help-advanced` to request optional native result JSON,
+grammar diagnostics, or a compatibility SQLite sidecar for SQL drill-down.
 
-- `dbNN.traceloom_augmented.db`: one augmented SQLite sidecar per discovered
-  `msprof` DB. The original profiler tables remain intact; TraceLoom adds
-  `traceloom_*` tables and views.
-- `README.md`: generated instructions for inspecting the bundle.
-- `summary.md`: selected devices and top loop costs.
-- `tree-map.md`: readable node-cost map. Copy a node id such as `N027` into
-  SQL queries for drill-down.
-- `aclgraph_summary.md`: Ascend ACLGraph reconstruction summary when the input
-  profile contains graph capture stream metadata and graph semantic TASK rows.
-- `queries/*.sql`: starter report queries.
-- `meta.json`: analyzer parameters and generated paths.
-
-Running `traceloom collective-tag` on the bundle adds:
-
-- `global_collectives.db`: run-level candidate collective summary.
-- `collective_summary.md`: readable completeness and skew report.
-- `traceloom_collective_global_link`: local anchor-to-candidate mapping table
-  in each augmented DB.
-
-Run SQL reports directly from an augmented DB:
+Query an optional compatibility sidecar with any SQLite client:
 
 ```bash
-traceloom report /path/to/msprof_output/traceloom/db01.traceloom_augmented.db \
-  --sql /path/to/msprof_output/traceloom/queries/repeat-overview.sql \
-  --format md \
-  -o /tmp/repeat-overview.md
+traceloom /path/to/msprof.db \
+  --compat-db-out /tmp/traceloom-sidecar.db \
+  --loop-tree-out /tmp/loop_tree_v2.md
+sqlite3 /tmp/traceloom-sidecar.db \
+  'select * from traceloom_v_tree_node order by total_us desc limit 20'
 ```
 
 Useful query surfaces include:
