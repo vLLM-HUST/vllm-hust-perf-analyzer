@@ -5,16 +5,29 @@ TraceLoom analyzes profiler output produced outside the tool.
 ## Ascend/CANN
 
 Current supported input is CANN `msprof` SQLite output. TraceLoom discovers DBs
-from either layout:
+from monolithic and split layouts:
 
 ```text
 <run_dir>/msprof_raw/PROF_*/msprof_*.db
 <raw_dir>/PROF_*/msprof_*.db
+<raw_dir>/PROF_*/host/sqlite/*.db
+<raw_dir>/PROF_*/device_*/sqlite/*.db
 ```
 
-The analyzer expects the profile DBs to contain task and string metadata. When
-Huawei communication tables are available, collective anchors are built from
-them; otherwise the analyzer falls back to task coalescing.
+For each `PROF_*` directory, the native analyzer prefers a monolithic DB with a
+nonempty `TASK` table. If it is absent or unusable, TraceLoom reports a warning
+and normalizes the split `AscendTask`, `TaskInfo`, `HostTask`, and `ApiData`
+tables instead. The inventory command shows every discovered split table,
+schema source, and row count:
+
+```bash
+traceloom-native-ascend-sqlite-inventory /path/to/PROF_...
+```
+
+The first split-SQLite stage provides the base device timeline and summary.
+Fine-grained split communication, graph replay, and PMU attribution remain
+incremental; monolithic profiles continue to provide those enrichments when
+their corresponding tables are available.
 
 ## CUDA/Nsight
 

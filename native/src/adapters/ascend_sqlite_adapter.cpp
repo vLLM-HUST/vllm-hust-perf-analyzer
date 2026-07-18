@@ -149,6 +149,32 @@ bool file_exists(const std::string& path) {
   return input.good();
 }
 
+std::string quote_identifier(const std::string& value) {
+  std::string out = "\"";
+  for (char ch : value) {
+    if (ch == '\"') {
+      out += "\"\"";
+    } else {
+      out += ch;
+    }
+  }
+  out += "\"";
+  return out;
+}
+
+bool sqlite_table_has_rows(const std::string& path,
+                           const std::string& table_name) {
+  try {
+    SqliteDb db(path);
+    const std::string sql = "SELECT 1 FROM " + quote_identifier(table_name) +
+                            " LIMIT 1";
+    SqliteStmt stmt(db.get(), sql.c_str());
+    return sqlite3_step(stmt.get()) == SQLITE_ROW;
+  } catch (const std::exception&) {
+    return false;
+  }
+}
+
 struct ComputeInfo {
   SymbolId op_name_symbol_id = SymbolId::invalid();
   SymbolId op_type_symbol_id = SymbolId::invalid();
@@ -1777,7 +1803,410 @@ void materialize_aclgraph_replay_units(
   }
 }
 
+std::vector<std::string> split_sqlite_db_paths(const std::string& profile_dir) {
+  namespace fs = std::filesystem;
+  std::vector<std::string> paths;
+  std::error_code ec;
+  const fs::path root(profile_dir);
+  if (!fs::is_directory(root, ec)) {
+    return paths;
+  }
+  fs::recursive_directory_iterator iterator(
+      root, fs::directory_options::skip_permission_denied, ec);
+  const fs::recursive_directory_iterator end;
+  while (!ec && iterator != end) {
+    const fs::path path = iterator->path();
+    if (iterator->is_regular_file(ec) && path.extension() == ".db" &&
+        path.parent_path().filename() == "sqlite") {
+      paths.push_back(path.string());
+    }
+    iterator.increment(ec);
+  }
+  std::sort(paths.begin(), paths.end());
+  return paths;
+}
+
+std::vector<AscendSplitSQLiteTableInfo> inventory_split_profile_impl(
+    const std::string& profile_dir) {
+  std::vector<AscendSplitSQLiteTableInfo> inventory;
+  for (const std::string& path : split_sqlite_db_paths(profile_dir)) {
+    SqliteDb db(path);
+    SqliteStmt tables(
+        db.get(),
+        "SELECT name, COALESCE(sql, '') FROM sqlite_master "
+        "WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name");
+    while (true) {
+      const int rc = sqlite3_step(tables.get());
+      if (rc == SQLITE_DONE) {
+        break;
+      }
+      if (rc != SQLITE_ROW) {
+        throw std::runtime_error("failed to inventory split SQLite DB: " +
+                                 path + ": " + sqlite3_errmsg(tables.db()));
+      }
+      AscendSplitSQLiteTableInfo info;
+      info.db_path = path;
+      info.table_name = sqlite_text(tables.get(), 0);
+      info.create_sql = sqlite_text(tables.get(), 1);
+      const std::string count_sql =
+          "SELECT COUNT(*) FROM " + quote_identifier(info.table_name);
+      SqliteStmt count(db.get(), count_sql.c_str());
+      if (sqlite3_step(count.get()) == SQLITE_ROW) {
+        info.row_count = sqlite_u64(count.get(), 0);
+      }
+      inventory.push_back(std::move(info));
+    }
+  }
+  return inventory;
+}
+
+const AscendSplitSQLiteTableInfo* find_split_table(
+    const std::vector<AscendSplitSQLiteTableInfo>& inventory,
+    const std::string& table_name) {
+  const auto found = std::find_if(
+      inventory.begin(), inventory.end(), [&](const auto& info) {
+        return info.table_name == table_name;
+      });
+  return found == inventory.end() ? nullptr : &*found;
+}
+
+std::vector<const AscendSplitSQLiteTableInfo*> find_split_tables(
+    const std::vector<AscendSplitSQLiteTableInfo>& inventory,
+    const std::string& table_name) {
+  std::vector<const AscendSplitSQLiteTableInfo*> out;
+  for (const auto& info : inventory) {
+    if (info.table_name == table_name) {
+      out.push_back(&info);
+    }
+  }
+  return out;
+}
+
+struct SplitTaskKey {
+  std::uint32_t device_id = 0;
+  std::uint64_t stream_id = 0;
+  std::uint64_t task_id = 0;
+  std::uint64_t context_id = 0;
+
+  bool operator==(const SplitTaskKey& other) const noexcept {
+    return device_id == other.device_id && stream_id == other.stream_id &&
+           task_id == other.task_id && context_id == other.context_id;
+  }
+};
+
+struct SplitTaskKeyHash {
+  std::size_t operator()(const SplitTaskKey& key) const noexcept {
+    std::size_t hash = key.device_id;
+    hash = hash * 1315423911u + static_cast<std::size_t>(key.stream_id);
+    hash = hash * 1315423911u + static_cast<std::size_t>(key.task_id);
+    hash = hash * 1315423911u + static_cast<std::size_t>(key.context_id);
+    return hash;
+  }
+};
+
+struct SplitComputeInfo {
+  ComputeInfo symbols;
+  std::int64_t synthetic_global_task_id = -1;
+};
+
+using SplitComputeIndex =
+    std::unordered_map<SplitTaskKey, SplitComputeInfo, SplitTaskKeyHash>;
+
+SplitComputeIndex load_split_task_info(
+    const AscendSplitSQLiteTableInfo* table,
+    NativeIr& ir) {
+  SplitComputeIndex out;
+  if (table == nullptr) {
+    return out;
+  }
+  SqliteDb db(table->db_path);
+  SqliteStmt stmt(
+      db.get(),
+      "SELECT rowid, device_id, stream_id, task_id, context_id, op_name, "
+      "op_type, task_type FROM TaskInfo ORDER BY rowid");
+  while (true) {
+    const int rc = sqlite3_step(stmt.get());
+    if (rc == SQLITE_DONE) {
+      break;
+    }
+    if (rc != SQLITE_ROW) {
+      throw std::runtime_error("failed to load split TaskInfo: " +
+                               std::string(sqlite3_errmsg(stmt.db())));
+    }
+    SplitComputeInfo info;
+    info.synthetic_global_task_id = sqlite_i64(stmt.get(), 0, 0) - 1;
+    info.symbols.op_name_symbol_id =
+        ir.symbols.intern(sqlite_text(stmt.get(), 5));
+    info.symbols.op_type_symbol_id =
+        ir.symbols.intern(sqlite_text(stmt.get(), 6));
+    info.symbols.compute_task_type_symbol_id =
+        ir.symbols.intern(sqlite_text(stmt.get(), 7));
+    out.emplace(SplitTaskKey{sqlite_u32(stmt.get(), 1),
+                             sqlite_u64(stmt.get(), 2),
+                             sqlite_u64(stmt.get(), 3),
+                             sqlite_u64(stmt.get(), 4)},
+                info);
+  }
+  return out;
+}
+
+std::unordered_map<std::int64_t, std::string> load_split_host_task_types(
+    const AscendSplitSQLiteTableInfo* table) {
+  std::unordered_map<std::int64_t, std::string> out;
+  if (table == nullptr) {
+    return out;
+  }
+  SqliteDb db(table->db_path);
+  SqliteStmt stmt(db.get(),
+                  "SELECT connection_id, task_type FROM HostTask "
+                  "WHERE connection_id IS NOT NULL ORDER BY rowid");
+  while (true) {
+    const int rc = sqlite3_step(stmt.get());
+    if (rc == SQLITE_DONE) {
+      break;
+    }
+    if (rc != SQLITE_ROW) {
+      throw std::runtime_error("failed to load split HostTask: " +
+                               std::string(sqlite3_errmsg(stmt.db())));
+    }
+    out.emplace(sqlite_i64(stmt.get(), 0), sqlite_text(stmt.get(), 1));
+  }
+  return out;
+}
+
+AclGraphCannApiMetadata load_split_aclgraph_api_metadata(
+    const AscendSplitSQLiteTableInfo* table) {
+  AclGraphCannApiMetadata metadata;
+  if (table == nullptr) {
+    return metadata;
+  }
+  SqliteDb db(table->db_path);
+  SqliteStmt stmt(
+      db.get(),
+      "SELECT start, end, connection_id, id FROM ApiData "
+      "WHERE start IS NOT NULL AND end IS NOT NULL AND end > start "
+      "ORDER BY start, end, rowid");
+  std::vector<CaptureInterval> begin_markers;
+  std::vector<CaptureInterval> end_markers;
+  std::vector<CaptureTokenCandidate> token_candidates;
+  while (true) {
+    const int rc = sqlite3_step(stmt.get());
+    if (rc == SQLITE_DONE) {
+      break;
+    }
+    if (rc != SQLITE_ROW) {
+      throw std::runtime_error("failed to load split ApiData: " +
+                               std::string(sqlite3_errmsg(stmt.db())));
+    }
+    const std::int64_t start_ns = sqlite_i64(stmt.get(), 0, 0) * 10;
+    const std::int64_t end_ns = sqlite_i64(stmt.get(), 1, 0) * 10;
+    const std::int64_t connection_id = sqlite_i64(stmt.get(), 2, 0);
+    const std::string name = sqlite_text(stmt.get(), 3);
+    if (name == "aclmdlRIExecuteAsync") {
+      metadata.execute_launches.push_back(
+          GraphLaunchView{start_ns, end_ns, connection_id});
+    } else if (name == "aclmdlRICaptureBegin") {
+      begin_markers.push_back(CaptureInterval{start_ns, end_ns});
+    } else if (name == "aclmdlRICaptureEnd") {
+      end_markers.push_back(CaptureInterval{start_ns, end_ns});
+    }
+    const std::string token = capture_host_api_token(name);
+    if (!token.empty()) {
+      token_candidates.push_back(
+          CaptureTokenCandidate{start_ns, end_ns, token});
+    }
+  }
+  const std::vector<CaptureInterval> intervals =
+      build_capture_intervals(std::move(begin_markers), std::move(end_markers));
+  metadata.capture_slots =
+      build_aclgraph_capture_slots(intervals, std::move(token_candidates));
+  return metadata;
+}
+
+struct SplitRawTask {
+  RawTaskRow row;
+  SourceRefId source_ref;
+  SymbolId task_type_symbol;
+  SplitComputeInfo compute;
+};
+
+std::uint32_t split_device_id_from_path(const std::string& db_path) {
+  const std::string directory = std::filesystem::path(db_path)
+                                    .parent_path()
+                                    .parent_path()
+                                    .filename()
+                                    .string();
+  static const std::string prefix = "device_";
+  if (directory.rfind(prefix, 0) != 0) {
+    return 0;
+  }
+  try {
+    return static_cast<std::uint32_t>(
+        std::stoul(directory.substr(prefix.size())));
+  } catch (const std::exception&) {
+    return 0;
+  }
+}
+
+NativeIr load_split_profile(const AscendSQLiteAdapterOptions& options) {
+  const std::vector<AscendSplitSQLiteTableInfo> inventory =
+      inventory_split_profile_impl(options.db_path);
+  const std::vector<const AscendSplitSQLiteTableInfo*> task_tables =
+      find_split_tables(inventory, "AscendTask");
+  if (task_tables.empty()) {
+    throw std::invalid_argument(
+        "split SQLite profile is missing required "
+        "device_*/sqlite/ascend_task.db:AscendTask table: " +
+        options.db_path);
+  }
+
+  std::vector<std::string> missing_optional;
+  for (const char* table_name : {"ApiData", "HostTask", "TaskInfo"}) {
+    if (find_split_table(inventory, table_name) == nullptr) {
+      missing_optional.push_back(table_name);
+    }
+  }
+  std::cerr << "warning: using Ascend split SQLite fallback: "
+            << options.db_path;
+  if (!missing_optional.empty()) {
+    std::cerr << " (missing optional tables:";
+    for (const std::string& table_name : missing_optional) {
+      std::cerr << " " << table_name;
+    }
+    std::cerr << ")";
+  }
+  std::cerr << '\n';
+
+  NativeIr ir;
+  std::unordered_map<std::string, SourceRefId> table_refs;
+  for (const auto& info : inventory) {
+    const SourceRefId source_ref = ir.source_refs.append(
+        options.source_kind, info.db_path, info.table_name, 0);
+    table_refs.emplace(info.db_path + "\n" + info.table_name, source_ref);
+    if (options.timing_diagnostics) {
+      std::cerr << "split_inventory db=" << info.db_path
+                << " table=" << info.table_name
+                << " rows=" << info.row_count << '\n';
+    }
+  }
+
+  const SplitComputeIndex compute_info =
+      load_split_task_info(find_split_table(inventory, "TaskInfo"), ir);
+  const auto host_task_types =
+      load_split_host_task_types(find_split_table(inventory, "HostTask"));
+  std::vector<SplitRawTask> raw_tasks;
+  for (const AscendSplitSQLiteTableInfo* table : task_tables) {
+    const std::uint32_t table_device_id =
+        split_device_id_from_path(table->db_path);
+    const SourceRefId source_ref =
+        table_refs.at(table->db_path + "\n" + table->table_name);
+    SqliteDb db(table->db_path);
+    SqliteStmt stmt(
+        db.get(),
+        "SELECT rowid, start_time, duration, device_task_type, stream_id, "
+        "task_id, context_id, connection_id, host_task_type "
+        "FROM AscendTask WHERE start_time >= 0 AND duration >= 0 "
+        "ORDER BY start_time, stream_id, task_id, context_id, rowid");
+    while (true) {
+      const int rc = sqlite3_step(stmt.get());
+      if (rc == SQLITE_DONE) {
+        break;
+      }
+      if (rc != SQLITE_ROW) {
+        throw std::runtime_error("failed to load split AscendTask: " +
+                                 std::string(sqlite3_errmsg(stmt.db())));
+      }
+      const std::int64_t start_ns = sqlite_i64(stmt.get(), 1, 0);
+      const std::int64_t duration_ns = sqlite_i64(stmt.get(), 2, 0);
+      const std::string device_task_type = sqlite_text(stmt.get(), 3);
+      const std::uint64_t stream_id = sqlite_u64(stmt.get(), 4);
+      const std::uint64_t task_id = sqlite_u64(stmt.get(), 5);
+      const std::uint64_t context_id = sqlite_u64(stmt.get(), 6);
+      const std::int64_t connection_id = sqlite_i64(stmt.get(), 7);
+      std::string host_task_type = sqlite_text(stmt.get(), 8);
+      const auto host_found = host_task_types.find(connection_id);
+      if (host_task_type.empty() && host_found != host_task_types.end()) {
+        host_task_type = host_found->second;
+      }
+      if (host_task_type.empty()) {
+        host_task_type = device_task_type;
+      }
+      const SplitTaskKey key{table_device_id, stream_id, task_id, context_id};
+      SplitComputeInfo compute;
+      auto compute_found = compute_info.find(key);
+      if (compute_found != compute_info.end()) {
+        compute = compute_found->second;
+      }
+      raw_tasks.push_back(SplitRawTask{
+          RawTaskRow{sqlite_u64(stmt.get(), 0), start_ns,
+                     start_ns + duration_ns, table_device_id, stream_id, task_id,
+                     compute.synthetic_global_task_id, connection_id, -1},
+          source_ref, ir.symbols.intern(host_task_type), compute});
+    }
+  }
+  std::sort(raw_tasks.begin(), raw_tasks.end(),
+            [](const SplitRawTask& lhs, const SplitRawTask& rhs) {
+              return raw_task_row_less(lhs.row, rhs.row);
+            });
+
+  StreamIndex streams;
+  for (const SplitRawTask& raw : raw_tasks) {
+    const StreamId stream = find_or_append_stream(
+        streams, ir, raw.source_ref, raw.row.device_id, raw.row.raw_stream_id);
+    const TraceEventId event = ir.trace_events.append(
+        raw.source_ref, raw.row.row_id, raw.row.device_id,
+        ir.streams.row(stream).raw_stream_id, raw.row.start_ns, raw.row.end_ns,
+        raw.task_type_symbol);
+    ir.tasks.append(raw.source_ref, event, raw.row.raw_task_id,
+                    raw.row.raw_global_task_id, raw.row.raw_connection_id,
+                    raw.task_type_symbol, raw.compute.symbols.op_name_symbol_id,
+                    raw.compute.symbols.op_type_symbol_id,
+                    raw.compute.symbols.compute_task_type_symbol_id,
+                    SymbolId::invalid());
+  }
+
+  // Parse the split host API metadata now so schema/unit drift fails clearly.
+  // Graph replay and communication attribution need additional split-only
+  // clocks and are intentionally left to the incremental attribution model.
+  (void)load_split_aclgraph_api_metadata(
+      find_split_table(inventory, "ApiData"));
+  return ir;
+}
+
 }  // namespace
+
+bool ascend_sqlite_has_usable_task_table(const std::string& db_path) {
+  return file_exists(db_path) && sqlite_table_has_rows(db_path, "TASK");
+}
+
+bool looks_like_ascend_split_sqlite_profile(const std::string& profile_dir) {
+  namespace fs = std::filesystem;
+  std::error_code ec;
+  const fs::path root(profile_dir);
+  if (!fs::is_directory(root, ec)) {
+    return false;
+  }
+  fs::directory_iterator iterator(
+      root, fs::directory_options::skip_permission_denied, ec);
+  const fs::directory_iterator end;
+  while (!ec && iterator != end) {
+    const fs::path device_dir = iterator->path();
+    const std::string name = device_dir.filename().string();
+    if (iterator->is_directory(ec) && name.rfind("device_", 0) == 0) {
+      const fs::path task_db = device_dir / "sqlite" / "ascend_task.db";
+      if (sqlite_table_has_rows(task_db.string(), "AscendTask")) {
+        return true;
+      }
+    }
+    iterator.increment(ec);
+  }
+  return false;
+}
+
+std::vector<AscendSplitSQLiteTableInfo>
+inventory_ascend_split_sqlite_profile(const std::string& profile_dir) {
+  return inventory_split_profile_impl(profile_dir);
+}
 
 AscendSQLiteAdapter::AscendSQLiteAdapter(AscendSQLiteAdapterOptions options)
     : options_(std::move(options)) {}
@@ -1790,6 +2219,10 @@ AscendSQLiteAdapter::AscendSQLiteAdapter(std::string db_path,
 NativeIr AscendSQLiteAdapter::load() const {
   if (options_.db_path.empty()) {
     throw std::invalid_argument("Ascend SQLite DB path is empty");
+  }
+  std::error_code path_error;
+  if (std::filesystem::is_directory(options_.db_path, path_error)) {
+    return load_split_profile(options_);
   }
   if (!file_exists(options_.db_path)) {
     throw std::invalid_argument("Ascend SQLite DB does not exist: " +

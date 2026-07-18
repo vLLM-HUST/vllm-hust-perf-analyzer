@@ -241,7 +241,7 @@ bool looks_like_supported_profile_db(const fs::path& path) {
     return false;
   }
   if (looks_like_msprof_db(path)) {
-    return true;
+    return traceloom::ascend_sqlite_has_usable_task_table(path.string());
   }
   return path.extension() == ".db" &&
          traceloom::looks_like_hygon_sqlite_profile(path.string());
@@ -250,13 +250,29 @@ bool looks_like_supported_profile_db(const fs::path& path) {
 std::vector<std::string> discover_profile_dbs(const std::string& input) {
   const fs::path root(input);
   std::vector<fs::path> dbs;
+  std::vector<fs::path> split_profiles;
   std::error_code ec;
   if (looks_like_supported_profile_db(root)) {
     dbs.push_back(root);
+  } else if (looks_like_msprof_db(root)) {
+    const fs::path profile_dir = root.parent_path();
+    if (traceloom::looks_like_ascend_split_sqlite_profile(
+            profile_dir.string())) {
+      split_profiles.push_back(profile_dir);
+    }
   } else if (fs::is_directory(root, ec)) {
+    if (traceloom::looks_like_ascend_split_sqlite_profile(root.string())) {
+      split_profiles.push_back(root);
+    }
     for (const auto& entry : fs::recursive_directory_iterator(root)) {
       if (looks_like_supported_profile_db(entry.path())) {
         dbs.push_back(entry.path());
+      }
+      if (entry.is_directory() &&
+          fs::is_directory(entry.path() / "host" / "sqlite", ec) &&
+          traceloom::looks_like_ascend_split_sqlite_profile(
+              entry.path().string())) {
+        split_profiles.push_back(entry.path());
       }
     }
   } else if (!fs::exists(root, ec)) {
@@ -265,6 +281,20 @@ std::vector<std::string> discover_profile_dbs(const std::string& input) {
     throw std::invalid_argument(
         "input is not a supported msprof/Hygon profile DB or directory: " +
         input);
+  }
+  std::sort(dbs.begin(), dbs.end());
+  std::sort(split_profiles.begin(), split_profiles.end());
+  split_profiles.erase(
+      std::unique(split_profiles.begin(), split_profiles.end()),
+      split_profiles.end());
+  for (const fs::path& profile : split_profiles) {
+    const bool has_usable_monolithic =
+        std::any_of(dbs.begin(), dbs.end(), [&](const fs::path& db) {
+          return db.parent_path() == profile;
+        });
+    if (!has_usable_monolithic) {
+      dbs.push_back(profile);
+    }
   }
   std::sort(dbs.begin(), dbs.end());
   std::vector<std::string> result;
@@ -305,11 +335,15 @@ std::string default_db_label(const std::string& source_db,
                              std::size_t db_index,
                              std::size_t db_count) {
   if (db_count == 1) {
-    return fs::path(source_db).parent_path().filename().string();
+    const fs::path source(source_db);
+    return fs::is_directory(source) ? source.filename().string()
+                                    : source.parent_path().filename().string();
   }
   std::ostringstream label;
+  const fs::path source(source_db);
   label << "db" << std::setw(2) << std::setfill('0') << (db_index + 1) << "_"
-        << fs::path(source_db).parent_path().filename().string();
+        << (fs::is_directory(source) ? source.filename().string()
+                                     : source.parent_path().filename().string());
   return label.str();
 }
 
@@ -360,8 +394,11 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
 
     const bool is_hygon =
         traceloom::looks_like_hygon_sqlite_profile(source_db);
-    const std::string source_kind =
-        is_hygon ? "hygon_sqlite" : "ascend_sqlite_hot_path";
+    const bool is_split = fs::is_directory(source_db);
+    const std::string source_kind = is_hygon
+                                        ? "hygon_sqlite"
+                                        : (is_split ? "ascend_sqlite_split"
+                                                    : "ascend_sqlite_hot_path");
     traceloom::NativeIr ir;
     const Stopwatch load_watch;
     if (is_hygon) {
@@ -374,6 +411,7 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
     } else {
       traceloom::AscendSQLiteAdapterOptions adapter_options;
       adapter_options.db_path = source_db;
+      adapter_options.source_kind = source_kind;
       adapter_options.thread_count = cli.threads;
       adapter_options.timing_diagnostics = cli.timings;
       const traceloom::AscendSQLiteAdapter adapter(std::move(adapter_options));

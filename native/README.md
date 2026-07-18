@@ -31,7 +31,8 @@ Pass either one Huawei `msprof_*.db` file:
 traceloom examples/kickstart_smoke/msprof_raw/PROF_000001_20260609064648517_AJJGNKPPJMEGGLFA/msprof_20260609064817.db
 ```
 
-or a Huawei profiler bundle directory containing `PROF_*/msprof_*.db` files:
+or a Huawei profiler bundle directory containing monolithic
+`PROF_*/msprof_*.db` files or split `PROF_*/{host,device_*}/sqlite/*.db` files:
 
 ```bash
 traceloom examples/kickstart_smoke/msprof_raw
@@ -45,6 +46,10 @@ PROF_.../traceloom/loop_tree_v2.md
 msprof_raw/traceloom/device0_loop_tree_v2.md
 msprof_raw/traceloom/device1_loop_tree_v2.md
 ```
+
+A nonempty monolithic `TASK` table takes priority. When it is missing,
+TraceLoom emits a split-fallback warning and builds the base timeline from
+`AscendTask`, enriched with `TaskInfo`, `HostTask`, and `ApiData` metadata.
 
 Use more or fewer worker threads when needed:
 

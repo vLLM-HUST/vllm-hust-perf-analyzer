@@ -1,9 +1,11 @@
 #include <algorithm>
 #include <cstddef>
 #include <exception>
+#include <filesystem>
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "traceloom/analysis/native_pipeline.h"
@@ -13,7 +15,8 @@
 namespace {
 
 void print_usage(const char* argv0) {
-  std::cerr << "usage: " << argv0 << " <ascend-msprof.db>\n";
+  std::cerr << "usage: " << argv0
+            << " <ascend-msprof.db-or-PROF-directory>\n";
 }
 
 std::string format_candidate_key(
@@ -44,7 +47,23 @@ int main(int argc, char** argv) {
 
   try {
     const std::string db_path = argv[1];
-    const traceloom::AscendSQLiteAdapter adapter(db_path);
+    const bool split = std::filesystem::is_directory(db_path);
+    if (split) {
+      std::cout << "source_mode=split_sqlite\n";
+      for (const auto& table :
+           traceloom::inventory_ascend_split_sqlite_profile(db_path)) {
+        std::cout << "split_table path=" << table.db_path
+                  << " table=" << table.table_name
+                  << " rows=" << table.row_count << "\n";
+      }
+    } else {
+      std::cout << "source_mode=monolithic\n";
+    }
+    traceloom::AscendSQLiteAdapterOptions adapter_options;
+    adapter_options.db_path = db_path;
+    adapter_options.source_kind =
+        split ? "ascend_sqlite_split" : "ascend_sqlite";
+    const traceloom::AscendSQLiteAdapter adapter(std::move(adapter_options));
     traceloom::NativeIr ir = adapter.load();
 
     traceloom::NativePipelineOptions pipeline_options;
@@ -76,7 +95,8 @@ int main(int argc, char** argv) {
       }
     }
 
-    std::cout << "source_kind=ascend_sqlite\n";
+    std::cout << "source_kind="
+              << (split ? "ascend_sqlite_split" : "ascend_sqlite") << "\n";
     std::cout << "source_path=" << db_path << "\n";
     std::cout << "source_refs=" << ir.source_refs.size() << "\n";
     std::cout << "schema_objects=" << schema_objects << "\n";

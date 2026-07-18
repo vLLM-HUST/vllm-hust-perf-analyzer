@@ -1,13 +1,27 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "traceloom/adapters/source_adapter.h"
 
 namespace traceloom {
+
+struct AscendSplitSQLiteTableInfo {
+  std::string db_path;
+  std::string table_name;
+  std::string create_sql;
+  std::uint64_t row_count = 0;
+};
+
+bool ascend_sqlite_has_usable_task_table(const std::string& db_path);
+bool looks_like_ascend_split_sqlite_profile(const std::string& profile_dir);
+std::vector<AscendSplitSQLiteTableInfo>
+inventory_ascend_split_sqlite_profile(const std::string& profile_dir);
 
 struct AscendSQLiteAdapterOptions {
   std::string db_path;
