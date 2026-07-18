@@ -47,6 +47,21 @@ std::string temp_db_path() {
   return path.string();
 }
 
+void execute_sql(const std::string& path, const std::string& sql) {
+  sqlite3* db = nullptr;
+  int rc = sqlite3_open_v2(path.c_str(), &db,
+                           SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE,
+                           nullptr);
+  traceloom::testing::require(rc == SQLITE_OK);
+  char* error = nullptr;
+  rc = sqlite3_exec(db, sql.c_str(), nullptr, nullptr, &error);
+  if (error != nullptr) {
+    sqlite3_free(error);
+  }
+  traceloom::testing::require(rc == SQLITE_OK);
+  sqlite3_close(db);
+}
+
 std::vector<ColumnInfo> load_columns(const std::string& path,
                                      const std::string& table_name) {
   sqlite3* db = nullptr;
@@ -237,6 +252,21 @@ void require_columns_match_schema(
 
 int main() {
   using traceloom::testing::require;
+
+  const std::string legacy_db_path = temp_db_path();
+  execute_sql(
+      legacy_db_path,
+      "CREATE TABLE traceloom_viz_node_anchor ("
+      "node_id TEXT NOT NULL, anchor_id TEXT NOT NULL, "
+      "db_idx INTEGER NOT NULL, device_id INTEGER NOT NULL, "
+      "view_name TEXT NOT NULL, occurrence_idx INTEGER NOT NULL, "
+      "anchor_order INTEGER NOT NULL, coverage_kind TEXT NOT NULL, "
+      "repeat_context TEXT)");
+  traceloom::compat::materialize_compatibility_schema(
+      legacy_db_path, {traceloom::compat::viz_node_anchor_table_schema()});
+  require_columns_match_schema(
+      legacy_db_path, traceloom::compat::viz_node_anchor_table_schema());
+  std::remove(legacy_db_path.c_str());
 
   const std::string db_path = temp_db_path();
   traceloom::compat::materialize_compatibility_schema(db_path);
@@ -814,6 +844,7 @@ int main() {
   require(load_sqlite_master_names(db_path, "index") ==
           std::vector<std::string>({
               "idx_traceloom_anchor_device_idx",
+              "idx_traceloom_anchor_key",
               "idx_traceloom_aux_anchor",
               "idx_traceloom_collective_key",
               "idx_traceloom_collective_pair",
@@ -824,6 +855,7 @@ int main() {
               "idx_traceloom_event_source_lookup",
               "idx_traceloom_node_anchor_anchor",
               "idx_traceloom_node_anchor_node",
+              "idx_traceloom_node_anchor_occurrence",
               "idx_traceloom_semantic_edge_tree",
               "idx_traceloom_semantic_node_parent",
               "idx_traceloom_semantic_node_tree_order",

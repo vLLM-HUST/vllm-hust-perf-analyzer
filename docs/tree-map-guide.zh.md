@@ -125,6 +125,19 @@ traceloom report /path/to/traceloom/db01.traceloom_augmented.db \
 | `traceloom_v_node_cost` | node 的计算、通信、idle、aux 成本汇总。 |
 | `traceloom_v_node_aux_cost` | node 关联的 aux 成本明细。 |
 
+### 成本统计约定
+
+- `total_us = compute_us + comm_us + idle_us`，三者是互斥的时间线桶。
+- 同一 device 上不同 stream 即使重叠，同一段墙钟时间也只进入
+  `total_us` 一次；重叠分类时 communication 优先于 compute。
+- wait-only 和 profiler 没有活动证据的时间归入 `idle_us`。
+- `aux_us` 是辅助证据叠加层，不是 `total_us` 的第四个加数；多个 stream
+  重叠时它可以大于 `total_us`。`self_us` 同样保留原始 leaf anchor 耗时，
+  不用于相加得到 `total_us`。
+- `occurrence_count` 是 tree node 实际展开出现的次数；Repeat 的
+  `repeat_count` 是单次 Repeat occurrence 内 body 的重复因子。所有平均值
+  都除以 `occurrence_count`，不会拿 `repeat_count` 代替 occurrence。
+
 ## 让 agent 帮忙做后续分析
 
 TraceLoom 的输出适合和 Codex 等代码/数据分析 agent 配合使用。推荐把 `tree-map.md`、`docs/augmented-db-schema.md`、`queries/*.sql` 和目标 DB 路径交给 agent，让它自动生成 SQL、跑查询、导出更多 Markdown/CSV 表格。

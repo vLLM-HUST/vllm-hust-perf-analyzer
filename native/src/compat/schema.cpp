@@ -310,6 +310,13 @@ const CompatTableSchema& viz_node_anchor_table_schema() {
           {"anchor_order", CompatColumnType::kInteger, false},
           {"coverage_kind", CompatColumnType::kText, false},
           {"repeat_context", CompatColumnType::kText, true},
+          {"compute_us", CompatColumnType::kReal, false},
+          {"comm_us", CompatColumnType::kReal, false},
+          {"idle_us", CompatColumnType::kReal, false},
+          {"total_us", CompatColumnType::kReal, false},
+          {"self_us", CompatColumnType::kReal, false},
+          {"aux_events", CompatColumnType::kReal, false},
+          {"aux_us", CompatColumnType::kReal, false},
       },
   };
   return schema;

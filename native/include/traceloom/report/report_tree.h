@@ -40,6 +40,10 @@ struct ReportToken {
   std::int64_t start_ns = 0;
   std::int64_t end_ns = 0;
   bool has_prelude_cost = false;
+  // Portion of this anchor's wall-clock interval owned by this token after
+  // overlapping streams have been coalesced.  This is an additive timeline
+  // cost; the raw anchor duration remains available through start_ns/end_ns.
+  double timeline_anchor_us = 0.0;
   double prelude_exec_aux_us = 0.0;
   double prelude_comm_us = 0.0;
   double prelude_idle_us = 0.0;

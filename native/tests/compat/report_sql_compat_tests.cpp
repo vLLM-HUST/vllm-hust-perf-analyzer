@@ -430,16 +430,15 @@ void seed_node_event_fixture(const std::string& db_path) {
   parent.category = "loop";
   parent.repeat_label = "x2";
   parent.repeat_count = 2;
-  parent.occurrence_count = 2;
+  parent.occurrence_count = 1;
   parent.anchor_count = 1;
-  parent.anchors_per_occurrence = 0.5;
+  parent.anchors_per_occurrence = 1.0;
   parent.first_anchor_idx = 1;
   parent.last_anchor_idx = 1;
   parent.compute_us = 10.0;
   parent.total_us = 12.0;
-  parent.avg_compute_us = 5.0;
-  parent.avg_total_us = 6.0;
-  parent.self_us = 10.0;
+  parent.avg_compute_us = 10.0;
+  parent.avg_total_us = 12.0;
   parent.aux_events = 2.0;
   parent.aux_us = 5.5;
   rows.nodes.push_back(parent);
@@ -485,6 +484,11 @@ void seed_node_event_fixture(const std::string& db_path) {
   parent_coverage.anchor_order = 0;
   parent_coverage.coverage_kind = "self";
   parent_coverage.repeat_context = "N001#0";
+  parent_coverage.compute_us = 10.0;
+  parent_coverage.idle_us = 2.0;
+  parent_coverage.total_us = 12.0;
+  parent_coverage.aux_events = 2.0;
+  parent_coverage.aux_us = 5.5;
   rows.node_anchors.push_back(parent_coverage);
 
   traceloom::compat::VizNodeAnchorSqlRow node_coverage;
@@ -495,6 +499,12 @@ void seed_node_event_fixture(const std::string& db_path) {
   node_coverage.anchor_order = 0;
   node_coverage.coverage_kind = "self";
   node_coverage.repeat_context = "N001#0";
+  node_coverage.compute_us = 5.0;
+  node_coverage.idle_us = 5.5;
+  node_coverage.total_us = 10.5;
+  node_coverage.self_us = 5.0;
+  node_coverage.aux_events = 2.0;
+  node_coverage.aux_us = 5.5;
   rows.node_anchors.push_back(node_coverage);
 
   traceloom::compat::LoopNodeSqlRow loop_node;
@@ -1000,7 +1010,7 @@ int main() {
       require(result.first_row[3] == "1");
       require(result.first_row[4] == "1");
       require(result.first_row[5] == "1");
-      require(result.first_row[8] == "5.0" || result.first_row[8] == "5");
+      require(result.first_row[8] == "10.5");
       require(result.first_row[9] == "5.0" || result.first_row[9] == "5");
       require(result.first_row[12] == "5.5");
     } else if (query_case.filename == "repeat-overview.sql") {
@@ -1023,7 +1033,7 @@ int main() {
       require(result.first_row[0] == "N001");
       require(result.first_row[1] == "repeat x2");
       require(result.first_row[2] == "0");
-      require(result.first_row[3] == "2");
+      require(result.first_row[3] == "1");
     } else if (query_case.filename == "node-cost-breakdown.sql") {
       require(result.row_count == 1);
       require(result.first_row[0] == "N027");

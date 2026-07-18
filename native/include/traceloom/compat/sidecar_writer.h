@@ -157,6 +157,15 @@ struct VizNodeAnchorSqlRow {
   std::uint32_t anchor_order = 0;
   std::string coverage_kind = "self";
   std::string repeat_context;
+  // Additive cost packet owned by this anchor in this node occurrence.
+  // Aux values are evidence overlays and are not part of total_us.
+  double compute_us = 0.0;
+  double comm_us = 0.0;
+  double idle_us = 0.0;
+  double total_us = 0.0;
+  double self_us = 0.0;
+  double aux_events = 0.0;
+  double aux_us = 0.0;
 };
 
 struct VizEdgeSqlRow {

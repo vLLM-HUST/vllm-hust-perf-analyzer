@@ -88,6 +88,40 @@ class SqliteStmt {
   sqlite3_stmt* stmt_ = nullptr;
 };
 
+bool table_has_column(sqlite3* db,
+                      const std::string& table,
+                      const std::string& column) {
+  SqliteStmt stmt(db, "PRAGMA table_info(" + table + ")");
+  int rc = SQLITE_OK;
+  while ((rc = sqlite3_step(stmt.get())) == SQLITE_ROW) {
+    const unsigned char* raw_name = sqlite3_column_text(stmt.get(), 1);
+    if (raw_name != nullptr &&
+        column == reinterpret_cast<const char*>(raw_name)) {
+      return true;
+    }
+  }
+  if (rc != SQLITE_DONE) {
+    throw std::runtime_error("failed to inspect compatibility table: " +
+                             std::string(sqlite3_errmsg(db)));
+  }
+  return false;
+}
+
+void ensure_viz_node_anchor_cost_columns(SqliteDb& db) {
+  static const char* const columns[] = {
+      "compute_us", "comm_us",   "idle_us",   "total_us",
+      "self_us",    "aux_events", "aux_us",
+  };
+  for (const char* column : columns) {
+    if (table_has_column(db.get(), "traceloom_viz_node_anchor", column)) {
+      continue;
+    }
+    db.exec(
+        std::string("ALTER TABLE traceloom_viz_node_anchor ADD COLUMN ") +
+        column + " REAL NOT NULL DEFAULT 0.0");
+  }
+}
+
 void bind_text(SqliteStmt& stmt, int column, const std::string& value) {
   const int rc = sqlite3_bind_text(stmt.get(), column, value.c_str(), -1,
                                    SQLITE_TRANSIENT);
@@ -357,6 +391,13 @@ void insert_viz_node_anchor_row(SqliteStmt& stmt,
   bind_int64(stmt, 7, row.anchor_order);
   bind_text(stmt, 8, row.coverage_kind);
   bind_text(stmt, 9, row.repeat_context);
+  bind_double(stmt, 10, row.compute_us);
+  bind_double(stmt, 11, row.comm_us);
+  bind_double(stmt, 12, row.idle_us);
+  bind_double(stmt, 13, row.total_us);
+  bind_double(stmt, 14, row.self_us);
+  bind_double(stmt, 15, row.aux_events);
+  bind_double(stmt, 16, row.aux_us);
 
   const int rc = sqlite3_step(stmt.get());
   if (rc != SQLITE_DONE) {
@@ -738,9 +779,19 @@ void materialize_tree_node_anchor_view(SqliteDb& db) {
       "na.occurrence_idx, "
       "na.anchor_order, "
       "na.coverage_kind, "
-      "na.repeat_context "
+      "na.repeat_context, "
+      "na.compute_us, "
+      "na.comm_us, "
+      "na.idle_us, "
+      "na.total_us, "
+      "na.self_us, "
+      "na.aux_events, "
+      "na.aux_us "
       "FROM traceloom_viz_node_anchor na "
-      "JOIN traceloom_viz_node n ON n.node_id = na.node_id");
+      "JOIN traceloom_viz_node n ON n.node_id = na.node_id "
+      "AND n.db_idx = na.db_idx "
+      "AND n.device_id = na.device_id "
+      "AND n.view_name = na.view_name");
 }
 
 void materialize_tree_node_occurrence_view(SqliteDb& db) {
@@ -758,30 +809,18 @@ void materialize_tree_node_occurrence_view(SqliteDb& db) {
       "COUNT(*) AS anchor_count, "
       "MIN(a.start_ns) AS start_ns, "
       "MAX(a.end_ns) AS end_ns, "
-      "SUM(CASE WHEN e.role = 'compute' THEN e.dur_us ELSE 0.0 END) AS "
-      "compute_us, "
-      "SUM(CASE WHEN e.role = 'collective' THEN e.dur_us ELSE 0.0 END) AS "
-      "comm_us, "
-      "SUM(e.dur_us) AS anchor_us, "
+      "SUM(na.compute_us) AS compute_us, "
+      "SUM(na.comm_us) AS comm_us, "
+      "SUM(na.idle_us) AS idle_us, "
+      "SUM(na.total_us) AS total_us, "
+      "SUM(na.self_us) AS self_us, "
+      "SUM(na.aux_events) AS aux_events, "
+      "SUM(na.aux_us) AS aux_us, "
       "MIN(na.repeat_context) AS repeat_context "
       "FROM traceloom_viz_node_anchor na "
       "JOIN traceloom_anchor a ON a.anchor_id = na.anchor_id "
-      "JOIN traceloom_event e ON e.event_id = a.event_id "
-      "GROUP BY na.node_id, na.db_idx, na.device_id, na.view_name, "
-      "na.occurrence_idx"
-      "), "
-      "aux_span AS ("
-      "SELECT "
-      "na.node_id, "
-      "na.db_idx, "
-      "na.device_id, "
-      "na.view_name, "
-      "na.occurrence_idx, "
-      "COUNT(al.aux_event_id) AS aux_events, "
-      "SUM(COALESCE(aux.dur_us, 0.0)) AS aux_us "
-      "FROM traceloom_viz_node_anchor na "
-      "JOIN traceloom_aux_link al ON al.anchor_id = na.anchor_id "
-      "JOIN traceloom_event aux ON aux.event_id = al.aux_event_id "
+      "AND a.db_idx = na.db_idx "
+      "AND a.device_id = na.device_id "
       "GROUP BY na.node_id, na.db_idx, na.device_id, na.view_name, "
       "na.occurrence_idx"
       ") "
@@ -800,19 +839,16 @@ void materialize_tree_node_occurrence_view(SqliteDb& db) {
       "a.end_ns, "
       "ROUND(COALESCE(a.compute_us, 0.0), 3) AS compute_us, "
       "ROUND(COALESCE(a.comm_us, 0.0), 3) AS comm_us, "
-      "ROUND(COALESCE(n.idle_us, 0.0) / CASE WHEN "
-      "COALESCE(n.occurrence_count, 0) = 0 THEN 1 ELSE n.occurrence_count "
-      "END, 3) AS idle_us, "
-      "ROUND(COALESCE(a.compute_us, 0.0) + COALESCE(a.comm_us, 0.0) + "
-      "COALESCE(n.idle_us, 0.0) / CASE WHEN "
-      "COALESCE(n.occurrence_count, 0) = 0 THEN 1 ELSE n.occurrence_count "
-      "END, 3) AS total_us, "
-      "COALESCE(aux.aux_events, 0) AS aux_events, "
-      "ROUND(COALESCE(aux.aux_us, 0.0), 3) AS aux_us "
+      "ROUND(COALESCE(a.idle_us, 0.0), 3) AS idle_us, "
+      "ROUND(COALESCE(a.total_us, 0.0), 3) AS total_us, "
+      "ROUND(COALESCE(a.self_us, 0.0), 3) AS self_us, "
+      "COALESCE(a.aux_events, 0) AS aux_events, "
+      "ROUND(COALESCE(a.aux_us, 0.0), 3) AS aux_us "
       "FROM anchor_span a "
       "JOIN traceloom_viz_node n ON n.node_id = a.node_id "
-      "LEFT JOIN aux_span aux ON aux.node_id = a.node_id "
-      "AND aux.occurrence_idx = a.occurrence_idx");
+      "AND n.db_idx = a.db_idx "
+      "AND n.device_id = a.device_id "
+      "AND n.view_name = a.view_name");
 }
 
 void materialize_node_cost_views(SqliteDb& db) {
@@ -1046,6 +1082,9 @@ void materialize_report_compatibility_indexes(SqliteDb& db) {
       "CREATE INDEX IF NOT EXISTS idx_traceloom_anchor_device_idx "
       "ON traceloom_anchor(db_idx, device_id, anchor_idx)");
   db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_anchor_key "
+      "ON traceloom_anchor(anchor_id, db_idx, device_id)");
+  db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_aux_anchor "
       "ON traceloom_aux_link(anchor_id)");
   db.exec(
@@ -1060,6 +1099,10 @@ void materialize_report_compatibility_indexes(SqliteDb& db) {
   db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_node_anchor_node "
       "ON traceloom_viz_node_anchor(node_id)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_node_anchor_occurrence "
+      "ON traceloom_viz_node_anchor(node_id, db_idx, device_id, view_name, "
+      "occurrence_idx)");
   db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_node_anchor_anchor "
       "ON traceloom_viz_node_anchor(anchor_id)");
@@ -1113,6 +1156,9 @@ void materialize_compatibility_schema(
   try {
     for (const CompatTableSchema& schema : schemas) {
       db.exec(sqlite_create_table_sql(schema));
+      if (schema.name == "traceloom_viz_node_anchor") {
+        ensure_viz_node_anchor_cost_columns(db);
+      }
     }
     db.exec("COMMIT");
   } catch (...) {
@@ -1663,8 +1709,9 @@ void replace_node_anchor_coverage_rows(
         db.get(),
         "INSERT INTO traceloom_viz_node_anchor ("
         "node_id, anchor_id, db_idx, device_id, view_name, occurrence_idx, "
-        "anchor_order, coverage_kind, repeat_context"
-        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        "anchor_order, coverage_kind, repeat_context, compute_us, comm_us, "
+        "idle_us, total_us, self_us, aux_events, aux_us"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     for (const VizNodeAnchorSqlRow& row : rows.node_anchors) {
       insert_viz_node_anchor_row(node_anchor_stmt, row);
     }
@@ -1678,6 +1725,8 @@ void replace_node_anchor_coverage_rows(
       insert_anchor_primary_node_row(anchor_primary_stmt, row);
     }
 
+    db.exec("DROP VIEW IF EXISTS traceloom_tree_node_occurrence");
+    db.exec("DROP VIEW IF EXISTS traceloom_tree_node_anchor");
     materialize_tree_node_anchor_view(db);
     materialize_tree_node_occurrence_view(db);
     materialize_node_cost_views(db);
@@ -1747,8 +1796,9 @@ void replace_node_coverage_rows(const std::string& sqlite_path,
         db.get(),
         "INSERT INTO traceloom_viz_node_anchor ("
         "node_id, anchor_id, db_idx, device_id, view_name, occurrence_idx, "
-        "anchor_order, coverage_kind, repeat_context"
-        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        "anchor_order, coverage_kind, repeat_context, compute_us, comm_us, "
+        "idle_us, total_us, self_us, aux_events, aux_us"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     for (const VizNodeAnchorSqlRow& row : rows.node_anchors) {
       insert_viz_node_anchor_row(node_anchor_stmt, row);
     }
@@ -1773,6 +1823,8 @@ void replace_node_coverage_rows(const std::string& sqlite_path,
       insert_loop_node_row(loop_node_stmt, row);
     }
 
+    db.exec("DROP VIEW IF EXISTS traceloom_tree_node_occurrence");
+    db.exec("DROP VIEW IF EXISTS traceloom_tree_node_anchor");
     materialize_tree_node_anchor_view(db);
     materialize_tree_node_occurrence_view(db);
     materialize_node_cost_views(db);

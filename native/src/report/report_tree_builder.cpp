@@ -239,35 +239,10 @@ struct GrammarTemplateChild {
   std::uint32_t span_len = 0;
 };
 
-struct GrammarTemplateCacheKey {
-  SymbolId::value_type symbol = 0;
-  std::uint32_t display_depth = 0;
-  std::uint32_t loop_depth = 0;
-
-  bool operator==(const GrammarTemplateCacheKey& other) const noexcept {
-    return symbol == other.symbol && display_depth == other.display_depth &&
-           loop_depth == other.loop_depth;
-  }
-};
-
-struct GrammarTemplateCacheKeyHash {
-  std::size_t operator()(const GrammarTemplateCacheKey& key) const noexcept {
-    std::size_t value = static_cast<std::size_t>(key.symbol);
-    value ^= static_cast<std::size_t>(key.display_depth) + 0x9e3779b9u +
-             (value << 6) + (value >> 2);
-    value ^= static_cast<std::size_t>(key.loop_depth) + 0x9e3779b9u +
-             (value << 6) + (value >> 2);
-    return value;
-  }
-};
-
 struct GrammarReportLowering {
   const std::vector<ReportToken>& tokens;
   const GrammarSnapshot& snapshot;
   std::map<SymbolId::value_type, const MacroDefRow*> macro_by_symbol;
-  mutable std::unordered_map<GrammarTemplateCacheKey, GrammarSubtreeTemplate,
-                             GrammarTemplateCacheKeyHash>
-      template_cache;
 };
 
 std::uint32_t expanded_symbol_len(const GrammarReportLowering& lowering,
@@ -483,15 +458,6 @@ GrammarSubtreeTemplate build_grammar_template(ReportTree& tree,
     return subtree;
   }
 
-  const GrammarTemplateCacheKey cache_key{
-      symbol.valid() ? symbol.value() : SymbolId::invalid().value(),
-      display_depth,
-      loop_depth};
-  const auto cached = lowering.template_cache.find(cache_key);
-  if (cached != lowering.template_cache.end()) {
-    return cached->second;
-  }
-
   const MacroDefRow& macro = *found->second;
   GrammarSubtreeTemplate subtree;
   subtree.span_len = expanded_symbol_len(lowering, symbol);
@@ -508,7 +474,6 @@ GrammarSubtreeTemplate build_grammar_template(ReportTree& tree,
     child.subtree = build_grammar_template(tree, lowering, body_symbol,
                                            display_depth + 1, loop_depth + 1);
     subtree.children.push_back(std::move(child));
-    lowering.template_cache.emplace(cache_key, subtree);
     return subtree;
   }
 
@@ -520,7 +485,6 @@ GrammarSubtreeTemplate build_grammar_template(ReportTree& tree,
                                            display_depth, loop_depth);
     subtree.children.push_back(std::move(child));
   }
-  lowering.template_cache.emplace(cache_key, subtree);
   return subtree;
 }
 
@@ -881,7 +845,7 @@ ReportTree build_report_tree_from_grammar_state(
     return build_report_tree_from_tokens(tokens, config);
   }
 
-  GrammarReportLowering lowering{tokens, snapshot, {}, {}};
+  GrammarReportLowering lowering{tokens, snapshot, {}};
   for (const MacroDefRow& macro : snapshot.macro_defs) {
     if (!macro.symbol_id.valid()) {
       throw std::invalid_argument("grammar macro has invalid symbol");

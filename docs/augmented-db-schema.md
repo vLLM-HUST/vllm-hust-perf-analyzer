@@ -165,6 +165,26 @@ Important columns:
 - `hidden_aux_event_count`, `hidden_aux_us`: auxiliary evidence attributed to
   the node but normally hidden from the main readable tree.
 
+#### Timeline cost contract
+
+The additive node cost is wall-clock based:
+
+- `total_us = compute_us + comm_us + idle_us`.
+- Each device-time slice contributes at most once, even when streams overlap.
+  Communication takes precedence over compute when classifying an overlapping
+  slice; auxiliary execution is classified after communication.
+- Wait-only and profiler-silent slices use the `idle_us` bucket because the
+  public cost table has no separate additive wait column.
+- `aux_us` is an evidence overlay, not another additive bucket. It may overlap
+  `total_us` and may be larger than it when several streams overlap.
+- `self_us` preserves raw leaf-anchor duration for inspection. It is also an
+  overlay and can exceed wall-clock time across overlapping anchors.
+
+`occurrence_count` counts actual expanded structural occurrences of a node.
+For a Repeat node, `repeat_count` instead describes how many times its body is
+expanded inside one Repeat occurrence. Averages always divide by
+`occurrence_count`, never by `repeat_count`.
+
 ### `traceloom_semantic_edge`
 
 Explicit parent-child edges for `traceloom_semantic_node`. Most queries can use
@@ -186,6 +206,10 @@ Important columns:
 - `anchor_order`: order within that node occurrence.
 - `coverage_kind`: `self` for leaf anchor nodes, `descendant` for aggregate
   nodes.
+- `compute_us`, `comm_us`, `idle_us`, `total_us`, `self_us`, `aux_events`,
+  `aux_us`: the exact cost/evidence packet owned by this anchor link. Summing
+  these packets by `(node_id, occurrence_idx)` produces
+  `traceloom_tree_node_occurrence` without estimating per-occurrence idle time.
 
 ### `traceloom_anchor_primary_node`
 
