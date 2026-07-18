@@ -5,6 +5,37 @@ current Ascend `msprof` profiles.
 
 ## Install
 
+### Debian package
+
+Build the installable `traceloom-native` package on Debian or Ubuntu:
+
+```bash
+cmake -S native -B build/traceloom-native-package \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DTRACELOOM_NATIVE_BUILD_TESTS=OFF
+cmake --build build/traceloom-native-package -j "$(nproc)"
+cpack --config build/traceloom-native-package/CPackConfig.cmake \
+  -B build/traceloom-native-package
+sudo apt install ./build/traceloom-native-package/traceloom-native_*.deb
+```
+
+The package installs the stable entry point
+`/usr/bin/traceloom-native-analyze-db`, together with the shorter
+`traceloom-native` and `traceloom` aliases. Verify the installation with:
+
+```bash
+traceloom-native-analyze-db --version
+traceloom-native-analyze-db --help
+```
+
+Remove it with:
+
+```bash
+sudo apt remove traceloom-native
+```
+
+### Install from source
+
 From the TraceLoom repository root:
 
 ```bash

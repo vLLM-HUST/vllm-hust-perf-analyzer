@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(traceloom_native LANGUAGES CXX)
+project(traceloom_native VERSION 0.1.0 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 
@@ -181,10 +181,37 @@ if(TRACELOOM_NATIVE_ASCEND_SQLITE_AVAILABLE)
     traceloom_native_materialize
   )
 
+  foreach(
+    cli_target
+    IN ITEMS traceloom-native-analyze-db traceloom-native traceloom
+  )
+    target_compile_definitions(
+      ${cli_target}
+      PRIVATE TRACELOOM_NATIVE_VERSION="${PROJECT_VERSION}"
+    )
+  endforeach()
+
   install(
-    TARGETS traceloom
+    TARGETS
+      traceloom-native-analyze-db
+      traceloom-native-ascend-sqlite-inventory
+      traceloom-native
+      traceloom
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
   )
+
+  set(CPACK_GENERATOR "DEB")
+  set(CPACK_PACKAGE_NAME "traceloom-native")
+  set(CPACK_PACKAGE_VENDOR "vLLM-HUST")
+  set(CPACK_PACKAGE_CONTACT "vLLM-HUST")
+  set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
+      "Native TraceLoom analyzer for profiler SQLite databases")
+  set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+  set(CPACK_DEBIAN_PACKAGE_MAINTAINER "vLLM-HUST")
+  set(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6, libstdc++6, libsqlite3-0")
+  set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
+  set(CPACK_PACKAGING_INSTALL_PREFIX "/usr")
+  include(CPack)
 endif()
 
 add_executable(traceloom-native-analyze-fixture

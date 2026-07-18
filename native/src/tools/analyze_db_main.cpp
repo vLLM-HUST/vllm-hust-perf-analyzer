@@ -25,6 +25,10 @@
 #include "traceloom/pattern/grammar_engine.h"
 #include "traceloom/pattern/grammar_state.h"
 
+#ifndef TRACELOOM_NATIVE_VERSION
+#define TRACELOOM_NATIVE_VERSION "dev"
+#endif
+
 namespace {
 
 namespace fs = std::filesystem;
@@ -165,6 +169,9 @@ CliOptions parse_args(int argc, char** argv) {
       std::exit(0);
     } else if (arg == "--help-advanced") {
       print_advanced_usage(argc > 0 ? argv[0] : "traceloom-native-analyze-db");
+      std::exit(0);
+    } else if (arg == "--version" || arg == "-V") {
+      std::cout << "traceloom-native " << TRACELOOM_NATIVE_VERSION << '\n';
       std::exit(0);
     } else if (!arg.empty() && arg[0] != '-' && options.source_input.empty()) {
       options.source_input = arg;

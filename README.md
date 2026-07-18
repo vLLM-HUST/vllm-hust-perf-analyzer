@@ -144,6 +144,23 @@ Have a try after installation:
 traceloom examples/kickstart_smoke/msprof_raw
 ```
 
+For a system-wide Debian/Ubuntu installation, build and install the native
+package:
+
+```bash
+cmake -S native -B build/traceloom-native-package \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DTRACELOOM_NATIVE_BUILD_TESTS=OFF
+cmake --build build/traceloom-native-package -j "$(nproc)"
+cpack --config build/traceloom-native-package/CPackConfig.cmake \
+  -B build/traceloom-native-package
+sudo apt install ./build/traceloom-native-package/traceloom-native_*.deb
+traceloom-native-analyze-db --version
+```
+
+See [the native analyzer guide](native/README.md) for package removal and
+source-install instructions.
+
 The result is written back to:
 
 ```text
