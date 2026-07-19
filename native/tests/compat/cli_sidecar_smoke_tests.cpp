@@ -2,6 +2,8 @@
 
 #include <sqlite3.h>
 
+#include <fstream>
+#include <sstream>
 #include <string>
 
 namespace {
@@ -82,17 +84,53 @@ void require_aclgraph_sidecar(const std::string& path) {
                      "WHERE e.event_id IS NULL") == 0);
 }
 
+void require_cuda_sidecar(const std::string& path) {
+  traceloom::testing::require(run_scalar_int(
+                                  path,
+                                  "SELECT COUNT(*) FROM traceloom_metadata "
+                                  "WHERE key = 'source_kind' AND "
+                                  "value = 'cuda_nsys_sqlite'") == 1);
+  traceloom::testing::require(run_scalar_int(
+                                  path,
+                                  "SELECT COUNT(*) FROM traceloom_viz_node "
+                                  "WHERE view_name = "
+                                  "'native_report_tree'") > 0);
+}
+
+void require_cuda_markdown(const std::string& path) {
+  std::ifstream input(path);
+  traceloom::testing::require(input.good(),
+                              "CUDA loop tree Markdown was not written");
+  std::ostringstream contents;
+  contents << input.rdbuf();
+  const std::string text = contents.str();
+  traceloom::testing::require(
+      text.find("report_view: `native_report_tree`") != std::string::npos);
+  traceloom::testing::require(
+      text.find("renderer: `native_loop_tree_markdown_v0`") !=
+      std::string::npos);
+  traceloom::testing::require(
+      text.find("source_kind: `cuda_nsys_sqlite`") != std::string::npos);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
-  traceloom::testing::require(argc == 3,
-                              "usage: cli_sidecar_smoke_tests DB MODE");
+  traceloom::testing::require(
+      argc == 3 || argc == 4,
+      "usage: cli_sidecar_smoke_tests DB MODE [LOOP_TREE_MD]");
   const std::string path = argv[1];
   const std::string mode = argv[2];
   require_basic_sidecar(path);
   if (mode == "aclgraph") {
     require_aclgraph_sidecar(path);
+  } else if (mode == "cuda") {
+    traceloom::testing::require(
+        argc == 4, "CUDA sidecar smoke test requires Loop Tree Markdown");
+    require_cuda_sidecar(path);
+    require_cuda_markdown(argv[3]);
   } else {
+    traceloom::testing::require(argc == 3);
     traceloom::testing::require(mode == "fixture");
   }
   return 0;

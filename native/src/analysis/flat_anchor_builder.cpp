@@ -203,8 +203,14 @@ bool is_semantic_anchor_task(const NativeIr& ir, const TaskRow& task) {
   if (task_type == "MODEL_MAINTAINCE" || task_type == "MODEL_MAINTENANCE") {
     return false;
   }
-  if (task_type == "HIP_KERNEL_AUX") {
+  if (task_type == "HIP_KERNEL_AUX" || task_type == "CUDA_KERNEL_AUX") {
     return false;
+  }
+  // CUDA's first native adapter deliberately preserves unknown kernel names
+  // instead of pretending they have semantic attribution. They still need to
+  // remain visible in the report tree as ordinary execution anchors.
+  if (task_type == "CUDA_KERNEL" || task_type == "CUDA_COLLECTIVE_KERNEL") {
+    return true;
   }
 
   const std::string label = symbol_text(ir, choose_task_symbol(task));

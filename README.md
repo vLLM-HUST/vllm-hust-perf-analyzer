@@ -33,12 +33,18 @@ Key capabilities:
 
 - Ascend/CANN monolithic and split-SQLite profile discovery, with automatic
   fallback when a usable monolithic `TASK` table is unavailable;
+- CUDA/Nsight kernel, stream, and timeline ingestion through the native
+  adapter preview;
 - native semantic reconstruction for compute, HCCL, synchronization, and
   ACLGraph activity;
 - repeated decode/layer structure discovery over semantic anchors;
 - overlap-safe wall-clock accounting across concurrent streams;
 - repeat-node averages normalized per loop-body iteration;
 - provenance links back to the original database, table, and row.
+
+The CUDA preview does not yet materialize runtime API, data-movement,
+synchronization, CUDA event, or graph-trace tables. Those tables are surfaced
+as unsupported inventory evidence rather than being silently attributed.
 
 ## Install On Debian Or Ubuntu
 

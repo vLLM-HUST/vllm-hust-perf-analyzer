@@ -87,6 +87,30 @@ Use more or fewer worker threads when needed:
 traceloom /path/to/msprof_output --threads 48
 ```
 
+## CUDA/Nsight Kernel Preview
+
+The first native CUDA adapter slice accepts an Nsight Systems SQLite export
+whose `CUPTI_ACTIVITY_KIND_KERNEL` table contains `start`, `end`, `deviceId`,
+and `streamId`. `correlationId`, `demangledName`, `shortName`, and `StringIds`
+are optional. Missing names receive stable `cuda_kernel_N` labels, and a
+missing correlation id falls back to the source SQLite row id.
+
+```bash
+build/native/native/traceloom \
+  --source-kind cuda_nsys_sqlite \
+  --source-db /path/to/report.sqlite \
+  --compat-sidecar-out /tmp/cuda-native-sidecar.db \
+  --loop-tree-out /tmp/cuda-loop-tree-v2.md \
+  --sidecar-only
+```
+
+This slice imports kernel, stream, and timeline evidence only. Runtime API,
+memcpy, memset, synchronization, CUDA event, and graph-trace tables are
+inventoried but not yet materialized; `--timings` prints each present
+unsupported activity table. Missing required kernel fields fail with an
+explicit schema error instead of being guessed. CUDA Graph replay attribution
+is therefore not available until a later native adapter slice.
+
 ## Developer Commands
 
 Build with native tests enabled:
