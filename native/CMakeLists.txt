@@ -7,7 +7,7 @@ include(GNUInstallDirs)
 option(TRACELOOM_NATIVE_BUILD_TESTS "Build TraceLoom native tests" ON)
 option(
   TRACELOOM_NATIVE_ENABLE_ASCEND_SQLITE
-  "Build optional Ascend SQLite source adapter"
+  "Build optional SQLite source adapters (legacy option name)"
   ON
 )
 set(TRACELOOM_NATIVE_ASCEND_SQLITE_AVAILABLE OFF)
@@ -107,6 +107,7 @@ if(TRACELOOM_NATIVE_ENABLE_ASCEND_SQLITE)
     target_sources(traceloom_native_adapters
       PRIVATE
         src/adapters/ascend_sqlite_adapter.cpp
+        src/adapters/cuda_nsys_sqlite_adapter.cpp
         src/adapters/hygon_sqlite_adapter.cpp
     )
     if(TARGET SQLite::SQLite3)
@@ -136,7 +137,7 @@ if(TRACELOOM_NATIVE_ENABLE_ASCEND_SQLITE)
     )
     set(TRACELOOM_NATIVE_ASCEND_SQLITE_AVAILABLE ON)
   else()
-    message(STATUS "SQLite3 not found; Ascend SQLite adapter is disabled")
+    message(STATUS "SQLite3 not found; SQLite source adapters are disabled")
   endif()
 endif()
 
@@ -721,6 +722,33 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
       COMMAND traceloom_native_hygon_sqlite_adapter_tests
     )
 
+    add_executable(traceloom_native_cuda_nsys_sqlite_adapter_tests
+      tests/adapters/cuda_nsys_sqlite_adapter_tests.cpp
+    )
+    target_link_libraries(
+      traceloom_native_cuda_nsys_sqlite_adapter_tests PRIVATE
+      traceloom_native_adapters
+    )
+    if(TARGET SQLite::SQLite3)
+      target_link_libraries(
+        traceloom_native_cuda_nsys_sqlite_adapter_tests PRIVATE SQLite::SQLite3
+      )
+    else()
+      target_include_directories(
+        traceloom_native_cuda_nsys_sqlite_adapter_tests
+        PRIVATE ${SQLite3_INCLUDE_DIRS}
+      )
+      target_link_libraries(
+        traceloom_native_cuda_nsys_sqlite_adapter_tests
+        PRIVATE ${SQLite3_LIBRARIES}
+      )
+    endif()
+    add_test(
+      NAME traceloom_native_cuda_nsys_sqlite_adapter_tests
+      COMMAND traceloom_native_cuda_nsys_sqlite_adapter_tests
+        ${CMAKE_CURRENT_BINARY_DIR}/cuda_nsys_minimal_fixture.sqlite
+    )
+
     add_executable(traceloom_native_sidecar_writer_tests
       tests/compat/sidecar_writer_tests.cpp
     )
@@ -857,6 +885,35 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
         traceloom_native_cli_sidecar_smoke_tests PRIVATE ${SQLite3_LIBRARIES}
       )
     endif()
+
+    add_test(
+      NAME traceloom_native_analyze_cuda_nsys_compat_sidecar_cli
+      COMMAND traceloom
+        --source-kind cuda_nsys_sqlite
+        --source-db ${CMAKE_CURRENT_BINARY_DIR}/cuda_nsys_minimal_fixture.sqlite
+        --threads 2
+        --timings
+        --sidecar-only
+        --compat-sidecar-out ${CMAKE_CURRENT_BINARY_DIR}/cuda_nsys_cli_compat.db
+        --loop-tree-out ${CMAKE_CURRENT_BINARY_DIR}/cuda_nsys_loop_tree_v2.md
+    )
+    set_tests_properties(
+      traceloom_native_analyze_cuda_nsys_compat_sidecar_cli
+      PROPERTIES
+        DEPENDS traceloom_native_cuda_nsys_sqlite_adapter_tests
+        PASS_REGULAR_EXPRESSION "timing source_kind=cuda_nsys_sqlite"
+    )
+    add_test(
+      NAME traceloom_native_analyze_cuda_nsys_compat_sidecar_db
+      COMMAND traceloom_native_cli_sidecar_smoke_tests
+        ${CMAKE_CURRENT_BINARY_DIR}/cuda_nsys_cli_compat.db cuda
+        ${CMAKE_CURRENT_BINARY_DIR}/cuda_nsys_loop_tree_v2.md
+    )
+    set_tests_properties(
+      traceloom_native_analyze_cuda_nsys_compat_sidecar_db
+      PROPERTIES
+        DEPENDS traceloom_native_analyze_cuda_nsys_compat_sidecar_cli
+    )
 
     add_test(
       NAME traceloom_native_analyze_fixture_compat_sidecar_cli

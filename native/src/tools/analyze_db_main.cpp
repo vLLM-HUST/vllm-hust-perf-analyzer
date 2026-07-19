@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "traceloom/adapters/ascend_sqlite_adapter.h"
+#include "traceloom/adapters/cuda_nsys_sqlite_adapter.h"
 #include "traceloom/adapters/hygon_sqlite_adapter.h"
 #include "traceloom/analysis/flat_anchor_builder.h"
 #include "traceloom/analysis/native_pipeline.h"
@@ -49,6 +50,7 @@ class Stopwatch {
 
 struct CliOptions {
   std::string source_input;
+  std::string source_kind = "auto";
   std::vector<std::string> source_dbs;
   std::string out_path;
   bool out_path_set = false;
@@ -68,7 +70,8 @@ struct CliOptions {
   std::size_t top_candidate_limit = 16;
 };
 
-std::vector<std::string> discover_profile_dbs(const std::string& input);
+std::vector<std::string> discover_profile_dbs(const std::string& input,
+                                               const std::string& source_kind);
 
 std::size_t default_thread_count() {
   const unsigned int hardware = std::thread::hardware_concurrency();
@@ -91,7 +94,9 @@ void print_usage(const char* argv0) {
 
 void print_advanced_usage(const char* argv0) {
   std::cerr << "usage: " << argv0
-            << " --source-db <ascend-msprof-or-hygon-hipprof.db> [--threads N]"
+            << " --source-db <profiler.sqlite-or-db> [--threads N]"
+               " [--source-kind auto|ascend_sqlite_hot_path|"
+               "ascend_sqlite_split|hygon_sqlite|cuda_nsys_sqlite]"
                " [--out PATH|-] [--top-candidates N]"
                " [--grammar-debug-out PATH|-]"
                " [--compat-db-out PATH]"
@@ -132,6 +137,8 @@ CliOptions parse_args(int argc, char** argv) {
     } else if (arg == "--source-db") {
       options.source_input = require_value(arg);
       source_db_from_flag = true;
+    } else if (arg == "--source-kind") {
+      options.source_kind = require_value(arg);
     } else if (arg == "--threads") {
       options.threads = parse_size(require_value(arg), arg);
     } else if (arg == "--out") {
@@ -182,13 +189,22 @@ CliOptions parse_args(int argc, char** argv) {
 
   if (options.source_input.empty()) {
     throw std::invalid_argument(
-        "input path is required: pass an msprof_*.db, Hygon hipprof SQLite DB, "
-        "or profile directory");
+        "input path is required: pass an msprof_*.db, Hygon hipprof DB, "
+        "CUDA/Nsight SQLite export, or profile directory");
   }
-  options.source_dbs = discover_profile_dbs(options.source_input);
+  if (options.source_kind != "auto" &&
+      options.source_kind != "ascend_sqlite_hot_path" &&
+      options.source_kind != "ascend_sqlite_split" &&
+      options.source_kind != "hygon_sqlite" &&
+      options.source_kind != "cuda_nsys_sqlite") {
+    throw std::invalid_argument("unsupported --source-kind: " +
+                                options.source_kind);
+  }
+  options.source_dbs =
+      discover_profile_dbs(options.source_input, options.source_kind);
   if (options.source_dbs.empty()) {
-    throw std::invalid_argument("no supported msprof or Hygon profile DB found "
-                                "under input path: " +
+    throw std::invalid_argument("no supported msprof, Hygon, or CUDA/Nsight "
+                                "profile DB found under input path: " +
                                 options.source_input);
   }
   if (options.source_dbs.size() > 1 &&
@@ -243,39 +259,64 @@ bool looks_like_msprof_db(const fs::path& path) {
   return name.rfind("msprof_", 0) == 0 && path.extension() == ".db";
 }
 
-bool looks_like_supported_profile_db(const fs::path& path) {
-  if (!fs::is_regular_file(path)) {
+bool has_sqlite_profile_extension(const fs::path& path) {
+  const std::string extension = path.extension().string();
+  return extension == ".db" || extension == ".sqlite" ||
+         extension == ".sqlite3";
+}
+
+bool looks_like_supported_profile_db(const fs::path& path,
+                                     const std::string& source_kind) {
+  if (!fs::is_regular_file(path) || !has_sqlite_profile_extension(path)) {
     return false;
+  }
+  if (source_kind == "cuda_nsys_sqlite") {
+    return traceloom::looks_like_cuda_nsys_sqlite_profile(path.string());
+  }
+  if (source_kind == "hygon_sqlite") {
+    return traceloom::looks_like_hygon_sqlite_profile(path.string());
+  }
+  if (source_kind == "ascend_sqlite_hot_path") {
+    return looks_like_msprof_db(path);
+  }
+  if (source_kind == "ascend_sqlite_split") {
+    return false;
+  }
+  if (traceloom::looks_like_cuda_nsys_sqlite_profile(path.string())) {
+    return true;
   }
   if (looks_like_msprof_db(path)) {
     return traceloom::ascend_sqlite_has_usable_task_table(path.string());
   }
-  return path.extension() == ".db" &&
-         traceloom::looks_like_hygon_sqlite_profile(path.string());
+  return traceloom::looks_like_hygon_sqlite_profile(path.string());
 }
 
-std::vector<std::string> discover_profile_dbs(const std::string& input) {
+std::vector<std::string> discover_profile_dbs(const std::string& input,
+                                               const std::string& source_kind) {
   const fs::path root(input);
   std::vector<fs::path> dbs;
   std::vector<fs::path> split_profiles;
   std::error_code ec;
-  if (looks_like_supported_profile_db(root)) {
+  const bool allow_split_profiles =
+      source_kind == "auto" || source_kind == "ascend_sqlite_split";
+  if (looks_like_supported_profile_db(root, source_kind)) {
     dbs.push_back(root);
-  } else if (looks_like_msprof_db(root)) {
+  } else if (allow_split_profiles && looks_like_msprof_db(root)) {
     const fs::path profile_dir = root.parent_path();
     if (traceloom::looks_like_ascend_split_sqlite_profile(
             profile_dir.string())) {
       split_profiles.push_back(profile_dir);
     }
   } else if (fs::is_directory(root, ec)) {
-    if (traceloom::looks_like_ascend_split_sqlite_profile(root.string())) {
+    if (allow_split_profiles &&
+        traceloom::looks_like_ascend_split_sqlite_profile(root.string())) {
       split_profiles.push_back(root);
     }
     for (const auto& entry : fs::recursive_directory_iterator(root)) {
-      if (looks_like_supported_profile_db(entry.path())) {
+      if (looks_like_supported_profile_db(entry.path(), source_kind)) {
         dbs.push_back(entry.path());
       }
-      if (entry.is_directory() &&
+      if (allow_split_profiles && entry.is_directory() &&
           fs::is_directory(entry.path() / "host" / "sqlite", ec) &&
           traceloom::looks_like_ascend_split_sqlite_profile(
               entry.path().string())) {
@@ -286,7 +327,7 @@ std::vector<std::string> discover_profile_dbs(const std::string& input) {
     throw std::invalid_argument("input path does not exist: " + input);
   } else {
     throw std::invalid_argument(
-        "input is not a supported msprof/Hygon profile DB or directory: " +
+        "input is not a supported msprof/Hygon/CUDA profile DB or directory: " +
         input);
   }
   std::sort(dbs.begin(), dbs.end());
@@ -399,16 +440,31 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
                            cli.grammar_debug_out_path.empty() &&
                            cli.compat_sidecar_out_path.empty());
 
-    const bool is_hygon =
-        traceloom::looks_like_hygon_sqlite_profile(source_db);
-    const bool is_split = fs::is_directory(source_db);
-    const std::string source_kind = is_hygon
-                                        ? "hygon_sqlite"
-                                        : (is_split ? "ascend_sqlite_split"
-                                                    : "ascend_sqlite_hot_path");
+  const bool is_cuda =
+      cli.source_kind == "cuda_nsys_sqlite" ||
+      (cli.source_kind == "auto" &&
+       traceloom::looks_like_cuda_nsys_sqlite_profile(source_db));
+  const bool is_hygon =
+      cli.source_kind == "hygon_sqlite" ||
+      (cli.source_kind == "auto" && !is_cuda &&
+       traceloom::looks_like_hygon_sqlite_profile(source_db));
+  const bool is_split = !is_cuda && !is_hygon && fs::is_directory(source_db);
+  const std::string source_kind =
+      is_cuda ? "cuda_nsys_sqlite"
+              : (is_hygon ? "hygon_sqlite"
+                          : (is_split ? "ascend_sqlite_split"
+                                      : "ascend_sqlite_hot_path"));
     traceloom::NativeIr ir;
     const Stopwatch load_watch;
-    if (is_hygon) {
+    if (is_cuda) {
+      traceloom::CudaNsightSQLiteAdapterOptions adapter_options;
+      adapter_options.db_path = source_db;
+      adapter_options.thread_count = cli.threads;
+      adapter_options.timing_diagnostics = cli.timings;
+      const traceloom::CudaNsightSQLiteAdapter adapter(
+          std::move(adapter_options));
+      ir = adapter.load();
+    } else if (is_hygon) {
       traceloom::HygonSQLiteAdapterOptions adapter_options;
       adapter_options.db_path = source_db;
       adapter_options.thread_count = cli.threads;
