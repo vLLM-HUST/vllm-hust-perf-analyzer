@@ -1,4 +1,4 @@
-# Workflow
+# Tutorial: From Package To Loop Tree
 
 TraceLoom is a native offline analyzer:
 
@@ -8,10 +8,31 @@ msprof SQLite output
   -> semantic anchor timeline
   -> repeated-pattern grammar
   -> overlap-safe cost attribution
-  -> Loop Tree report and optional SQLite evidence
+  -> Loop Tree report and optional SQLite/JSON evidence
 ```
 
-## 1. Collect A Profile
+## 1. Build And Install
+
+On Debian or Ubuntu, build the package from the repository root:
+
+```bash
+cmake -S native -B build/traceloom-native-package \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DTRACELOOM_NATIVE_BUILD_TESTS=OFF
+cmake --build build/traceloom-native-package -j "$(nproc)"
+cpack --config build/traceloom-native-package/CPackConfig.cmake \
+  -B build/traceloom-native-package
+sudo apt install ./build/traceloom-native-package/traceloom-native_*.deb
+```
+
+The package installs one public command:
+
+```bash
+traceloom --version
+traceloom --help
+```
+
+## 2. Collect A Profile
 
 Run the workload with Ascend/CANN `msprof`. TraceLoom does not launch the
 workload or require a runtime wrapper. Supported production layouts include:
@@ -21,43 +42,74 @@ workload or require a runtime wrapper. Supported production layouts include:
 <raw_dir>/PROF_*/msprof_*.db
 ```
 
-## 2. Run TraceLoom
+## 3. Run TraceLoom
+
+Analyze a profile directory:
 
 ```bash
 traceloom /path/to/msprof_output
 ```
 
-For one database:
+Or analyze one database:
 
 ```bash
 traceloom /path/to/PROF_.../msprof_YYYYMMDDHHMMSS.db
 ```
 
 Use `--threads N` to control parallelism. TraceLoom writes reports under a
-neighboring `traceloom/` directory by default.
+neighboring `traceloom/` directory by default:
 
-## 3. Read The Loop Tree
+```text
+PROF_.../traceloom/loop_tree_v2.md
+msprof_output/traceloom/device0_loop_tree_v2.md
+```
 
-Start with `loop_tree_v2.md` or `deviceN_loop_tree_v2.md`. Compare
-`avg_total_us`, `avg_compute_us`, `avg_comm_us`, and `avg_idle_us` across
-sibling nodes. Repeat-node averages are normalized per loop-body iteration.
+For a self-contained smoke test, run:
 
-## 4. Drill Down When Needed
+```bash
+traceloom examples/kickstart_smoke/msprof_raw
+```
 
-The normal report is intentionally compact. For queryable evidence, request a
-native compatibility sidecar:
+## 4. Read The Loop Tree
+
+Start with an outer `Repeat xN`, then compare its children. Read the cost
+columns using these rules:
+
+- `total_us` is a disjoint wall-clock union, so overlapping streams are not
+  counted twice;
+- ordinary-node averages divide by occurrence count;
+- Repeat-node averages divide by occurrence count and body repeat count;
+- compute, communication, idle, auxiliary, and self columns use the same
+  denominator as the node's average total.
+
+This normalization makes a loop node directly comparable with its loop body.
+
+## 5. Drill Down When Needed
+
+The normal report is intentionally compact. For queryable evidence from one
+database, request native JSON and a compatibility sidecar:
 
 ```bash
 traceloom /path/to/msprof.db \
+  --loop-tree-out /tmp/loop_tree_v2.md \
   --compat-db-out /tmp/traceloom-sidecar.db \
-  --loop-tree-out /tmp/loop_tree_v2.md
+  --out /tmp/native_result.json
 ```
 
-Inspect it with `sqlite3` or another SQLite client. Source references retain
-the original database, table, and row identifiers.
+Inspect the sidecar with `sqlite3` or another SQLite client. Source references
+retain the original database, table, and row identifiers. Run
+`traceloom --help-advanced` for grammar and auxiliary-attribution options.
 
-## 5. Share A Reproducible Diagnosis
+## 6. Share A Reproducible Diagnosis
 
 Share the TraceLoom version and command, the Loop Tree report, selected SQL
 results, and profile metadata/checksums. Avoid committing large raw profiler
 databases or generated reports to this repository.
+
+## 7. Uninstall
+
+```bash
+sudo apt remove traceloom-native
+```
+
+After removal, `/usr/bin/traceloom` should no longer exist.
