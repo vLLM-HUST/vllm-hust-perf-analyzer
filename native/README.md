@@ -5,6 +5,36 @@ current Ascend `msprof` profiles.
 
 ## Install
 
+### Debian package
+
+Build the installable `traceloom-native` package on Debian or Ubuntu:
+
+```bash
+cmake -S native -B build/traceloom-native-package \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DTRACELOOM_NATIVE_BUILD_TESTS=OFF
+cmake --build build/traceloom-native-package -j "$(nproc)"
+cpack --config build/traceloom-native-package/CPackConfig.cmake \
+  -B build/traceloom-native-package
+sudo apt install ./build/traceloom-native-package/traceloom-native_*.deb
+```
+
+The package installs one stable entry point: `/usr/bin/traceloom`. Verify the
+installation with:
+
+```bash
+traceloom --version
+traceloom --help
+```
+
+Remove it with:
+
+```bash
+sudo apt remove traceloom-native
+```
+
+### Install from source
+
 From the TraceLoom repository root:
 
 ```bash
@@ -71,10 +101,11 @@ Some deep regression tests use external design fixtures from the larger
 research workspace. Fresh standalone clones skip those tests when the fixtures
 are not present; normal unit tests still run.
 
-The compatibility/debug tools remain available for development:
+Advanced analyzer output and the inventory tool remain available for
+development:
 
 ```bash
-build/native/native/traceloom-native-analyze-db \
+build/native/native/traceloom \
   --source-db examples/kickstart_smoke/msprof_raw/.../msprof_*.db \
   --out native_result.json
 

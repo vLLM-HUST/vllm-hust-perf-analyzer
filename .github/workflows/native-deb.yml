@@ -1,0 +1,27 @@
+name: Native Debian package
+
+on:
+  pull_request:
+    paths:
+      - "native/**"
+      - "packaging/**"
+      - ".github/workflows/native-deb.yml"
+  push:
+    branches: [main]
+    paths:
+      - "native/**"
+      - "packaging/**"
+      - ".github/workflows/native-deb.yml"
+
+jobs:
+  debian-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build, install, analyze, and uninstall in clean Debian
+        run: |
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/src" \
+            -w /src \
+            debian:bookworm-slim \
+            sh packaging/test_native_deb_in_debian.sh

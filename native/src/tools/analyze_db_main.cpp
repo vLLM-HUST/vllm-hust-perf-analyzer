@@ -25,6 +25,10 @@
 #include "traceloom/pattern/grammar_engine.h"
 #include "traceloom/pattern/grammar_state.h"
 
+#ifndef TRACELOOM_NATIVE_VERSION
+#define TRACELOOM_NATIVE_VERSION "dev"
+#endif
+
 namespace {
 
 namespace fs = std::filesystem;
@@ -161,10 +165,13 @@ CliOptions parse_args(int argc, char** argv) {
     } else if (arg == "--top-candidates") {
       options.top_candidate_limit = parse_size(require_value(arg), arg);
     } else if (arg == "--help" || arg == "-h") {
-      print_usage(argc > 0 ? argv[0] : "traceloom-native-analyze-db");
+      print_usage(argc > 0 ? argv[0] : "traceloom");
       std::exit(0);
     } else if (arg == "--help-advanced") {
-      print_advanced_usage(argc > 0 ? argv[0] : "traceloom-native-analyze-db");
+      print_advanced_usage(argc > 0 ? argv[0] : "traceloom");
+      std::exit(0);
+    } else if (arg == "--version" || arg == "-V") {
+      std::cout << "traceloom " << TRACELOOM_NATIVE_VERSION << '\n';
       std::exit(0);
     } else if (!arg.empty() && arg[0] != '-' && options.source_input.empty()) {
       options.source_input = arg;
@@ -590,7 +597,7 @@ int main(int argc, char** argv) {
     }
   } catch (const std::exception& ex) {
     std::cerr << "error: " << ex.what() << "\n";
-    print_usage(argc > 0 ? argv[0] : "traceloom-native-analyze-db");
+    print_usage(argc > 0 ? argv[0] : "traceloom");
     return 1;
   }
 

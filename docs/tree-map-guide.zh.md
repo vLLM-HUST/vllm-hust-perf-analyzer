@@ -75,42 +75,29 @@ msprof_raw/traceloom/tree-map.md
 `tree-map.md` 里的 `node` 对应增强数据库视图 `traceloom_v_tree_node.local_node_id`。用户可以先确认节点：
 
 ```bash
-traceloom report /path/to/traceloom/db01.traceloom_augmented.db \
-  --query "select * from traceloom_v_tree_node where local_node_id = 'N027'" \
-  --format md
+sqlite3 /path/to/traceloom-sidecar.db \
+  "select * from traceloom_v_tree_node where local_node_id = 'N027'"
 ```
 
 展开某个 node 的每次出现：
 
 ```bash
-cp /path/to/traceloom/queries/node-occurrences.sql /tmp/node-occurrences.sql
 # 把 SQL 文件里的 N027 改成你关心的 node
-traceloom report /path/to/traceloom/db01.traceloom_augmented.db \
-  --sql /tmp/node-occurrences.sql \
-  --format md \
-  -o /tmp/N027-occurrences.md
+sqlite3 /path/to/traceloom-sidecar.db < /path/to/node-occurrences.sql
 ```
 
 查看 node 覆盖的具体 profiler 事件：
 
 ```bash
-cp /path/to/traceloom/queries/node-events.sql /tmp/node-events.sql
 # 把 SQL 文件里的 N027 改成你关心的 node
-traceloom report /path/to/traceloom/db01.traceloom_augmented.db \
-  --sql /tmp/node-events.sql \
-  --format md \
-  -o /tmp/N027-events.md
+sqlite3 /path/to/traceloom-sidecar.db < /path/to/node-events.sql
 ```
 
 查看计算、通信、idle、aux 等构成：
 
 ```bash
-cp /path/to/traceloom/queries/node-cost-breakdown.sql /tmp/node-cost-breakdown.sql
 # 把 SQL 文件里的 N027 改成你关心的 node
-traceloom report /path/to/traceloom/db01.traceloom_augmented.db \
-  --sql /tmp/node-cost-breakdown.sql \
-  --format md \
-  -o /tmp/N027-cost.md
+sqlite3 /path/to/traceloom-sidecar.db < /path/to/node-cost-breakdown.sql
 ```
 
 如果想自己写 SQL，常用入口是：
