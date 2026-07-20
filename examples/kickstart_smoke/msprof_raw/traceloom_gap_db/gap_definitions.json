@@ -1,0 +1,336 @@
+{
+  "label_definitions": [
+    {
+      "label_key": "stream_local_gap.event_synchronization_boundary",
+      "gap_type": "stream_local_gap",
+      "category": "event_synchronization_boundary",
+      "confidence": "confirmed",
+      "description": "Stream-local gap between EVENT_RECORD and EVENT_WAIT \u2014 cross-stream sync signal",
+      "is_actionable": 1,
+      "display_priority": 10
+    },
+    {
+      "label_key": "stream_local_gap.intra_kernel_launch_gap",
+      "gap_type": "stream_local_gap",
+      "category": "intra_kernel_launch_gap",
+      "confidence": "contextual",
+      "description": "Stream-local gap between two KERNEL tasks \u2014 host dispatch delay",
+      "is_actionable": 1,
+      "display_priority": 20
+    },
+    {
+      "label_key": "stream_local_gap.wait_to_compute_transition",
+      "gap_type": "stream_local_gap",
+      "category": "wait_to_compute_transition",
+      "confidence": "confirmed",
+      "description": "Stream-local gap from EVENT_WAIT/NOTIFY_WAIT to KERNEL \u2014 wait ends, compute begins",
+      "is_actionable": 1,
+      "display_priority": 15
+    },
+    {
+      "label_key": "stream_local_gap.model_maintenance_interval",
+      "gap_type": "stream_local_gap",
+      "category": "model_maintenance_interval",
+      "confidence": "heuristic",
+      "description": "Consecutive MODEL_MAINTAINCE tasks \u2014 profiler marker interval, not runtime work",
+      "is_actionable": 0,
+      "display_priority": 80
+    },
+    {
+      "label_key": "stream_local_gap.capture_control_boundary",
+      "gap_type": "stream_local_gap",
+      "category": "capture_control_boundary",
+      "confidence": "heuristic",
+      "description": "Gap involving CAPTURE_WAIT/CAPTURE_RECORD \u2014 ACL graph capture phase",
+      "is_actionable": 0,
+      "display_priority": 70
+    },
+    {
+      "label_key": "stream_local_gap.event_record_boundary",
+      "gap_type": "stream_local_gap",
+      "category": "event_record_boundary",
+      "confidence": "heuristic",
+      "description": "Gap involving EVENT_RECORD/NOTIFY_RECORD \u2014 event lifecycle boundary",
+      "is_actionable": 0,
+      "display_priority": 60
+    },
+    {
+      "label_key": "stream_local_gap.other_transition",
+      "gap_type": "stream_local_gap",
+      "category": "other_transition",
+      "confidence": "unknown",
+      "description": "Unclassified stream-local gap transition",
+      "is_actionable": 0,
+      "display_priority": 90
+    },
+    {
+      "label_key": "device_visible_gap.blocked_by_visible_wait",
+      "gap_type": "device_visible_gap",
+      "category": "blocked_by_visible_wait",
+      "confidence": "confirmed",
+      "description": "Device-level gap where one+ streams have visible EVENT_WAIT/NOTIFY_WAIT tasks",
+      "is_actionable": 1,
+      "display_priority": 5
+    },
+    {
+      "label_key": "device_visible_gap.queued_visible_task_delay",
+      "gap_type": "device_visible_gap",
+      "category": "queued_visible_task_delay",
+      "confidence": "contextual",
+      "description": "Device-level gap where productive tasks exist but are delayed (host dispatch bottleneck)",
+      "is_actionable": 1,
+      "display_priority": 10
+    },
+    {
+      "label_key": "device_visible_gap.host_sync_api_present",
+      "gap_type": "device_visible_gap",
+      "category": "host_sync_api_present",
+      "confidence": "contextual",
+      "description": "Device-level gap with overlapping host synchronization API (aclrtSynchronizeStream etc.)",
+      "is_actionable": 1,
+      "display_priority": 15
+    },
+    {
+      "label_key": "device_visible_gap.capture_control_present",
+      "gap_type": "device_visible_gap",
+      "category": "capture_control_present",
+      "confidence": "heuristic",
+      "description": "Device-level gap with CAPTURE/control tasks on some streams \u2014 may be ACL graph overhead",
+      "is_actionable": 0,
+      "display_priority": 50
+    },
+    {
+      "label_key": "device_visible_gap.runtime_control_present",
+      "gap_type": "device_visible_gap",
+      "category": "runtime_control_present",
+      "confidence": "heuristic",
+      "description": "Device-level gap with runtime control/model maintenance tasks",
+      "is_actionable": 0,
+      "display_priority": 55
+    },
+    {
+      "label_key": "device_visible_gap.no_observed_device_work",
+      "gap_type": "device_visible_gap",
+      "category": "no_observed_device_work",
+      "confidence": "unknown",
+      "description": "Device-level gap with no visible task on any stream \u2014 profiler blind spot or true idle",
+      "is_actionable": 0,
+      "display_priority": 90
+    },
+    {
+      "label_key": "device_non_productive_interval.phase_boundary",
+      "gap_type": "device_non_productive_interval",
+      "category": "phase_boundary",
+      "confidence": "heuristic",
+      "description": "Gap > 1s with no productive work \u2014 capture/replay/init stage boundary",
+      "is_actionable": 0,
+      "display_priority": 5
+    },
+    {
+      "label_key": "device_non_productive_interval.init_phase",
+      "gap_type": "device_non_productive_interval",
+      "category": "init_phase",
+      "confidence": "heuristic",
+      "description": "Leading gap before first productive task \u2014 engine initialization phase",
+      "is_actionable": 0,
+      "display_priority": 10
+    }
+  ],
+  "gap_summary": [
+    {
+      "gap_type": "device_non_productive_interval",
+      "category": "phase_boundary",
+      "confidence": "heuristic",
+      "description": "Gap > 1s with no productive work \u2014 capture/replay/init stage boundary",
+      "event_count": 10,
+      "total_ms": 29964.2,
+      "avg_ms": 2996.42,
+      "min_ms": 1672.143,
+      "max_ms": 5324.279,
+      "is_actionable": 0,
+      "display_priority": 5
+    },
+    {
+      "gap_type": "device_visible_gap",
+      "category": "blocked_by_visible_wait",
+      "confidence": "confirmed",
+      "description": "Device-level gap where one+ streams have visible EVENT_WAIT/NOTIFY_WAIT tasks",
+      "event_count": 2732,
+      "total_ms": 1810.188,
+      "avg_ms": 0.6625871156661787,
+      "min_ms": 0.1,
+      "max_ms": 681.124,
+      "is_actionable": 1,
+      "display_priority": 5
+    },
+    {
+      "gap_type": "device_non_productive_interval",
+      "category": "init_phase",
+      "confidence": "heuristic",
+      "description": "Leading gap before first productive task \u2014 engine initialization phase",
+      "event_count": 0,
+      "total_ms": 0,
+      "avg_ms": 0,
+      "min_ms": 0,
+      "max_ms": 0,
+      "is_actionable": 0,
+      "display_priority": 10
+    },
+    {
+      "gap_type": "device_visible_gap",
+      "category": "queued_visible_task_delay",
+      "confidence": "contextual",
+      "description": "Device-level gap where productive tasks exist but are delayed (host dispatch bottleneck)",
+      "event_count": 0,
+      "total_ms": 0,
+      "avg_ms": 0,
+      "min_ms": 0,
+      "max_ms": 0,
+      "is_actionable": 1,
+      "display_priority": 10
+    },
+    {
+      "gap_type": "stream_local_gap",
+      "category": "event_synchronization_boundary",
+      "confidence": "confirmed",
+      "description": "Stream-local gap between EVENT_RECORD and EVENT_WAIT \u2014 cross-stream sync signal",
+      "event_count": 4073,
+      "total_ms": 97561.897,
+      "avg_ms": 23.953326049594892,
+      "min_ms": 0.1,
+      "max_ms": 2597.071,
+      "is_actionable": 1,
+      "display_priority": 10
+    },
+    {
+      "gap_type": "device_visible_gap",
+      "category": "host_sync_api_present",
+      "confidence": "contextual",
+      "description": "Device-level gap with overlapping host synchronization API (aclrtSynchronizeStream etc.)",
+      "event_count": 0,
+      "total_ms": 0,
+      "avg_ms": 0,
+      "min_ms": 0,
+      "max_ms": 0,
+      "is_actionable": 1,
+      "display_priority": 15
+    },
+    {
+      "gap_type": "stream_local_gap",
+      "category": "wait_to_compute_transition",
+      "confidence": "confirmed",
+      "description": "Stream-local gap from EVENT_WAIT/NOTIFY_WAIT to KERNEL \u2014 wait ends, compute begins",
+      "event_count": 274,
+      "total_ms": 97.335,
+      "avg_ms": 0.35523722627737225,
+      "min_ms": 0.101,
+      "max_ms": 15.18,
+      "is_actionable": 1,
+      "display_priority": 15
+    },
+    {
+      "gap_type": "stream_local_gap",
+      "category": "intra_kernel_launch_gap",
+      "confidence": "contextual",
+      "description": "Stream-local gap between two KERNEL tasks \u2014 host dispatch delay",
+      "event_count": 12806,
+      "total_ms": 190781.7,
+      "avg_ms": 14.897836951429019,
+      "min_ms": 0.1,
+      "max_ms": 5324.279,
+      "is_actionable": 1,
+      "display_priority": 20
+    },
+    {
+      "gap_type": "device_visible_gap",
+      "category": "capture_control_present",
+      "confidence": "heuristic",
+      "description": "Device-level gap with CAPTURE/control tasks on some streams \u2014 may be ACL graph overhead",
+      "event_count": 4,
+      "total_ms": 0.914,
+      "avg_ms": 0.2285,
+      "min_ms": 0.159,
+      "max_ms": 0.327,
+      "is_actionable": 0,
+      "display_priority": 50
+    },
+    {
+      "gap_type": "device_visible_gap",
+      "category": "runtime_control_present",
+      "confidence": "heuristic",
+      "description": "Device-level gap with runtime control/model maintenance tasks",
+      "event_count": 1894,
+      "total_ms": 66104.853,
+      "avg_ms": 34.902245512143615,
+      "min_ms": 0.1,
+      "max_ms": 725.209,
+      "is_actionable": 0,
+      "display_priority": 55
+    },
+    {
+      "gap_type": "stream_local_gap",
+      "category": "event_record_boundary",
+      "confidence": "heuristic",
+      "description": "Gap involving EVENT_RECORD/NOTIFY_RECORD \u2014 event lifecycle boundary",
+      "event_count": 867,
+      "total_ms": 85302.744,
+      "avg_ms": 98.38840138408305,
+      "min_ms": 0.1,
+      "max_ms": 35488.0,
+      "is_actionable": 0,
+      "display_priority": 60
+    },
+    {
+      "gap_type": "stream_local_gap",
+      "category": "capture_control_boundary",
+      "confidence": "heuristic",
+      "description": "Gap involving CAPTURE_WAIT/CAPTURE_RECORD \u2014 ACL graph capture phase",
+      "event_count": 323,
+      "total_ms": 8981.639,
+      "avg_ms": 27.806931888544888,
+      "min_ms": 24.419,
+      "max_ms": 34.886,
+      "is_actionable": 0,
+      "display_priority": 70
+    },
+    {
+      "gap_type": "stream_local_gap",
+      "category": "model_maintenance_interval",
+      "confidence": "heuristic",
+      "description": "Consecutive MODEL_MAINTAINCE tasks \u2014 profiler marker interval, not runtime work",
+      "event_count": 5270,
+      "total_ms": 132134.053,
+      "avg_ms": 25.072875332068314,
+      "min_ms": 1.072,
+      "max_ms": 29608.691,
+      "is_actionable": 0,
+      "display_priority": 80
+    },
+    {
+      "gap_type": "device_visible_gap",
+      "category": "no_observed_device_work",
+      "confidence": "unknown",
+      "description": "Device-level gap with no visible task on any stream \u2014 profiler blind spot or true idle",
+      "event_count": 10062,
+      "total_ms": 33349.787,
+      "avg_ms": 3.314429238719936,
+      "min_ms": 0.1,
+      "max_ms": 989.826,
+      "is_actionable": 0,
+      "display_priority": 90
+    },
+    {
+      "gap_type": "stream_local_gap",
+      "category": "other_transition",
+      "confidence": "unknown",
+      "description": "Unclassified stream-local gap transition",
+      "event_count": 663,
+      "total_ms": 610.043,
+      "avg_ms": 0.9201251885369532,
+      "min_ms": 0.1,
+      "max_ms": 334.174,
+      "is_actionable": 0,
+      "display_priority": 90
+    }
+  ]
+}

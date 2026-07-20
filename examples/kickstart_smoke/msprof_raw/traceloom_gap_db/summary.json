@@ -1,0 +1,62 @@
+{
+  "PROF_000001_20260609064648517_AJJGNKPPJMEGGLFA\\msprof_20260609064817.db": {
+    "task_count": 84928,
+    "productive_ratio": 3.9,
+    "duration_s": 68.5,
+    "device_gap_count": 7444,
+    "stream_gap_count": 12342,
+    "busy_interval_count": 32186,
+    "gap_categories": {
+      "runtime_control_present": {
+        "count": 959,
+        "total_ms": 33280.35600000001
+      },
+      "no_observed_device_work": {
+        "count": 5147,
+        "total_ms": 16417.231999999967
+      },
+      "blocked_by_visible_wait": {
+        "count": 1332,
+        "total_ms": 959.9779999999998
+      },
+      "phase_change_boundary": {
+        "count": 5,
+        "total_ms": 14977.727
+      },
+      "capture_control_present": {
+        "count": 1,
+        "total_ms": 0.217
+      }
+    }
+  },
+  "PROF_000001_20260609064648547_OEJLKCHMOPRFGKIB\\msprof_20260609064834.db": {
+    "task_count": 57455,
+    "productive_ratio": 2.5,
+    "duration_s": 67.5,
+    "device_gap_count": 7258,
+    "stream_gap_count": 11934,
+    "busy_interval_count": 30542,
+    "gap_categories": {
+      "phase_change_boundary": {
+        "count": 5,
+        "total_ms": 14986.473
+      },
+      "no_observed_device_work": {
+        "count": 4915,
+        "total_ms": 16932.55500000003
+      },
+      "runtime_control_present": {
+        "count": 935,
+        "total_ms": 32824.49699999995
+      },
+      "blocked_by_visible_wait": {
+        "count": 1400,
+        "total_ms": 850.2099999999992
+      },
+      "capture_control_present": {
+        "count": 3,
+        "total_ms": 0.6970000000000001
+      }
+    }
+  }
+}
