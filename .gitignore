@@ -17,3 +17,4 @@ examples/kickstart_smoke/msprof_raw/traceloom/meta.json
 *.qdrep
 *.qdstrm
 *.trace
+tmp/
