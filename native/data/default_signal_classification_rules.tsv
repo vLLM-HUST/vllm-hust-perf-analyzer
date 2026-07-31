@@ -1,0 +1,57 @@
+priority	source_domain	field	match	pattern	role	note
+100	task	task_type	exact	MODEL_MAINTAINCE	ignore	Ascend maintenance control task
+100	task	task_type	exact	MODEL_MAINTENANCE	ignore	Corrected maintenance spelling
+100	task	task_type	exact	HIP_KERNEL_AUX	ignore	Hygon auxiliary kernel
+100	task	task_type	exact	CUDA_KERNEL_AUX	ignore	CUDA auxiliary kernel
+95	task	task_type	exact	CUDA_KERNEL	anchor	Preserve unknown CUDA kernels as execution anchors
+95	task	task_type	exact	CUDA_COLLECTIVE_KERNEL	anchor	Preserve CUDA collective kernels as anchors
+90	task	blob	contains	hccl_aiv_sync	ignore	HCCL synchronization helper
+90	task	blob	contains	hccl_aic_sync	ignore	HCCL synchronization helper
+90	task	blob	contains	aiv_sync	ignore	Device synchronization helper
+90	task	blob	contains	aic_sync	ignore	Device synchronization helper
+80	task	blob	contains	nccl	anchor	NCCL collective
+80	task	blob	contains	allreduce	anchor	AllReduce collective
+80	task	blob	contains	all_reduce	anchor	AllReduce collective
+80	task	blob	contains	allgather	anchor	AllGather collective
+80	task	blob	contains	all_gather	anchor	AllGather collective
+80	task	blob	contains	reducescatter	anchor	ReduceScatter collective
+80	task	blob	contains	reduce_scatter	anchor	ReduceScatter collective
+80	task	blob	contains	broadcast	anchor	Broadcast collective
+80	task	blob	contains	alltoall	anchor	AllToAll collective
+80	task	blob	contains	all_to_all	anchor	AllToAll collective
+80	task	blob	contains	all-to-all	anchor	AllToAll collective
+80	task	blob	contains	all2all	anchor	AllToAll collective
+70	task	task_type	exact	AI_CORE	ignore	Generic device execution container
+70	task	task_type	exact	MODEL_EXECUTE	ignore	Runtime control task
+70	task	task_type	exact	CAPTURE_RECORD	ignore	Graph capture control task
+70	task	task_type	exact	CAPTURE_WAIT	ignore	Graph capture control task
+70	task	task_type	exact	EVENT_RECORD	ignore	Event control task
+70	task	task_type	exact	EVENT_WAIT	ignore	Event control task
+70	task	task_type	exact	MEM_WRITE_VALUE	ignore	Memory control task
+70	task	task_type	exact	MEMCPY	ignore	Data movement helper
+70	task	task_type	exact	MEMCPY_ASYNC	ignore	Data movement helper
+70	task	task_type	exact	NOTIFY	ignore	Notification control task
+70	task	task_type	exact	NOTIFY_RECORD	ignore	Notification control task
+70	task	task_type	exact	NOTIFY_WAIT	ignore	Notification control task
+70	task	task_type	exact	SDMA	ignore	DMA helper
+70	task	task_type	exact	TASK_TIMEOUT_SET	ignore	Runtime control task
+70	task	task_type	exact	WRITE_VALUE	ignore	Runtime control task
+60	task	blob	contains	matmul	anchor	Matrix multiplication
+60	task	blob	contains	batchmatmul	anchor	Batched matrix multiplication
+60	task	blob	contains	gemm	anchor	General matrix multiplication
+60	task	blob	contains	conv	anchor	Convolution
+60	task	blob	contains	flashattention	anchor	Flash attention
+60	task	blob	contains	fusedinferattention	anchor	Fused inference attention
+60	task	blob	contains	pagedattention	anchor	Paged attention
+60	task	blob	contains	attention	anchor	Attention
+60	task	blob	contains	rmsnorm	anchor	RMS normalization
+60	task	blob	contains	rms_norm	anchor	RMS normalization
+60	task	blob	contains	layernorm	anchor	Layer normalization
+60	task	blob	contains	layer_norm	anchor	Layer normalization
+60	task	blob	contains	swiglu	anchor	SwiGLU
+60	task	blob	contains	siluandmul	anchor	SiLU multiply
+60	task	blob	contains	moe	anchor	Mixture of experts
+60	task	blob	contains	ffn	anchor	Feed-forward network
+60	task	blob	contains	rotary	anchor	Rotary embedding
+60	task	blob	contains	rope	anchor	Rotary embedding
+60	task	blob	contains	mamba	anchor	Mamba operator

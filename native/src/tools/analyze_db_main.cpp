@@ -49,6 +49,7 @@ class Stopwatch {
 };
 
 struct CliOptions {
+  std::string executable_path;
   std::string source_input;
   std::string source_kind = "auto";
   std::vector<std::string> source_dbs;
@@ -68,6 +69,8 @@ struct CliOptions {
   bool timings = false;
   std::size_t threads = 0;
   std::size_t top_candidate_limit = 16;
+  std::string classification_rules_path;
+  std::string extend_classification_rules_path;
 };
 
 std::vector<std::string> discover_profile_dbs(const std::string& input,
@@ -106,6 +109,8 @@ void print_advanced_usage(const char* argv0) {
                " [--loop-tree-grammar|--loop-tree-no-grammar]"
                " [--loop-tree-full-discovery-cap N]"
                " [--loop-tree-aux]"
+               " [--classification-rules PATH]"
+               " [--extend-classification-rules PATH]"
                " [--timings]\n";
 }
 
@@ -120,6 +125,7 @@ std::size_t parse_size(const std::string& text, const std::string& flag) {
 
 CliOptions parse_args(int argc, char** argv) {
   CliOptions options;
+  options.executable_path = argc > 0 ? argv[0] : "traceloom";
   bool source_db_from_flag = false;
   for (int index = 1; index < argc; ++index) {
     const std::string arg = argv[index];
@@ -165,6 +171,10 @@ CliOptions parse_args(int argc, char** argv) {
       options.loop_tree_full_discovery_cap = parse_size(require_value(arg), arg);
     } else if (arg == "--loop-tree-aux") {
       options.loop_tree_aux = true;
+    } else if (arg == "--classification-rules") {
+      options.classification_rules_path = require_value(arg);
+    } else if (arg == "--extend-classification-rules") {
+      options.extend_classification_rules_path = require_value(arg);
     } else if (arg == "--sidecar-only") {
       options.sidecar_only = true;
     } else if (arg == "--timings") {
@@ -496,6 +506,19 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
         true;
     pipeline_options.anchor_config.skip_events_covered_by_replay_units = true;
     pipeline_options.anchor_config.filter_auxiliary_task_anchors = true;
+    pipeline_options.anchor_config.classification_rules =
+        cli.classification_rules_path.empty()
+            ? traceloom::load_default_signal_classification_ruleset(
+                  cli.executable_path)
+            : traceloom::load_signal_classification_ruleset(
+                  cli.classification_rules_path);
+    if (!cli.extend_classification_rules_path.empty()) {
+      pipeline_options.anchor_config.classification_rules =
+          traceloom::extend_signal_classification_ruleset(
+              pipeline_options.anchor_config.classification_rules,
+              traceloom::load_signal_classification_ruleset(
+                  cli.extend_classification_rules_path));
+    }
 
     traceloom::NativePipelineResult pipeline;
     if (report_only) {

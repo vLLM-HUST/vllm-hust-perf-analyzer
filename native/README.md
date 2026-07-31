@@ -143,3 +143,9 @@ To test the core build without SQLite support:
 cmake --preset dev-no-sqlite
 cmake --build --preset dev-no-sqlite -j "$(nproc)"
 ```
+Signal classification defaults are inspectable in
+`data/default_signal_classification_rules.tsv`. Replace the policy for one run
+with `--classification-rules PATH`, or add higher-priority environment-specific
+rules with `--extend-classification-rules PATH`. `TRACELOOM_CLASSIFICATION_RULES`
+can also select a complete ruleset. Unknown columns, roles, match modes, and
+equal-precedence conflicts fail before analysis starts.

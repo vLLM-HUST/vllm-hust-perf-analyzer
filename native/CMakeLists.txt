@@ -14,6 +14,7 @@ set(TRACELOOM_NATIVE_ASCEND_SQLITE_AVAILABLE OFF)
 
 add_library(traceloom_native_core
   src/analysis/flat_anchor_builder.cpp
+  src/analysis/signal_classification_rules.cpp
   src/analysis/native_pipeline.cpp
   src/core/diagnostics.cpp
   src/core/string_table.cpp
@@ -59,6 +60,18 @@ target_include_directories(traceloom_native_core
 )
 
 target_compile_features(traceloom_native_core PUBLIC cxx_std_17)
+
+target_compile_definitions(
+  traceloom_native_core
+  PRIVATE
+    TRACELOOM_SOURCE_DEFAULT_RULESET_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/default_signal_classification_rules.tsv"
+    TRACELOOM_INSTALL_DEFAULT_RULESET_PATH="${CMAKE_INSTALL_FULL_DATADIR}/traceloom/default_signal_classification_rules.tsv"
+)
+
+install(
+  FILES data/default_signal_classification_rules.tsv
+  DESTINATION ${CMAKE_INSTALL_DATADIR}/traceloom
+)
 
 if(MSVC)
   target_compile_options(traceloom_native_core PRIVATE /W4)
@@ -365,6 +378,17 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
   add_test(
     NAME traceloom_native_flat_anchor_builder_tests
     COMMAND traceloom_native_flat_anchor_builder_tests
+  )
+
+  add_executable(traceloom_native_signal_classification_rules_tests
+    tests/analysis/signal_classification_rules_tests.cpp
+  )
+  target_link_libraries(
+    traceloom_native_signal_classification_rules_tests PRIVATE traceloom_native_core
+  )
+  add_test(
+    NAME traceloom_native_signal_classification_rules_tests
+    COMMAND traceloom_native_signal_classification_rules_tests
   )
 
   add_executable(traceloom_native_pipeline_tests
