@@ -95,6 +95,17 @@ void require_cuda_sidecar(const std::string& path) {
                                   "SELECT COUNT(*) FROM traceloom_viz_node "
                                   "WHERE view_name = "
                                   "'native_report_tree'") > 0);
+  traceloom::testing::require(
+      run_scalar_int(path,
+                     "SELECT COUNT(*) FROM traceloom_cuda_graph_replay") > 0);
+  traceloom::testing::require(
+      run_scalar_int(path,
+                     "SELECT COUNT(*) FROM traceloom_cuda_graph_envelope") > 0);
+  traceloom::testing::require(run_scalar_int(
+                                  path,
+                                  "SELECT COUNT(*) FROM traceloom_event "
+                                  "WHERE task_type LIKE 'CUDA_%_AUX' "
+                                  "AND role != 'aux'") == 0);
 }
 
 void require_cuda_markdown(const std::string& path) {

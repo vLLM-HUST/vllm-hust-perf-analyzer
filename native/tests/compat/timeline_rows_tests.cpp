@@ -78,6 +78,25 @@ int main() {
   require(rows.events[1].category == "comm");
   require(rows.event_sources[1].source_table == "COMMUNICATION_OP");
 
+  const SourceRefId aux_source = ir.source_refs.append(
+      "cuda_nsys_sqlite", "report.sqlite", "CUPTI_ACTIVITY_KIND_RUNTIME", 0);
+  const SymbolId runtime_name = ir.symbols.intern("cudaLaunchKernel");
+  const SymbolId runtime_task = ir.symbols.intern("CUDA_RUNTIME_AUX");
+  const TraceEventId aux_event = ir.trace_events.append(
+      aux_source, 6, 0, 7, 4600, 4700, runtime_name);
+  ir.tasks.append(aux_source, aux_event, 6, -1, -1, runtime_task,
+                  runtime_name, SymbolId::invalid(), runtime_task,
+                  SymbolId::invalid());
+  const compat::EventSqlRows rows_with_aux =
+      compat::build_timeline_sql_rows(ir, 3);
+  require(rows_with_aux.events.size() == 3, "aux event missing");
+  require(rows_with_aux.events[2].task_type == "CUDA_RUNTIME_AUX",
+          "aux task type mismatch");
+  require(rows_with_aux.events[2].role == "aux", "aux role mismatch");
+  require(rows_with_aux.events[2].category == "aux",
+          "aux category mismatch");
+  require(rows_with_aux.events[2].family == "aux", "aux family mismatch");
+
   require(compat::trace_event_compat_id(task_event) == "event-0");
 
   NativeIr bad_ir;

@@ -104,12 +104,13 @@ build/native/native/traceloom \
   --sidecar-only
 ```
 
-This slice imports kernel, stream, and timeline evidence only. Runtime API,
-memcpy, memset, synchronization, CUDA event, and graph-trace tables are
-inventoried but not yet materialized; `--timings` prints each present
-unsupported activity table. Missing required kernel fields fail with an
-explicit schema error instead of being guessed. CUDA Graph replay attribution
-is therefore not available until a later native adapter slice.
+The CUDA adapter imports kernels plus available runtime API, memcpy, memset,
+synchronization, CUDA event, and graph-trace rows. Auxiliary rows retain an
+explicit task type and provenance without becoming compute anchors. Graph trace
+intervals become CUDA graph replay units; kernels inside those intervals remain
+available to the compatibility sidecar as child evidence. Missing optional
+tables are valid, while malformed present tables fail with an explicit schema
+error.
 
 ## Developer Commands
 
