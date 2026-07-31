@@ -123,7 +123,18 @@ int main(int argc, char** argv) {
       "(300, 360, 1, 4, 33, 3, 2), "
       "(100, 140, 0, 7, 11, 1, 1), "
       "(200, 215, 0, 9, 22, 4, 4);"
-      "CREATE TABLE CUPTI_ACTIVITY_KIND_RUNTIME(start INTEGER, end INTEGER);");
+      "CREATE TABLE CUPTI_ACTIVITY_KIND_RUNTIME("
+      "start INTEGER, end INTEGER, correlationId INTEGER, nameId INTEGER);"
+      "INSERT INTO CUPTI_ACTIVITY_KIND_RUNTIME VALUES (80, 85, 9, 2);"
+      "CREATE TABLE CUPTI_ACTIVITY_KIND_MEMCPY("
+      "start INTEGER, end INTEGER, deviceId INTEGER, streamId INTEGER, "
+      "correlationId INTEGER);"
+      "INSERT INTO CUPTI_ACTIVITY_KIND_MEMCPY VALUES (86, 89, 0, 7, 10);"
+      "CREATE TABLE CUPTI_ACTIVITY_KIND_GRAPH_TRACE("
+      "start INTEGER, end INTEGER, deviceId INTEGER, streamId INTEGER, "
+      "graphId INTEGER);"
+      "INSERT INTO CUPTI_ACTIVITY_KIND_GRAPH_TRACE VALUES (90, 150, 0, 7, 42);"
+      "INSERT INTO CUPTI_ACTIVITY_KIND_GRAPH_TRACE VALUES (290, 370, 1, 4, 42);");
 
   const CudaNsightSQLiteInventory inventory =
       inspect_cuda_nsys_sqlite_profile(db_path);
@@ -132,10 +143,12 @@ int main(int argc, char** argv) {
   require(inventory.kernel_row_count == 3, "kernel row count mismatch");
   require(inventory.missing_required_kernel_columns.empty(),
           "valid kernel schema was rejected");
-  require(inventory.unsupported_activity_tables.size() == 1 &&
-              inventory.unsupported_activity_tables.front() ==
-                  "CUPTI_ACTIVITY_KIND_RUNTIME",
-          "unsupported CUPTI tables were not surfaced by inventory");
+  require(inventory.present_activity_tables.size() == 3 &&
+              inventory.present_activity_tables.front() ==
+                  "CUPTI_ACTIVITY_KIND_RUNTIME" &&
+              inventory.present_activity_tables.back() ==
+                  "CUPTI_ACTIVITY_KIND_GRAPH_TRACE",
+          "optional CUPTI tables were not surfaced by inventory");
   require(looks_like_cuda_nsys_sqlite_profile(db_path),
           "CUDA profile sniffing did not recognize a kernel export");
 
@@ -146,20 +159,33 @@ int main(int argc, char** argv) {
   NativeIr ir = adapter.load();
 
   const std::string expected =
-      "sources=1\n"
+      "sources=4\n"
       "source[0]=cuda_nsys_sqlite_test|CUPTI_ACTIVITY_KIND_KERNEL\n"
-      "streams=3\n"
+      "source[1]=cuda_nsys_sqlite_test|CUPTI_ACTIVITY_KIND_RUNTIME\n"
+      "source[2]=cuda_nsys_sqlite_test|CUPTI_ACTIVITY_KIND_MEMCPY\n"
+      "source[3]=cuda_nsys_sqlite_test|CUPTI_ACTIVITY_KIND_GRAPH_TRACE\n"
+      "streams=7\n"
       "stream[0]=0:7\n"
       "stream[1]=0:9\n"
       "stream[2]=1:4\n"
-      "events=3\n"
+      "stream[3]=0:0\n"
+      "stream[4]=0:7\n"
+      "stream[5]=0:7\n"
+      "stream[6]=1:4\n"
+      "events=7\n"
       "event[0]=2|0:7|100-140|flash_fwd_kernel_bf16\n"
       "event[1]=3|0:9|200-215|vectorized_elementwise_kernel\n"
       "event[2]=1|1:4|300-360|void cutlass_gemm_kernel()\n"
-      "tasks=3\n"
+      "event[3]=1|0:0|80-85|kernel\n"
+      "event[4]=1|0:7|86-89|CudaMemcpy_1\n"
+      "event[5]=1|0:7|90-150|CudaGraphReplay T1\n"
+      "event[6]=2|1:4|290-370|CudaGraphReplay T1\n"
+      "tasks=5\n"
       "task[0]=11|11|CUDA_KERNEL|flash_fwd_kernel_bf16|CudaFlashAttention\n"
       "task[1]=22|22|CUDA_KERNEL_AUX|vectorized_elementwise_kernel|CudaAux:Pointwise\n"
-      "task[2]=33|33|CUDA_KERNEL|void cutlass_gemm_kernel()|CudaMatMul\n";
+      "task[2]=33|33|CUDA_KERNEL|void cutlass_gemm_kernel()|CudaMatMul\n"
+      "task[3]=9|9|CUDA_RUNTIME_AUX|kernel|CUDA_RUNTIME_AUX\n"
+      "task[4]=10|10|CUDA_MEMCPY_AUX|CudaMemcpy_1|CUDA_MEMCPY_AUX\n";
   require(snapshot(ir) == expected,
           "CUDA adapter output changed from its deterministic golden snapshot");
   require(snapshot(adapter.load()) == expected,
@@ -167,12 +193,15 @@ int main(int argc, char** argv) {
 
   FlatAnchorBuildConfig anchor_config;
   anchor_config.filter_auxiliary_task_anchors = true;
+  anchor_config.skip_events_covered_by_replay_units = true;
   const FlatAnchorBuildStats anchor_stats =
       build_flat_anchors(ir, anchor_config);
   require(anchor_stats.device_event_anchors == 2,
-          "CUDA compute kernels did not enter the native report model");
+          "CUDA graph traces did not enter the native report model");
   require(ir.anchors.size() == 2,
           "CUDA auxiliary kernel unexpectedly became an anchor");
+  require(ir.graph_templates.size() == 1 && ir.replay_units.size() == 2,
+          "CUDA graph trace rows did not form stable replay units");
 
   const std::string fallback_path = temp_db_path("_fallback");
   create_db(fallback_path,

@@ -64,6 +64,12 @@ communication_ops_by_event(const NativeIr& ir) {
   return out;
 }
 
+bool ends_with(const std::string& value, const std::string& suffix) {
+  return value.size() >= suffix.size() &&
+         value.compare(value.size() - suffix.size(), suffix.size(), suffix) ==
+             0;
+}
+
 }  // namespace
 
 std::string trace_event_compat_id(TraceEventId id) {
@@ -111,7 +117,8 @@ EventSqlRows build_timeline_sql_rows(const NativeIr& ir, std::uint32_t db_idx) {
           symbol_value_or_empty(ir, task->compute_task_type_symbol_id);
       row.task_type = symbol_value_or_empty(ir, task->task_type_symbol_id);
       const bool is_comm_task = task->comm_name_symbol_id.valid();
-      row.role = is_comm_task ? "comm" : "compute";
+      const bool is_aux_task = ends_with(row.task_type, "_AUX");
+      row.role = is_comm_task ? "comm" : (is_aux_task ? "aux" : "compute");
       row.category = row.role;
       row.family = row.role;
     } else if (comm != nullptr) {

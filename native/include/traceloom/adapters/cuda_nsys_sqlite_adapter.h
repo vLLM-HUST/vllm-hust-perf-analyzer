@@ -18,15 +18,13 @@ struct CudaNsightSQLiteAdapterOptions {
   bool timing_diagnostics = false;
 };
 
-// Describes the deliberately small first native CUDA adapter boundary. Kernel
-// rows and StringIds name resolution are supported. Other CUPTI activity tables
-// are reported here rather than being silently presented as imported evidence.
+// Inventory of the Nsight activity tables understood by the native adapter.
 struct CudaNsightSQLiteInventory {
   bool has_kernel_table = false;
   bool has_string_ids_table = false;
   std::uint64_t kernel_row_count = 0;
   std::vector<std::string> missing_required_kernel_columns;
-  std::vector<std::string> unsupported_activity_tables;
+  std::vector<std::string> present_activity_tables;
 };
 
 CudaNsightSQLiteInventory inspect_cuda_nsys_sqlite_profile(

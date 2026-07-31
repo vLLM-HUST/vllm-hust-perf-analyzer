@@ -24,7 +24,7 @@ namespace {
 constexpr const char* kKernelTable = "CUPTI_ACTIVITY_KIND_KERNEL";
 constexpr const char* kStringIdsTable = "StringIds";
 
-const std::vector<std::string>& unsupported_activity_table_names() {
+const std::vector<std::string>& optional_activity_table_names() {
   static const std::vector<std::string> names{
       "CUPTI_ACTIVITY_KIND_RUNTIME",
       "CUPTI_ACTIVITY_KIND_MEMCPY",
@@ -55,6 +55,8 @@ struct CudaLoadTiming {
   double inventory_ms = 0.0;
   double strings_ms = 0.0;
   double kernels_ms = 0.0;
+  double auxiliary_ms = 0.0;
+  double graph_trace_ms = 0.0;
 };
 
 void print_load_timing(const CudaLoadTiming& timing) {
@@ -64,6 +66,9 @@ void print_load_timing(const CudaLoadTiming& timing) {
             << "\n";
   std::cerr << "timing load_cuda_strings_ms=" << timing.strings_ms << "\n";
   std::cerr << "timing load_cuda_kernels_ms=" << timing.kernels_ms << "\n";
+  std::cerr << "timing load_cuda_auxiliary_ms=" << timing.auxiliary_ms << "\n";
+  std::cerr << "timing load_cuda_graph_trace_ms=" << timing.graph_trace_ms
+            << "\n";
 }
 
 class SqliteDb {
@@ -274,9 +279,9 @@ CudaNsightSQLiteInventory inspect_inventory(SqliteDb& db) {
     inventory.missing_required_kernel_columns =
         missing_required_kernel_columns(table_columns(db, kKernelTable));
   }
-  for (const std::string& name : unsupported_activity_table_names()) {
+  for (const std::string& name : optional_activity_table_names()) {
     if (has_name(tables, name)) {
-      inventory.unsupported_activity_tables.push_back(name);
+      inventory.present_activity_tables.push_back(name);
     }
   }
   return inventory;
@@ -443,6 +448,199 @@ std::uint32_t checked_u32(std::int64_t value, const std::string& field,
                              ": expected a non-negative 32-bit integer");
   }
   return static_cast<std::uint32_t>(value);
+}
+
+std::string first_column(const ColumnMap& columns,
+                         std::initializer_list<const char*> names) {
+  for (const char* name : names) {
+    const std::string found = find_column(columns, name);
+    if (!found.empty()) {
+      return found;
+    }
+  }
+  return {};
+}
+
+std::string select_or_null(const std::string& column) {
+  return column.empty() ? std::string("NULL") : quote_identifier(column);
+}
+
+struct AuxiliaryActivitySpec {
+  const char* table;
+  const char* task_type;
+  const char* fallback_label;
+};
+
+const std::vector<AuxiliaryActivitySpec>& auxiliary_activity_specs() {
+  static const std::vector<AuxiliaryActivitySpec> specs{
+      {"CUPTI_ACTIVITY_KIND_RUNTIME", "CUDA_RUNTIME_AUX", "CudaRuntime"},
+      {"CUPTI_ACTIVITY_KIND_MEMCPY", "CUDA_MEMCPY_AUX", "CudaMemcpy"},
+      {"CUPTI_ACTIVITY_KIND_MEMSET", "CUDA_MEMSET_AUX", "CudaMemset"},
+      {"CUPTI_ACTIVITY_KIND_SYNCHRONIZATION", "CUDA_SYNC_AUX", "CudaSync"},
+      {"CUPTI_ACTIVITY_KIND_CUDA_EVENT", "CUDA_EVENT_AUX", "CudaEvent"},
+  };
+  return specs;
+}
+
+void load_auxiliary_activity_rows(
+    SqliteDb& db, NativeIr& ir, const CudaNsightSQLiteAdapterOptions& options,
+    const CudaNsightSQLiteInventory& inventory,
+    const std::unordered_map<std::int64_t, std::string>& strings) {
+  for (const AuxiliaryActivitySpec& spec : auxiliary_activity_specs()) {
+    if (!has_name(inventory.present_activity_tables, spec.table) ||
+        table_row_count(db, spec.table) == 0) {
+      continue;
+    }
+    const ColumnMap columns = table_columns(db, spec.table);
+    const std::string start = first_column(columns, {"start", "timestamp"});
+    const std::string end = find_column(columns, "end");
+    if (start.empty()) {
+      throw std::runtime_error("unsupported CUDA/Nsight " +
+                               std::string(spec.table) +
+                               " schema: missing start or timestamp");
+    }
+    const std::string device = first_column(columns, {"deviceId", "device"});
+    const std::string stream = first_column(columns, {"streamId", "stream"});
+    const std::string correlation = find_column(columns, "correlationId");
+    const std::string name = first_column(
+        columns, {"nameId", "shortName", "copyKind", "syncType", "eventId"});
+    const std::string sql =
+        "SELECT rowid, " + quote_identifier(start) + ", " +
+        select_or_null(end) + ", " + select_or_null(device) + ", " +
+        select_or_null(stream) + ", " + select_or_null(correlation) + ", " +
+        select_or_null(name) + " FROM " + quote_identifier(spec.table) +
+        " WHERE " + quote_identifier(start) + " IS NOT NULL ORDER BY " +
+        quote_identifier(start) + ", rowid";
+
+    const SourceRefId source_ref = ir.source_refs.append(
+        options.source_kind, options.db_path, spec.table, 0);
+    std::map<StreamKey, StreamId> streams;
+    SqliteStmt stmt(db.get(), sql);
+    while (true) {
+      const int rc = sqlite3_step(stmt.get());
+      if (rc == SQLITE_DONE) {
+        break;
+      }
+      if (rc != SQLITE_ROW) {
+        throw std::runtime_error("failed to load CUDA/Nsight " +
+                                 std::string(spec.table) + ": " +
+                                 sqlite3_errmsg(stmt.db()));
+      }
+      const std::uint64_t source_row_id =
+          static_cast<std::uint64_t>(sqlite_i64(stmt.get(), 0));
+      const std::int64_t start_ns = sqlite_i64(stmt.get(), 1);
+      std::int64_t end_ns = sqlite_i64(stmt.get(), 2, start_ns + 1);
+      if (end_ns <= start_ns) {
+        end_ns = start_ns + 1;
+      }
+      const std::uint32_t device_id = static_cast<std::uint32_t>(
+          std::max<std::int64_t>(0, sqlite_i64(stmt.get(), 3, 0)));
+      const std::uint32_t stream_id = static_cast<std::uint32_t>(
+          std::max<std::int64_t>(0, sqlite_i64(stmt.get(), 4, 0)));
+      const std::int64_t correlation_id = sqlite_i64(stmt.get(), 5, -1);
+      std::string label = resolved_name(stmt.get(), 6, strings);
+      if (label.empty()) {
+        label = std::string(spec.fallback_label) + "_" +
+                std::to_string(source_row_id);
+      }
+      intern_stream(ir, streams, source_ref, device_id, stream_id);
+      const SymbolId label_symbol = ir.symbols.intern(label);
+      const SymbolId task_type_symbol = ir.symbols.intern(spec.task_type);
+      const TraceEventId event = ir.trace_events.append(
+          source_ref, source_row_id, device_id, stream_id, start_ns, end_ns,
+          label_symbol);
+      const std::uint64_t raw_task_id =
+          correlation_id < 0 ? source_row_id
+                             : static_cast<std::uint64_t>(correlation_id);
+      ir.tasks.append(source_ref, event, raw_task_id, correlation_id,
+                      correlation_id, task_type_symbol, label_symbol,
+                      task_type_symbol, task_type_symbol, SymbolId::invalid());
+    }
+  }
+}
+
+std::uint64_t stable_hash64(const std::string& value) {
+  std::uint64_t hash = 1469598103934665603ULL;
+  for (unsigned char ch : value) {
+    hash ^= static_cast<std::uint64_t>(ch);
+    hash *= 1099511628211ULL;
+  }
+  return hash;
+}
+
+void load_graph_trace_rows(
+    SqliteDb& db, NativeIr& ir, const CudaNsightSQLiteAdapterOptions& options,
+    const CudaNsightSQLiteInventory& inventory) {
+  constexpr const char* table = "CUPTI_ACTIVITY_KIND_GRAPH_TRACE";
+  if (!has_name(inventory.present_activity_tables, table) ||
+      table_row_count(db, table) == 0) {
+    return;
+  }
+  const ColumnMap columns = table_columns(db, table);
+  const std::string start = first_column(columns, {"start", "timestamp"});
+  const std::string end = find_column(columns, "end");
+  const std::string device = first_column(columns, {"deviceId", "device"});
+  const std::string stream = first_column(columns, {"streamId", "stream"});
+  const std::string graph = first_column(
+      columns, {"executableGraphId", "graphExecId", "graphId", "graphNodeId"});
+  if (start.empty()) {
+    throw std::runtime_error(
+        "unsupported CUDA/Nsight graph trace schema: missing start or timestamp");
+  }
+  const std::string sql =
+      "SELECT rowid, " + quote_identifier(start) + ", " +
+      select_or_null(end) + ", " + select_or_null(device) + ", " +
+      select_or_null(stream) + ", " + select_or_null(graph) + " FROM " +
+      quote_identifier(table) + " WHERE " + quote_identifier(start) +
+      " IS NOT NULL ORDER BY " + quote_identifier(start) + ", rowid";
+  const SourceRefId source_ref =
+      ir.source_refs.append(options.source_kind, options.db_path, table, 0);
+  std::map<std::string, GraphTemplateId> templates;
+  std::map<StreamKey, StreamId> streams;
+  SqliteStmt stmt(db.get(), sql);
+  while (true) {
+    const int rc = sqlite3_step(stmt.get());
+    if (rc == SQLITE_DONE) {
+      return;
+    }
+    if (rc != SQLITE_ROW) {
+      throw std::runtime_error("failed to load CUDA/Nsight graph trace rows: " +
+                               std::string(sqlite3_errmsg(stmt.db())));
+    }
+    const std::uint64_t source_row_id =
+        static_cast<std::uint64_t>(sqlite_i64(stmt.get(), 0));
+    const std::int64_t start_ns = sqlite_i64(stmt.get(), 1);
+    std::int64_t end_ns = sqlite_i64(stmt.get(), 2, start_ns + 1);
+    if (end_ns <= start_ns) {
+      end_ns = start_ns + 1;
+    }
+    const std::uint32_t device_id = static_cast<std::uint32_t>(
+        std::max<std::int64_t>(0, sqlite_i64(stmt.get(), 3, 0)));
+    const std::uint32_t stream_id = static_cast<std::uint32_t>(
+        std::max<std::int64_t>(0, sqlite_i64(stmt.get(), 4, 0)));
+    const std::int64_t raw_graph_id = sqlite_i64(stmt.get(), 5, -1);
+    const std::string graph_key =
+        raw_graph_id < 0 ? "row-" + std::to_string(source_row_id)
+                         : std::to_string(raw_graph_id);
+    auto found = templates.find(graph_key);
+    GraphTemplateId graph_template;
+    if (found == templates.end()) {
+      graph_template =
+          ir.graph_templates.append(source_ref, stable_hash64(graph_key), 0);
+      templates.emplace(graph_key, graph_template);
+    } else {
+      graph_template = found->second;
+    }
+    intern_stream(ir, streams, source_ref, device_id, stream_id);
+    const std::string label = "CudaGraphReplay T" +
+                              std::to_string(graph_template.value() + 1);
+    const SymbolId symbol = ir.symbols.intern(label);
+    const TraceEventId event = ir.trace_events.append(
+        source_ref, source_row_id, device_id, stream_id, start_ns, end_ns,
+        symbol);
+    ir.replay_units.append(graph_template, source_ref, AnchorId::invalid(),
+                           AnchorId::invalid(), event);
+  }
 }
 
 void load_kernel_rows(
@@ -614,10 +812,18 @@ NativeIr CudaNsightSQLiteAdapter::load() const {
   load_kernel_rows(db, ir, kernel_source_ref, strings);
   timing.kernels_ms = kernels_watch.elapsed_ms();
 
+  const Stopwatch auxiliary_watch;
+  load_auxiliary_activity_rows(db, ir, options_, inventory, strings);
+  timing.auxiliary_ms = auxiliary_watch.elapsed_ms();
+
+  const Stopwatch graph_trace_watch;
+  load_graph_trace_rows(db, ir, options_, inventory);
+  timing.graph_trace_ms = graph_trace_watch.elapsed_ms();
+
   if (options_.timing_diagnostics) {
     print_load_timing(timing);
-    for (const std::string& table : inventory.unsupported_activity_tables) {
-      std::cerr << "cuda_nsys_unsupported_table=" << table << "\n";
+    for (const std::string& table : inventory.present_activity_tables) {
+      std::cerr << "cuda_nsys_activity_table=" << table << "\n";
     }
   }
   return ir;
