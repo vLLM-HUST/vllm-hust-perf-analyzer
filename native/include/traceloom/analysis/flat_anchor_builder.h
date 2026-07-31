@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "traceloom/analysis/signal_classification_rules.h"
 #include "traceloom/ir/native_ir.h"
 
 namespace traceloom {
@@ -14,6 +15,7 @@ struct FlatAnchorBuildConfig {
   bool skip_tasks_covered_by_replay_units = false;
   bool skip_events_covered_by_replay_units = false;
   bool filter_auxiliary_task_anchors = false;
+  SignalClassificationRuleset classification_rules;
 };
 
 struct FlatAnchorBuildStats {

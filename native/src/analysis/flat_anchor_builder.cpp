@@ -182,37 +182,11 @@ SymbolId choose_task_anchor_symbol(NativeIr& ir, const TaskRow& task) {
   return normalize_compute_symbol(ir, symbol);
 }
 
-bool is_hccl_sync_label(const std::string& lower_text) {
-  return contains_any(lower_text, {"hccl_aiv_sync", "hccl_aic_sync",
-                                   "aiv_sync", "aic_sync"});
-}
-
-bool is_collective_label(const std::string& lower_text) {
-  return lower_text.find("nccl") != std::string::npos ||
-         contains_any(lower_text,
-                      {"allreduce", "all_reduce", "allgather", "all_gather",
-                       "reducescatter", "reduce_scatter", "broadcast",
-                       "alltoall", "all_to_all", "all-to-all", "all2all",
-                       "a2a"}) ||
-         is_device_allreduce_label(lower_text);
-}
-
-bool is_semantic_anchor_task(const NativeIr& ir, const TaskRow& task) {
+bool is_semantic_anchor_task(const NativeIr& ir,
+                             const TaskRow& task,
+                             const SignalClassificationRuleset& rules) {
   const std::string task_type =
       normalize_task_key(symbol_text(ir, task.task_type_symbol_id));
-  if (task_type == "MODEL_MAINTAINCE" || task_type == "MODEL_MAINTENANCE") {
-    return false;
-  }
-  if (task_type == "HIP_KERNEL_AUX" || task_type == "CUDA_KERNEL_AUX") {
-    return false;
-  }
-  // CUDA's first native adapter deliberately preserves unknown kernel names
-  // instead of pretending they have semantic attribution. They still need to
-  // remain visible in the report tree as ordinary execution anchors.
-  if (task_type == "CUDA_KERNEL" || task_type == "CUDA_COLLECTIVE_KERNEL") {
-    return true;
-  }
-
   const std::string label = symbol_text(ir, choose_task_symbol(task));
   const std::string blob = lower_ascii(
       label + " " + symbol_text(ir, task.op_name_symbol_id) + " " +
@@ -220,33 +194,9 @@ bool is_semantic_anchor_task(const NativeIr& ir, const TaskRow& task) {
       symbol_text(ir, task.compute_task_type_symbol_id) + " " +
       symbol_text(ir, task.task_type_symbol_id));
 
-  if (is_hccl_sync_label(blob)) {
-    return false;
-  }
-  if (is_collective_label(blob)) {
-    return true;
-  }
-
-  const std::unordered_set<std::string> control_task_types{
-      "AI_CORE",       "MODEL_EXECUTE", "CAPTURE_RECORD",
-      "CAPTURE_WAIT",  "EVENT_RECORD",  "EVENT_WAIT",
-      "MEM_WRITE_VALUE", "MEMCPY",      "MEMCPY_ASYNC",
-      "NOTIFY",        "NOTIFY_RECORD", "NOTIFY_WAIT",
-      "SDMA",          "TASK_TIMEOUT_SET", "WRITE_VALUE"};
-  if (control_task_types.find(task_type) != control_task_types.end()) {
-    return false;
-  }
-
-  if (contains_any(blob, {"matmul", "batchmatmul", "gemm", "conv",
-                          "flashattention", "fusedinferattention",
-                          "pagedattention", "attention", "rmsnorm",
-                          "rms_norm", "layernorm", "layer_norm", "swiglu",
-                          "siluandmul", "moe", "ffn", "rotary", "rope",
-                          "mamba"})) {
-    return true;
-  }
-
-  return false;
+  const std::optional<SignalRole> role =
+      rules.classify(SignalClassificationInput{"task", task_type, blob});
+  return role.has_value() && *role == SignalRole::kAnchor;
 }
 
 void validate_task_trace_event_refs(const TaskTable& tasks,
@@ -444,6 +394,9 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
   candidates.reserve(ir.tasks.size() + ir.communication_ops.size() +
                      ir.replay_units.size());
   FlatAnchorBuildStats stats;
+  if (config.classification_rules.rules().empty()) {
+    config.classification_rules = load_default_signal_classification_ruleset();
+  }
   if (config.filter_auxiliary_task_anchors) {
     stats.projection_kind = "anchor_compute_collective_only";
   }
@@ -468,7 +421,7 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
       continue;
     }
     if (config.filter_auxiliary_task_anchors &&
-        !is_semantic_anchor_task(ir, task)) {
+        !is_semantic_anchor_task(ir, task, config.classification_rules)) {
       ++stats.skipped_task_events;
       continue;
     }
