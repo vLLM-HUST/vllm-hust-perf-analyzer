@@ -1,5 +1,6 @@
 #include "traceloom/analysis/semantic_task_classifier.h"
 
+#include <stdexcept>
 #include <string>
 
 namespace traceloom {
@@ -26,6 +27,11 @@ SymbolId choose_task_symbol(const TaskRow& task) {
 
 SemanticTaskClassificationInput build_semantic_classification_input(
     const NativeIr& ir, const TaskRow& task) {
+  // Corrupted task rows must not be silently classified with partial input.
+  if (!task.trace_event_id.valid() ||
+      task.trace_event_id.value() >= ir.trace_events.size()) {
+    throw std::invalid_argument("TaskRow trace_event_id is out of range");
+  }
   std::string blob;
   blob += symbol_text(ir, choose_task_symbol(task));
   blob += " ";

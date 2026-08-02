@@ -6,6 +6,7 @@
 #include <cstring>
 #include <fstream>
 #include <filesystem>
+#include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <unordered_map>
@@ -24,7 +25,7 @@
 namespace traceloom {
 namespace {
 
-const char* kRulesetVersionPrefix = "ruleset_version:";
+const char* kRulesetVersionPrefix = "# ruleset_version:";
 
 std::string trim(std::string value) {
   while (!value.empty() &&
@@ -197,10 +198,19 @@ SemanticTaskRuleset::SemanticTaskRuleset(std::vector<SemanticTaskRule> rules,
           "empty idle evidence rule pattern at line " +
           std::to_string(rule.source_line));
     }
+    // Conflict keys use the normalized pattern so that equivalent
+    // task_type patterns (e.g. EVENT-WAIT vs EVENT_WAIT) are recognized as
+    // duplicates at load time instead of at classification time.
+    std::string key_pattern = rule.pattern;
+    if (rule.field == SignalMatchField::kTaskType) {
+      key_pattern = normalize_task_type(key_pattern);
+    } else {
+      key_pattern = lower_ascii(key_pattern);
+    }
     const std::string key =
         rule.source_domain + "\n" +
         std::to_string(static_cast<int>(rule.field)) + "\n" +
-        std::to_string(static_cast<int>(rule.match)) + "\n" + rule.pattern +
+        std::to_string(static_cast<int>(rule.match)) + "\n" + key_pattern +
         "\n" + std::to_string(rule.priority);
     if (!keys.insert(key).second) {
       throw std::invalid_argument(
@@ -272,13 +282,27 @@ SemanticTaskRuleset load_idle_evidence_semantic_ruleset(
       continue;
     }
     if (trimmed.front() == '#') {
-      const std::size_t prefix = trimmed.find(kRulesetVersionPrefix);
-      if (prefix != std::string::npos) {
+      // The ruleset version MUST appear exactly once, with the exact
+      // prefix "# ruleset_version:", before the TSV header, and must be
+      // non-empty.
+      if (trimmed.rfind(kRulesetVersionPrefix, 0) == 0) {
         const std::string value =
-            trim(trimmed.substr(prefix + std::strlen(kRulesetVersionPrefix)));
-        if (version.empty()) {
-          version = value;
+            trim(trimmed.substr(std::strlen(kRulesetVersionPrefix)));
+        if (value.empty()) {
+          throw std::invalid_argument(
+              "empty ruleset_version at line " + std::to_string(line_number));
         }
+        if (saw_header) {
+          throw std::invalid_argument(
+              "ruleset_version must precede the TSV header (line " +
+              std::to_string(line_number) + ")");
+        }
+        if (!version.empty()) {
+          throw std::invalid_argument(
+              "duplicate ruleset_version at line " +
+              std::to_string(line_number));
+        }
+        version = value;
       }
       continue;
     }
@@ -302,8 +326,17 @@ SemanticTaskRuleset load_idle_evidence_semantic_ruleset(
           " must contain eight tab-separated fields");
     }
     std::size_t consumed = 0;
-    const long priority = std::stol(fields[1], &consumed, 10);
-    if (consumed != fields[1].size()) {
+    long priority = 0;
+    try {
+      priority = std::stol(fields[1], &consumed, 10);
+    } catch (const std::out_of_range&) {
+      throw std::invalid_argument(
+          "invalid idle evidence rule priority at line " +
+          std::to_string(line_number));
+    }
+    if (consumed != fields[1].size() ||
+        priority < std::numeric_limits<std::int32_t>::min() ||
+        priority > std::numeric_limits<std::int32_t>::max()) {
       throw std::invalid_argument(
           "invalid idle evidence rule priority at line " +
           std::to_string(line_number));

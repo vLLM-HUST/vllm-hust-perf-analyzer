@@ -44,6 +44,12 @@ int main() {
   require(classify("NOTIFY_WAIT", "notify_wait").role ==
               SemanticTaskRole::kVisibleWait,
           "NOTIFY_WAIT -> visible_wait");
+  require(classify("NOTIFY_RECORD", "notify_record").role ==
+              SemanticTaskRole::kRecord,
+          "NOTIFY_RECORD -> record");
+  require(classify("MEM_WRITE_VALUE", "mem_write_value").role ==
+              SemanticTaskRole::kRuntimeControl,
+          "MEM_WRITE_VALUE -> runtime_control");
   require(classify("CAPTURE_WAIT", "capture_wait").role ==
               SemanticTaskRole::kCaptureControl,
           "CAPTURE_WAIT -> capture_control");
@@ -240,5 +246,158 @@ int main() {
   require(std::string(semantic_task_role_name(
               SemanticTaskRole::kUnknown)) == "unknown",
           "role name unknown");
+
+  // ---- Table-driven: every default rule has at least one hit and wins on
+  // its own representative input. ----
+  for (const SemanticTaskRule& rule : defaults.rules()) {
+    SemanticTaskClassificationInput probe;
+    probe.source_domain = "task";
+    if (rule.field == SignalMatchField::kTaskType) {
+      probe.task_type = rule.pattern;
+    } else {
+      probe.blob = rule.pattern;
+    }
+    const SemanticTaskMatch hit = defaults.classify(probe);
+    require(hit.matched_rule_id.has_value(),
+            (std::string("default ruleset: every rule must have a hit: ") +
+             rule.rule_id)
+                .c_str());
+    require(*hit.matched_rule_id == rule.rule_id,
+            (std::string("default ruleset: rule wins on its own input: ") +
+             rule.rule_id)
+                .c_str());
+  }
+
+  // ---- Parser validation: illegal match value. ----
+  {
+    const std::filesystem::path bad =
+        std::filesystem::temp_directory_path() / "traceloom-idle-rules-badmatch.tsv";
+    write_ruleset(bad, "# ruleset_version: test-v1",
+                  "a.rule\t200\ttask\ttask_type\tnot_a_match\tX\tvisible_wait\tn\n");
+    rejected = false;
+    try {
+      (void)load_idle_evidence_semantic_ruleset(bad.string());
+    } catch (const std::invalid_argument&) {
+      rejected = true;
+    }
+    require(rejected, "illegal match value rejected");
+    std::filesystem::remove(bad);
+  }
+
+  // ---- Parser validation: priority outside int32 range. ----
+  {
+    const std::filesystem::path bad =
+        std::filesystem::temp_directory_path() / "traceloom-idle-rules-hugepriority.tsv";
+    write_ruleset(bad, "# ruleset_version: test-v1",
+                  "a.rule\t99999999999\ttask\ttask_type\texact\tX\tvisible_wait\tn\n");
+    rejected = false;
+    try {
+      (void)load_idle_evidence_semantic_ruleset(bad.string());
+    } catch (const std::invalid_argument&) {
+      rejected = true;
+    }
+    require(rejected, "priority outside int32 range rejected");
+    std::filesystem::remove(bad);
+  }
+
+  // ---- Parser validation: duplicate ruleset_version. ----
+  {
+    const std::filesystem::path bad =
+        std::filesystem::temp_directory_path() / "traceloom-idle-rules-dupversion.tsv";
+    write_ruleset(bad, "# ruleset_version: test-v1\n# ruleset_version: test-v2",
+                  "a.rule\t200\ttask\ttask_type\texact\tX\tvisible_wait\tone\n");
+    rejected = false;
+    try {
+      (void)load_idle_evidence_semantic_ruleset(bad.string());
+    } catch (const std::invalid_argument&) {
+      rejected = true;
+    }
+    require(rejected, "duplicate ruleset_version rejected");
+    std::filesystem::remove(bad);
+  }
+
+  // ---- Parser validation: ruleset_version after the TSV header. ----
+  {
+    const std::filesystem::path bad =
+        std::filesystem::temp_directory_path() / "traceloom-idle-rules-lateversion.tsv";
+    write_ruleset(bad, "# plain comment",
+                  "a.rule\t200\ttask\ttask_type\texact\tX\tvisible_wait\tone\n"
+                  "# ruleset_version: test-v1\n");
+    rejected = false;
+    try {
+      (void)load_idle_evidence_semantic_ruleset(bad.string());
+    } catch (const std::invalid_argument&) {
+      rejected = true;
+    }
+    require(rejected, "ruleset_version after header rejected");
+    std::filesystem::remove(bad);
+  }
+
+  // ---- Parser validation: normalized duplicate task_type patterns. ----
+  {
+    const std::filesystem::path bad =
+        std::filesystem::temp_directory_path() / "traceloom-idle-rules-normalizeddup.tsv";
+    write_ruleset(bad, "# ruleset_version: test-v1",
+                  "a.one\t200\ttask\ttask_type\texact\tEVENT-WAIT\tvisible_wait\tone\n"
+                  "a.two\t200\ttask\ttask_type\texact\tEVENT_WAIT\tvisible_wait\ttwo\n");
+    rejected = false;
+    try {
+      (void)load_idle_evidence_semantic_ruleset(bad.string());
+    } catch (const std::invalid_argument&) {
+      rejected = true;
+    }
+    require(rejected, "normalized duplicate task_type patterns rejected");
+    std::filesystem::remove(bad);
+  }
+
+  // ---- Non-version comment lines are ignored (exact prefix required). ----
+  {
+    const std::filesystem::path ok =
+        std::filesystem::temp_directory_path() / "traceloom-idle-rules-prefixok.tsv";
+    write_ruleset(ok, "# not_a_ruleset_version: v1\n# ruleset_version: test-v1",
+                  "a.rule\t200\ttask\ttask_type\texact\tX\tvisible_wait\tone\n");
+    const SemanticTaskRuleset loaded =
+        load_idle_evidence_semantic_ruleset(ok.string());
+    require(loaded.version() == "test-v1",
+            "non-version comment line ignored, exact prefix enforced");
+    std::filesystem::remove(ok);
+  }
+
+  // ---- CRLF: loadable but different raw-byte SHA-256 than LF. ----
+  {
+    const std::filesystem::path lf_path =
+        std::filesystem::temp_directory_path() / "traceloom-idle-rules-lf.tsv";
+    const std::filesystem::path crlf_path =
+        std::filesystem::temp_directory_path() / "traceloom-idle-rules-crlf.tsv";
+    const std::string body =
+        "rule_id\tpriority\tsource_domain\tfield\tmatch\tpattern\trole\tnote\n"
+        "a.rule\t200\ttask\ttask_type\texact\tX\tvisible_wait\tone\n";
+    {
+      std::ofstream out(lf_path);
+      out << "# ruleset_version: test-v1\n" << body;
+    }
+    {
+      std::ofstream out(crlf_path, std::ios::binary);
+      std::string crlf = "# ruleset_version: test-v1\r\n";
+      for (const char ch : body) {
+        if (ch == '\n') {
+          crlf += "\r\n";
+        } else {
+          crlf += ch;
+        }
+      }
+      out << crlf;
+    }
+    const SemanticTaskRuleset lf_rules =
+        load_idle_evidence_semantic_ruleset(lf_path.string());
+    const SemanticTaskRuleset crlf_rules =
+        load_idle_evidence_semantic_ruleset(crlf_path.string());
+    require(lf_rules.sha256() != crlf_rules.sha256(),
+            "CRLF changes raw-byte sha256");
+    require(crlf_rules.rules().size() == lf_rules.rules().size(),
+            "CRLF ruleset still parses");
+    std::filesystem::remove(lf_path);
+    std::filesystem::remove(crlf_path);
+  }
   return 0;
 }

@@ -95,5 +95,30 @@ int main() {
           "blob carries op metadata");
   require(input.blob.find("AI_CORE") != std::string::npos,
           "blob carries task type");
+
+  // Corrupted task rows with an out-of-range trace_event_id must be
+  // rejected, not classified with partial input.
+  {
+    NativeIr broken;
+    const SourceRefId source =
+        broken.source_refs.append("fixture", "memory", "TASK", 0);
+    const SymbolId label = broken.symbols.intern("label");
+    const TraceEventId event =
+        broken.trace_events.append(source, 1, 0, 0, 0, 10, label);
+    broken.tasks.append(source, event, 1, 1001, -1, label,
+                        SymbolId::invalid(), SymbolId::invalid(),
+                        SymbolId::invalid(), SymbolId::invalid());
+    // Append a task whose trace_event_id is out of range.
+    broken.tasks.append(source, TraceEventId(99), 2, 1002, -1, label,
+                        SymbolId::invalid(), SymbolId::invalid(),
+                        SymbolId::invalid(), SymbolId::invalid());
+    bool rejected = false;
+    try {
+      (void)classify_semantic_tasks(broken, ruleset);
+    } catch (const std::invalid_argument&) {
+      rejected = true;
+    }
+    require(rejected, "out-of-range trace_event_id rejected");
+  }
   return 0;
 }

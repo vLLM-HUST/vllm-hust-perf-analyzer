@@ -187,6 +187,14 @@ if(TRACELOOM_NATIVE_ASCEND_SQLITE_AVAILABLE)
     traceloom_native_materialize
   )
 
+  add_executable(traceloom-native-idle-evidence-audit
+    src/tools/idle_evidence_audit_main.cpp
+  )
+  target_link_libraries(
+    traceloom-native-idle-evidence-audit PRIVATE
+    traceloom_native_adapters
+  )
+
   target_compile_definitions(
     traceloom PRIVATE TRACELOOM_NATIVE_VERSION="${PROJECT_VERSION}"
   )
