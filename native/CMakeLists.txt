@@ -15,6 +15,7 @@ set(TRACELOOM_NATIVE_ASCEND_SQLITE_AVAILABLE OFF)
 add_library(traceloom_native_core
   src/analysis/flat_anchor_builder.cpp
   src/analysis/idle_evidence_semantic_rules.cpp
+  src/analysis/productive_timeline.cpp
   src/analysis/semantic_task_classifier.cpp
   src/analysis/signal_classification_rules.cpp
   src/analysis/native_pipeline.cpp
@@ -442,6 +443,17 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
   add_test(
     NAME traceloom_native_sha256_tests
     COMMAND traceloom_native_sha256_tests
+  )
+
+  add_executable(traceloom_native_productive_timeline_tests
+    tests/analysis/productive_timeline_tests.cpp
+  )
+  target_link_libraries(
+    traceloom_native_productive_timeline_tests PRIVATE traceloom_native_core
+  )
+  add_test(
+    NAME traceloom_native_productive_timeline_tests
+    COMMAND traceloom_native_productive_timeline_tests
   )
 
   add_executable(traceloom_native_pipeline_tests

@@ -1,6 +1,9 @@
 #include "traceloom/adapters/ascend_sqlite_adapter.h"
 #include "traceloom/analysis/flat_anchor_builder.h"
+#include "traceloom/analysis/idle_evidence_semantic_rules.h"
 #include "traceloom/analysis/native_pipeline.h"
+#include "traceloom/analysis/productive_timeline.h"
+#include "traceloom/analysis/semantic_task_classifier.h"
 
 #include <sqlite3.h>
 
@@ -501,6 +504,51 @@ int main() {
   require(split_pipeline.cost_summary_lite.total_duration_ns ==
               golden_pipeline.cost_summary_lite.total_duration_ns,
           "split and monolithic cost summaries differ");
+
+  // E2: productive timeline must be identical for monolithic and split
+  // layouts, and the coverage invariant must hold.
+  const SemanticTaskRuleset idle_rules =
+      load_default_idle_evidence_semantic_ruleset();
+  const SemanticTaskClassificationResult golden_class =
+      classify_semantic_tasks(golden_ir, idle_rules);
+  const SemanticTaskClassificationResult split_class =
+      classify_semantic_tasks(split_ir, idle_rules);
+  const std::vector<DeviceTimelineResult> golden_timelines =
+      build_productive_timelines(golden_ir, golden_class);
+  const std::vector<DeviceTimelineResult> split_timelines =
+      build_productive_timelines(split_ir, split_class);
+  require(golden_timelines.size() == split_timelines.size() &&
+              golden_timelines.size() == 1,
+          "E2: golden fixture must produce one device timeline");
+  const DeviceTimelineResult& golden_timeline = golden_timelines[0];
+  const DeviceTimelineResult& split_timeline = split_timelines[0];
+  require(golden_timeline.status == AnalysisStatus::kOk &&
+              split_timeline.status == AnalysisStatus::kOk,
+          "E2: timeline status ok for both layouts");
+  require(golden_timeline.intervals.size() == split_timeline.intervals.size() &&
+              !golden_timeline.intervals.empty(),
+          "E2: split and monolithic interval counts differ");
+  for (std::size_t index = 0; index < golden_timeline.intervals.size();
+       ++index) {
+    require(golden_timeline.intervals[index].start_ns ==
+                    split_timeline.intervals[index].start_ns &&
+                golden_timeline.intervals[index].end_ns ==
+                    split_timeline.intervals[index].end_ns &&
+                golden_timeline.intervals[index].kind ==
+                    split_timeline.intervals[index].kind,
+            "E2: split timeline does not match monolithic");
+  }
+  require(golden_timeline.intervals[0].kind ==
+              DeviceIntervalKind::kProductiveActive,
+          "E2: first interval is productive (MatMul)");
+  std::int64_t covered_ns = 0;
+  for (const DeviceIntervalRow& row : golden_timeline.intervals) {
+    covered_ns += row.end_ns - row.start_ns;
+  }
+  require(golden_timeline.span_start_ns && golden_timeline.span_end_ns &&
+              covered_ns ==
+                  *golden_timeline.span_end_ns - *golden_timeline.span_start_ns,
+          "E2: productive + gap covers the span exactly");
 
   const std::filesystem::path incomplete_dir = temp_prof_dir("_incomplete");
   std::filesystem::create_directories(incomplete_dir / "host" / "sqlite");
