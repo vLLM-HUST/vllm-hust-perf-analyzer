@@ -1,0 +1,25 @@
+# ruleset_version: idle-evidence-semantic-v1
+# Semantic task roles for productive/idle evidence (idle evidence contract
+# section 4). Independent from default_signal_classification_rules.tsv, which
+# answers a different question (structural anchor vs ignore). Exact task_type
+# rules outrank fuzzy blob keyword rules; there is no catch-all rule, so an
+# unmatched task is explicitly `unknown`.
+rule_id	priority	source_domain	field	match	pattern	role	note
+wait.event_wait	200	task	task_type	exact	EVENT_WAIT	visible_wait	Device event wait
+wait.notify_wait	200	task	task_type	exact	NOTIFY_WAIT	visible_wait	Device notify wait
+capture.capture_wait	200	task	task_type	exact	CAPTURE_WAIT	capture_control	Graph capture wait
+capture.capture_record	200	task	task_type	exact	CAPTURE_RECORD	capture_control	Graph capture record
+record.event_record	190	task	task_type	exact	EVENT_RECORD	record	Event record task
+record.notify_record	190	task	task_type	exact	NOTIFY_RECORD	record	Notify record task
+data.memcpy	180	task	task_type	exact	MEMCPY	productive_data_move	Visible memory copy
+data.memcpy_async	180	task	task_type	exact	MEMCPY_ASYNC	productive_data_move	Async memory copy
+data.sdma	180	task	task_type	exact	SDMA	productive_data_move	SDMA transfer
+runtime.write_value	170	task	task_type	exact	WRITE_VALUE	runtime_control	Runtime control write
+runtime.mem_write_value	170	task	task_type	exact	MEM_WRITE_VALUE	runtime_control	Runtime memory control write
+comm.allreduce	150	task	blob	contains	allreduce	productive_comm	AllReduce task
+comm.all_gather	150	task	blob	contains	all_gather	productive_comm	AllGather collective
+comm.allgather	150	task	blob	contains	allgather	productive_comm	AllGather collective
+comm.reduce_scatter	150	task	blob	contains	reduce_scatter	productive_comm	ReduceScatter collective
+comm.reducescatter	150	task	blob	contains	reducescatter	productive_comm	ReduceScatter collective
+compute.matmul	100	task	blob	contains	matmul	productive_compute	Matrix multiplication
+compute.attention	100	task	blob	contains	attention	productive_compute	Attention kernel

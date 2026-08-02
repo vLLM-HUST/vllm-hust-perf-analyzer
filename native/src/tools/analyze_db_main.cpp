@@ -17,6 +17,7 @@
 #include "traceloom/adapters/cuda_nsys_sqlite_adapter.h"
 #include "traceloom/adapters/hygon_sqlite_adapter.h"
 #include "traceloom/analysis/flat_anchor_builder.h"
+#include "traceloom/analysis/idle_evidence_semantic_rules.h"
 #include "traceloom/analysis/native_pipeline.h"
 #include "traceloom/compat/native_sidecar_materializer.h"
 #include "traceloom/ir/native_ir.h"
@@ -71,6 +72,7 @@ struct CliOptions {
   std::size_t top_candidate_limit = 16;
   std::string classification_rules_path;
   std::string extend_classification_rules_path;
+  std::string idle_evidence_rules_path;
 };
 
 std::vector<std::string> discover_profile_dbs(const std::string& input,
@@ -111,6 +113,7 @@ void print_advanced_usage(const char* argv0) {
                " [--loop-tree-aux]"
                " [--classification-rules PATH]"
                " [--extend-classification-rules PATH]"
+               " [--idle-evidence-rules PATH]"
                " [--timings]\n";
 }
 
@@ -175,6 +178,8 @@ CliOptions parse_args(int argc, char** argv) {
       options.classification_rules_path = require_value(arg);
     } else if (arg == "--extend-classification-rules") {
       options.extend_classification_rules_path = require_value(arg);
+    } else if (arg == "--idle-evidence-rules") {
+      options.idle_evidence_rules_path = require_value(arg);
     } else if (arg == "--sidecar-only") {
       options.sidecar_only = true;
     } else if (arg == "--timings") {
@@ -518,6 +523,26 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
               pipeline_options.anchor_config.classification_rules,
               traceloom::load_signal_classification_ruleset(
                   cli.extend_classification_rules_path));
+    }
+
+    // Load the idle evidence semantic ruleset for E1 validation. This does
+    // not change anchor classification behavior; failures are warnings only.
+    if (cli.timings || !cli.idle_evidence_rules_path.empty()) {
+      try {
+        const traceloom::SemanticTaskRuleset idle_rules =
+            cli.idle_evidence_rules_path.empty()
+                ? traceloom::load_default_idle_evidence_semantic_ruleset(
+                      cli.executable_path)
+                : traceloom::load_idle_evidence_semantic_ruleset(
+                      cli.idle_evidence_rules_path);
+        std::cerr << "idle_evidence_ruleset_version=" << idle_rules.version()
+                  << "\n";
+        std::cerr << "idle_evidence_ruleset_sha256=" << idle_rules.sha256()
+                  << "\n";
+      } catch (const std::invalid_argument& error) {
+        std::cerr << "warning: idle evidence semantic ruleset unavailable: "
+                  << error.what() << "\n";
+      }
     }
 
     traceloom::NativePipelineResult pipeline;

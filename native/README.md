@@ -150,3 +150,31 @@ with `--classification-rules PATH`, or add higher-priority environment-specific
 rules with `--extend-classification-rules PATH`. `TRACELOOM_CLASSIFICATION_RULES`
 can also select a complete ruleset. Unknown columns, roles, match modes, and
 equal-precedence conflicts fail before analysis starts.
+
+### Idle Evidence Semantic Taxonomy
+
+Semantic task roles answer a different question than the structural anchor
+rules above: what does a task mean for productive/idle analysis
+(`productive_compute`, `productive_comm`, `productive_data_move`,
+`visible_wait`, `capture_control`, `record`, `runtime_control`, `unknown`)?
+The two taxonomies are independent; a task may be structurally `ignore` and
+semantically `visible_wait` at the same time. See
+`notes/idle-evidence-contract.md` for the evidence contract these roles feed.
+
+Defaults live in `data/idle_evidence_semantic_rules.tsv`, declared with a
+`# ruleset_version:` header line and stable, unique `rule_id`s (for example
+`wait.event_wait`, `compute.matmul`) so classification lineage stays stable
+across file edits. Exact `task_type` rules (priority 200-170) outrank fuzzy
+`blob` keyword rules (priority 150-100); there is no catch-all rule, so an
+unmatched task is explicitly `unknown` with an empty `matched_rule_id`.
+Rules with equal priority must agree on the role, otherwise classification
+fails rather than silently picking a file order.
+
+Each classified task yields `role + matched_rule_id`; the run also reports
+`semantic_rules_version` and `semantic_rules_sha256` (SHA-256 of the raw
+ruleset file bytes). Override the ruleset for one run with
+`--idle-evidence-rules PATH` (distinct from `--classification-rules`), or set
+`TRACELOOM_IDLE_EVIDENCE_RULES`. With `--timings`, the CLI prints the loaded
+version and hash. The E1 classifier does not change anchor behavior; the
+productive-timeline construction that consumes these roles is a later
+milestone.

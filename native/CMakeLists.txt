@@ -14,9 +14,12 @@ set(TRACELOOM_NATIVE_ASCEND_SQLITE_AVAILABLE OFF)
 
 add_library(traceloom_native_core
   src/analysis/flat_anchor_builder.cpp
+  src/analysis/idle_evidence_semantic_rules.cpp
+  src/analysis/semantic_task_classifier.cpp
   src/analysis/signal_classification_rules.cpp
   src/analysis/native_pipeline.cpp
   src/core/diagnostics.cpp
+  src/core/sha256.cpp
   src/core/string_table.cpp
   src/cost/cost_summary_lite.cpp
   src/ir/anchor_table.cpp
@@ -66,10 +69,17 @@ target_compile_definitions(
   PRIVATE
     TRACELOOM_SOURCE_DEFAULT_RULESET_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/default_signal_classification_rules.tsv"
     TRACELOOM_INSTALL_DEFAULT_RULESET_PATH="${CMAKE_INSTALL_FULL_DATADIR}/traceloom/default_signal_classification_rules.tsv"
+    TRACELOOM_SOURCE_DEFAULT_IDLE_RULESET_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/idle_evidence_semantic_rules.tsv"
+    TRACELOOM_INSTALL_DEFAULT_IDLE_RULESET_PATH="${CMAKE_INSTALL_FULL_DATADIR}/traceloom/idle_evidence_semantic_rules.tsv"
 )
 
 install(
   FILES data/default_signal_classification_rules.tsv
+  DESTINATION ${CMAKE_INSTALL_DATADIR}/traceloom
+)
+
+install(
+  FILES data/idle_evidence_semantic_rules.tsv
   DESTINATION ${CMAKE_INSTALL_DATADIR}/traceloom
 )
 
@@ -389,6 +399,41 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
   add_test(
     NAME traceloom_native_signal_classification_rules_tests
     COMMAND traceloom_native_signal_classification_rules_tests
+  )
+
+  add_executable(traceloom_native_idle_evidence_semantic_rules_tests
+    tests/analysis/idle_evidence_semantic_rules_tests.cpp
+  )
+  target_link_libraries(
+    traceloom_native_idle_evidence_semantic_rules_tests PRIVATE
+    traceloom_native_core
+  )
+  add_test(
+    NAME traceloom_native_idle_evidence_semantic_rules_tests
+    COMMAND traceloom_native_idle_evidence_semantic_rules_tests
+  )
+
+  add_executable(traceloom_native_semantic_task_classifier_tests
+    tests/analysis/semantic_task_classifier_tests.cpp
+  )
+  target_link_libraries(
+    traceloom_native_semantic_task_classifier_tests PRIVATE
+    traceloom_native_core
+  )
+  add_test(
+    NAME traceloom_native_semantic_task_classifier_tests
+    COMMAND traceloom_native_semantic_task_classifier_tests
+  )
+
+  add_executable(traceloom_native_sha256_tests
+    tests/core/sha256_tests.cpp
+  )
+  target_link_libraries(
+    traceloom_native_sha256_tests PRIVATE traceloom_native_core
+  )
+  add_test(
+    NAME traceloom_native_sha256_tests
+    COMMAND traceloom_native_sha256_tests
   )
 
   add_executable(traceloom_native_pipeline_tests
