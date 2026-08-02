@@ -513,15 +513,18 @@ int main() {
       classify_semantic_tasks(golden_ir, idle_rules);
   const SemanticTaskClassificationResult split_class =
       classify_semantic_tasks(split_ir, idle_rules);
-  const std::vector<DeviceTimelineResult> golden_timelines =
+  const ProductiveTimelineRunResult golden_run =
       build_productive_timelines(golden_ir, golden_class);
-  const std::vector<DeviceTimelineResult> split_timelines =
+  const ProductiveTimelineRunResult split_run =
       build_productive_timelines(split_ir, split_class);
-  require(golden_timelines.size() == split_timelines.size() &&
-              golden_timelines.size() == 1,
+  require(golden_run.status == AnalysisStatus::kOk &&
+              split_run.status == AnalysisStatus::kOk,
+          "E2: run status ok for both layouts");
+  require(golden_run.devices.size() == split_run.devices.size() &&
+              golden_run.devices.size() == 1,
           "E2: golden fixture must produce one device timeline");
-  const DeviceTimelineResult& golden_timeline = golden_timelines[0];
-  const DeviceTimelineResult& split_timeline = split_timelines[0];
+  const DeviceTimelineResult& golden_timeline = golden_run.devices[0];
+  const DeviceTimelineResult& split_timeline = split_run.devices[0];
   require(golden_timeline.status == AnalysisStatus::kOk &&
               split_timeline.status == AnalysisStatus::kOk,
           "E2: timeline status ok for both layouts");

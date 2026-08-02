@@ -34,13 +34,28 @@ enum class DeviceIntervalKind {
   kVisibleProductiveIdle,
 };
 
+// Exact source lineage for a productive interval. SourceRefId alone only
+// identifies the source table; the precise original row is
+// TraceEventRow.source_row_id, reachable through trace_event_id.
+struct ProductiveSourceLink {
+  enum class Kind {
+    kTask,
+    kCommunicationOp,
+  };
+
+  Kind kind = Kind::kTask;
+  TraceEventId trace_event_id;
+  TaskId task_id;
+  CommunicationOpId communication_op_id;
+};
+
 struct DeviceIntervalRow {
   std::int64_t start_ns = 0;
   std::int64_t end_ns = 0;
   DeviceIntervalKind kind = DeviceIntervalKind::kVisibleProductiveIdle;
-  // Lineage of the canonical sources (TaskRow / CommunicationOpRow source
-  // refs) for productive intervals; empty for gaps.
-  std::vector<SourceRefId> source_refs;
+  // Exact source links of the canonical sources for productive intervals;
+  // empty for gaps.
+  std::vector<ProductiveSourceLink> source_links;
 };
 
 struct ProductiveTimelineOptions {
@@ -63,14 +78,29 @@ struct DeviceTimelineResult {
   // Alternating, non-overlapping productive/gap intervals in time order;
   // productive union plus gap union covers the span exactly.
   std::vector<DeviceIntervalRow> intervals;
-  // Communication canonicalization notes (ambiguity, no-connection-id
-  // fallback), not errors.
+  // Communication canonicalization and input-quality notes, not errors.
   std::vector<TimelineDiagnostic> diagnostics;
   std::string semantic_rules_version;
   std::string semantic_rules_sha256;
 };
 
-std::vector<DeviceTimelineResult> build_productive_timelines(
+// Run-level result: carries the analysis status even when no device has any
+// interval row (contract: analysis status lives in run-level metadata).
+struct ProductiveTimelineRunResult {
+  // kEmptyInput: no tasks and no communication ops at all.
+  // kInvalidInput: damaged input rows were skipped (diagnostics on the
+  //   affected devices) but analysis still ran on the valid remainder.
+  // kOk otherwise; per-device statuses express no_productive_span and
+  // invalid_analysis_span.
+  AnalysisStatus status = AnalysisStatus::kOk;
+  std::vector<DeviceTimelineResult> devices;
+  std::string semantic_rules_version;
+  std::string semantic_rules_sha256;
+};
+
+// classification rows must be aligned with TaskTable order; each row's
+// task_id and trace_event_id are validated against its TaskRow.
+ProductiveTimelineRunResult build_productive_timelines(
     const NativeIr& ir,
     const SemanticTaskClassificationResult& classification,
     const ProductiveTimelineOptions& options = {});

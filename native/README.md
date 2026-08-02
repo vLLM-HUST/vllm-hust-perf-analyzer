@@ -186,5 +186,7 @@ traceloom-native-idle-evidence-audit \
 
 An explicit ruleset override that fails to load exits non-zero; it never
 silently falls back. `TRACELOOM_IDLE_EVIDENCE_RULES` selects the default
-ruleset path. The main `traceloom` CLI does not yet consume these roles; the
-productive-timeline construction that consumes them is a later milestone.
+ruleset path. The E2 productive-timeline library
+(`build_productive_timelines`) consumes these roles to build per-device
+productive timelines and visible gaps; main CLI / SQL materialization
+remains deferred to a later milestone.

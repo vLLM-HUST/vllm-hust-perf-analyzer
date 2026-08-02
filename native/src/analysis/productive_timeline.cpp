@@ -12,15 +12,24 @@ namespace {
 struct Candidate {
   std::int64_t start_ns = 0;
   std::int64_t end_ns = 0;
-  std::vector<SourceRefId> source_refs;
+  std::vector<ProductiveSourceLink> source_links;
+  // Identity of the canonical COMMUNICATION_OP this candidate materializes
+  // (invalid for task candidates). Absorption looks candidates up by this
+  // id, never by interval equality.
+  CommunicationOpId canonical_op_id;
 };
 
-const TraceEventRow& task_event(const NativeIr& ir, const TaskRow& task) {
+const TraceEventRow* task_event_or_null(const NativeIr& ir,
+                                        const TaskRow& task) {
   if (!task.trace_event_id.valid() ||
       task.trace_event_id.value() >= ir.trace_events.size()) {
-    throw std::invalid_argument("TaskRow trace_event_id is out of range");
+    return nullptr;
   }
-  return ir.trace_events.row(task.trace_event_id);
+  return &ir.trace_events.row(task.trace_event_id);
+}
+
+std::string symbol_text(const NativeIr& ir, SymbolId id) {
+  return id.valid() ? ir.symbols.value(id) : std::string();
 }
 
 bool is_productive_role(SemanticTaskRole role) {
@@ -29,37 +38,126 @@ bool is_productive_role(SemanticTaskRole role) {
          role == SemanticTaskRole::kProductiveDataMove;
 }
 
+// Contract section 6.6: when communication metadata is available it must be
+// compatible. A task comm_name that conflicts with every op-side name is a
+// mismatch; absence of metadata on either side is not a conflict.
+bool metadata_compatible(const NativeIr& ir,
+                         const TaskRow& task,
+                         const CommunicationOpRow& op) {
+  if (!task.comm_name_symbol_id.valid()) {
+    return true;
+  }
+  const std::string task_comm = symbol_text(ir, task.comm_name_symbol_id);
+  if (op.op_name_symbol_id.valid() &&
+      symbol_text(ir, op.op_name_symbol_id) == task_comm) {
+    return true;
+  }
+  if (op.op_type_symbol_id.valid() &&
+      symbol_text(ir, op.op_type_symbol_id) == task_comm) {
+    return true;
+  }
+  if (op.linked_task_name_symbol_id.valid() &&
+      symbol_text(ir, op.linked_task_name_symbol_id) == task_comm) {
+    return true;
+  }
+  if (op.op_name_symbol_id.valid() || op.op_type_symbol_id.valid() ||
+      op.linked_task_name_symbol_id.valid()) {
+    return false;  // op carries names but none matches the task comm name.
+  }
+  return true;  // no op-side metadata: no conflict evidence.
+}
+
+bool intervals_overlap(std::int64_t a_start, std::int64_t a_end,
+                       std::int64_t b_start, std::int64_t b_end) {
+  return a_start < b_end && b_start < a_end;
+}
+
+bool add_task_candidate(
+    const TaskRow& task,
+    const TraceEventRow& event,
+    std::vector<Candidate>* candidates,
+    std::vector<TimelineDiagnostic>* diagnostics) {
+  if (event.end_ns <= event.start_ns) {
+    diagnostics->push_back(
+        TimelineDiagnostic{"invalid task interval (end <= start)",
+                           task.raw_global_task_id});
+    return false;
+  }
+  candidates->push_back(
+      Candidate{event.start_ns, event.end_ns,
+                {ProductiveSourceLink{ProductiveSourceLink::Kind::kTask,
+                                      task.trace_event_id, task.id,
+                                      CommunicationOpId::invalid()}},
+                CommunicationOpId::invalid()});
+  return true;
+}
+
+bool add_comm_op_candidate(
+    const CommunicationOpRow& op,
+    const TraceEventRow& event,
+    std::vector<Candidate>* candidates,
+    std::vector<TimelineDiagnostic>* diagnostics) {
+  if (event.end_ns <= event.start_ns) {
+    diagnostics->push_back(
+        TimelineDiagnostic{"invalid COMMUNICATION_OP interval (end <= start)",
+                           op.raw_op_id});
+    return false;
+  }
+  candidates->push_back(
+      Candidate{event.start_ns, event.end_ns,
+                {ProductiveSourceLink{ProductiveSourceLink::Kind::kCommunicationOp,
+                                      op.trace_event_id, TaskId::invalid(),
+                                      op.id}},
+                op.id});
+  return true;
+}
+
 // Communication canonicalization (contract section 6.6): COMMUNICATION_OP
 // rows are the canonical productive communication intervals; a
 // productive_comm TaskRow is absorbed as supporting evidence when it has an
-// unambiguous same-device connectionId match with temporally compatible
-// intervals. Tasks with no connectionId, or with an ambiguous match, become
-// canonical themselves (with a diagnostic); nothing is silently merged.
-bool try_absorb_comm_task(
+// unambiguous same-device connectionId match, temporally compatible
+// intervals, and compatible metadata. Tasks with no connectionId but a
+// temporally overlapping op are kept canonical with an ambiguity
+// diagnostic; nothing is silently merged.
+void absorb_or_keep_comm_task(
     const NativeIr& ir,
     const TaskRow& task,
     const TraceEventRow& event,
+    const std::vector<CommunicationOpId>& device_ops,
     const std::map<std::pair<std::uint32_t, std::int64_t>,
                    std::vector<CommunicationOpId>>& comm_by_device_connection,
     std::vector<TimelineDiagnostic>* diagnostics,
     std::vector<Candidate>* candidates) {
   if (task.raw_connection_id < 0) {
-    candidates->push_back(
-        Candidate{event.start_ns, event.end_ns, {task.source_ref_id}});
-    return true;
+    // No connection id: we cannot determine whether a temporally similar op
+    // is the same communication. Keep the task canonical and report the
+    // ambiguity instead of guessing.
+    for (const CommunicationOpId op_id : device_ops) {
+      const CommunicationOpRow& op = ir.communication_ops.row(op_id);
+      const TraceEventRow& op_event = ir.trace_events.row(op.trace_event_id);
+      if (intervals_overlap(event.start_ns, event.end_ns, op_event.start_ns,
+                            op_event.end_ns)) {
+        diagnostics->push_back(
+            TimelineDiagnostic{
+                "no connectionId; temporally overlapping COMMUNICATION_OP "
+                "exists; cannot determine whether it is the same "
+                "communication; task kept canonical",
+                task.raw_global_task_id});
+        break;
+      }
+    }
+    (void)add_task_candidate(task, event, candidates, diagnostics);
+    return;
   }
   const auto it = comm_by_device_connection.find(
       {event.device_id, task.raw_connection_id});
   if (it == comm_by_device_connection.end()) {
-    // No matching COMMUNICATION_OP row: the task is canonical, with a note
-    // that no op counterpart exists.
     diagnostics->push_back(
-        TimelineDiagnostic{"productive_comm task without a matching "
-                           "COMMUNICATION_OP row",
-                           task.raw_connection_id});
-    candidates->push_back(
-        Candidate{event.start_ns, event.end_ns, {task.source_ref_id}});
-    return true;
+        TimelineDiagnostic{
+            "productive_comm task without a matching COMMUNICATION_OP row",
+            task.raw_connection_id});
+    (void)add_task_candidate(task, event, candidates, diagnostics);
+    return;
   }
   const std::vector<CommunicationOpId>& ops = it->second;
   CommunicationOpId match;
@@ -67,22 +165,30 @@ bool try_absorb_comm_task(
   for (const CommunicationOpId op_id : ops) {
     const CommunicationOpRow& op = ir.communication_ops.row(op_id);
     const TraceEventRow& op_event = ir.trace_events.row(op.trace_event_id);
-    if (op_event.start_ns < event.end_ns && op_event.end_ns > event.start_ns) {
-      if (found) {
-        // More than one temporally compatible op for one connection id:
-        // ambiguous, do not absorb.
-        diagnostics->push_back(
-            TimelineDiagnostic{
-                "ambiguous connectionId: multiple COMMUNICATION_OP rows "
-                "match one task",
-                task.raw_connection_id});
-        candidates->push_back(
-            Candidate{event.start_ns, event.end_ns, {task.source_ref_id}});
-        return true;
-      }
-      match = op_id;
-      found = true;
+    if (!intervals_overlap(event.start_ns, event.end_ns, op_event.start_ns,
+                           op_event.end_ns)) {
+      continue;
     }
+    if (!metadata_compatible(ir, task, op)) {
+      diagnostics->push_back(
+          TimelineDiagnostic{
+              "connectionId matches a COMMUNICATION_OP row with conflicting "
+              "communication metadata; task kept canonical",
+              task.raw_connection_id});
+      (void)add_task_candidate(task, event, candidates, diagnostics);
+      return;
+    }
+    if (found) {
+      diagnostics->push_back(
+          TimelineDiagnostic{
+              "ambiguous connectionId: multiple compatible COMMUNICATION_OP "
+              "rows match one task",
+              task.raw_connection_id});
+      (void)add_task_candidate(task, event, candidates, diagnostics);
+      return;
+    }
+    match = op_id;
+    found = true;
   }
   if (!found) {
     diagnostics->push_back(
@@ -90,25 +196,33 @@ bool try_absorb_comm_task(
             "connectionId matches a COMMUNICATION_OP row with incompatible "
             "timing; task kept canonical",
             task.raw_connection_id});
-    candidates->push_back(
-        Candidate{event.start_ns, event.end_ns, {task.source_ref_id}});
-    return true;
+    (void)add_task_candidate(task, event, candidates, diagnostics);
+    return;
   }
-  // Absorbed: the op is the canonical interval; keep the task as a
-  // supporting source ref.
+  // Absorbed: attach the task as a supporting source to the op's candidate,
+  // identified by canonical op id (never by interval equality).
   const CommunicationOpRow& op = ir.communication_ops.row(match);
-  const TraceEventRow& op_event = ir.trace_events.row(op.trace_event_id);
   for (Candidate& candidate : *candidates) {
-    if (candidate.start_ns == op_event.start_ns &&
-        candidate.end_ns == op_event.end_ns) {
-      candidate.source_refs.push_back(task.source_ref_id);
-      return true;
+    if (candidate.canonical_op_id == match) {
+      candidate.source_links.push_back(
+          ProductiveSourceLink{ProductiveSourceLink::Kind::kTask,
+                               task.trace_event_id, task.id,
+                               CommunicationOpId::invalid()});
+      return;
     }
   }
-  candidates->push_back(
-      Candidate{op_event.start_ns, op_event.end_ns,
-                {op.source_ref_id, task.source_ref_id}});
-  return true;
+  const TraceEventRow& op_event = ir.trace_events.row(op.trace_event_id);
+  (void)add_comm_op_candidate(op, op_event, candidates, diagnostics);
+  // The op candidate was just appended; attach the task link to it.
+  for (Candidate& candidate : *candidates) {
+    if (candidate.canonical_op_id == match) {
+      candidate.source_links.push_back(
+          ProductiveSourceLink{ProductiveSourceLink::Kind::kTask,
+                               task.trace_event_id, task.id,
+                               CommunicationOpId::invalid()});
+      return;
+    }
+  }
 }
 
 std::vector<Candidate> merge_union(std::vector<Candidate> candidates) {
@@ -118,9 +232,6 @@ std::vector<Candidate> merge_union(std::vector<Candidate> candidates) {
             });
   std::vector<Candidate> merged;
   for (Candidate& candidate : candidates) {
-    if (candidate.end_ns <= candidate.start_ns) {
-      continue;  // zero/negative intervals are dropped by construction.
-    }
     if (merged.empty() || candidate.start_ns > merged.back().end_ns) {
       merged.push_back(std::move(candidate));
       continue;
@@ -128,8 +239,8 @@ std::vector<Candidate> merge_union(std::vector<Candidate> candidates) {
     if (candidate.end_ns > merged.back().end_ns) {
       merged.back().end_ns = candidate.end_ns;
     }
-    for (SourceRefId ref : candidate.source_refs) {
-      merged.back().source_refs.push_back(ref);
+    for (ProductiveSourceLink& link : candidate.source_links) {
+      merged.back().source_links.push_back(std::move(link));
     }
   }
   return merged;
@@ -140,27 +251,33 @@ void build_device_timeline(
     const SemanticTaskClassificationResult& classification,
     std::uint32_t device_id,
     const ProductiveTimelineOptions& options,
+    bool* run_invalid,
     DeviceTimelineResult* result) {
-  // Collect per-device candidates from canonical comm ops and from tasks.
+  // Canonical communication ops on this device, indexed by connection id.
   std::map<std::pair<std::uint32_t, std::int64_t>,
            std::vector<CommunicationOpId>>
       comm_by_device_connection;
+  std::vector<CommunicationOpId> device_ops;
   for (const CommunicationOpRow& op : ir.communication_ops.rows()) {
     const TraceEventRow& event = ir.trace_events.row(op.trace_event_id);
-    if (event.device_id != device_id || op.raw_connection_id < 0) {
+    if (event.device_id != device_id) {
       continue;
     }
-    comm_by_device_connection[{event.device_id, op.raw_connection_id}]
-        .push_back(op.id);
+    device_ops.push_back(op.id);
+    if (op.raw_connection_id >= 0) {
+      comm_by_device_connection[{event.device_id, op.raw_connection_id}]
+          .push_back(op.id);
+    }
   }
 
   std::vector<Candidate> candidates;
-  // All COMMUNICATION_OP rows on this device are canonical communication.
-  for (const CommunicationOpRow& op : ir.communication_ops.rows()) {
+  bool device_invalid = false;
+  for (const CommunicationOpId op_id : device_ops) {
+    const CommunicationOpRow& op = ir.communication_ops.row(op_id);
     const TraceEventRow& event = ir.trace_events.row(op.trace_event_id);
-    if (event.device_id == device_id) {
-      candidates.push_back(
-          Candidate{event.start_ns, event.end_ns, {op.source_ref_id}});
+    if (!add_comm_op_candidate(op, event, &candidates,
+                               &result->diagnostics)) {
+      device_invalid = true;
     }
   }
 
@@ -170,17 +287,30 @@ void build_device_timeline(
       continue;
     }
     const TaskRow& task = ir.tasks.row(TaskId(index));
-    const TraceEventRow& event = task_event(ir, task);
-    if (event.device_id != device_id) {
+    const TraceEventRow* event = task_event_or_null(ir, task);
+    if (event == nullptr) {
+      result->diagnostics.push_back(
+          TimelineDiagnostic{"task has an out-of-range trace_event_id",
+                             task.raw_global_task_id});
+      device_invalid = true;
+      continue;
+    }
+    if (event->device_id != device_id) {
       continue;
     }
     if (row.role == SemanticTaskRole::kProductiveComm) {
-      try_absorb_comm_task(ir, task, event, comm_by_device_connection,
-                           &result->diagnostics, &candidates);
+      absorb_or_keep_comm_task(ir, task, *event, device_ops,
+                               comm_by_device_connection,
+                               &result->diagnostics, &candidates);
       continue;
     }
-    candidates.push_back(
-        Candidate{event.start_ns, event.end_ns, {task.source_ref_id}});
+    if (!add_task_candidate(task, *event, &candidates,
+                            &result->diagnostics)) {
+      device_invalid = true;
+    }
+  }
+  if (device_invalid) {
+    *run_invalid = true;
   }
 
   const std::vector<Candidate> union_intervals = merge_union(candidates);
@@ -225,7 +355,7 @@ void build_device_timeline(
     }
     rows.push_back(DeviceIntervalRow{clipped_start, clipped_end,
                                      DeviceIntervalKind::kProductiveActive,
-                                     interval.source_refs});
+                                     interval.source_links});
     cursor = std::max(cursor, clipped_end);
   }
   if (cursor < span_end) {
@@ -242,7 +372,7 @@ void build_device_timeline(
 
 }  // namespace
 
-std::vector<DeviceTimelineResult> build_productive_timelines(
+ProductiveTimelineRunResult build_productive_timelines(
     const NativeIr& ir,
     const SemanticTaskClassificationResult& classification,
     const ProductiveTimelineOptions& options) {
@@ -250,26 +380,58 @@ std::vector<DeviceTimelineResult> build_productive_timelines(
     throw std::invalid_argument(
         "classification row count does not match task count");
   }
-  if (ir.trace_events.empty()) {
-    return {};
-  }
-
-  std::vector<std::uint32_t> device_ids;
-  for (const TraceEventRow& event : ir.trace_events.rows()) {
-    if (std::find(device_ids.begin(), device_ids.end(), event.device_id) ==
-        device_ids.end()) {
-      device_ids.push_back(event.device_id);
+  // Validate the classification alignment: rows must reference their own
+  // TaskRow ids, never silently pair by array order alone.
+  for (std::size_t index = 0; index < classification.rows.size(); ++index) {
+    const TaskRow& task = ir.tasks.row(TaskId(index));
+    if (classification.rows[index].task_id != task.id ||
+        classification.rows[index].trace_event_id != task.trace_event_id) {
+      throw std::invalid_argument(
+          "classification row is not aligned with its TaskRow");
     }
   }
 
-  std::vector<DeviceTimelineResult> results;
+  ProductiveTimelineRunResult run;
+  run.semantic_rules_version = classification.semantic_rules_version;
+  run.semantic_rules_sha256 = classification.semantic_rules_sha256;
+  if (ir.tasks.empty() && ir.communication_ops.empty()) {
+    run.status = AnalysisStatus::kEmptyInput;
+    return run;
+  }
+
+  std::vector<std::uint32_t> device_ids;
+  for (const TaskRow& task : ir.tasks.rows()) {
+    const TraceEventRow* event = task_event_or_null(ir, task);
+    if (event != nullptr &&
+        std::find(device_ids.begin(), device_ids.end(), event->device_id) ==
+            device_ids.end()) {
+      device_ids.push_back(event->device_id);
+    }
+  }
+  for (const CommunicationOpRow& op : ir.communication_ops.rows()) {
+    if (op.trace_event_id.valid() &&
+        op.trace_event_id.value() < ir.trace_events.size()) {
+      const std::uint32_t device_id =
+          ir.trace_events.row(op.trace_event_id).device_id;
+      if (std::find(device_ids.begin(), device_ids.end(), device_id) ==
+          device_ids.end()) {
+        device_ids.push_back(device_id);
+      }
+    }
+  }
+
+  bool run_invalid = false;
   for (const std::uint32_t device_id : device_ids) {
     DeviceTimelineResult result;
     result.device_id = device_id;
-    build_device_timeline(ir, classification, device_id, options, &result);
-    results.push_back(std::move(result));
+    build_device_timeline(ir, classification, device_id, options,
+                          &run_invalid, &result);
+    run.devices.push_back(std::move(result));
   }
-  return results;
+  if (run_invalid) {
+    run.status = AnalysisStatus::kInvalidInput;
+  }
+  return run;
 }
 
 }  // namespace traceloom
