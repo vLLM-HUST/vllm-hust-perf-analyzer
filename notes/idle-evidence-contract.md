@@ -1,6 +1,6 @@
 # Idle Evidence Contract (M0)
 
-Status: Draft v4.2 (proposed for M0 approval)
+Status: Draft v4.3 (proposed for M0 approval)
 
 Target: cross-layer device idle-gap and synchronization evidence, as defined in
 intellistream/vllm-request-lifecycle-profiler-plugin#2 (M0) and
@@ -32,6 +32,16 @@ timestamp rounding; interval conventions scoped to interval-bearing tables;
 `synthetic_only` permitted for correlation-mechanism validation on controlled
 fixtures; zero-gap coverage shares defined as `NA`; run-level metadata record
 carries `analysis_status` and nullable span boundaries.
+
+v4.3 changes from v4.2: section 10 now REQUIRES a checked-in golden-fixture
+executable check for the counterexample "host wait exists but visible idle
+is zero" (a host sync API event present in the capture while the device
+productive timeline covers the whole analysis span), wired into CI; the
+checked-in fixture is `native/tests/fixtures/idle_evidence/
+host_wait_zero_visible_idle/` verified by
+`traceloom_native_idle_evidence_golden_fixture_tests` in the engineering
+repository. Fixture results are contract/example evidence and MUST NOT be
+presented as a matched A/B of runtime traces.
 
 ## 1. Purpose and Scope
 

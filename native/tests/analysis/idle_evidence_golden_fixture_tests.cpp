@@ -51,8 +51,10 @@ namespace {
 struct JsonValue {
   using Array = std::vector<JsonValue>;
   using Object = std::map<std::string, JsonValue>;
-  using Storage = std::variant<std::nullptr_t, bool, double, std::string,
-                               Array, Object>;
+  // Integers are stored as int64_t (nanosecond timestamps exceed 2^53, where
+  // double loses precision); only fractional numbers use double.
+  using Storage = std::variant<std::nullptr_t, bool, std::int64_t, double,
+                               std::string, Array, Object>;
 
   Storage storage;
 };
@@ -99,7 +101,7 @@ class JsonParser {
       return JsonValue{nullptr};
     }
     if (ch == '-' || std::isdigit(static_cast<unsigned char>(ch))) {
-      return JsonValue{parse_number()};
+      return parse_number();
     }
     throw std::invalid_argument("invalid JSON value");
   }
@@ -190,23 +192,29 @@ class JsonParser {
     throw std::invalid_argument("unterminated JSON string");
   }
 
-  double parse_number() {
+  JsonValue parse_number() {
     const std::size_t begin = pos_;
     if (peek('-')) {
       ++pos_;
     }
+    bool fractional = false;
     while (pos_ < text_.size() &&
            std::isdigit(static_cast<unsigned char>(text_[pos_]))) {
       ++pos_;
     }
     if (peek('.')) {
+      fractional = true;
       ++pos_;
       while (pos_ < text_.size() &&
              std::isdigit(static_cast<unsigned char>(text_[pos_]))) {
         ++pos_;
       }
     }
-    return std::stod(text_.substr(begin, pos_ - begin));
+    const std::string token = text_.substr(begin, pos_ - begin);
+    if (fractional) {
+      return JsonValue{std::stod(token)};
+    }
+    return JsonValue{std::stoll(token)};
   }
 
   void consume_literal(const char* literal) {
@@ -253,6 +261,10 @@ std::int64_t member_int64(const JsonValue& value, const char* key) {
   const JsonValue* member = find_member(value, key);
   if (member == nullptr) {
     throw std::invalid_argument(std::string("missing JSON member: ") + key);
+  }
+  const auto* integer = std::get_if<std::int64_t>(&member->storage);
+  if (integer != nullptr) {
+    return *integer;
   }
   const auto* number = std::get_if<double>(&member->storage);
   if (number == nullptr) {
@@ -323,9 +335,11 @@ HostWaitEvidence read_host_wait(const std::filesystem::path& fixture_db) {
       "ORDER BY startNs, endNs";
   const int prepare_rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
   if (prepare_rc != SQLITE_OK) {
+    // Capture the error message before closing the handle; sqlite3_errmsg
+    // after sqlite3_close is use-after-close.
+    const std::string error = sqlite3_errmsg(db);
     sqlite3_close(db);
-    throw std::invalid_argument("cannot query CANN_API: " +
-                                std::string(sqlite3_errmsg(db)));
+    throw std::invalid_argument("cannot query CANN_API: " + error);
   }
   while (true) {
     const int step_rc = sqlite3_step(stmt);
@@ -333,10 +347,10 @@ HostWaitEvidence read_host_wait(const std::filesystem::path& fixture_db) {
       break;
     }
     if (step_rc != SQLITE_ROW) {
+      const std::string error = sqlite3_errmsg(db);
       sqlite3_finalize(stmt);
       sqlite3_close(db);
-      throw std::invalid_argument("cannot step CANN_API query: " +
-                                  std::string(sqlite3_errmsg(db)));
+      throw std::invalid_argument("cannot step CANN_API query: " + error);
     }
     const std::int64_t start_ns = sqlite3_column_int64(stmt, 0);
     const std::int64_t end_ns = sqlite3_column_int64(stmt, 1);
