@@ -79,7 +79,8 @@ bool add_task_candidate(
     std::vector<TimelineDiagnostic>* diagnostics) {
   if (event.end_ns <= event.start_ns) {
     diagnostics->push_back(
-        TimelineDiagnostic{"invalid task interval (end <= start)",
+        TimelineDiagnostic{"invalid_event_duration: task interval "
+                           "(end <= start)",
                            task.raw_global_task_id});
     return false;
   }
@@ -296,6 +297,16 @@ void build_device_timeline(
       continue;
     }
     if (event->device_id != device_id) {
+      continue;
+    }
+    // Validate every productive task before role-specific handling. In
+    // particular, productive_comm tasks must not bypass duration validation
+    // by being absorbed into a canonical COMMUNICATION_OP candidate.
+    if (event->end_ns <= event->start_ns) {
+      result->diagnostics.push_back(TimelineDiagnostic{
+          "invalid_event_duration: task interval (end <= start)",
+          task.raw_global_task_id});
+      device_invalid = true;
       continue;
     }
     if (row.role == SemanticTaskRole::kProductiveComm) {

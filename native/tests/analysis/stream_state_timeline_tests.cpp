@@ -53,6 +53,8 @@ struct EventSpec {
   bool shared_trace_event = false;  // reuse the previous spec's TraceEventId
   bool invalid_trace_event = false;  // reference a dangling TraceEventId
   std::optional<std::uint32_t> op_stream_id;  // op stream (defaults to stream_id)
+  std::optional<std::int64_t> op_start_ns;  // op start (defaults to task start)
+  std::optional<std::int64_t> op_end_ns;  // op end (defaults to task end)
   bool shared_op = false;  // reuse the previous spec's COMMUNICATION_OP row
   std::uint64_t row_id = 0;
 };
@@ -108,8 +110,9 @@ Scene make_scene(const std::vector<EventSpec>& specs,
       const SourceRefId comm_source =
           ir.source_refs.append("fixture", "memory", "COMMUNICATION_OP", row);
       const TraceEventId comm_event = ir.trace_events.append(
-          comm_source, row, spec.device_id, op_stream, spec.start_ns,
-          spec.end_ns, label);
+          comm_source, row, spec.device_id, op_stream,
+          spec.op_start_ns.value_or(spec.start_ns),
+          spec.op_end_ns.value_or(spec.end_ns), label);
       const SymbolId op_name =
           spec.op_name.empty() ? SymbolId::invalid()
                                : ir.symbols.intern(spec.op_name);
@@ -933,6 +936,60 @@ int main() {
             "one running_comm event with op + two absorbed task links");
     require(timeline->diagnostics.empty(),
             "still one canonical event, no ambiguity");
+    check_stream_state_invariants(run);
+  }
+
+  // ---- 18c/18d. Invalid productive_comm tasks cannot be absorbed by a
+  // valid op. E2 rejects both zero and negative durations before
+  // canonicalization. E3 also rejects the lineage defensively if a malformed
+  // caller injects the stale absorbed link. ----
+  for (const auto& [task_start, task_end] :
+       std::vector<std::pair<std::int64_t, std::int64_t>>{{150, 150},
+                                                          {170, 150}}) {
+    Scene scene = make_scene(
+        {{.start_ns = task_start,
+          .end_ns = task_end,
+          .role = SemanticTaskRole::kProductiveComm,
+          .connection_id = 42,
+          .as_comm_op = true,
+          .comm_name = "AllReduce",
+          .op_name = "AllReduce",
+          .op_start_ns = 100,
+          .op_end_ns = 200}});
+    require(scene.productive.status == AnalysisStatus::kInvalidInput,
+            "invalid productive_comm duration degrades E2");
+    require(scene.productive.devices.size() == 1,
+            "invalid communication scene has one E2 device");
+    require(scene.productive.devices[0].absorbed_task_links.empty(),
+            "E2 does not absorb an invalid productive_comm task");
+    require(has_diagnostic(scene.productive.devices[0].diagnostics,
+                           "invalid_event_duration"),
+            "E2 reports invalid_event_duration");
+
+    // Simulate a malformed/older E2 caller result to exercise E3's public-API
+    // defense independently of the corrected E2 implementation.
+    scene.productive.status = AnalysisStatus::kOk;
+    scene.productive.devices[0].absorbed_task_links.push_back(
+        AbsorbedTaskLink{CommunicationOpId(0), TaskId(0)});
+    const StreamStateRunResult run = build_stream_states(scene);
+    require(run.status == AnalysisStatus::kInvalidInput,
+            "invalid absorbed lineage degrades E3");
+    const StreamStateDeviceResult* device = find_device(run, 0);
+    require(device != nullptr && !device->observed_universe_scan_complete,
+            "invalid absorbed lineage voids device scan completeness");
+    require(has_diagnostic(device->diagnostics,
+                           "invalid_event_duration"),
+            "E3 reports invalid_event_duration for absorbed lineage");
+    const StreamStateTimeline* timeline = find_timeline(run, 0, 0);
+    require(timeline != nullptr && timeline->intervals.size() == 1,
+            "valid canonical op still produces one timeline interval");
+    require(timeline->intervals[0].state == StreamState::kRunningComm &&
+                timeline->intervals[0].start_ns == 100 &&
+                timeline->intervals[0].end_ns == 200 &&
+                timeline->intervals[0].source_links.size() == 1 &&
+                timeline->intervals[0].source_links[0].kind ==
+                    StreamStateSourceLink::Kind::kCommunicationOp,
+            "invalid task lineage is not attached to the valid op");
     check_stream_state_invariants(run);
   }
 
