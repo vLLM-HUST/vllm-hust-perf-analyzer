@@ -18,6 +18,7 @@ add_library(traceloom_native_core
   src/analysis/productive_timeline.cpp
   src/analysis/semantic_task_classifier.cpp
   src/analysis/signal_classification_rules.cpp
+  src/analysis/stream_state_timeline.cpp
   src/analysis/native_pipeline.cpp
   src/core/diagnostics.cpp
   src/core/sha256.cpp
@@ -454,6 +455,17 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
   add_test(
     NAME traceloom_native_productive_timeline_tests
     COMMAND traceloom_native_productive_timeline_tests
+  )
+
+  add_executable(traceloom_native_stream_state_timeline_tests
+    tests/analysis/stream_state_timeline_tests.cpp
+  )
+  target_link_libraries(
+    traceloom_native_stream_state_timeline_tests PRIVATE traceloom_native_core
+  )
+  add_test(
+    NAME traceloom_native_stream_state_timeline_tests
+    COMMAND traceloom_native_stream_state_timeline_tests
   )
 
   add_executable(traceloom_native_pipeline_tests

@@ -313,6 +313,22 @@ void build_device_timeline(
     *run_invalid = true;
   }
 
+  // Export the canonicalization map for E3, derived from the pre-merge
+  // candidates: every kTask link on a candidate with a valid canonical_op_id
+  // is an absorbed task. Pre-merge candidates are required: merge_union
+  // destroys per-op structure when op intervals overlap.
+  for (const Candidate& candidate : candidates) {
+    if (!candidate.canonical_op_id.valid()) {
+      continue;
+    }
+    for (const ProductiveSourceLink& link : candidate.source_links) {
+      if (link.kind == ProductiveSourceLink::Kind::kTask) {
+        result->absorbed_task_links.push_back(
+            AbsorbedTaskLink{candidate.canonical_op_id, link.task_id});
+      }
+    }
+  }
+
   const std::vector<Candidate> union_intervals = merge_union(candidates);
   result->semantic_rules_version = classification.semantic_rules_version;
   result->semantic_rules_sha256 = classification.semantic_rules_sha256;

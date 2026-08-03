@@ -58,6 +58,14 @@ struct DeviceIntervalRow {
   std::vector<ProductiveSourceLink> source_links;
 };
 
+// E3 interface (contract 6.6): one entry per task absorbed into a canonical
+// communication op during communication canonicalization. This is the only
+// E2 -> E3 export; later stages must not re-derive communication dedup.
+struct AbsorbedTaskLink {
+  CommunicationOpId canonical_op_id;
+  TaskId task_id;
+};
+
 struct ProductiveTimelineOptions {
   // Explicit analysis span. Both must be present for the span to apply;
   // end_ns <= start_ns yields kInvalidAnalysisSpan.
@@ -82,6 +90,9 @@ struct DeviceTimelineResult {
   std::vector<TimelineDiagnostic> diagnostics;
   std::string semantic_rules_version;
   std::string semantic_rules_sha256;
+  // E3: tasks absorbed into canonical communication ops on this device
+  // (empty for non-ok devices and devices with no communication).
+  std::vector<AbsorbedTaskLink> absorbed_task_links;
 };
 
 // Run-level result: carries the analysis status even when no device has any

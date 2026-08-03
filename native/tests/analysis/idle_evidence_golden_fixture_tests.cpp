@@ -25,6 +25,7 @@
 #include "traceloom/analysis/idle_evidence_semantic_rules.h"
 #include "traceloom/analysis/productive_timeline.h"
 #include "traceloom/analysis/semantic_task_classifier.h"
+#include "traceloom/analysis/stream_state_timeline.h"
 #include "traceloom/testing/test_util.h"
 
 #include <sqlite3.h>
@@ -378,6 +379,13 @@ std::string source_key(const traceloom::NativeIr& ir,
   return source.table_name + ":" + std::to_string(event.source_row_id);
 }
 
+std::string source_key(const traceloom::NativeIr& ir,
+                       const traceloom::StreamStateSourceLink& link) {
+  const traceloom::TraceEventRow& event = ir.trace_events.row(link.trace_event_id);
+  const traceloom::SourceRefRow& source = ir.source_refs.row(event.source_ref_id);
+  return source.table_name + ":" + std::to_string(event.source_row_id);
+}
+
 }  // namespace
 
 int main() {
@@ -497,6 +505,59 @@ int main() {
   }
   require(actual_key_set == expected_key_set,
           "productive interval source lineage differs from ground truth");
+
+  // --- 3. E3: per-stream observable state timelines over the same fixture.
+  // The fixture's three adjacent compute tasks on stream 3 must yield three
+  // adjacent running_compute intervals, NOT merged: adjacent same-state
+  // segments with different source lineage stay separate (contract 3.3). ---
+  const StreamStateRunResult stream_run =
+      build_stream_state_timelines(ir, classification, run);
+  require(stream_run.status == AnalysisStatus::kOk,
+          "stream state run status must be ok");
+  require(stream_run.stream_universe_size == 1,
+          "one observed stream in the universe");
+  require(stream_run.devices.size() == 1, "one stream state device result");
+  const StreamStateDeviceResult& device_states = stream_run.devices[0];
+  require(device_states.status == AnalysisStatus::kOk,
+          "stream state device status must be ok");
+  require(device_states.span_start_ns.has_value() &&
+              device_states.span_end_ns.has_value() &&
+              *device_states.span_start_ns == expected_span_start &&
+              *device_states.span_end_ns == expected_span_end,
+          "stream state span must equal the analysis span");
+  require(device_states.timelines.size() == 1,
+          "exactly one stream timeline");
+  const StreamStateTimeline& stream_timeline = device_states.timelines[0];
+  require(stream_timeline.stream_id == 3, "timeline belongs to stream 3");
+  require(stream_timeline.intervals.size() == 3,
+          "three adjacent intervals, not merged across lineage");
+  for (std::size_t index = 0; index < stream_timeline.intervals.size();
+       ++index) {
+    const StreamStateInterval& interval = stream_timeline.intervals[index];
+    require(interval.state == StreamState::kRunningCompute &&
+                interval.start_ns ==
+                    1000 + static_cast<std::int64_t>(index) * 1000 &&
+                interval.end_ns ==
+                    2000 + static_cast<std::int64_t>(index) * 1000 &&
+                interval.source_links.size() == 1,
+            "interval is running_compute with exactly one source");
+    require(interval.source_links[0].kind ==
+                StreamStateSourceLink::Kind::kTask &&
+                source_key(ir, interval.source_links[0]) ==
+                    "TASK:" + std::to_string(index + 1),
+            "interval lineage is its own TASK row");
+  }
+  require(stream_timeline.diagnostics.empty(),
+          "no stream state diagnostics on the fixture");
+  std::int64_t stream_cursor = stream_timeline.span_start_ns;
+  for (const StreamStateInterval& interval : stream_timeline.intervals) {
+    require(interval.end_ns > interval.start_ns &&
+                interval.start_ns == stream_cursor,
+            "stream state intervals partition the span");
+    stream_cursor = interval.end_ns;
+  }
+  require(stream_cursor == stream_timeline.span_end_ns,
+          "stream state intervals cover the span exactly");
 
   // --- The counterexample, asserted as a unit: host wait exists AND
   // visible idle is zero. ---
