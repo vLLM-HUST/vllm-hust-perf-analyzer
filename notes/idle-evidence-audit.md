@@ -85,6 +85,28 @@ and inspectable.
 - `productive_compute` is only 3.8-6% of duration, consistent with
   compute/communication overlap in collective-heavy vLLM serving.
 
+## E3 real-profile validation
+
+The E3 stream-state pipeline was also run end-to-end on Device 1 after the
+stream-universe and source-lineage review fixes:
+
+| field | result |
+| --- | --- |
+| `run_status` | `ok` |
+| `stream_universe_size` | 106 |
+| `observed_universe_scan_complete` | `true` |
+| `COMMUNICATION_OP` rows | 1,773 |
+| TASK rows | 84,928 |
+
+The input contains 2,070 legitimate zero-duration point markers
+(`MODEL_MAINTAINCE`, `EVENT_RECORD`, `EVENT_WAIT`, `NOTIFY_RECORD`, and
+`PROFILING_ENABLE`). E3 diagnoses these as
+`zero_duration_point_event_ignored`: they cannot produce rows in the
+interval-bearing stream-state table, do not establish interval-universe
+membership, and do not invalidate the scan. Negative-duration rows and
+zero-duration productive/unknown rows remain `invalid_event_duration` and
+void scan completeness.
+
 ## Re-run
 
 ```bash

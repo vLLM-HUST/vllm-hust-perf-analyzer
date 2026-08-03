@@ -669,7 +669,7 @@ int main() {
     check_stream_state_invariants(run);
   }
 
-  // ---- 14. Invalid duration -> run kInvalidInput, healthy sibling intact. ----
+  // ---- 14. Negative duration -> run kInvalidInput, healthy sibling intact. ----
   {
     const Scene scene = make_scene(
         {{.start_ns = 100,
@@ -704,6 +704,65 @@ int main() {
                 timeline->intervals[2].start_ns == 300 &&
                 timeline->intervals[2].end_ns == 400,
             "invalid event skipped, span still partitioned");
+    check_stream_state_invariants(run);
+  }
+
+  // ---- 14b. Zero-duration control/wait/record rows are point markers, not
+  // damaged intervals. They are diagnosed and omitted without voiding scan
+  // completeness or establishing stream-universe membership. ----
+  {
+    const Scene scene = make_scene(
+        {{.stream_id = 7,
+          .start_ns = 150,
+          .end_ns = 150,
+          .role = SemanticTaskRole::kRecord},
+         {.stream_id = 0,
+          .start_ns = 200,
+          .end_ns = 300,
+          .role = SemanticTaskRole::kProductiveCompute}},
+        explicit_span(100, 400));
+    const StreamStateRunResult run = build_stream_states(scene);
+    require(run.status == AnalysisStatus::kOk,
+            "zero-duration point marker keeps the run ok");
+    const StreamStateDeviceResult* device = find_device(run, 0);
+    require(device != nullptr && device->status == AnalysisStatus::kOk,
+            "device remains ok");
+    require(has_diagnostic(device->diagnostics,
+                           "zero_duration_point_event_ignored"),
+            "point marker diagnostic emitted");
+    require(device->observed_universe_scan_complete &&
+                run.observed_universe_scan_complete,
+            "point marker does not void completeness");
+    require(find_timeline(run, 0, 7) == nullptr,
+            "point-only stream does not enter the interval universe");
+    require(run.stream_universe_size == 1,
+            "only the positive-duration stream is observed");
+    const StreamStateTimeline* timeline = find_timeline(run, 0, 0);
+    require(timeline != nullptr && timeline->intervals.size() == 3,
+            "healthy sibling timeline is intact");
+    check_stream_state_invariants(run);
+  }
+
+  // ---- 14c. A zero-duration productive row is still damaged input. ----
+  {
+    const Scene scene = make_scene(
+        {{.start_ns = 150,
+          .end_ns = 150,
+          .role = SemanticTaskRole::kProductiveCompute},
+         {.start_ns = 200,
+          .end_ns = 300,
+          .role = SemanticTaskRole::kProductiveCompute}},
+        explicit_span(100, 400));
+    const StreamStateRunResult run = build_stream_states(scene);
+    require(run.status == AnalysisStatus::kInvalidInput,
+            "zero-duration productive row degrades the run");
+    const StreamStateDeviceResult* device = find_device(run, 0);
+    require(device != nullptr &&
+                has_diagnostic(device->diagnostics,
+                               "invalid_event_duration"),
+            "productive zero-duration diagnostic emitted");
+    require(!run.observed_universe_scan_complete,
+            "damaged productive row voids completeness");
     check_stream_state_invariants(run);
   }
 

@@ -92,6 +92,19 @@ StreamState role_to_state(SemanticTaskRole role) {
   return StreamState::kUnknown;
 }
 
+// Ascend emits zero-duration rows for synchronization/control point markers
+// such as EVENT_RECORD, EVENT_WAIT, NOTIFY_RECORD, and MODEL_MAINTAINCE. They
+// have no interval extent and therefore cannot appear in the interval-bearing
+// stream-state table, but they are not damaged input. Productive and unknown
+// rows are expected to describe intervals, so zero duration remains invalid
+// for those roles.
+bool is_non_interval_point_role(SemanticTaskRole role) {
+  return role == SemanticTaskRole::kVisibleWait ||
+         role == SemanticTaskRole::kCaptureControl ||
+         role == SemanticTaskRole::kRecord ||
+         role == SemanticTaskRole::kRuntimeControl;
+}
+
 // Deterministic source-link ordering (reproducible output, and link vector
 // equality becomes set equality for the merge rule). trace_event_id is
 // unique per event in practice, so the trailing comparisons never bind.
@@ -420,12 +433,20 @@ StreamStateRunResult build_stream_state_timelines(
     if (absorbed_tasks.count(task.id) != 0) {
       continue;  // supporting evidence; the canonical op event carries it.
     }
-    if (event->end_ns <= event->start_ns) {
+    if (event->end_ns < event->start_ns ||
+        (event->end_ns == event->start_ns &&
+         !is_non_interval_point_role(row.role))) {
       diagnostics_by_device[event->device_id].push_back(TimelineDiagnostic{
           "invalid_event_duration: task interval (end <= start)",
           task.raw_global_task_id});
       scan_incomplete_devices.insert(event->device_id);
       run_invalid = true;
+      continue;
+    }
+    if (event->end_ns == event->start_ns) {
+      diagnostics_by_device[event->device_id].push_back(TimelineDiagnostic{
+          "zero_duration_point_event_ignored: task has no interval extent",
+          task.raw_global_task_id});
       continue;
     }
     const StreamId stream = resolve_stream(stream_index, *event);

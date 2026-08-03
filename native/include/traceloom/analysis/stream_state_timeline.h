@@ -30,9 +30,12 @@ namespace traceloom {
 // Status mirrors E2: run status is kOk, kEmptyInput (no tasks and no
 // communication ops), or kInvalidInput (damaged rows skipped with
 // diagnostics); per-device statuses express kNoProductiveSpan /
-// kInvalidAnalysisSpan verbatim from E2. Informational diagnostics
+// kInvalidAnalysisSpan verbatim from E2. Zero-duration non-interval roles
+// (wait, capture/control, record, runtime control) are profiler point markers:
+// they emit an informational device diagnostic but no interval and do not
+// establish stream-universe membership. Other informational diagnostics
 // (event_clipped_to_span, exact_duplicate_event, coincident_distinct_events)
-// live on the affected timeline and keep the status ok.
+// keep the status ok.
 
 enum class StreamState {
   kRunningCompute,
@@ -109,7 +112,8 @@ struct StreamStateDeviceResult {
   std::optional<std::int64_t> span_end_ns;
   std::vector<StreamStateTimeline> timelines;
   // Input-damage notes (invalid_event_duration, invalid_trace_event_reference,
-  // unknown_stream_identity); degrade the run to kInvalidInput.
+  // unknown_stream_identity) degrade the run to kInvalidInput. This vector can
+  // also contain zero_duration_point_event_ignored, which is informational.
   std::vector<TimelineDiagnostic> diagnostics;
   // Observed stream universe of this device: timelines emitted on kOk
   // devices; zero on non-ok devices (no span, no universe).
