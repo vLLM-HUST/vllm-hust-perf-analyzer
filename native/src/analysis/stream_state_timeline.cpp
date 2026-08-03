@@ -1,6 +1,7 @@
 #include "traceloom/analysis/stream_state_timeline.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <map>
 #include <set>
 #include <stdexcept>
@@ -12,9 +13,19 @@
 namespace traceloom {
 namespace {
 
+// Sentinel stream id written by the ascend adapter for events that carry no
+// stream metadata (COMMUNICATION_OP without a linked primary stream): the
+// adapter stores 0xFFFFFFFF and appends no StreamRow. Such events are
+// observable but unassignable, not damaged input; the contract semantics for
+// them are still under review (see the header comment on
+// observed_universe_scan_complete).
+constexpr std::uint32_t kUnassignedStreamSentinel = 0xffffffffu;
+
 // One canonical event after collection: a non-absorbed TaskRow trace event or
 // a COMMUNICATION_OP trace event. Times are pre-clip; clipping happens per
-// stream against the device span.
+// stream against the device span. source_links carries the canonical source
+// plus, for communication ops, every absorbed supporting task (contract
+// 6.6: the op remains one canonical event with multiple supporting sources).
 struct StreamEvent {
   StreamStateSourceLink::Kind kind;
   TraceEventId trace_event_id;
@@ -22,7 +33,7 @@ struct StreamEvent {
   std::int64_t start_ns = 0;
   std::int64_t end_ns = 0;
   StreamState state = StreamState::kUnknown;
-  StreamStateSourceLink link;
+  std::vector<StreamStateSourceLink> source_links;
   std::int64_t diagnostic_source_row_id = -1;  // E2-style raw row id
 };
 
@@ -126,9 +137,59 @@ std::string interval_text(std::int64_t start_ns, std::int64_t end_ns) {
   return "[" + std::to_string(start_ns) + "," + std::to_string(end_ns) + ")";
 }
 
+// One boundary of a canonical event for the sweep line. (end, remove) sorts
+// before (start, add) at the same timestamp, which keeps half-open
+// [start, end) semantics: an event ending at t and one starting at t are
+// adjacent, never overlapping.
+struct SweepAction {
+  std::int64_t time_ns = 0;
+  int action = 0;  // 0 = remove (end), 1 = add (start)
+  std::size_t event_index = 0;
+
+  friend bool operator<(const SweepAction& lhs, const SweepAction& rhs) {
+    if (lhs.time_ns != rhs.time_ns) {
+      return lhs.time_ns < rhs.time_ns;
+    }
+    return lhs.action < rhs.action;  // removals before additions
+  }
+};
+
+// Emits one segment [seg_start, seg_end) from the active canonical event
+// set: zero events -> empty_observed, one event -> its state with all its
+// supporting links, two or more events -> ambiguous_overlap with the union
+// of all their links. ambiguous_overlap is decided by the canonical event
+// count, never by the link count.
+void push_segment(std::int64_t seg_start,
+                  std::int64_t seg_end,
+                  const std::set<std::size_t>& active,
+                  const std::vector<StreamEvent>& events,
+                  std::vector<StreamStateInterval>* intervals) {
+  if (active.empty()) {
+    intervals->push_back(
+        StreamStateInterval{seg_start, seg_end, StreamState::kEmptyObserved,
+                            {}});
+    return;
+  }
+  std::vector<StreamStateSourceLink> links;
+  StreamState state = StreamState::kUnknown;
+  for (const std::size_t index : active) {
+    if (links.empty()) {
+      state = events[index].state;
+    } else {
+      state = StreamState::kAmbiguousOverlap;
+    }
+    for (const StreamStateSourceLink& link : events[index].source_links) {
+      links.push_back(link);
+    }
+  }
+  std::sort(links.begin(), links.end(), link_less);
+  intervals->push_back(
+      StreamStateInterval{seg_start, seg_end, state, std::move(links)});
+}
+
 // Builds the timeline for one stream over the device span: clip, dedupe,
-// boundary partition, sweep, merge. Returns false when no canonical event
-// remains (stream is not part of the observed universe).
+// sweep line, merge. Returns false when no canonical event remains (stream
+// is not part of the observed universe).
 bool build_stream_timeline(std::int64_t span_start,
                            std::int64_t span_end,
                            std::vector<StreamEvent>* events,
@@ -198,47 +259,33 @@ bool build_stream_timeline(std::int64_t span_start,
     }
   }
 
-  // Boundary partition: the span edges plus every event boundary. Unique
-  // boundaries are strictly increasing, so every segment has positive length.
-  std::vector<std::int64_t> boundaries;
-  boundaries.reserve(2 + deduped.size() * 2);
-  boundaries.push_back(span_start);
-  boundaries.push_back(span_end);
-  for (const StreamEvent& event : deduped) {
-    boundaries.push_back(event.start_ns);
-    boundaries.push_back(event.end_ns);
+  // Sweep line over event boundaries, maintaining the active canonical event
+  // set. O(n log n + output).
+  std::vector<SweepAction> actions;
+  actions.reserve(deduped.size() * 2);
+  for (std::size_t index = 0; index < deduped.size(); ++index) {
+    actions.push_back(SweepAction{deduped[index].start_ns, 1, index});
+    actions.push_back(SweepAction{deduped[index].end_ns, 0, index});
   }
-  std::sort(boundaries.begin(), boundaries.end());
-  boundaries.erase(
-      std::unique(boundaries.begin(), boundaries.end()), boundaries.end());
+  std::sort(actions.begin(), actions.end());
 
-  // Sweep: the covering set is constant within each segment.
   std::vector<StreamStateInterval> intervals;
-  intervals.reserve(boundaries.size() - 1);
-  for (std::size_t index = 0; index + 1 < boundaries.size(); ++index) {
-    const std::int64_t seg_start = boundaries[index];
-    const std::int64_t seg_end = boundaries[index + 1];
-    std::vector<StreamStateSourceLink> links;
-    StreamState state = StreamState::kEmptyObserved;
-    for (const StreamEvent& event : deduped) {
-      if (event.start_ns <= seg_start && event.end_ns >= seg_end) {
-        if (links.empty()) {
-          state = event.state;
-        } else {
-          state = StreamState::kAmbiguousOverlap;
-        }
-        links.push_back(event.link);
-      }
+  intervals.reserve(deduped.size() + 1);
+  std::set<std::size_t> active;
+  std::int64_t cursor = span_start;
+  for (const SweepAction& action : actions) {
+    if (action.time_ns > cursor) {
+      push_segment(cursor, action.time_ns, active, deduped, &intervals);
+      cursor = action.time_ns;
     }
-    if (links.empty()) {
-      intervals.push_back(
-          StreamStateInterval{seg_start, seg_end, StreamState::kEmptyObserved,
-                              {}});
-      continue;
+    if (action.action == 0) {
+      active.erase(action.event_index);
+    } else {
+      active.insert(action.event_index);
     }
-    std::sort(links.begin(), links.end(), link_less);
-    intervals.push_back(
-        StreamStateInterval{seg_start, seg_end, state, std::move(links)});
+  }
+  if (cursor < span_end) {
+    push_segment(cursor, span_end, active, deduped, &intervals);
   }
 
   // Merge adjacent segments with identical state and identical source link
@@ -318,24 +365,45 @@ StreamStateRunResult build_stream_state_timelines(
   }
 
   // E2 communication canonicalization (contract 6.6): absorbed tasks are
-  // supporting evidence of their canonical op, not independent events.
-  std::set<TaskId> absorbed;
+  // supporting evidence of their canonical op. The op keeps its canonical
+  // event and carries every absorbed task as an additional source link.
+  std::set<TaskId> absorbed_tasks;
+  std::map<CommunicationOpId, std::vector<TaskId>> absorbed_tasks_by_op;
   for (const DeviceTimelineResult& device : productive.devices) {
     for (const AbsorbedTaskLink& link : device.absorbed_task_links) {
-      absorbed.insert(link.task_id);
+      absorbed_tasks.insert(link.task_id);
+      absorbed_tasks_by_op[link.canonical_op_id].push_back(link.task_id);
     }
   }
 
   const StreamIndex stream_index = build_stream_index(ir);
 
-  // One validation pass over tasks and communication ops: damaged rows are
-  // skipped with diagnostics (run status becomes kInvalidInput); valid
-  // events are bucketed by device.
+  // One validation pass over tasks and communication ops: damaged or
+  // unassignable rows are skipped with diagnostics; valid events are
+  // bucketed by device. Damage degrades the run to kInvalidInput; an event
+  // that is merely unassignable (no stream metadata) degrades only the
+  // device's scan completeness, never the run status.
   std::map<std::uint32_t, std::vector<StreamEvent>> events_by_device;
   std::map<std::uint32_t, std::vector<TimelineDiagnostic>>
       diagnostics_by_device;
+  std::set<std::uint32_t> scan_incomplete_devices;
   std::vector<TimelineDiagnostic> run_diagnostics;
   bool run_invalid = false;
+
+  const auto fail_unassignable = [&](const TraceEventRow& event,
+                                     std::int64_t source_row_id) {
+    // No stream metadata (0xFFFFFFFF sentinel, adapter omits the StreamRow):
+    // observable but not placeable on any stream. Not corruption; the run
+    // status stays ok, but this device can no longer attest scan
+    // completeness. The invalid_input question for sentinel events is open
+    // with the contract owner.
+    diagnostics_by_device[event.device_id].push_back(TimelineDiagnostic{
+        "unassigned_stream: event has no stream metadata (sentinel " +
+            std::to_string(kUnassignedStreamSentinel) + ") on device " +
+            std::to_string(event.device_id),
+        source_row_id});
+    scan_incomplete_devices.insert(event.device_id);
+  };
 
   for (std::size_t index = 0; index < classification.rows.size(); ++index) {
     const SemanticTaskClassificationRow& row = classification.rows[index];
@@ -349,24 +417,30 @@ StreamStateRunResult build_stream_state_timelines(
       run_invalid = true;
       continue;
     }
-    if (absorbed.count(task.id) != 0) {
-      continue;  // supporting evidence; the canonical op event covers it.
+    if (absorbed_tasks.count(task.id) != 0) {
+      continue;  // supporting evidence; the canonical op event carries it.
     }
     if (event->end_ns <= event->start_ns) {
       diagnostics_by_device[event->device_id].push_back(TimelineDiagnostic{
           "invalid_event_duration: task interval (end <= start)",
           task.raw_global_task_id});
+      scan_incomplete_devices.insert(event->device_id);
       run_invalid = true;
       continue;
     }
     const StreamId stream = resolve_stream(stream_index, *event);
     if (!stream.valid()) {
-      diagnostics_by_device[event->device_id].push_back(TimelineDiagnostic{
-          "unknown_stream_identity: no StreamRow for (device " +
-              std::to_string(event->device_id) + ", stream " +
-              std::to_string(event->stream_id) + ")",
-          task.raw_global_task_id});
-      run_invalid = true;
+      if (event->stream_id == kUnassignedStreamSentinel) {
+        fail_unassignable(*event, task.raw_global_task_id);
+      } else {
+        diagnostics_by_device[event->device_id].push_back(TimelineDiagnostic{
+            "unknown_stream_identity: no StreamRow for (device " +
+                std::to_string(event->device_id) + ", stream " +
+                std::to_string(event->stream_id) + ")",
+            task.raw_global_task_id});
+        scan_incomplete_devices.insert(event->device_id);
+        run_invalid = true;
+      }
       continue;
     }
     const StreamRow& stream_row = ir.streams.row(stream);
@@ -377,10 +451,10 @@ StreamStateRunResult build_stream_state_timelines(
     stream_event.start_ns = event->start_ns;
     stream_event.end_ns = event->end_ns;
     stream_event.state = role_to_state(row.role);
-    stream_event.link = StreamStateSourceLink{
+    stream_event.source_links.push_back(StreamStateSourceLink{
         StreamStateSourceLink::Kind::kTask, event->id, task.id,
         CommunicationOpId::invalid(), event->source_ref_id,
-        row.matched_rule_id};
+        row.matched_rule_id});
     stream_event.diagnostic_source_row_id = task.raw_global_task_id;
     events_by_device[event->device_id].push_back(std::move(stream_event));
   }
@@ -399,17 +473,23 @@ StreamStateRunResult build_stream_state_timelines(
       diagnostics_by_device[event->device_id].push_back(TimelineDiagnostic{
           "invalid_event_duration: COMMUNICATION_OP interval (end <= start)",
           op.raw_op_id});
+      scan_incomplete_devices.insert(event->device_id);
       run_invalid = true;
       continue;
     }
     const StreamId stream = resolve_stream(stream_index, *event);
     if (!stream.valid()) {
-      diagnostics_by_device[event->device_id].push_back(TimelineDiagnostic{
-          "unknown_stream_identity: no StreamRow for (device " +
-              std::to_string(event->device_id) + ", stream " +
-              std::to_string(event->stream_id) + ")",
-          op.raw_op_id});
-      run_invalid = true;
+      if (event->stream_id == kUnassignedStreamSentinel) {
+        fail_unassignable(*event, op.raw_op_id);
+      } else {
+        diagnostics_by_device[event->device_id].push_back(TimelineDiagnostic{
+            "unknown_stream_identity: no StreamRow for (device " +
+                std::to_string(event->device_id) + ", stream " +
+                std::to_string(event->stream_id) + ")",
+            op.raw_op_id});
+        scan_incomplete_devices.insert(event->device_id);
+        run_invalid = true;
+      }
       continue;
     }
     const StreamRow& stream_row = ir.streams.row(stream);
@@ -420,10 +500,38 @@ StreamStateRunResult build_stream_state_timelines(
     stream_event.start_ns = event->start_ns;
     stream_event.end_ns = event->end_ns;
     stream_event.state = StreamState::kRunningComm;
-    stream_event.link = StreamStateSourceLink{
+    stream_event.source_links.push_back(StreamStateSourceLink{
         StreamStateSourceLink::Kind::kCommunicationOp, event->id,
-        TaskId::invalid(), op.id, event->source_ref_id, std::nullopt};
+        TaskId::invalid(), op.id, event->source_ref_id, std::nullopt});
     stream_event.diagnostic_source_row_id = op.raw_op_id;
+    // Absorbed tasks attach as supporting sources of the same canonical
+    // event (contract 6.6): one event, full lineage.
+    const auto absorbed_it = absorbed_tasks_by_op.find(op.id);
+    if (absorbed_it != absorbed_tasks_by_op.end()) {
+      for (const TaskId task_id : absorbed_it->second) {
+        const TaskRow& task = ir.tasks.row(task_id);
+        const TraceEventRow* task_event =
+            trace_event_or_null(ir, task.trace_event_id);
+        if (task_event == nullptr) {
+          // Unreachable via E2 (absorption requires a valid event); guard
+          // against malformed caller inputs.
+          diagnostics_by_device[event->device_id].push_back(
+              TimelineDiagnostic{
+                  "invalid_trace_event_reference: absorbed task has an "
+                  "out-of-range trace_event_id",
+                  task.raw_global_task_id});
+          scan_incomplete_devices.insert(event->device_id);
+          run_invalid = true;
+          continue;
+        }
+        const SemanticTaskClassificationRow& row =
+            classification.rows[task_id.value()];
+        stream_event.source_links.push_back(StreamStateSourceLink{
+            StreamStateSourceLink::Kind::kTask, task.trace_event_id, task.id,
+            CommunicationOpId::invalid(), task_event->source_ref_id,
+            row.matched_rule_id});
+      }
+    }
     events_by_device[event->device_id].push_back(std::move(stream_event));
   }
 
@@ -436,7 +544,8 @@ StreamStateRunResult build_stream_state_timelines(
       result.diagnostics = std::move(diag_it->second);
     }
     if (device.status != AnalysisStatus::kOk) {
-      // kNoProductiveSpan / kInvalidAnalysisSpan: no span, no timelines.
+      // kNoProductiveSpan / kInvalidAnalysisSpan: no span, no timelines, no
+      // universe; scan completeness is vacuously true (nothing claimable).
       result.status = device.status;
       run.devices.push_back(std::move(result));
       continue;
@@ -454,6 +563,8 @@ StreamStateRunResult build_stream_state_timelines(
     }
     result.span_start_ns = device.span_start_ns;
     result.span_end_ns = device.span_end_ns;
+    result.observed_universe_scan_complete =
+        scan_incomplete_devices.count(device.device_id) == 0;
     const auto events_it = events_by_device.find(device.device_id);
     if (events_it != events_by_device.end()) {
       // Group by resolved stream id; streams are processed in ascending id
@@ -474,7 +585,7 @@ StreamStateRunResult build_stream_state_timelines(
         }
       }
     }
-    run.stream_universe_size += result.timelines.size();
+    result.stream_universe_size = result.timelines.size();
     run.devices.push_back(std::move(result));
   }
 
@@ -490,6 +601,21 @@ StreamStateRunResult build_stream_state_timelines(
   if (run_invalid) {
     run.status = AnalysisStatus::kInvalidInput;
   }
+
+  // Run-level aggregates: sum of the per-device universes; completeness is
+  // the AND of every device's flag, additionally voided by damage that
+  // cannot be attributed to a device (it still undermines absence claims).
+  std::size_t universe_total = 0;
+  bool all_devices_complete = true;
+  for (const StreamStateDeviceResult& device : run.devices) {
+    universe_total += device.stream_universe_size;
+    if (!device.observed_universe_scan_complete) {
+      all_devices_complete = false;
+    }
+  }
+  run.stream_universe_size = universe_total;
+  run.observed_universe_scan_complete =
+      all_devices_complete && run.diagnostics.empty();
   return run;
 }
 

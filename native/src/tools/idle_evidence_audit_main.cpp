@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <fstream>
@@ -10,7 +11,9 @@
 
 #include "traceloom/adapters/ascend_sqlite_adapter.h"
 #include "traceloom/analysis/idle_evidence_semantic_rules.h"
+#include "traceloom/analysis/productive_timeline.h"
 #include "traceloom/analysis/semantic_task_classifier.h"
+#include "traceloom/analysis/stream_state_timeline.h"
 #include "traceloom/ir/native_ir.h"
 
 namespace {
@@ -42,12 +45,17 @@ CliOptions parse_args(int argc, char** argv) {
       options.out_path = argv[++index];
     } else if (arg == "--help" || arg == "-h") {
       std::cerr << "usage: " << argv[0]
-                << " --source-db <profiler.sqlite>"
+                << " --source-db <profiler.sqlite-or-profile-dir>"
                    " [--idle-evidence-rules PATH] [--out PATH|-]\n"
-                << "Classifies every TaskRow with the idle evidence semantic "
-                   "ruleset and reports per-role counts and durations plus "
-                   "unknown-task detail. A ruleset override that fails to "
-                   "load exits non-zero; it never silently falls back.\n";
+                << "Runs the idle evidence pipeline over one capture: E1 "
+                   "classifies every TaskRow with the semantic ruleset and "
+                   "reports per-role counts and durations plus unknown-task "
+                   "detail; E2 builds the productive timeline and visible "
+                   "gaps; E3 builds the per-stream observable state "
+                   "timelines with run/device status, stream universe, "
+                   "diagnostic counts, and E3 wall time. A ruleset override "
+                   "that fails to load exits non-zero; it never silently "
+                   "falls back.\n";
       std::exit(0);
     } else {
       throw std::invalid_argument("unknown argument: " + arg);
@@ -63,6 +71,28 @@ std::string symbol_text(const traceloom::NativeIr& ir,
                         traceloom::SymbolId id) {
   return id.valid() ? ir.symbols.value(id) : std::string();
 }
+
+// Diagnostics use "<code>: <detail>" free text (E2 style); the code is the
+// part before the first colon.
+std::string diagnostic_code(const std::string& message) {
+  const std::size_t colon = message.find(':');
+  return message.substr(0, colon);
+}
+
+std::string peak_rss_kb() {
+  std::ifstream status("/proc/self/status");
+  std::string line;
+  while (std::getline(status, line)) {
+    if (line.compare(0, 6, "VmHWM:") == 0) {
+      return line.substr(6);  // includes the " kB" unit
+    }
+  }
+  return "(unavailable)";
+}
+
+// Sentinel stream id written by the ascend adapter for events without stream
+// metadata (no StreamRow is appended for it).
+constexpr std::uint32_t kUnassignedStreamSentinel = 0xffffffffu;
 
 }  // namespace
 
@@ -182,6 +212,102 @@ int main(int argc, char** argv) {
       output += "| " + (name.empty() ? "(empty)" : name) + " | " +
                 std::to_string(stat.count) + " | " +
                 std::to_string(stat.duration_ns) + " |\n";
+    }
+
+    // ---- E2/E3: productive timeline and per-stream observable states. ----
+    const ProductiveTimelineRunResult timeline =
+        build_productive_timelines(ir, result);
+    const auto e3_begin = std::chrono::steady_clock::now();
+    const StreamStateRunResult streams =
+        build_stream_state_timelines(ir, result, timeline);
+    const auto e3_end = std::chrono::steady_clock::now();
+    const std::int64_t e3_elapsed_ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(e3_end -
+                                                              e3_begin)
+            .count();
+
+    output += "\n## Productive timeline (E2)\n\n";
+    output += "- run_status: " +
+              std::string(analysis_status_name(timeline.status)) + "\n";
+    output += "\n| device | status | span_start_ns | span_end_ns | "
+              "intervals |\n| --- | --- | --- | --- | --- |\n";
+    for (const DeviceTimelineResult& device : timeline.devices) {
+      output += "| " + std::to_string(device.device_id) + " | " +
+                std::string(analysis_status_name(device.status)) + " | " +
+                (device.span_start_ns ? std::to_string(*device.span_start_ns)
+                                      : "-") +
+                " | " +
+                (device.span_end_ns ? std::to_string(*device.span_end_ns)
+                                    : "-") +
+                " | " + std::to_string(device.intervals.size()) + " |\n";
+    }
+
+    output += "\n## Stream state timeline (E3)\n\n";
+    output += "- run_status: " +
+              std::string(analysis_status_name(streams.status)) + "\n";
+    output += "- stream_universe_size: " +
+              std::to_string(streams.stream_universe_size) + "\n";
+    output += "- observed_universe_scan_complete: " +
+              std::string(streams.observed_universe_scan_complete ? "true"
+                                                                  : "false") +
+              "\n";
+    output += "- E3_elapsed_ms: " + std::to_string(e3_elapsed_ms) + "\n";
+    output += "- peak_rss_kb: " + peak_rss_kb() + "\n";
+    std::uint64_t unassigned_op_count = 0;
+    for (const CommunicationOpRow& op : ir.communication_ops.rows()) {
+      if (op.trace_event_id.valid() &&
+          op.trace_event_id.value() < ir.trace_events.size()) {
+        const TraceEventRow& event =
+            ir.trace_events.row(op.trace_event_id);
+        if (event.stream_id == kUnassignedStreamSentinel) {
+          unassigned_op_count += 1;
+        }
+      }
+    }
+    output += "- 0xFFFFFFFF COMMUNICATION_OP count: " +
+              std::to_string(unassigned_op_count) + "\n";
+    output += "- communication_ops: " +
+              std::to_string(ir.communication_ops.size()) + "\n";
+    output += "- tasks: " + std::to_string(ir.tasks.size()) + "\n";
+
+    output += "\n### Devices\n\n";
+    output += "| device | status | span_start_ns | span_end_ns | timelines |"
+              " universe_size | scan_complete | diagnostics |\n";
+    output += "| --- | --- | --- | --- | --- | --- | --- | --- |\n";
+    for (const StreamStateDeviceResult& device : streams.devices) {
+      output += "| " + std::to_string(device.device_id) + " | " +
+                std::string(analysis_status_name(device.status)) + " | " +
+                (device.span_start_ns ? std::to_string(*device.span_start_ns)
+                                      : "-") +
+                " | " +
+                (device.span_end_ns ? std::to_string(*device.span_end_ns)
+                                    : "-") +
+                " | " + std::to_string(device.timelines.size()) + " | " +
+                std::to_string(device.stream_universe_size) + " | " +
+                std::string(device.observed_universe_scan_complete ? "true"
+                                                                   : "false") +
+                " | " + std::to_string(device.diagnostics.size()) + " |\n";
+    }
+
+    std::map<std::string, std::uint64_t> diagnostic_counts;
+    const auto count_diagnostics =
+        [&diagnostic_counts](const std::vector<TimelineDiagnostic>& notes) {
+          for (const TimelineDiagnostic& note : notes) {
+            diagnostic_counts[diagnostic_code(note.message)] += 1;
+          }
+        };
+    count_diagnostics(streams.diagnostics);
+    for (const StreamStateDeviceResult& device : streams.devices) {
+      count_diagnostics(device.diagnostics);
+      for (const StreamStateTimeline& stream_timeline : device.timelines) {
+        count_diagnostics(stream_timeline.diagnostics);
+      }
+    }
+    output += "\n### E3 diagnostics by code\n\n";
+    output += "| code | count |\n| --- | --- |\n";
+    for (const auto& [code, count] : diagnostic_counts) {
+      output += "| " + (code.empty() ? "(empty)" : code) + " | " +
+                std::to_string(count) + " |\n";
     }
 
     if (options.out_path == "-") {
