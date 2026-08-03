@@ -16,9 +16,8 @@ namespace {
 // Sentinel stream id written by the ascend adapter for events that carry no
 // stream metadata (COMMUNICATION_OP without a linked primary stream): the
 // adapter stores 0xFFFFFFFF and appends no StreamRow. Such events are
-// observable but unassignable, not damaged input; the contract semantics for
-// them are still under review (see the header comment on
-// observed_universe_scan_complete).
+// observable but unassignable, not damaged input. They cannot produce a
+// per-stream timeline and conservatively void observed-universe completeness.
 constexpr std::uint32_t kUnassignedStreamSentinel = 0xffffffffu;
 
 // One canonical event after collection: a non-absorbed TaskRow trace event or
@@ -407,9 +406,7 @@ StreamStateRunResult build_stream_state_timelines(
                                      std::int64_t source_row_id) {
     // No stream metadata (0xFFFFFFFF sentinel, adapter omits the StreamRow):
     // observable but not placeable on any stream. Not corruption; the run
-    // status stays ok, but this device can no longer attest scan
-    // completeness. The invalid_input question for sentinel events is open
-    // with the contract owner.
+    // status stays ok, but this device can no longer attest scan completeness.
     diagnostics_by_device[event.device_id].push_back(TimelineDiagnostic{
         "unassigned_stream: event has no stream metadata (sentinel " +
             std::to_string(kUnassignedStreamSentinel) + ") on device " +

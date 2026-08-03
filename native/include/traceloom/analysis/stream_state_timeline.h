@@ -35,7 +35,9 @@ namespace traceloom {
 // they emit an informational device diagnostic but no interval and do not
 // establish stream-universe membership. Other informational diagnostics
 // (event_clipped_to_span, exact_duplicate_event, coincident_distinct_events)
-// keep the status ok.
+// keep the status ok. Events carrying the adapter's unassigned-stream
+// sentinel also keep the status ok, emit no fabricated timeline, and void
+// observed-universe completeness because they could not be scanned per stream.
 
 enum class StreamState {
   kRunningCompute,
