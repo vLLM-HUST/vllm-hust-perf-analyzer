@@ -838,6 +838,42 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
         ${CMAKE_CURRENT_BINARY_DIR}/cuda_nsys_minimal_fixture.sqlite
     )
 
+    # Checked-in golden fixture for the idle-evidence counterexample "host
+    # wait exists, but visible idle is zero" (contract sections 5, 10).
+    # Loads the synthetic fixture, asserts the host wait API is present in
+    # the fixture AND the productive timeline over the same fixture has zero
+    # visible_productive_idle. Runs in CI (native-deb.yml).
+    add_executable(traceloom_native_idle_evidence_golden_fixture_tests
+      tests/analysis/idle_evidence_golden_fixture_tests.cpp
+    )
+    target_compile_definitions(
+      traceloom_native_idle_evidence_golden_fixture_tests PRIVATE
+      TRACELOOM_GOLDEN_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/idle_evidence/host_wait_zero_visible_idle"
+    )
+    target_link_libraries(
+      traceloom_native_idle_evidence_golden_fixture_tests PRIVATE
+      traceloom_native_adapters
+    )
+    if(TARGET SQLite::SQLite3)
+      target_link_libraries(
+        traceloom_native_idle_evidence_golden_fixture_tests PRIVATE
+        SQLite::SQLite3
+      )
+    else()
+      target_include_directories(
+        traceloom_native_idle_evidence_golden_fixture_tests
+        PRIVATE ${SQLite3_INCLUDE_DIRS}
+      )
+      target_link_libraries(
+        traceloom_native_idle_evidence_golden_fixture_tests
+        PRIVATE ${SQLite3_LIBRARIES}
+      )
+    endif()
+    add_test(
+      NAME traceloom_native_idle_evidence_golden_fixture_tests
+      COMMAND traceloom_native_idle_evidence_golden_fixture_tests
+    )
+
     add_executable(traceloom_native_sidecar_writer_tests
       tests/compat/sidecar_writer_tests.cpp
     )

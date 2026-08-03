@@ -25,3 +25,15 @@ jobs:
             -w /src \
             debian:bookworm-slim \
             sh packaging/test_native_deb_in_debian.sh
+
+  idle-evidence-golden-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run checked-in idle-evidence golden fixture check in clean Debian
+        run: |
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/src" \
+            -w /src \
+            debian:bookworm-slim \
+            sh packaging/test_idle_evidence_golden_fixture_in_debian.sh

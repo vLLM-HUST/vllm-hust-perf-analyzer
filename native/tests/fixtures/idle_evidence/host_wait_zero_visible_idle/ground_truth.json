@@ -1,0 +1,26 @@
+{
+  "fixture_id": "idle_evidence_host_wait_zero_visible_idle",
+  "fixture_class": "positive",
+  "description": "Counterexample: host wait exists (aclrtSynchronizeStream [500,4500)) but device visible idle is zero (back-to-back productive compute [1000,4000)). Verifies the contract's measurement boundary: host wait and visible_productive_idle are distinct axes; a host-side sync API must NOT fabricate device visible idle.",
+  "analysis_span": { "start_ns": 1000, "end_ns": 4000 },
+  "host_wait": {
+    "api": "aclrtSynchronizeStream",
+    "present": true,
+    "start_ns": 500,
+    "end_ns": 4500
+  },
+  "visible_idle_total_ns": 0,
+  "intervals": [
+    {
+      "start_ns": 1000,
+      "end_ns": 4000,
+      "interval_kind": "productive_active",
+      "explanation_category": null,
+      "evidence_level": null,
+      "evidence_relation": null,
+      "alignment_status": "not_required",
+      "collection_status": "complete",
+      "expected_source_keys": ["TASK:1", "TASK:2", "TASK:3"]
+    }
+  ]
+}
