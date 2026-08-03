@@ -542,6 +542,20 @@ StreamStateRunResult build_stream_state_timelines(
           run_invalid = true;
           continue;
         }
+        if (task_event->end_ns <= task_event->start_ns) {
+          // Defensive API boundary: a malformed or older E2 result may claim
+          // that an invalid task was absorbed. Never attach damaged lineage
+          // to the canonical op, even though the normal E2 path now rejects
+          // the task before communication canonicalization.
+          diagnostics_by_device[event->device_id].push_back(
+              TimelineDiagnostic{
+                  "invalid_event_duration: absorbed task interval "
+                  "(end <= start)",
+                  task.raw_global_task_id});
+          scan_incomplete_devices.insert(event->device_id);
+          run_invalid = true;
+          continue;
+        }
         const SemanticTaskClassificationRow& row =
             classification.rows[task_id.value()];
         stream_event.source_links.push_back(StreamStateSourceLink{

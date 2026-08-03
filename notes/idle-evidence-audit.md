@@ -95,8 +95,20 @@ stream-universe and source-lineage review fixes:
 | `run_status` | `ok` |
 | `stream_universe_size` | 106 |
 | `observed_universe_scan_complete` | `true` |
+| `E3_elapsed_ms` | 83 |
+| `peak_rss_kb` | 72,900 kB |
+| `0xFFFFFFFF COMMUNICATION_OP` rows | 0 |
 | `COMMUNICATION_OP` rows | 1,773 |
 | TASK rows | 84,928 |
+
+Per-device result:
+
+| device | status | span_start_ns | span_end_ns | timelines | universe_size | scan_complete | diagnostics |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 0 | `ok` | 1780987610113873577 | 1780987677776791382 | 106 | 106 | `true` | 2,070 |
+
+The E3 elapsed time and peak RSS are one-run environment observations, not
+portable performance guarantees.
 
 The input contains 2,070 legitimate zero-duration point markers
 (`MODEL_MAINTAINCE`, `EVENT_RECORD`, `EVENT_WAIT`, `NOTIFY_RECORD`, and
