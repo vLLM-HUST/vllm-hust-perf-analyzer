@@ -10,6 +10,7 @@ reproduce/decode_a2a_buffer_reuse/local*.env
 *.sqlite
 *.sqlite3
 !examples/kickstart_smoke/msprof_raw/PROF_*/msprof_*.db
+!native/tests/fixtures/**/*.db
 examples/kickstart_smoke/msprof_raw/traceloom/README.md
 examples/kickstart_smoke/msprof_raw/traceloom/meta.json
 **/traceloom/collective_summary.md

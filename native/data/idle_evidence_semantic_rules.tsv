@@ -1,0 +1,64 @@
+# ruleset_version: idle-evidence-semantic-v1
+# Semantic task roles for productive/idle evidence (idle evidence contract
+# section 4). Independent from default_signal_classification_rules.tsv, which
+# answers a different question (structural anchor vs ignore). Exact task_type
+# rules outrank fuzzy blob keyword rules; there is no catch-all rule, so an
+# unmatched task is explicitly `unknown`.
+#
+# Productive compute/comm patterns were reviewed and migrated from the
+# structural anchor ruleset where the kernel-name evidence is trustworthy.
+rule_id	priority	source_domain	field	match	pattern	role	note
+wait.event_wait	200	task	task_type	exact	EVENT_WAIT	visible_wait	Device event wait
+wait.notify_wait	200	task	task_type	exact	NOTIFY_WAIT	visible_wait	Device notify wait
+capture.capture_wait	200	task	task_type	exact	CAPTURE_WAIT	capture_control	Graph capture wait
+capture.capture_record	200	task	task_type	exact	CAPTURE_RECORD	capture_control	Graph capture record
+record.event_record	190	task	task_type	exact	EVENT_RECORD	record	Event record task
+record.notify_record	190	task	task_type	exact	NOTIFY_RECORD	record	Notify record task
+data.memcpy	180	task	task_type	exact	MEMCPY	productive_data_move	Visible memory copy
+data.memcpy_async	180	task	task_type	exact	MEMCPY_ASYNC	productive_data_move	Async memory copy
+data.sdma	180	task	task_type	exact	SDMA	productive_data_move	SDMA transfer
+data.tensor_move	180	task	blob	contains	tensormove	productive_data_move	Tensor move kernel
+runtime.write_value	170	task	task_type	exact	WRITE_VALUE	runtime_control	Runtime control write
+runtime.mem_write_value	170	task	task_type	exact	MEM_WRITE_VALUE	runtime_control	Runtime memory control write
+runtime.model_execute	170	task	task_type	exact	MODEL_EXECUTE	runtime_control	Runtime model execution control
+runtime.model_maintaince	170	task	task_type	exact	MODEL_MAINTAINCE	runtime_control	Runtime model maintenance control
+runtime.task_timeout_set	170	task	task_type	exact	TASK_TIMEOUT_SET	runtime_control	Runtime timeout control task
+runtime.profiling_enable	170	task	task_type	exact	PROFILING_ENABLE	runtime_control	Profiling control task
+runtime.hccl_aiv_sync	170	task	blob	contains	hccl_aiv_sync	runtime_control	HCCL internal sync helper
+comm.allreduce	150	task	blob	contains	allreduce	productive_comm	AllReduce collective
+comm.all_reduce	150	task	blob	contains	all_reduce	productive_comm	AllReduce collective
+comm.allgather	150	task	blob	contains	allgather	productive_comm	AllGather collective
+comm.all_gather	150	task	blob	contains	all_gather	productive_comm	AllGather collective
+comm.reducescatter	150	task	blob	contains	reducescatter	productive_comm	ReduceScatter collective
+comm.reduce_scatter	150	task	blob	contains	reduce_scatter	productive_comm	ReduceScatter collective
+comm.broadcast	150	task	blob	contains	broadcast	productive_comm	Broadcast collective
+comm.alltoall	150	task	blob	contains	alltoall	productive_comm	AllToAll collective
+comm.all_to_all	150	task	blob	contains	all_to_all	productive_comm	AllToAll collective
+comm.all2all	150	task	blob	contains	all2all	productive_comm	AllToAll collective
+# More specific patterns must precede more general ones at the same
+# priority (first same-priority match wins), e.g. batchmatmul before matmul,
+# pagedattention before attention.
+compute.batchmatmul	100	task	blob	contains	batchmatmul	productive_compute	Batched matrix multiplication
+compute.matmul	100	task	blob	contains	matmul	productive_compute	Matrix multiplication
+compute.gemm	100	task	blob	contains	gemm	productive_compute	General matrix multiplication
+compute.conv	100	task	blob	contains	conv	productive_compute	Convolution
+compute.flashattention	100	task	blob	contains	flashattention	productive_compute	Flash attention
+compute.fusedinferattention	100	task	blob	contains	fusedinferattention	productive_compute	Fused inference attention
+compute.pagedattention	100	task	blob	contains	pagedattention	productive_compute	Paged attention
+compute.attention	100	task	blob	contains	attention	productive_compute	Attention kernel
+compute.rmsnorm	100	task	blob	contains	rmsnorm	productive_compute	RMS normalization
+compute.rms_norm	100	task	blob	contains	rms_norm	productive_compute	RMS normalization
+compute.layernorm	100	task	blob	contains	layernorm	productive_compute	Layer normalization
+compute.layer_norm	100	task	blob	contains	layer_norm	productive_compute	Layer normalization
+compute.swiglu	100	task	blob	contains	swiglu	productive_compute	SwiGLU activation
+compute.siluandmul	100	task	blob	contains	siluandmul	productive_compute	SiLU multiply activation
+compute.zeroslike	100	task	blob	contains	zeroslike	productive_compute	zeros_like kernel
+compute.gather	100	task	blob	contains	gather	productive_compute	Gather kernel
+compute.slice	100	task	blob	contains	slice	productive_compute	Slice kernel
+compute.cast	100	task	blob	contains	cast	productive_compute	Cast kernel
+compute.fill	100	task	blob	contains	fill	productive_compute	Fill kernel
+compute.moe	100	task	blob	contains	moe	productive_compute	Mixture of experts
+compute.ffn	100	task	blob	contains	ffn	productive_compute	Feed-forward network
+compute.rotary	100	task	blob	contains	rotary	productive_compute	Rotary embedding
+compute.rope	100	task	blob	contains	rope	productive_compute	RoPE embedding
+compute.mamba	100	task	blob	contains	mamba	productive_compute	Mamba operator

@@ -150,3 +150,43 @@ with `--classification-rules PATH`, or add higher-priority environment-specific
 rules with `--extend-classification-rules PATH`. `TRACELOOM_CLASSIFICATION_RULES`
 can also select a complete ruleset. Unknown columns, roles, match modes, and
 equal-precedence conflicts fail before analysis starts.
+
+### Idle Evidence Semantic Taxonomy
+
+Semantic task roles answer a different question than the structural anchor
+rules above: what does a task mean for productive/idle analysis
+(`productive_compute`, `productive_comm`, `productive_data_move`,
+`visible_wait`, `capture_control`, `record`, `runtime_control`, `unknown`)?
+The two taxonomies are independent; a task may be structurally `ignore` and
+semantically `visible_wait` at the same time. The evidence contract these
+roles feed is `docs/idle_evidence_contract.md` in the
+[intellistream/vllm-request-lifecycle-profiler-plugin](https://github.com/intellistream/vllm-request-lifecycle-profiler-plugin/blob/main/docs/idle_evidence_contract.md)
+parent repository; the local design draft is
+[`notes/rfc-synchronization-gap-attribution.md`](../notes/rfc-synchronization-gap-attribution.md).
+
+Defaults live in `data/idle_evidence_semantic_rules.tsv`, declared with a
+`# ruleset_version:` header line and stable, unique `rule_id`s (for example
+`wait.event_wait`, `compute.matmul`) so classification lineage stays stable
+across file edits. Exact `task_type` rules (priority 200-170) outrank fuzzy
+`blob` keyword rules (priority 150-100); there is no catch-all rule, so an
+unmatched task is explicitly `unknown` with an empty `matched_rule_id`.
+Rules with equal priority must agree on the role, otherwise classification
+fails rather than silently picking a file order.
+
+Each classified task yields `role + matched_rule_id`; the classifier reports
+`semantic_rules_version` and `semantic_rules_sha256` (SHA-256 of the raw
+ruleset file bytes). The `traceloom-native-idle-evidence-audit` tool runs
+the classifier over a profile database and reports per-role counts and
+durations plus unknown-task detail (top `task_type` / `op_type` by duration):
+
+```bash
+traceloom-native-idle-evidence-audit \
+  --source-db /path/to/msprof.db [--idle-evidence-rules PATH]
+```
+
+An explicit ruleset override that fails to load exits non-zero; it never
+silently falls back. `TRACELOOM_IDLE_EVIDENCE_RULES` selects the default
+ruleset path. The E2 productive-timeline library
+(`build_productive_timelines`) consumes these roles to build per-device
+productive timelines and visible gaps; main CLI / SQL materialization
+remains deferred to a later milestone.

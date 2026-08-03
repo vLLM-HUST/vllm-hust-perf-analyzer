@@ -1,0 +1,7 @@
+{
+  "parent_commit": "911c19498fa6fa27a4f95942cbc9709c2d08baa1",
+  "fixture_class": "positive",
+  "injected_perturbation": "host sync API aclrtSynchronizeStream [500,4500) present in CANN_API; device TASK rows back-to-back [1000,4000)",
+  "ground_truth_reference": "ground_truth.json",
+  "evidence_label": "simulation/model"
+}

@@ -1,0 +1,3 @@
+# Rulesets are hashed over raw bytes; pin LF so git clients cannot change
+# the SHA-256 of a checked-out ruleset file.
+native/data/*.tsv text eol=lf
