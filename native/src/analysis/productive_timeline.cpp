@@ -388,6 +388,22 @@ void build_device_timeline(
 
 }  // namespace
 
+std::string_view analysis_status_name(AnalysisStatus status) {
+  switch (status) {
+    case AnalysisStatus::kOk:
+      return "ok";
+    case AnalysisStatus::kNoProductiveSpan:
+      return "no_productive_span";
+    case AnalysisStatus::kInvalidAnalysisSpan:
+      return "invalid_analysis_span";
+    case AnalysisStatus::kEmptyInput:
+      return "empty_input";
+    case AnalysisStatus::kInvalidInput:
+      return "invalid_input";
+  }
+  return "invalid_input";
+}
+
 ProductiveTimelineRunResult build_productive_timelines(
     const NativeIr& ir,
     const SemanticTaskClassificationResult& classification,

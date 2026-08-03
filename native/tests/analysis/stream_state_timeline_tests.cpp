@@ -12,6 +12,7 @@
 #include "traceloom/analysis/stream_state_timeline.h"
 #include "traceloom/testing/test_util.h"
 
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <set>
@@ -25,6 +26,10 @@ using traceloom::testing::require;
 namespace {
 
 using namespace traceloom;
+
+// Sentinel stream id for events without stream metadata, mirroring the
+// ascend adapter (no StreamRow is appended for it).
+constexpr std::uint32_t kUnassignedStreamSentinel = 0xffffffffu;
 
 ProductiveTimelineOptions explicit_span(std::int64_t start_ns,
                                         std::int64_t end_ns) {
@@ -47,6 +52,8 @@ struct EventSpec {
   bool omit_stream_row = false;  // leave the StreamTable row out
   bool shared_trace_event = false;  // reuse the previous spec's TraceEventId
   bool invalid_trace_event = false;  // reference a dangling TraceEventId
+  std::optional<std::uint32_t> op_stream_id;  // op stream (defaults to stream_id)
+  bool shared_op = false;  // reuse the previous spec's COMMUNICATION_OP row
   std::uint64_t row_id = 0;
 };
 
@@ -69,6 +76,7 @@ Scene make_scene(const std::vector<EventSpec>& specs,
   const SymbolId label = ir.symbols.intern("label");
 
   std::uint64_t row = 1;
+  bool have_op = false;  // last created op row, for shared_op reuse
   for (const EventSpec& spec : specs) {
     const SourceRefId task_source =
         ir.source_refs.append("fixture", "memory", "TASK", row);
@@ -95,10 +103,12 @@ Scene make_scene(const std::vector<EventSpec>& specs,
     classification_row.role = spec.role;
     scene.classification.rows.push_back(classification_row);
     if (spec.as_comm_op) {
+      const std::uint32_t op_stream =
+          spec.op_stream_id.value_or(spec.stream_id);
       const SourceRefId comm_source =
           ir.source_refs.append("fixture", "memory", "COMMUNICATION_OP", row);
       const TraceEventId comm_event = ir.trace_events.append(
-          comm_source, row, spec.device_id, spec.stream_id, spec.start_ns,
+          comm_source, row, spec.device_id, op_stream, spec.start_ns,
           spec.end_ns, label);
       const SymbolId op_name =
           spec.op_name.empty() ? SymbolId::invalid()
@@ -106,6 +116,9 @@ Scene make_scene(const std::vector<EventSpec>& specs,
       ir.communication_ops.append(comm_source, comm_event, spec.connection_id,
                                   static_cast<std::int64_t>(row), 1, 1,
                                   op_name);
+      have_op = true;
+    } else if (spec.shared_op) {
+      require(have_op, "shared_op requires a previous COMMUNICATION_OP row");
     }
     ++row;
   }
@@ -123,6 +136,14 @@ Scene make_scene(const std::vector<EventSpec>& specs,
           ir.source_refs.append("fixture", "memory", "STREAM", row);
       ir.streams.append(stream_source, spec.device_id,
                         static_cast<std::uint64_t>(spec.stream_id));
+    }
+    if (spec.op_stream_id.has_value() &&
+        *spec.op_stream_id != kUnassignedStreamSentinel &&
+        seen_streams.insert({spec.device_id, *spec.op_stream_id}).second) {
+      const SourceRefId stream_source =
+          ir.source_refs.append("fixture", "memory", "STREAM", row);
+      ir.streams.append(stream_source, spec.device_id,
+                        static_cast<std::uint64_t>(*spec.op_stream_id));
     }
   }
 
@@ -174,10 +195,17 @@ bool has_diagnostic(const std::vector<TimelineDiagnostic>& diagnostics,
 // The invariant checker (contract section 3.3 and the E3 spec): every
 // timeline is a positive-length, adjacent, span-covering partition;
 // empty_observed carries no links; ambiguous_overlap carries at least two
-// pairwise-distinct links; the universe equals the emitted timeline count.
+// pairwise-distinct links; per-device universe metadata aggregates into the
+// run-level fields.
 void check_stream_state_invariants(const StreamStateRunResult& run) {
   std::size_t timeline_count = 0;
+  std::size_t universe_sum = 0;
+  bool all_devices_complete = true;
   for (const StreamStateDeviceResult& device : run.devices) {
+    universe_sum += device.stream_universe_size;
+    if (!device.observed_universe_scan_complete) {
+      all_devices_complete = false;
+    }
     if (device.status != AnalysisStatus::kOk) {
       require(device.timelines.empty(), "non-ok device has no timelines");
       require(!device.span_start_ns.has_value() &&
@@ -232,9 +260,13 @@ void check_stream_state_invariants(const StreamStateRunResult& run) {
               "interval durations sum to the span length");
     }
   }
-  require(run.observed_universe_scan_complete, "universe scan complete");
+  require(run.stream_universe_size == universe_sum,
+          "run universe is the per-device sum");
   require(run.stream_universe_size == timeline_count,
           "universe equals emitted timelines");
+  require(run.observed_universe_scan_complete ==
+              (all_devices_complete && run.diagnostics.empty()),
+          "run completeness is the device AND, voided by run-level damage");
 }
 
 bool throws_invalid_argument(const std::function<void()>& fn) {
@@ -637,7 +669,7 @@ int main() {
     check_stream_state_invariants(run);
   }
 
-  // ---- 14. Invalid duration -> run kInvalidInput, healthy sibling intact. ----
+  // ---- 14. Negative duration -> run kInvalidInput, healthy sibling intact. ----
   {
     const Scene scene = make_scene(
         {{.start_ns = 100,
@@ -655,6 +687,10 @@ int main() {
             "device still ok");
     require(has_diagnostic(device->diagnostics, "invalid_event_duration"),
             "invalid_event_duration diagnostic emitted");
+    require(!device->observed_universe_scan_complete,
+            "damaged event voids the device scan completeness");
+    require(!run.observed_universe_scan_complete,
+            "run completeness reflects the device flag");
     const StreamStateTimeline* timeline = find_timeline(run, 0, 0);
     require(timeline != nullptr, "healthy sibling timeline exists");
     require(timeline->intervals.size() == 3, "three segments");
@@ -668,6 +704,65 @@ int main() {
                 timeline->intervals[2].start_ns == 300 &&
                 timeline->intervals[2].end_ns == 400,
             "invalid event skipped, span still partitioned");
+    check_stream_state_invariants(run);
+  }
+
+  // ---- 14b. Zero-duration control/wait/record rows are point markers, not
+  // damaged intervals. They are diagnosed and omitted without voiding scan
+  // completeness or establishing stream-universe membership. ----
+  {
+    const Scene scene = make_scene(
+        {{.stream_id = 7,
+          .start_ns = 150,
+          .end_ns = 150,
+          .role = SemanticTaskRole::kRecord},
+         {.stream_id = 0,
+          .start_ns = 200,
+          .end_ns = 300,
+          .role = SemanticTaskRole::kProductiveCompute}},
+        explicit_span(100, 400));
+    const StreamStateRunResult run = build_stream_states(scene);
+    require(run.status == AnalysisStatus::kOk,
+            "zero-duration point marker keeps the run ok");
+    const StreamStateDeviceResult* device = find_device(run, 0);
+    require(device != nullptr && device->status == AnalysisStatus::kOk,
+            "device remains ok");
+    require(has_diagnostic(device->diagnostics,
+                           "zero_duration_point_event_ignored"),
+            "point marker diagnostic emitted");
+    require(device->observed_universe_scan_complete &&
+                run.observed_universe_scan_complete,
+            "point marker does not void completeness");
+    require(find_timeline(run, 0, 7) == nullptr,
+            "point-only stream does not enter the interval universe");
+    require(run.stream_universe_size == 1,
+            "only the positive-duration stream is observed");
+    const StreamStateTimeline* timeline = find_timeline(run, 0, 0);
+    require(timeline != nullptr && timeline->intervals.size() == 3,
+            "healthy sibling timeline is intact");
+    check_stream_state_invariants(run);
+  }
+
+  // ---- 14c. A zero-duration productive row is still damaged input. ----
+  {
+    const Scene scene = make_scene(
+        {{.start_ns = 150,
+          .end_ns = 150,
+          .role = SemanticTaskRole::kProductiveCompute},
+         {.start_ns = 200,
+          .end_ns = 300,
+          .role = SemanticTaskRole::kProductiveCompute}},
+        explicit_span(100, 400));
+    const StreamStateRunResult run = build_stream_states(scene);
+    require(run.status == AnalysisStatus::kInvalidInput,
+            "zero-duration productive row degrades the run");
+    const StreamStateDeviceResult* device = find_device(run, 0);
+    require(device != nullptr &&
+                has_diagnostic(device->diagnostics,
+                               "invalid_event_duration"),
+            "productive zero-duration diagnostic emitted");
+    require(!run.observed_universe_scan_complete,
+            "damaged productive row voids completeness");
     check_stream_state_invariants(run);
   }
 
@@ -687,6 +782,11 @@ int main() {
             "dangling reference degrades the run");
     require(has_diagnostic(run.diagnostics, "invalid_trace_event_reference"),
             "run-level invalid_trace_event_reference diagnostic");
+    const StreamStateDeviceResult* device = find_device(run, 0);
+    require(device != nullptr && device->observed_universe_scan_complete,
+            "device with only healthy events stays complete");
+    require(!run.observed_universe_scan_complete,
+            "device-unattributable damage voids the run completeness");
     const StreamStateTimeline* timeline = find_timeline(run, 0, 0);
     require(timeline != nullptr, "healthy sibling timeline exists");
     require(timeline->intervals[1].state == StreamState::kRunningCompute,
@@ -759,7 +859,9 @@ int main() {
     check_stream_state_invariants(run_b);
   }
 
-  // ---- 18. Absorbed task: one canonical running_comm, no ambiguity. ----
+  // ---- 18. Absorbed task: one canonical running_comm event carrying the
+  // op link plus the absorbed task link. Not ambiguous: ambiguity is
+  // decided by the canonical event count, never the link count. ----
   {
     const Scene scene = make_scene(
         {{.start_ns = 100,
@@ -780,12 +882,57 @@ int main() {
     require(timeline->intervals[0].state == StreamState::kRunningComm &&
                 timeline->intervals[0].start_ns == 100 &&
                 timeline->intervals[0].end_ns == 150 &&
-                timeline->intervals[0].source_links.size() == 1 &&
-                timeline->intervals[0].source_links[0].kind ==
-                    StreamStateSourceLink::Kind::kCommunicationOp,
-            "[100,150) running_comm with exactly the op link");
+                timeline->intervals[0].source_links.size() == 2,
+            "[100,150) running_comm with two source links");
+    bool saw_op = false;
+    bool saw_task = false;
+    for (const StreamStateSourceLink& link :
+         timeline->intervals[0].source_links) {
+      if (link.kind == StreamStateSourceLink::Kind::kCommunicationOp) {
+        saw_op = true;
+      }
+      if (link.kind == StreamStateSourceLink::Kind::kTask) {
+        saw_task = true;
+      }
+    }
+    require(saw_op && saw_task,
+            "op link plus absorbed task link preserved");
     require(timeline->diagnostics.empty(),
             "no ambiguity from the absorbed task");
+    check_stream_state_invariants(run);
+  }
+
+  // ---- 18b. Multiple absorbed tasks share one canonical op event: one
+  // running_comm interval with the full lineage (op + every task). ----
+  {
+    const Scene scene = make_scene(
+        {{.start_ns = 100,
+          .end_ns = 180,
+          .role = SemanticTaskRole::kProductiveComm,
+          .connection_id = 42,
+          .as_comm_op = true,
+          .comm_name = "AllReduce",
+          .op_name = "AllReduce"},
+         {.start_ns = 120,
+          .end_ns = 150,
+          .role = SemanticTaskRole::kProductiveComm,
+          .connection_id = 42,
+          .comm_name = "AllReduce",
+          .shared_op = true}});
+    require(scene.productive.devices[0].absorbed_task_links.size() == 2,
+            "E2 exported both absorbed task links");
+    const StreamStateRunResult run = build_stream_states(scene);
+    require(run.status == AnalysisStatus::kOk, "multi-absorbed run ok");
+    const StreamStateTimeline* timeline = find_timeline(run, 0, 0);
+    require(timeline != nullptr, "multi-absorbed timeline exists");
+    require(timeline->intervals.size() == 1, "one interval");
+    require(timeline->intervals[0].state == StreamState::kRunningComm &&
+                timeline->intervals[0].start_ns == 100 &&
+                timeline->intervals[0].end_ns == 180 &&
+                timeline->intervals[0].source_links.size() == 3,
+            "one running_comm event with op + two absorbed task links");
+    require(timeline->diagnostics.empty(),
+            "still one canonical event, no ambiguity");
     check_stream_state_invariants(run);
   }
 
@@ -912,6 +1059,8 @@ int main() {
     require(device != nullptr, "device result exists");
     require(has_diagnostic(device->diagnostics, "unknown_stream_identity"),
             "unknown_stream_identity diagnostic emitted");
+    require(!device->observed_universe_scan_complete,
+            "unresolvable event voids the device scan completeness");
     require(find_timeline(run, 0, 7) == nullptr,
             "unresolvable stream emits no timeline");
     const StreamStateTimeline* timeline = find_timeline(run, 0, 0);
@@ -942,6 +1091,141 @@ int main() {
       }
     }
     require(clip_count == 1, "exactly one clip diagnostic per event");
+    check_stream_state_invariants(run);
+  }
+
+  // ---- 24. Unassigned stream (0xFFFFFFFF sentinel): observable but not
+  // placeable; unassigned_stream diagnostic, run status stays ok, no fake
+  // timeline, device scan completeness voided. ----
+  {
+    const Scene scene = make_scene(
+        {{.stream_id = 5,
+          .start_ns = 100,
+          .end_ns = 150,
+          .role = SemanticTaskRole::kProductiveCompute},
+         {.start_ns = 100,
+          .end_ns = 150,
+          .role = SemanticTaskRole::kProductiveComm,
+          .as_comm_op = true,
+          .op_stream_id = kUnassignedStreamSentinel}});
+    const StreamStateRunResult run = build_stream_states(scene);
+    require(run.status == AnalysisStatus::kOk,
+            "sentinel event is not corrupt input; run stays ok");
+    const StreamStateDeviceResult* device = find_device(run, 0);
+    require(device != nullptr && device->status == AnalysisStatus::kOk,
+            "device still ok");
+    require(has_diagnostic(device->diagnostics, "unassigned_stream"),
+            "unassigned_stream diagnostic emitted");
+    require(!has_diagnostic(device->diagnostics, "unknown_stream_identity"),
+            "sentinel is not an unknown stream identity");
+    require(!device->observed_universe_scan_complete,
+            "unassignable event voids the device scan completeness");
+    require(!run.observed_universe_scan_complete,
+            "run completeness reflects the device flag");
+    require(find_timeline(run, 0, kUnassignedStreamSentinel) == nullptr,
+            "no fake timeline for the sentinel stream");
+    const StreamStateTimeline* timeline = find_timeline(run, 0, 5);
+    require(timeline != nullptr, "healthy stream timeline exists");
+    require(timeline->intervals[0].state == StreamState::kRunningCompute,
+            "healthy stream unaffected");
+    check_stream_state_invariants(run);
+  }
+
+  // ---- 25. Large-scale sweep: 10k adjacent events on one stream. The
+  // partition must stay linear-ish; a quadratic regression would blow the
+  // generous time tripwire. ----
+  {
+    constexpr std::size_t kEventCount = 10000;
+    std::vector<EventSpec> specs;
+    specs.reserve(kEventCount);
+    for (std::size_t index = 0; index < kEventCount; ++index) {
+      specs.push_back(
+          {.start_ns = static_cast<std::int64_t>(index),
+           .end_ns = static_cast<std::int64_t>(index + 1),
+           .role = SemanticTaskRole::kProductiveCompute});
+    }
+    const auto begin = std::chrono::steady_clock::now();
+    const Scene scene = make_scene(specs);
+    const StreamStateRunResult run = build_stream_states(scene);
+    const auto end = std::chrono::steady_clock::now();
+    const std::int64_t elapsed_ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(end - begin)
+            .count();
+    require(run.status == AnalysisStatus::kOk, "10k adjacent run ok");
+    const StreamStateTimeline* timeline = find_timeline(run, 0, 0);
+    require(timeline != nullptr &&
+                timeline->intervals.size() == kEventCount,
+            "10k adjacent events -> 10k intervals, none merged");
+    require(elapsed_ms < 10000,
+            "10k-event sweep must stay sub-quadratic");
+    std::cout << "  (10k adjacent events: " << elapsed_ms << " ms)\n";
+    check_stream_state_invariants(run);
+  }
+
+  // ---- 26. Large-scale sweep: 10k sparse events. ----
+  {
+    constexpr std::size_t kEventCount = 10000;
+    std::vector<EventSpec> specs;
+    specs.reserve(kEventCount);
+    for (std::size_t index = 0; index < kEventCount; ++index) {
+      const std::int64_t start = static_cast<std::int64_t>(index) * 10;
+      specs.push_back(
+          {.start_ns = start,
+           .end_ns = start + 1,
+           .role = SemanticTaskRole::kProductiveCompute});
+    }
+    const auto begin = std::chrono::steady_clock::now();
+    const Scene scene = make_scene(specs);
+    const StreamStateRunResult run = build_stream_states(scene);
+    const auto end = std::chrono::steady_clock::now();
+    const std::int64_t elapsed_ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(end - begin)
+            .count();
+    require(run.status == AnalysisStatus::kOk, "10k sparse run ok");
+    const StreamStateTimeline* timeline = find_timeline(run, 0, 0);
+    require(timeline != nullptr &&
+                timeline->intervals.size() == kEventCount * 2 - 1,
+            "10k sparse events -> compute + gap intervals (span ends at the "
+            "last event end)");
+    require(elapsed_ms < 10000, "10k sparse sweep must stay sub-quadratic");
+    std::cout << "  (10k sparse events: " << elapsed_ms << " ms)\n";
+    check_stream_state_invariants(run);
+  }
+
+  // ---- 27. Large-scale sweep: many events concentrated on few streams. ----
+  {
+    constexpr std::size_t kEventCount = 10000;
+    constexpr std::uint32_t kStreamCount = 4;
+    std::vector<EventSpec> specs;
+    specs.reserve(kEventCount);
+    for (std::size_t index = 0; index < kEventCount; ++index) {
+      const std::uint32_t stream = static_cast<std::uint32_t>(index % kStreamCount);
+      const std::int64_t local = static_cast<std::int64_t>(index / kStreamCount);
+      specs.push_back(
+          {.stream_id = stream,
+           .start_ns = local,
+           .end_ns = local + 1,
+           .role = SemanticTaskRole::kProductiveCompute});
+    }
+    const auto begin = std::chrono::steady_clock::now();
+    const Scene scene = make_scene(specs);
+    const StreamStateRunResult run = build_stream_states(scene);
+    const auto end = std::chrono::steady_clock::now();
+    const std::int64_t elapsed_ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(end - begin)
+            .count();
+    require(run.status == AnalysisStatus::kOk, "concentrated run ok");
+    require(run.stream_universe_size == kStreamCount,
+            "four observed streams");
+    for (std::uint32_t stream = 0; stream < kStreamCount; ++stream) {
+      const StreamStateTimeline* timeline = find_timeline(run, 0, stream);
+      require(timeline != nullptr &&
+                  timeline->intervals.size() == kEventCount / kStreamCount,
+              "each stream carries its share of intervals");
+    }
+    require(elapsed_ms < 10000,
+            "concentrated sweep must stay sub-quadratic");
+    std::cout << "  (10k events on 4 streams: " << elapsed_ms << " ms)\n";
     check_stream_state_invariants(run);
   }
 

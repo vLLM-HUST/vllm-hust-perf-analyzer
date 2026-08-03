@@ -29,6 +29,10 @@ enum class AnalysisStatus {
   kInvalidInput,
 };
 
+// Contract analysis_status strings: "ok", "no_productive_span",
+// "invalid_analysis_span", "empty_input", "invalid_input".
+std::string_view analysis_status_name(AnalysisStatus status);
+
 enum class DeviceIntervalKind {
   kProductiveActive,
   kVisibleProductiveIdle,
@@ -76,6 +80,11 @@ struct ProductiveTimelineOptions {
 struct TimelineDiagnostic {
   std::string message;
   std::int64_t source_row_id = -1;
+
+  friend bool operator==(const TimelineDiagnostic& lhs,
+                         const TimelineDiagnostic& rhs) {
+    return lhs.message == rhs.message && lhs.source_row_id == rhs.source_row_id;
+  }
 };
 
 struct DeviceTimelineResult {

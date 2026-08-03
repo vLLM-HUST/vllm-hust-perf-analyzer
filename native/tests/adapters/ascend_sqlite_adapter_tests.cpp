@@ -4,6 +4,7 @@
 #include "traceloom/analysis/native_pipeline.h"
 #include "traceloom/analysis/productive_timeline.h"
 #include "traceloom/analysis/semantic_task_classifier.h"
+#include "traceloom/analysis/stream_state_timeline.h"
 
 #include <sqlite3.h>
 
@@ -552,6 +553,108 @@ int main() {
               covered_ns ==
                   *golden_timeline.span_end_ns - *golden_timeline.span_start_ns,
           "E2: productive + gap covers the span exactly");
+
+  // E3: per-stream observable state timelines must be identical for the
+  // monolithic and split layouts through the real adapter. Lineage is
+  // compared by stable source identity (source table + source row id +
+  // kind + matched_rule_id + event geometry), never by internal
+  // TraceEventId/TaskId/SourceRefId, which may shift with import order.
+  const StreamStateRunResult golden_streams =
+      build_stream_state_timelines(golden_ir, golden_class, golden_run);
+  const StreamStateRunResult split_streams =
+      build_stream_state_timelines(split_ir, split_class, split_run);
+  require(golden_streams.status == AnalysisStatus::kOk &&
+              split_streams.status == AnalysisStatus::kOk,
+          "E3: run status ok for both layouts");
+  require(golden_streams.stream_universe_size ==
+                  split_streams.stream_universe_size &&
+              golden_streams.observed_universe_scan_complete ==
+                  split_streams.observed_universe_scan_complete &&
+              golden_streams.devices.size() == split_streams.devices.size(),
+          "E3: run-level universe metadata equal");
+  for (std::size_t device_index = 0;
+       device_index < golden_streams.devices.size(); ++device_index) {
+    const StreamStateDeviceResult& golden_device =
+        golden_streams.devices[device_index];
+    const StreamStateDeviceResult& split_device =
+        split_streams.devices[device_index];
+    require(golden_device.device_id == split_device.device_id &&
+                golden_device.span_start_ns == split_device.span_start_ns &&
+                golden_device.span_end_ns == split_device.span_end_ns &&
+                golden_device.stream_universe_size ==
+                    split_device.stream_universe_size &&
+                golden_device.observed_universe_scan_complete ==
+                    split_device.observed_universe_scan_complete,
+            "E3: per-device universe metadata equal");
+    require(golden_device.timelines.size() == split_device.timelines.size(),
+            "E3: timeline counts equal");
+    for (std::size_t timeline_index = 0;
+         timeline_index < golden_device.timelines.size(); ++timeline_index) {
+      const StreamStateTimeline& golden_timeline =
+          golden_device.timelines[timeline_index];
+      const StreamStateTimeline& split_timeline =
+          split_device.timelines[timeline_index];
+      require(golden_timeline.stream_id == split_timeline.stream_id &&
+                  golden_timeline.span_start_ns ==
+                      split_timeline.span_start_ns &&
+                  golden_timeline.span_end_ns == split_timeline.span_end_ns,
+              "E3: timeline identity equal");
+      require(golden_timeline.intervals.size() ==
+                  split_timeline.intervals.size(),
+              "E3: interval counts equal");
+      for (std::size_t interval_index = 0;
+           interval_index < golden_timeline.intervals.size();
+           ++interval_index) {
+        const StreamStateInterval& golden_interval =
+            golden_timeline.intervals[interval_index];
+        const StreamStateInterval& split_interval =
+            split_timeline.intervals[interval_index];
+        require(golden_interval.start_ns == split_interval.start_ns &&
+                    golden_interval.end_ns == split_interval.end_ns &&
+                    golden_interval.state == split_interval.state &&
+                    golden_interval.source_links.size() ==
+                        split_interval.source_links.size(),
+                "E3: interval structure equal");
+        for (std::size_t link_index = 0;
+             link_index < golden_interval.source_links.size(); ++link_index) {
+          const StreamStateSourceLink& golden_link =
+              golden_interval.source_links[link_index];
+          const StreamStateSourceLink& split_link =
+              split_interval.source_links[link_index];
+          const TraceEventRow& golden_event =
+              golden_ir.trace_events.row(golden_link.trace_event_id);
+          const TraceEventRow& split_event =
+              split_ir.trace_events.row(split_link.trace_event_id);
+          const SourceRefRow& golden_source =
+              golden_ir.source_refs.row(golden_event.source_ref_id);
+          const SourceRefRow& split_source =
+              split_ir.source_refs.row(split_event.source_ref_id);
+          require(golden_link.kind == split_link.kind &&
+                      golden_link.matched_rule_id ==
+                          split_link.matched_rule_id &&
+                      golden_event.device_id == split_event.device_id &&
+                      golden_event.stream_id == split_event.stream_id &&
+                      golden_event.start_ns == split_event.start_ns &&
+                      golden_event.end_ns == split_event.end_ns &&
+                      golden_event.source_row_id == split_event.source_row_id,
+                  "E3: stable lineage equal (row id + kind + rule, not "
+                  "internal ids)");
+          // The physical source table legitimately differs between layouts
+          // (monolithic TASK vs split AscendTask); each layout must carry
+          // its own table, and the row identity must match across layouts.
+          require(golden_source.table_name == "TASK" &&
+                      split_source.table_name == "AscendTask",
+                  "E3: each layout carries its own source table");
+        }
+      }
+      require(golden_timeline.diagnostics == split_timeline.diagnostics,
+              "E3: timeline diagnostics equal");
+    }
+    require(golden_device.diagnostics == split_device.diagnostics,
+            "E3: device diagnostics equal");
+  }
+  require(golden_streams.diagnostics == split_streams.diagnostics,
+          "E3: run diagnostics equal");
 
   const std::filesystem::path incomplete_dir = temp_prof_dir("_incomplete");
   std::filesystem::create_directories(incomplete_dir / "host" / "sqlite");
