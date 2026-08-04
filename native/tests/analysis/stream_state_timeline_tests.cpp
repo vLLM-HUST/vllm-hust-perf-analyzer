@@ -448,6 +448,15 @@ int main() {
                 timeline->intervals[2].end_ns == 200 &&
                 timeline->intervals[2].source_links.size() == 3,
             "[175,200) ambiguous {A,B,C}");
+    bool preserved_wait_component = false;
+    for (const StreamStateSourceLink& source :
+         timeline->intervals[2].source_links) {
+      preserved_wait_component =
+          preserved_wait_component ||
+          source.observed_state == StreamState::kRunningWait;
+    }
+    require(preserved_wait_component,
+            "ambiguous lineage preserves component state for E4");
     require(timeline->intervals[3].state == StreamState::kAmbiguousOverlap &&
                 timeline->intervals[3].start_ns == 200 &&
                 timeline->intervals[3].end_ns == 225 &&
