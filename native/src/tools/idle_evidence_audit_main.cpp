@@ -240,6 +240,18 @@ int main(int argc, char** argv) {
                 " | " + std::to_string(device.intervals.size()) + " |\n";
     }
 
+    output += "\n### E2 diagnostics\n\n";
+    output += "| device | code | source_row_id | message |\n";
+    output += "| --- | --- | --- | --- |\n";
+    for (const DeviceTimelineResult& device : timeline.devices) {
+      for (const TimelineDiagnostic& diagnostic : device.diagnostics) {
+        output += "| " + std::to_string(device.device_id) + " | " +
+                  diagnostic_code(diagnostic.message) + " | " +
+                  std::to_string(diagnostic.source_row_id) + " | " +
+                  diagnostic.message + " |\n";
+      }
+    }
+
     output += "\n## Stream state timeline (E3)\n\n";
     output += "- run_status: " +
               std::string(analysis_status_name(streams.status)) + "\n";
@@ -309,6 +321,30 @@ int main(int argc, char** argv) {
     for (const auto& [code, count] : diagnostic_counts) {
       output += "| " + (code.empty() ? "(empty)" : code) + " | " +
                 std::to_string(count) + " |\n";
+    }
+
+    output += "\n### E3 diagnostic detail\n\n";
+    output += "| device | stream | code | source_row_id | message |\n";
+    output += "| --- | --- | --- | --- | --- |\n";
+    const auto append_diagnostics =
+        [&output](std::string device, std::string stream,
+                  const std::vector<TimelineDiagnostic>& notes) {
+          for (const TimelineDiagnostic& diagnostic : notes) {
+            output += "| " + device + " | " + stream + " | " +
+                      diagnostic_code(diagnostic.message) + " | " +
+                      std::to_string(diagnostic.source_row_id) + " | " +
+                      diagnostic.message + " |\n";
+          }
+        };
+    append_diagnostics("-", "-", streams.diagnostics);
+    for (const StreamStateDeviceResult& device : streams.devices) {
+      append_diagnostics(std::to_string(device.device_id), "-",
+                         device.diagnostics);
+      for (const StreamStateTimeline& stream_timeline : device.timelines) {
+        append_diagnostics(std::to_string(device.device_id),
+                           std::to_string(stream_timeline.stream_id),
+                           stream_timeline.diagnostics);
+      }
     }
 
     output += "\n## Idle explanation (E4, device-only)\n\n";
