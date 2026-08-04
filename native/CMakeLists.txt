@@ -16,6 +16,7 @@ add_library(traceloom_native_core
   src/analysis/exact_periodic_suffix.cpp
   src/analysis/flat_anchor_builder.cpp
   src/analysis/idle_explanation.cpp
+  src/analysis/idle_evidence_pipeline.cpp
   src/analysis/idle_evidence_semantic_rules.cpp
   src/analysis/productive_timeline.cpp
   src/analysis/semantic_task_classifier.cpp

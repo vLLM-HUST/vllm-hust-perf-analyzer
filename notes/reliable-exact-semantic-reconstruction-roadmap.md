@@ -96,6 +96,17 @@ the larger input improved from 18,009 ms after replacing full-timeline rescans
 with indexed interval lookup. The remaining idle front is production
 materialization plus anchor/Loop Tree aggregation, not explanation semantics.
 
+The production `traceloom` command now runs that E1→E4 path for Ascend Loop
+Tree reports and renders a device-scoped `Visible Productive Idle Evidence`
+section. The section reports analysis/collection/rule status, total gap time,
+directly explained coverage, and every category including unattributed
+residual. It remains separate from the compatibility tree's historical
+prelude `idle_us`, preventing two different measurements from being silently
+conflated. Ascend-specific rules are deliberately gated off for CUDA and Hygon
+reports until those providers have validated taxonomies. Remaining work is
+raw SQLite materialization and exact anchor/node attribution rather than mere
+report visibility.
+
 Cross-stream reconstruction is intentionally **not** an active front. The
 stable TraceLoom boundary is a coarse, permutation-invariant projection of
 each captured stream into one readable lane sequence, followed by an unordered

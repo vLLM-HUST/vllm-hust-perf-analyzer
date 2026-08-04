@@ -19,6 +19,19 @@ The report contains the compressed execution tree, occurrence and repeat
 counts, total wall-clock cost, per-occurrence/per-iteration averages, compute,
 communication, idle, active, auxiliary, and self-cost columns.
 
+Ascend reports also contain a `Visible Productive Idle Evidence` section. It
+is the device-level E1→E4 explanation partition: profiler-visible wait,
+capture/control, runtime-control, and explicit unattributed residual. The
+default real-profile `collection_status` is `unknown`, so TraceLoom does not
+turn empty observed streams into an absence claim without external capture
+completeness evidence. These values describe gaps in visible productive work;
+they are not proof of hardware idleness or causality.
+
+This section is intentionally separate from the tree's compatibility
+`idle_us` cost. The latter is the residual in an anchor's prelude cost packet;
+the former is a device-global productive-gap partition and may include visible
+wait/control tasks. They must not be substituted for one another.
+
 ## Explicit Native Artifacts
 
 Use `traceloom --help-advanced` for non-default outputs:
@@ -28,6 +41,8 @@ Use `traceloom --help-advanced` for non-default outputs:
 - `--compat-db-out PATH`: queryable compatibility SQLite sidecar;
 - `--loop-tree-out PATH`: explicit Loop Tree output path;
 - `--loop-tree-aux`: include auxiliary attribution in the Loop Tree build.
+- `--idle-evidence-rules PATH`: override the Ascend idle-evidence semantic
+  ruleset; an invalid override fails rather than falling back silently.
 
 Only one output may target stdout at a time, and explicit output paths require
 a single input database.

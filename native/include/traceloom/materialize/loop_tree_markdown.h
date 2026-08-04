@@ -14,6 +14,12 @@ struct ReconstructionStatusCount {
   std::uint64_t region_count = 0;
 };
 
+struct IdleExplanationSummaryCount {
+  std::string category;
+  std::uint64_t slice_count = 0;
+  std::uint64_t duration_ns = 0;
+};
+
 struct LoopTreeMarkdownOptions {
   std::string db_label;
   std::string source_kind = "native_ir";
@@ -29,6 +35,13 @@ struct LoopTreeMarkdownOptions {
   std::uint64_t replay_unit_count = 0;
   std::uint64_t exact_replay_unit_count = 0;
   std::vector<ReconstructionStatusCount> reconstruction_status_counts;
+  bool has_idle_explanation_summary = false;
+  std::string idle_analysis_status;
+  std::string idle_collection_status;
+  std::string idle_attribution_rule_version;
+  std::uint64_t visible_productive_idle_ns = 0;
+  std::uint64_t direct_explained_idle_ns = 0;
+  std::vector<IdleExplanationSummaryCount> idle_explanation_counts;
 };
 
 void write_loop_tree_markdown(

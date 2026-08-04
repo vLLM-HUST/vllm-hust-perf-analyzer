@@ -316,6 +316,46 @@ void write_loop_tree_markdown(std::ostream& out,
     }
   }
 
+  if (options.has_idle_explanation_summary) {
+    const double direct_pct =
+        options.visible_productive_idle_ns == 0
+            ? 0.0
+            : 100.0 *
+                  static_cast<double>(options.direct_explained_idle_ns) /
+                  static_cast<double>(options.visible_productive_idle_ns);
+    out << "\n## Visible Productive Idle Evidence\n\n";
+    out << "- analysis_status: `" << options.idle_analysis_status << "`\n";
+    out << "- collection_status: `" << options.idle_collection_status
+        << "`\n";
+    out << "- attribution_rule_version: `"
+        << options.idle_attribution_rule_version << "`\n";
+    out << "- visible_productive_idle_us: `"
+        << fmt(static_cast<double>(options.visible_productive_idle_ns) /
+               1000.0)
+        << "`\n";
+    out << "- directly_explained_us: `"
+        << fmt(static_cast<double>(options.direct_explained_idle_ns) / 1000.0)
+        << "` (`" << fmt(direct_pct) << "%`)\n";
+    out << "- semantic_boundary: gaps in profiler-visible productive work; "
+           "not proof of hardware idleness or causality\n\n";
+    out << "| Category | Slices | Duration (us) | Gap % |\n";
+    out << "| --- | ---: | ---: | ---: |\n";
+    for (const IdleExplanationSummaryCount& count :
+         options.idle_explanation_counts) {
+      const double category_pct =
+          options.visible_productive_idle_ns == 0
+              ? 0.0
+              : 100.0 * static_cast<double>(count.duration_ns) /
+                    static_cast<double>(options.visible_productive_idle_ns);
+      out << "| `" << count.category << "` | " << count.slice_count << " | "
+          << fmt(static_cast<double>(count.duration_ns) / 1000.0) << " | "
+          << fmt(category_pct) << "% |\n";
+    }
+    if (options.idle_explanation_counts.empty()) {
+      out << "| `(no visible productive idle)` | 0 | 0.000 | 0.000% |\n";
+    }
+  }
+
   constexpr std::size_t kTreeColumnWidth = 48;
   constexpr std::size_t kCategoryColumnWidth = 14;
 

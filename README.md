@@ -153,6 +153,10 @@ traceloom /path/to/msprof.db \
 Run `traceloom --help-advanced` for grammar diagnostics and auxiliary
 materialization options.
 
+Ascend Loop Trees include an observation-backed device summary of visible
+productive gaps. It preserves unattributed residual and states its collection
+status explicitly; it must not be read as hardware-idle or causal evidence.
+
 ## Checked-In Kickstart Profile
 
 The repository includes a real two-device vLLM-Ascend profile under

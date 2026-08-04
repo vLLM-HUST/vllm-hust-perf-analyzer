@@ -8,6 +8,7 @@
 #include <iomanip>
 #include <iostream>
 #include <map>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -18,6 +19,9 @@
 #include "traceloom/adapters/cuda_nsys_sqlite_adapter.h"
 #include "traceloom/adapters/hygon_sqlite_adapter.h"
 #include "traceloom/analysis/flat_anchor_builder.h"
+#include "traceloom/analysis/idle_explanation.h"
+#include "traceloom/analysis/idle_evidence_pipeline.h"
+#include "traceloom/analysis/idle_evidence_semantic_rules.h"
 #include "traceloom/analysis/native_pipeline.h"
 #include "traceloom/compat/native_sidecar_materializer.h"
 #include "traceloom/ir/native_ir.h"
@@ -72,6 +76,7 @@ struct CliOptions {
   std::size_t top_candidate_limit = 16;
   std::string classification_rules_path;
   std::string extend_classification_rules_path;
+  std::string idle_evidence_rules_path;
 };
 
 std::vector<std::string> discover_profile_dbs(const std::string& input,
@@ -112,6 +117,7 @@ void print_advanced_usage(const char* argv0) {
                " [--loop-tree-aux]"
                " [--classification-rules PATH]"
                " [--extend-classification-rules PATH]"
+               " [--idle-evidence-rules PATH]"
                " [--timings]\n";
 }
 
@@ -176,6 +182,8 @@ CliOptions parse_args(int argc, char** argv) {
       options.classification_rules_path = require_value(arg);
     } else if (arg == "--extend-classification-rules") {
       options.extend_classification_rules_path = require_value(arg);
+    } else if (arg == "--idle-evidence-rules") {
+      options.idle_evidence_rules_path = require_value(arg);
     } else if (arg == "--sidecar-only") {
       options.sidecar_only = true;
     } else if (arg == "--timings") {
@@ -626,6 +634,82 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
       for (const auto& item : reconstruction_status_counts) {
         markdown_options.reconstruction_status_counts.push_back(
             traceloom::ReconstructionStatusCount{item.first, item.second});
+      }
+      // The current production taxonomy is validated for Ascend/CANN. Keep
+      // CUDA and Hygon reports free of Ascend-specific conclusions until each
+      // provider supplies and validates its own semantic ruleset.
+      if (!is_cuda && !is_hygon) {
+        const Stopwatch idle_evidence_watch;
+        const traceloom::SemanticTaskRuleset idle_ruleset =
+            cli.idle_evidence_rules_path.empty()
+                ? traceloom::load_default_idle_evidence_semantic_ruleset(
+                      cli.executable_path)
+                : traceloom::load_idle_evidence_semantic_ruleset(
+                      cli.idle_evidence_rules_path);
+        // Trace contents cannot attest collection completeness. The main CLI
+        // therefore keeps the default kUnknown, exactly like the real-profile
+        // audit, and never upgrades empty observed streams into an absence
+        // claim without external collection evidence.
+        const traceloom::IdleEvidencePipelineResult idle_pipeline =
+            traceloom::run_idle_evidence_pipeline(ir, idle_ruleset);
+        const traceloom::IdleExplanationRunResult& idle_explanations =
+            idle_pipeline.idle_explanations;
+        markdown_options.has_idle_explanation_summary = true;
+        markdown_options.idle_analysis_status =
+            traceloom::analysis_status_name(idle_explanations.status);
+        markdown_options.idle_collection_status =
+            traceloom::collection_status_name(
+                idle_explanations.collection_status);
+        markdown_options.idle_attribution_rule_version =
+            idle_explanations.attribution_rule_version;
+
+        struct IdleSummary {
+          std::uint64_t slices = 0;
+          std::uint64_t duration_ns = 0;
+        };
+        std::map<std::string, IdleSummary> idle_summary;
+        std::set<std::uint32_t> report_device_ids;
+        for (const traceloom::compat::VizNodeSqlRow& node :
+             loop_tree_rows.nodes) {
+          if (node.view_name == "native_report_tree" &&
+              node.db_idx == sidecar_options.db_idx) {
+            report_device_ids.insert(node.device_id);
+          }
+        }
+        const bool filter_idle_device =
+            cli.has_loop_tree_device_id || report_device_ids.size() == 1;
+        const std::uint32_t idle_device_id =
+            cli.has_loop_tree_device_id
+                ? cli.loop_tree_device_id
+                : (report_device_ids.empty() ? 0 : *report_device_ids.begin());
+        for (const traceloom::IdleExplanationDeviceResult& device :
+             idle_explanations.devices) {
+          if (filter_idle_device && device.device_id != idle_device_id) {
+            continue;
+          }
+          for (const traceloom::IdleExplanationRow& row :
+               device.explanations) {
+            const std::uint64_t duration_ns = static_cast<std::uint64_t>(
+                row.end_ns - row.start_ns);
+            const std::string category(
+                traceloom::idle_explanation_category_name(row.category));
+            ++idle_summary[category].slices;
+            idle_summary[category].duration_ns += duration_ns;
+            markdown_options.visible_productive_idle_ns += duration_ns;
+            if (row.evidence_level == traceloom::IdleEvidenceLevel::kDirect) {
+              markdown_options.direct_explained_idle_ns += duration_ns;
+            }
+          }
+        }
+        for (const auto& item : idle_summary) {
+          markdown_options.idle_explanation_counts.push_back(
+              traceloom::IdleExplanationSummaryCount{
+                  item.first, item.second.slices, item.second.duration_ns});
+        }
+        if (cli.timings) {
+          std::cerr << "timing loop_tree_idle_evidence_ms="
+                    << idle_evidence_watch.elapsed_ms() << "\n";
+        }
       }
       const Stopwatch loop_tree_render_watch;
       std::ostringstream markdown;
