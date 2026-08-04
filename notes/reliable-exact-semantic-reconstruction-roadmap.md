@@ -14,18 +14,23 @@ explicit unrecognized result instead of becoming a plausible-looking guess.
 The input/provenance, anchor/grammar, overlap-safe cost, ACLGraph launch
 identity, capture/replay body templates, and exact composition evidence are
 working. Capability-complete, body-confirmed `H + L* + T` regions drive
-default replay-unit and Loop Tree projection. Exact body capability requires a
-complete captured stream set plus classified identity for every observed body
-task; a stable sequence on one visible stream is not enough to prove that the
-graph has no other lanes. The legacy `capture_group_size` path remains only
-where no completion-backed exact reconstruction is available.
+default replay-unit and Loop Tree projection. A repeated, body-confirmed
+single-graph composition is also exact and projects as an atomic `ACLGraph`
+unit rather than being forced into artificial H/L/T roles. Exact body
+capability requires a complete captured stream set plus classified identity
+for every observed body task; a stable sequence on one visible stream is not
+enough to prove that the graph has no other lanes. The legacy
+`capture_group_size` path remains only where no completion-backed exact
+reconstruction is available.
 
 The exact path currently recognizes both:
 
 - a periodic decode suffix with every repetition revalidated against native
   replay bodies; and
 - one decode-sized, independently body-confirmed one-shot leading composition
-  (the observed prefill case).
+  (the observed prefill case); and
+- a period-one graph identity repeated at least three times, with every
+  occurrence independently checked against the same complete replay body.
 
 Every promoted unit links to its composition region and ordered launch/slot
 membership. Leading context not covered by the one-shot rule, incomplete tails,
@@ -60,6 +65,41 @@ missing bodies, and body mismatches remain typed unrecognized regions.
 - Exact sidecar rows continue to identify `exact_replay_composition`, source
   region, and launch membership when promotion is supported. Capability-gated
   unknowns create no replay or timeline event.
+
+## 2026-08-04 Fresh CANN 9 Stability Campaign
+
+A preregistered three-capture, two-rank TP2 campaign expected the retained
+runtime behavior above: 30 exact H/L/T units and 1,110 launch members per rank,
+with no unknown regions. Application outputs were deterministic across all
+three captures, but the preregistered analyzer result was not reproduced.
+CANN 9 emitted 28 or 29 observed graph launches, period-one graph bodies, and
+`NOTIFY_RECORD_SQE` completion records without usable connection/model IDs.
+It also repeated each `CaptureStreamInfo` model stream across capture batches.
+
+The post-hoc compatibility repair follows the installed CANN parser/runtime
+contract rather than changing the preregistered expectation:
+
+- `NOTIFY_RECORD_SQE` is accepted as notification-completion evidence and is
+  linked through its model stream to the captured graph instance;
+- repeated capture-batch rows remain provenance rows but no longer inflate
+  unique model-stream cardinality;
+- a completion-backed, captured-instance-backed period-one composition may be
+  exact without a raw graph connection ID; and
+- CANN scheduler/control vocabulary (`PLACE_HOLDER_SQE`, `NOP`, and
+  `MEM_WAIT_VALUE`) is typed explicitly instead of making valid point records
+  look like damaged input.
+
+Reanalysis of the six immutable artifacts recovers 27 or 28 exact single-graph
+units per rank. Two ranks have no unknown region; four retain one final
+`unrecognized_missing_completion_evidence` region. Every promoted unit has one
+ordered launch member and a complete, stable body template. All six idle
+pipelines now report `analysis_status=ok`; collection completeness remains
+honestly `unknown`.
+
+This is a compatibility success but not a rescue of the preregistered
+stability claim: exact counts still vary, and one artifact contains 29 observed
+launches. The negative result stays recorded as such. The final launch is not
+completed by inference merely because a graph body continues afterward.
 
 ## Active Front
 
@@ -229,7 +269,7 @@ an unavailable profiler dimension. The minimum capability matrix is:
 | Communication body identity | `COMMUNICATION_TASK_INFO` | `HCCLTaskSingleDevice` | An unclassified carrier makes the body unknown; fully classified tasks may prove an observed zero |
 | Complete captured stream set | `CaptureStreamInfo` | `CaptureStreamInfo` | A visible single stream is not promoted as a proven complete body |
 | Host submission order | `CANN_API` | `ApiData` | Optional; exact reconstruction may continue in `device_execution_order` |
-| Per-launch completion identity | `NOTIFY_WAIT` + `NOTIFY_RECORD` | corresponding `AscendTask` controls | The launch becomes `unrecognized_missing_completion_evidence` |
+| Per-launch completion identity | `NOTIFY_WAIT` + `NOTIFY_RECORD`/`NOTIFY_RECORD_SQE` | corresponding `AscendTask` controls | The launch becomes `unrecognized_missing_completion_evidence` |
 
 Optional tables which exist with incompatible columns are treated as
 unavailable capabilities rather than causing an incidental SQL exception.
@@ -285,6 +325,13 @@ materialization now records that conservative joined status instead of
 requiring every stage status to be identical and aborting. SQL
 `audit_status=PASS` remains table-integrity evidence only; it never promotes an
 `invalid_input` analysis into a positive semantic result.
+
+The fresh CANN 9 campaign later resolved the concrete spellings responsible
+for that retained-profile outcome: official `PLACE_HOLDER_SQE`/`NOP` scheduler
+points and `MEM_WAIT_VALUE` waits are now typed semantic evidence, so those
+rows no longer masquerade as damage. The conservative boundary itself is
+unchanged: a genuinely unknown zero-duration task still makes E3
+`invalid_input` rather than being silently discarded.
 
 ## 2026-08-04 Hierarchical Projection And Cost Gate
 

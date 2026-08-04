@@ -44,12 +44,24 @@ int main() {
   require(classify("NOTIFY_WAIT", "notify_wait").role ==
               SemanticTaskRole::kVisibleWait,
           "NOTIFY_WAIT -> visible_wait");
+  require(classify("MEM_WAIT_VALUE", "mem_wait_value").role ==
+              SemanticTaskRole::kVisibleWait,
+          "MEM_WAIT_VALUE -> visible_wait");
   require(classify("NOTIFY_RECORD", "notify_record").role ==
               SemanticTaskRole::kRecord,
           "NOTIFY_RECORD -> record");
+  require(classify("NOTIFY_RECORD_SQE", "notify_record_sqe").role ==
+              SemanticTaskRole::kRecord,
+          "NOTIFY_RECORD_SQE -> record");
   require(classify("MEM_WRITE_VALUE", "mem_write_value").role ==
               SemanticTaskRole::kRuntimeControl,
           "MEM_WRITE_VALUE -> runtime_control");
+  require(classify("PLACE_HOLDER_SQE", "place_holder_sqe").role ==
+              SemanticTaskRole::kRuntimeControl,
+          "PLACE_HOLDER_SQE -> runtime_control");
+  require(classify("NOP", "nop").role ==
+              SemanticTaskRole::kRuntimeControl,
+          "NOP -> runtime_control");
   require(classify("CAPTURE_WAIT", "capture_wait").role ==
               SemanticTaskRole::kCaptureControl,
           "CAPTURE_WAIT -> capture_control");

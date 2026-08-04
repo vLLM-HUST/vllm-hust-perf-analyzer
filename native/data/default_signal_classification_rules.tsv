@@ -27,12 +27,16 @@ priority	source_domain	field	match	pattern	role	note
 70	task	task_type	exact	CAPTURE_WAIT	ignore	Graph capture control task
 70	task	task_type	exact	EVENT_RECORD	ignore	Event control task
 70	task	task_type	exact	EVENT_WAIT	ignore	Event control task
+70	task	task_type	exact	MEM_WAIT_VALUE	ignore	Memory wait control task
 70	task	task_type	exact	MEM_WRITE_VALUE	ignore	Memory control task
 70	task	task_type	exact	MEMCPY	ignore	Data movement helper
 70	task	task_type	exact	MEMCPY_ASYNC	ignore	Data movement helper
 70	task	task_type	exact	NOTIFY	ignore	Notification control task
 70	task	task_type	exact	NOTIFY_RECORD	ignore	Notification control task
+70	task	task_type	exact	NOTIFY_RECORD_SQE	ignore	CANN 9 notification record SQE
 70	task	task_type	exact	NOTIFY_WAIT	ignore	Notification control task
+70	task	task_type	exact	NOP	ignore	Runtime no-op task
+70	task	task_type	exact	PLACE_HOLDER_SQE	ignore	Scheduler placeholder SQE
 70	task	task_type	exact	SDMA	ignore	DMA helper
 70	task	task_type	exact	TASK_TIMEOUT_SET	ignore	Runtime control task
 70	task	task_type	exact	WRITE_VALUE	ignore	Runtime control task
