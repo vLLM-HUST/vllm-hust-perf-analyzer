@@ -117,9 +117,10 @@ traceloom /path/to/msprof_output
 ```
 
 TraceLoom discovers monolithic `PROF_*/msprof_*.db` files,
-`torch_npu.profiler` `*/ASCEND_PROFILER_OUTPUT/ascend_pytorch_profiler.db`
-files, and split `PROF_*/{host,device_*}/sqlite/*.db` layouts, then writes one
-self-contained database per discovered analysis input:
+`torch_npu.profiler`
+`*/ASCEND_PROFILER_OUTPUT/ascend_pytorch_profiler[_<rank>].db` files, and split
+`PROF_*/{host,device_*}/sqlite/*.db` layouts, then writes one self-contained
+database per discovered analysis input:
 
 ```text
 /path/to/msprof_output/traceloom/analysis_db01.db
