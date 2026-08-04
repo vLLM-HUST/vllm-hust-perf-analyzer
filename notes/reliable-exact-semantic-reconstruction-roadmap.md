@@ -79,6 +79,23 @@ tree itself, but are no longer invisible beside it; a kickstart report shows
 `0 exact / 11 unrecognized`, while each capability-complete TP2 rank shows
 `30 exact / 0 unrecognized`.
 
+The main-pipeline idle front has reached E4 device-only explanation. E2
+productive gaps are now projected through E3 per-stream state partitions into
+an exact, non-overlapping explanation partition with frozen priority, evidence
+level/relation, alignment status, and source lineage. Unknown collection
+completeness conservatively disables absence claims; a complete synthetic
+attestation enables `no_observed_device_work` only when every observed stream
+is empty and the scan is complete. Unknown and ambiguous task coverage stays
+typed `unattributed_visible_idle` with diagnostic lineage. The checked-in
+host-wait counterexample now runs through E4 and proves that a host wait over a
+fully productive device span creates no idle explanation.
+
+Both real kickstart ranks run E1→E4 successfully. E4 takes 640 ms and 421 ms
+in the recorded one-run audit and preserves the entire visible-gap duration;
+the larger input improved from 18,009 ms after replacing full-timeline rescans
+with indexed interval lookup. The remaining idle front is production
+materialization plus anchor/Loop Tree aggregation, not explanation semantics.
+
 Cross-stream reconstruction is intentionally **not** an active front. The
 stable TraceLoom boundary is a coarse, permutation-invariant projection of
 each captured stream into one readable lane sequence, followed by an unordered

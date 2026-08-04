@@ -22,6 +22,7 @@
 // runtime traces.
 
 #include "traceloom/adapters/ascend_sqlite_adapter.h"
+#include "traceloom/analysis/idle_explanation.h"
 #include "traceloom/analysis/idle_evidence_semantic_rules.h"
 #include "traceloom/analysis/productive_timeline.h"
 #include "traceloom/analysis/semantic_task_classifier.h"
@@ -558,6 +559,18 @@ int main() {
   }
   require(stream_cursor == stream_timeline.span_end_ns,
           "stream state intervals cover the span exactly");
+
+  // --- 4. E4: a host wait cannot fabricate a device idle explanation.
+  // Collection is complete by fixture construction, but there is no gap to
+  // explain, so the official explanation partition is empty. ---
+  IdleExplanationOptions explanation_options;
+  explanation_options.collection_status = CollectionStatus::kComplete;
+  const IdleExplanationRunResult explanations = build_idle_explanations(
+      run, stream_run, explanation_options);
+  require(explanations.status == AnalysisStatus::kOk &&
+              explanations.devices.size() == 1 &&
+              explanations.devices[0].explanations.empty(),
+          "host wait with zero visible idle produces no E4 explanation");
 
   // --- The counterexample, asserted as a unit: host wait exists AND
   // visible idle is zero. ---
