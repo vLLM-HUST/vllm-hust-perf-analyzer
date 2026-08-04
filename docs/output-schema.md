@@ -79,6 +79,12 @@ Native events and sidecar rows retain source kind, source path, source table,
 and source row identifiers. Reports are summaries; use these links to confirm
 diagnoses against the raw profiler evidence.
 
+CUDA node-level exact units expose `cuda_runtime_correlation` launch matching,
+`cuda_graph_node_set` identity, `observed_stream_set_unordered` body topology,
+and `direct_observed_graph_launch` composition boundaries. These policy names
+make the provider-specific evidence route auditable without weakening the
+shared exact ReplayUnit contract.
+
 ## Compatibility Rule
 
 The schema is still alpha. Public releases should version table, column, JSON,

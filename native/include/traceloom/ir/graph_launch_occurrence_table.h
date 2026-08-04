@@ -12,12 +12,14 @@ enum class GraphLaunchMatchPolicy : std::uint8_t {
   kUnmatched = 0,
   kNotifyCompletionAdjacent = 1,
   kNotifyOrderedFallback = 2,
+  kCudaRuntimeCorrelation = 3,
 };
 
 enum class GraphLaunchInstanceAssociationPolicy : std::uint8_t {
   kNone = 0,
   kRecordModelId = 1,
   kRecordModelStream = 2,
+  kCudaGraphNodeSet = 3,
 };
 
 struct GraphLaunchOccurrenceRow {

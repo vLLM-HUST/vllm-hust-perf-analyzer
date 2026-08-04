@@ -32,6 +32,17 @@ The exact path currently recognizes both:
 - a period-one graph identity repeated at least three times, with every
   occurrence independently checked against the same complete replay body.
 
+The CUDA/Nsight path now supplies the same evidence discipline through a
+different provider contract. Node-level exports directly correlate each
+`cudaGraphLaunch` runtime row with graph-node kernel/memcpy activities. A raw
+node set plus normalized visible stream-lane body repeated at least twice may
+be promoted as an exact `CUDAGraph` unit. Singleton, ambiguous, missing-body,
+and unsupported-activity cases remain typed unknown. This is exact recovery of
+the **profiler-visible body**, not a claim to reconstruct hidden graph-definition
+nodes. The real `A/B/A/A/B` fixture recovers five exact occurrences and two
+templates; details and negative tests are recorded in
+`notes/cuda-graph-exact-evidence.md`.
+
 Every promoted unit links to its composition region and ordered launch/slot
 membership. Leading context not covered by the one-shot rule, incomplete tails,
 missing bodies, and body mismatches remain typed unrecognized regions.

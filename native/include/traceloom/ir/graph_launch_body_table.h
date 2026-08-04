@@ -11,6 +11,7 @@ namespace traceloom {
 enum class ReplayBodyTopologyPolicy : std::uint8_t {
   kSingleModelStream = 0,
   kCapturedStreamSetUnordered = 1,
+  kObservedStreamSetUnordered = 2,
 };
 
 struct ReplayBodyTemplateRow {

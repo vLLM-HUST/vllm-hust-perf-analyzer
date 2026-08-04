@@ -13,6 +13,8 @@ const char* replay_composition_identity_policy_name(
       return "graph_connection";
     case ReplayCompositionIdentityPolicy::kUnavailable:
       return "unavailable";
+    case ReplayCompositionIdentityPolicy::kCudaGraphNodeSet:
+      return "cuda_graph_node_set";
   }
   return "graph_connection";
 }
@@ -26,6 +28,8 @@ const char* replay_composition_boundary_policy_name(
       return "exact_one_shot_leading_composition";
     case ReplayCompositionBoundaryPolicy::kIncompleteLaunchEvidence:
       return "incomplete_launch_evidence";
+    case ReplayCompositionBoundaryPolicy::kDirectObservedGraphLaunch:
+      return "direct_observed_graph_launch";
   }
   return "exact_periodic_suffix";
 }
@@ -72,6 +76,11 @@ const char* replay_composition_region_status_name(
       return "unrecognized_missing_completion_evidence";
     case ReplayCompositionRegionStatus::kUnrecognizedMissingBodyCapability:
       return "unrecognized_missing_body_capability";
+    case ReplayCompositionRegionStatus::kUnrecognizedAmbiguousLaunchEvidence:
+      return "unrecognized_ambiguous_launch_evidence";
+    case ReplayCompositionRegionStatus::
+        kUnrecognizedInsufficientRepeatEvidence:
+      return "unrecognized_insufficient_repeat_evidence";
   }
   return "unrecognized_incomplete_tail";
 }
