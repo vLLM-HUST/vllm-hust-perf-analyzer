@@ -279,6 +279,49 @@ NativeIr build_exact_graph_replay_ir() {
   return ir;
 }
 
+NativeIr build_exact_cuda_graph_replay_ir() {
+  NativeIr ir;
+  const SourceRefId source = ir.source_refs.append(
+      "cuda_nsys_sqlite", "cuda-exact-graph", "CUDA_GRAPH_REPLAY_UNIT", 0);
+  const TraceEventId launch = ir.trace_events.append(
+      source, 1, 0, 11, 1000, 2000,
+      ir.symbols.intern("CUDAGraph ExactT1"));
+  const GraphLaunchOccurrenceId occurrence =
+      ir.graph_launch_occurrences.append(
+          source, source, 0, 1, 101, 9001, -1, StreamId::invalid(),
+          StreamId::invalid(), CapturedGraphInstanceId::invalid(),
+          TaskId::invalid(), TaskId::invalid(), TaskId::invalid(), 1000,
+          2000, -1, GraphLaunchMatchPolicy::kCudaRuntimeCorrelation,
+          GraphLaunchInstanceAssociationPolicy::kCudaGraphNodeSet);
+  const ReplayBodyTemplateId body = ir.replay_body_templates.append(
+      source, 11, ir.symbols.intern("lane 0:\nkernel"), 1, 0, 1,
+      ReplayBodyTopologyPolicy::kObservedStreamSetUnordered);
+  const ReplayCompositionCandidateId composition =
+      ir.replay_composition_candidates.append(
+          source, 0, occurrence, occurrence, 1, 0, 1, 1, 0, 22,
+          ReplayCompositionIdentityPolicy::kCudaGraphNodeSet,
+          ReplayCompositionOrderPolicy::kHostSubmissionOrder,
+          ReplayCompositionShapePolicy::kSingleGraph,
+          ReplayCompositionBoundaryPolicy::kDirectObservedGraphLaunch);
+  const ReplayCompositionSlotId slot =
+      ir.replay_composition_slots.append(
+          composition, 0, CapturedGraphInstanceId::invalid(),
+          GraphSlotTemplateId::invalid(), body,
+          ReplayCompositionSlotRole::kCudaGraph, 9001);
+  const ReplayCompositionRegionId region =
+      ir.replay_composition_regions.append(
+          composition, 0, occurrence, occurrence, 1000, 2000, 1, 1,
+          ReplayCompositionRegionStatus::kRecognizedCompletePattern);
+  ir.replay_composition_region_members.append(region, 0, occurrence, 0);
+  const GraphTemplateId graph_template =
+      ir.graph_templates.append(source, 33, 1);
+  const ReplayUnitId unit = ir.replay_units.append(
+      graph_template, source, AnchorId::invalid(), AnchorId::invalid(),
+      launch, region);
+  ir.replay_unit_launch_members.append(unit, 0, occurrence, slot);
+  return ir;
+}
+
 }  // namespace
 
 int main() {
@@ -483,6 +526,40 @@ int main() {
               "WHERE key = 'unrecognized_replay_composition_region_count'") ==
           "6");
   std::remove(exact_graph_db_path.c_str());
+
+  const std::string exact_cuda_graph_db_path = temp_db_path();
+  compat::NativeCompatibilitySidecarOptions cuda_graph_options;
+  cuda_graph_options.db_idx = 5;
+  cuda_graph_options.source_kind = "cuda_nsys_sqlite";
+  cuda_graph_options.source_path = "cuda-exact-graph";
+  compat::write_basic_native_compatibility_sidecar(
+      exact_cuda_graph_db_path, build_exact_cuda_graph_replay_ir(),
+      cuda_graph_options);
+  require(run_scalar_text(
+              exact_cuda_graph_db_path,
+              "SELECT graph_provider FROM traceloom_cuda_graph_replay") ==
+          "cuda");
+  require(run_scalar_text(
+              exact_cuda_graph_db_path,
+              "SELECT json_extract(raw_json, '$.reconstruction') FROM "
+              "traceloom_cuda_graph_replay") ==
+          "exact_replay_composition");
+  require(run_scalar_text(
+              exact_cuda_graph_db_path,
+              "SELECT graph_provider FROM "
+              "traceloom_aclgraph_reconstruction_region") ==
+          "cuda");
+  require(run_scalar_text(
+              exact_cuda_graph_db_path,
+              "SELECT boundary_policy FROM "
+              "traceloom_aclgraph_reconstruction_region") ==
+          "direct_observed_graph_launch");
+  require(run_scalar_text(
+              exact_cuda_graph_db_path,
+              "SELECT identity_policy FROM "
+              "traceloom_aclgraph_reconstruction_region") ==
+          "cuda_graph_node_set");
+  std::remove(exact_cuda_graph_db_path.c_str());
 
   const std::string collective_db_path = temp_db_path();
   compat::NativeCompatibilitySidecarOptions collective_options;

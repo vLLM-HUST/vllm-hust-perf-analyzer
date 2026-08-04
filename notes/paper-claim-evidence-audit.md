@@ -35,7 +35,7 @@ query or report surface, artifact, and negative boundary are all named.
 | C5 | Current exact TP2 Loop Trees reproduce the older report's single `GraphReplayUnit x30 at ≈35 ms` and single `AllReduce x280` nodes. | **NOT_REPRODUCED** as written; diagnosis **REPRODUCED** | Current monolithic reports split the 30 exact units into two context-specific `x15` runs and retain eight distinct pre-graph AllReduce positions, each repeated 35 times. Their 280 combined occurrences preserve the 9.864× cross-rank skew. | State the more precise current structure; do not quote the obsolete merged node shape. |
 | C6 | Prefix hot/cold, output-tail, mixed-interference, overload, and eager/graph case-study counts remain valid under the current exact capability gate. | **INSUFFICIENT_EVIDENCE** | Existing counts come from older Loop Trees; most artifacts have not been rerun through the current capability matrix and audit surface. | Keep as historical observations or rerun; do not present them as current exact-reconstruction evaluation yet. |
 | C7 | TraceLoom implements a general runtime relation graph with `contains`, `repeat_of`, `prelude_of`, `neighbor_of`, `covers`, `derived_from`, and `changed_with`. | **NOT_REPRODUCED** | Durable tables cover tree containment/coverage, provenance, prelude attribution, and graph envelopes; there is no uniform relation-graph contract and no implemented cross-run `changed_with`. | Frame these as concrete typed tables/relations, not one completed general graph. |
-| C8 | CUDA/Nsight support establishes platform-independent algorithmic generality. | **GATED** | A native fixture adapter covers kernels, auxiliary runtime/memcpy, and direct graph-trace rows, but no retained real CUDA Graph evaluation is recorded here. CUDA idle taxonomy is intentionally disabled. | Claim architectural separation only; require the CUDA workspace artifact and measured coverage before platform-level claims. |
+| C8 | CUDA/Nsight node traces support the same observation-backed exact visible-replay-structure contract as the Ascend path. | **REPRODUCED** for the scoped visible-body claim | The immutable Nsight 2024.4 node export recovers five directly correlated exact occurrences, two bodies, and oracle schedule `A/B/A/A/B`; missing-child and unsupported-activity mutations fail closed. CUDA idle taxonomy remains disabled, and graph-TP capture is a recorded negative. | Use as two-provider external-validity evidence. Say “profiler-visible body,” not full CUDA Graph definition or universal platform independence. |
 
 ## Pre-Registered Current TP2 Check
 
@@ -178,5 +178,6 @@ unattributed residual, and records collection completeness explicitly.
 2. Rerun old case-study artifacts individually only when the result can change
    paper scope; capability-incomplete artifacts are still useful negative
    evidence and need not be forced into exact promotion.
-3. Import the CUDA workspace's real Graph evidence only after its own audit
-   contract passes; do not infer cross-platform validity from adapter code.
+3. Report the passed CUDA visible-body audit alongside its explicit boundary:
+   node-level single-GPU graph evidence plus eager TP/NCCL evidence, with no
+   successful CUDA-Graph TP trace and no CUDA idle-semantics claim.

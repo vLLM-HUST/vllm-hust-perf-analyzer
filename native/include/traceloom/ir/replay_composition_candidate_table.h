@@ -12,12 +12,14 @@ enum class ReplayCompositionIdentityPolicy : std::uint8_t {
   kCapturedGraphInstance = 0,
   kGraphConnection = 1,
   kUnavailable = 2,
+  kCudaGraphNodeSet = 3,
 };
 
 enum class ReplayCompositionBoundaryPolicy : std::uint8_t {
   kExactPeriodicSuffix = 0,
   kExactOneShotLeadingComposition = 1,
   kIncompleteLaunchEvidence = 2,
+  kDirectObservedGraphLaunch = 3,
 };
 
 enum class ReplayCompositionOrderPolicy : std::uint8_t {
@@ -35,7 +37,9 @@ enum class ReplayCompositionSlotRole : std::uint8_t {
   kHead = 1,
   kLayer = 2,
   kTail = 3,
-  kGeneric = 4,
+  kGraph = 4,
+  kCudaGraph = 5,
+  kGeneric = 6,
 };
 
 struct ReplayCompositionCandidateRow {
@@ -132,6 +136,8 @@ enum class ReplayCompositionRegionStatus : std::uint8_t {
   kUnrecognizedBodyMismatch = 4,
   kUnrecognizedMissingCompletionEvidence = 5,
   kUnrecognizedMissingBodyCapability = 6,
+  kUnrecognizedAmbiguousLaunchEvidence = 7,
+  kUnrecognizedInsufficientRepeatEvidence = 8,
 };
 
 const char* replay_composition_identity_policy_name(

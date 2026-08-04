@@ -215,6 +215,11 @@ GraphReplayEvidenceSqlRows build_native_graph_replay_evidence_sql_rows(
     sql_region.region_id = composition_region_id(region.id);
     sql_region.db_idx = db_idx;
     sql_region.device_id = candidate.device_id;
+    sql_region.graph_provider =
+        candidate.identity_policy ==
+                ReplayCompositionIdentityPolicy::kCudaGraphNodeSet
+            ? "cuda"
+            : "aclgraph";
     sql_region.candidate_id = composition_candidate_id(candidate.id);
     sql_region.region_order = region.region_order;
     sql_region.status = replay_composition_region_status_name(region.status);
@@ -287,11 +292,11 @@ GraphReplayEvidenceSqlRows build_native_graph_replay_evidence_sql_rows(
     replay.start_ns = graph_event.start_ns;
     replay.end_ns = graph_event.end_ns;
     replay.dur_us = ns_to_us(graph_event.end_ns - graph_event.start_ns);
-    const bool is_exact_aclgraph =
-        is_aclgraph && replay_unit.replay_composition_region_id.valid();
+    const bool is_exact_replay =
+        replay_unit.replay_composition_region_id.valid();
     replay.raw_json =
         "{\"reconstruction\":\"" +
-        std::string(is_exact_aclgraph
+        std::string(is_exact_replay
                         ? "exact_replay_composition"
                         : (is_aclgraph ? "capture_stream_task_overlap"
                                        : "graph_trace_interval_overlap")) +
@@ -302,7 +307,7 @@ GraphReplayEvidenceSqlRows build_native_graph_replay_evidence_sql_rows(
         std::to_string(graph_template.body_sequence_hash) +
         ",\"capture_group_size\":" +
         std::to_string(graph_template.slot_count);
-    if (is_exact_aclgraph) {
+    if (is_exact_replay) {
       replay.raw_json +=
           ",\"replay_composition_region_id\":" +
           std::to_string(

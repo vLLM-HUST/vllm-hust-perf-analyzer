@@ -41,6 +41,7 @@ struct NativePipelineStats {
   std::size_t graph_launch_instance_linked_count = 0;
   std::size_t graph_launch_completion_adjacent_count = 0;
   std::size_t graph_launch_ordered_fallback_count = 0;
+  std::size_t graph_launch_cuda_correlation_count = 0;
   std::size_t graph_launch_unmatched_count = 0;
   std::size_t replay_body_template_count = 0;
   std::size_t graph_launch_body_count = 0;

@@ -517,6 +517,10 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
                        ? "ACLG"
                        : "ACLG" + std::to_string(slot.slot_order + 1);
           break;
+        case ReplayCompositionSlotRole::kCudaGraph:
+          kind = AnchorKind::kGraphReplayUnit;
+          symbol = "CUDAGraph";
+          break;
         case ReplayCompositionSlotRole::kUnclassified:
           throw std::logic_error(
               "exact ReplayUnit member has an unclassified slot role");

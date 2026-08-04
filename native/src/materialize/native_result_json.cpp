@@ -129,6 +129,8 @@ const char* graph_launch_match_policy_name(GraphLaunchMatchPolicy policy) {
       return "notify_ordered_fallback";
     case GraphLaunchMatchPolicy::kUnmatched:
       return "unmatched";
+    case GraphLaunchMatchPolicy::kCudaRuntimeCorrelation:
+      return "cuda_runtime_correlation";
   }
   return "unmatched";
 }
@@ -142,6 +144,8 @@ const char* graph_launch_instance_association_policy_name(
       return "record_model_id";
     case GraphLaunchInstanceAssociationPolicy::kRecordModelStream:
       return "record_model_stream";
+    case GraphLaunchInstanceAssociationPolicy::kCudaGraphNodeSet:
+      return "cuda_graph_node_set";
   }
   return "none";
 }
@@ -174,6 +178,8 @@ const char* replay_body_topology_policy_name(
       return "single_model_stream";
     case ReplayBodyTopologyPolicy::kCapturedStreamSetUnordered:
       return "captured_stream_set_unordered";
+    case ReplayBodyTopologyPolicy::kObservedStreamSetUnordered:
+      return "observed_stream_set_unordered";
   }
   return "single_model_stream";
 }
@@ -189,6 +195,10 @@ const char* replay_composition_slot_role_name(
       return "layer";
     case ReplayCompositionSlotRole::kTail:
       return "tail";
+    case ReplayCompositionSlotRole::kGraph:
+      return "graph";
+    case ReplayCompositionSlotRole::kCudaGraph:
+      return "cuda_graph";
     case ReplayCompositionSlotRole::kGeneric:
       return "generic_slot";
   }
@@ -1078,6 +1088,8 @@ void write_native_result_json(std::ostream& out,
       << result.stats.graph_launch_completion_adjacent_count << ",\n";
   out << "    \"graph_launch_ordered_fallback_count\": "
       << result.stats.graph_launch_ordered_fallback_count << ",\n";
+  out << "    \"graph_launch_cuda_correlation_count\": "
+      << result.stats.graph_launch_cuda_correlation_count << ",\n";
   out << "    \"graph_launch_unmatched_count\": "
       << result.stats.graph_launch_unmatched_count << ",\n";
   out << "    \"replay_body_template_count\": "

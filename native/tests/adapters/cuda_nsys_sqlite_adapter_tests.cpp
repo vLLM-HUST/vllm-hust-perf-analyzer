@@ -51,6 +51,106 @@ void create_db(const std::string& path, const char* sql) {
   sqlite3_close(db);
 }
 
+enum class GraphFixtureVariant {
+  kExactSchedule,
+  kSingleton,
+  kDuplicateLaunchCorrelation,
+  kMissingBody,
+  kUnsupportedGraphNodeActivity,
+  kIncompleteMemcpyCapability,
+  kBodyMismatch,
+};
+
+void create_graph_node_db(const std::string& path,
+                          GraphFixtureVariant variant) {
+  std::ostringstream sql;
+  sql << "CREATE TABLE StringIds(id INTEGER PRIMARY KEY, value TEXT);"
+         "INSERT INTO StringIds VALUES "
+         "(1, 'cudaGraphLaunch_v10000'),"
+         "(2, 'graph_a_gemm'), (3, 'graph_a_pointwise'),"
+         "(4, 'graph_b_gemm'), (5, 'graph_b_pointwise');"
+         "CREATE TABLE CUPTI_ACTIVITY_KIND_RUNTIME("
+         "start INTEGER, end INTEGER, correlationId INTEGER, nameId INTEGER);"
+         "CREATE TABLE CUPTI_ACTIVITY_KIND_KERNEL("
+         "start INTEGER, end INTEGER, deviceId INTEGER, contextId INTEGER,"
+         "streamId INTEGER, correlationId INTEGER, graphNodeId INTEGER,"
+         "shortName INTEGER);";
+  sql << "CREATE TABLE CUPTI_ACTIVITY_KIND_MEMCPY("
+         "start INTEGER, end INTEGER, deviceId INTEGER, contextId INTEGER,"
+         "streamId INTEGER, correlationId INTEGER, graphNodeId INTEGER,"
+         "bytes INTEGER";
+  if (variant != GraphFixtureVariant::kIncompleteMemcpyCapability) {
+    sql << ", copyKind INTEGER";
+  }
+  sql << ");"
+         "CREATE TABLE CUDA_GRAPH_NODE_EVENTS("
+         "start INTEGER, end INTEGER, graphNodeId INTEGER NOT NULL,"
+         "originalGraphNodeId INTEGER);";
+
+  const std::int64_t graph_a = 8589934592LL;
+  const std::int64_t graph_b = 21474836480LL;
+  const int schedule[] = {0, 1, 0, 0, 1};
+  std::size_t launch_count =
+      variant == GraphFixtureVariant::kBodyMismatch ? 2 : 5;
+  if (variant == GraphFixtureVariant::kSingleton ||
+      variant == GraphFixtureVariant::kDuplicateLaunchCorrelation ||
+      variant == GraphFixtureVariant::kMissingBody ||
+      variant == GraphFixtureVariant::kUnsupportedGraphNodeActivity ||
+      variant == GraphFixtureVariant::kIncompleteMemcpyCapability) {
+    launch_count = 1;
+  }
+  for (std::size_t index = 0; index < launch_count; ++index) {
+    const std::int64_t correlation = 101 + static_cast<std::int64_t>(index);
+    const std::int64_t base = 1000 + static_cast<std::int64_t>(index) * 100;
+    const bool graph_b_case =
+        variant != GraphFixtureVariant::kBodyMismatch && schedule[index] == 1;
+    const std::int64_t graph_node_base = graph_b_case ? graph_b : graph_a;
+    const int gemm_name = graph_b_case ? 4 : 2;
+    const int pointwise_name =
+        variant == GraphFixtureVariant::kBodyMismatch && index == 1
+            ? 5
+            : (graph_b_case ? 5 : 3);
+    sql << "INSERT INTO CUPTI_ACTIVITY_KIND_RUNTIME VALUES(" << base << ','
+        << base + 5 << ',' << correlation << ",1);";
+    if (variant == GraphFixtureVariant::kDuplicateLaunchCorrelation) {
+      sql << "INSERT INTO CUPTI_ACTIVITY_KIND_RUNTIME VALUES(" << base + 1
+          << ',' << base + 6 << ',' << correlation << ",1);";
+    }
+    if (variant != GraphFixtureVariant::kMissingBody) {
+      sql << "INSERT INTO CUPTI_ACTIVITY_KIND_KERNEL VALUES("
+          << base + 10 << ',' << base + 20 << ",0,7,11," << correlation
+          << ',' << graph_node_base << ',' << gemm_name << ");"
+          << "INSERT INTO CUPTI_ACTIVITY_KIND_KERNEL VALUES("
+          << base + 21 << ',' << base + 25 << ",0,7,11," << correlation
+          << ',' << graph_node_base + 1 << ',' << pointwise_name << ");"
+          << "INSERT INTO CUPTI_ACTIVITY_KIND_KERNEL VALUES("
+          << base + 26 << ',' << base + 36 << ",0,7,11," << correlation
+          << ',' << graph_node_base + 2 << ',' << gemm_name << ");"
+          << "INSERT INTO CUPTI_ACTIVITY_KIND_MEMCPY VALUES("
+          << base + 37 << ',' << base + 42 << ",0,7,11," << correlation
+          << ',' << graph_node_base + 3 << ','
+          << (graph_b_case ? 3276800 : 2097152);
+      if (variant != GraphFixtureVariant::kIncompleteMemcpyCapability) {
+        sql << ",8";
+      }
+      sql << ");";
+    }
+  }
+  for (int node = 0; node < 4; ++node) {
+    sql << "INSERT INTO CUDA_GRAPH_NODE_EVENTS VALUES(" << 100 + node
+        << ',' << 100 + node << ',' << graph_a + node << ",NULL);"
+        << "INSERT INTO CUDA_GRAPH_NODE_EVENTS VALUES(" << 200 + node
+        << ',' << 200 + node << ',' << graph_b + node << ",NULL);";
+  }
+  if (variant == GraphFixtureVariant::kUnsupportedGraphNodeActivity) {
+    sql << "CREATE TABLE CUPTI_ACTIVITY_KIND_MEMSET("
+           "start INTEGER, end INTEGER, graphNodeId INTEGER);"
+           "INSERT INTO CUPTI_ACTIVITY_KIND_MEMSET VALUES(10, 11, "
+        << graph_a << ");";
+  }
+  create_db(path, sql.str().c_str());
+}
+
 std::string symbol(const traceloom::NativeIr& ir, traceloom::SymbolId id) {
   return id.valid() ? ir.symbols.value(id) : "<invalid>";
 }
@@ -296,6 +396,175 @@ int main(int argc, char** argv) {
               ambiguous_communication_anchor_stats.device_event_anchors == 2,
           "ambiguous CUDA kernel names became collective anchors");
 
+  const std::string graph_exact_path = temp_db_path("_graph_exact");
+  create_graph_node_db(graph_exact_path, GraphFixtureVariant::kExactSchedule);
+  const NativeIr graph_exact_ir =
+      CudaNsightSQLiteAdapter(graph_exact_path).load();
+  require(graph_exact_ir.graph_launch_occurrences.size() == 5 &&
+              graph_exact_ir.graph_launch_bodies.size() == 5 &&
+              graph_exact_ir.replay_body_templates.size() == 2,
+          "direct CUDA graph node evidence did not materialize five bodies");
+  require(graph_exact_ir.replay_composition_candidates.size() == 5 &&
+              graph_exact_ir.replay_composition_slots.size() == 5 &&
+              graph_exact_ir.replay_composition_regions.size() == 5 &&
+              graph_exact_ir.replay_composition_region_members.size() == 5,
+          "direct CUDA graph occurrences did not retain composition evidence");
+  require(graph_exact_ir.graph_templates.size() == 2 &&
+              graph_exact_ir.replay_units.size() == 5 &&
+              graph_exact_ir.replay_unit_launch_members.size() == 5,
+          "repeated CUDA graph bodies were not promoted to exact replay units");
+  for (const GraphLaunchOccurrenceRow& occurrence :
+       graph_exact_ir.graph_launch_occurrences.rows()) {
+    require(occurrence.match_policy ==
+                    GraphLaunchMatchPolicy::kCudaRuntimeCorrelation &&
+                occurrence.instance_association_policy ==
+                    GraphLaunchInstanceAssociationPolicy::kCudaGraphNodeSet,
+            "CUDA graph occurrence lost its direct correlation provenance");
+  }
+  for (const ReplayBodyTemplateRow& body :
+       graph_exact_ir.replay_body_templates.rows()) {
+    require(body.compute_task_count == 3 &&
+                body.communication_task_count == 0 &&
+                body.stream_count == 1 &&
+                body.topology_policy ==
+                    ReplayBodyTopologyPolicy::kObservedStreamSetUnordered,
+            "CUDA visible body summary or topology policy is incorrect");
+  }
+  for (const ReplayCompositionCandidateRow& candidate :
+       graph_exact_ir.replay_composition_candidates.rows()) {
+    require(candidate.identity_policy ==
+                    ReplayCompositionIdentityPolicy::kCudaGraphNodeSet &&
+                candidate.order_policy ==
+                    ReplayCompositionOrderPolicy::kHostSubmissionOrder &&
+                candidate.shape_policy ==
+                    ReplayCompositionShapePolicy::kSingleGraph &&
+                candidate.boundary_policy ==
+                    ReplayCompositionBoundaryPolicy::
+                        kDirectObservedGraphLaunch,
+            "CUDA exact composition policy is not direct and fail-closed");
+  }
+  for (const ReplayCompositionSlotRow& slot :
+       graph_exact_ir.replay_composition_slots.rows()) {
+    require(slot.role == ReplayCompositionSlotRole::kCudaGraph &&
+                slot.replay_body_template_id.valid(),
+            "CUDA exact composition slot lost its body identity");
+  }
+  for (const ReplayCompositionRegionRow& region :
+       graph_exact_ir.replay_composition_regions.rows()) {
+    require(region.status ==
+                ReplayCompositionRegionStatus::kRecognizedCompletePattern,
+            "repeated direct CUDA graph body was not recognized");
+  }
+  const auto& exact_bodies = graph_exact_ir.graph_launch_bodies.rows();
+  require(exact_bodies[0].replay_body_template_id ==
+                  exact_bodies[2].replay_body_template_id &&
+              exact_bodies[0].replay_body_template_id ==
+                  exact_bodies[3].replay_body_template_id &&
+              exact_bodies[1].replay_body_template_id ==
+                  exact_bodies[4].replay_body_template_id &&
+              exact_bodies[0].replay_body_template_id !=
+                  exact_bodies[1].replay_body_template_id,
+          "CUDA graph body schedule did not preserve A/B/A/A/B identity");
+  const NativeIr graph_exact_reload =
+      CudaNsightSQLiteAdapter(graph_exact_path).load();
+  for (std::size_t index = 0; index < exact_bodies.size(); ++index) {
+    require(graph_exact_reload.graph_launch_bodies.rows()[index]
+                    .replay_body_template_id ==
+                exact_bodies[index].replay_body_template_id &&
+                graph_exact_reload.replay_composition_candidates.rows()[index]
+                        .pattern_sequence_hash ==
+                    graph_exact_ir.replay_composition_candidates.rows()[index]
+                        .pattern_sequence_hash,
+            "CUDA graph identity changed between identical loads");
+  }
+
+  const std::string graph_singleton_path =
+      temp_db_path("_graph_singleton");
+  create_graph_node_db(graph_singleton_path,
+                       GraphFixtureVariant::kSingleton);
+  const NativeIr graph_singleton_ir =
+      CudaNsightSQLiteAdapter(graph_singleton_path).load();
+  require(graph_singleton_ir.graph_launch_bodies.size() == 1 &&
+              graph_singleton_ir.replay_units.empty() &&
+              graph_singleton_ir.replay_composition_regions.size() == 1 &&
+              graph_singleton_ir.replay_composition_regions.rows()[0].status ==
+                  ReplayCompositionRegionStatus::
+                      kUnrecognizedInsufficientRepeatEvidence,
+          "singleton CUDA graph body was not kept as typed unknown evidence");
+
+  const std::string graph_duplicate_path =
+      temp_db_path("_graph_duplicate");
+  create_graph_node_db(graph_duplicate_path,
+                       GraphFixtureVariant::kDuplicateLaunchCorrelation);
+  const NativeIr graph_duplicate_ir =
+      CudaNsightSQLiteAdapter(graph_duplicate_path).load();
+  require(graph_duplicate_ir.graph_launch_occurrences.size() == 2 &&
+              graph_duplicate_ir.graph_launch_bodies.empty() &&
+              graph_duplicate_ir.replay_units.empty(),
+          "ambiguous CUDA launch correlation fabricated exact body evidence");
+  for (const ReplayCompositionRegionRow& region :
+       graph_duplicate_ir.replay_composition_regions.rows()) {
+    require(region.status == ReplayCompositionRegionStatus::
+                                 kUnrecognizedAmbiguousLaunchEvidence,
+            "ambiguous CUDA launch correlation lost its typed status");
+  }
+
+  const std::string graph_missing_path = temp_db_path("_graph_missing");
+  create_graph_node_db(graph_missing_path, GraphFixtureVariant::kMissingBody);
+  const NativeIr graph_missing_ir =
+      CudaNsightSQLiteAdapter(graph_missing_path).load();
+  require(graph_missing_ir.graph_launch_occurrences.size() == 1 &&
+              graph_missing_ir.graph_launch_bodies.empty() &&
+              graph_missing_ir.replay_units.empty() &&
+              graph_missing_ir.replay_composition_regions.rows()[0].status ==
+                  ReplayCompositionRegionStatus::
+                      kUnrecognizedMissingBodyEvidence,
+          "CUDA launch without children did not remain typed unknown");
+
+  const std::string graph_unsupported_path =
+      temp_db_path("_graph_unsupported");
+  create_graph_node_db(graph_unsupported_path,
+                       GraphFixtureVariant::kUnsupportedGraphNodeActivity);
+  const NativeIr graph_unsupported_ir =
+      CudaNsightSQLiteAdapter(graph_unsupported_path).load();
+  require(graph_unsupported_ir.graph_launch_bodies.empty() &&
+              graph_unsupported_ir.replay_units.empty() &&
+              graph_unsupported_ir.replay_composition_regions.rows()[0]
+                      .status ==
+                  ReplayCompositionRegionStatus::
+                      kUnrecognizedMissingBodyCapability,
+          "unsupported graph-node activity table did not fail closed");
+
+  const std::string graph_incomplete_memcpy_path =
+      temp_db_path("_graph_incomplete_memcpy");
+  create_graph_node_db(graph_incomplete_memcpy_path,
+                       GraphFixtureVariant::kIncompleteMemcpyCapability);
+  const NativeIr graph_incomplete_memcpy_ir =
+      CudaNsightSQLiteAdapter(graph_incomplete_memcpy_path).load();
+  require(graph_incomplete_memcpy_ir.graph_launch_bodies.empty() &&
+              graph_incomplete_memcpy_ir.replay_units.empty() &&
+              graph_incomplete_memcpy_ir.replay_composition_regions.rows()[0]
+                      .status ==
+                  ReplayCompositionRegionStatus::
+                      kUnrecognizedMissingBodyCapability,
+          "incomplete supported graph-node schema did not fail closed");
+
+  const std::string graph_body_mismatch_path =
+      temp_db_path("_graph_body_mismatch");
+  create_graph_node_db(graph_body_mismatch_path,
+                       GraphFixtureVariant::kBodyMismatch);
+  const NativeIr graph_body_mismatch_ir =
+      CudaNsightSQLiteAdapter(graph_body_mismatch_path).load();
+  require(graph_body_mismatch_ir.graph_launch_bodies.size() == 2 &&
+              graph_body_mismatch_ir.replay_units.empty(),
+          "contradictory CUDA bodies for one node set became exact units");
+  for (const ReplayCompositionRegionRow& region :
+       graph_body_mismatch_ir.replay_composition_regions.rows()) {
+    require(region.status ==
+                ReplayCompositionRegionStatus::kUnrecognizedBodyMismatch,
+            "contradictory CUDA graph body lost its typed mismatch status");
+  }
+
   const std::string malformed_path = temp_db_path("_malformed");
   create_db(malformed_path,
             "CREATE TABLE CUPTI_ACTIVITY_KIND_KERNEL("
@@ -358,6 +627,13 @@ int main(int argc, char** argv) {
   std::remove(fallback_path.c_str());
   std::remove(collective_path.c_str());
   std::remove(ambiguous_communication_path.c_str());
+  std::remove(graph_exact_path.c_str());
+  std::remove(graph_singleton_path.c_str());
+  std::remove(graph_duplicate_path.c_str());
+  std::remove(graph_missing_path.c_str());
+  std::remove(graph_unsupported_path.c_str());
+  std::remove(graph_incomplete_memcpy_path.c_str());
+  std::remove(graph_body_mismatch_path.c_str());
   std::remove(malformed_path.c_str());
   std::remove(malformed_aux_path.c_str());
   std::remove(partial_cuda_event_path.c_str());

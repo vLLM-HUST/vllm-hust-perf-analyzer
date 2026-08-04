@@ -79,6 +79,9 @@ NativePipelineStats collect_stats(
       case GraphLaunchMatchPolicy::kNotifyOrderedFallback:
         ++stats.graph_launch_ordered_fallback_count;
         break;
+      case GraphLaunchMatchPolicy::kCudaRuntimeCorrelation:
+        ++stats.graph_launch_cuda_correlation_count;
+        break;
       case GraphLaunchMatchPolicy::kUnmatched:
         ++stats.graph_launch_unmatched_count;
         break;

@@ -38,6 +38,20 @@ surfaces.
 The same `traceloom <path>` command recognizes supported Hygon `hipprof`
 SQLite exports and normalizes their device activity into the native IR.
 
+## CUDA/Nsight Systems
+
+The native analyzer accepts Nsight Systems SQLite exports containing
+`CUPTI_ACTIVITY_KIND_KERNEL`. Runtime, memcpy, CUDA event, synchronization,
+and graph tables are loaded when present.
+
+Graph-level tracing supplies graph-exec identity and launch order but omits
+node activities, so its ReplayUnits remain legacy rather than exact. For exact
+visible-body reconstruction, use an Nsight node-level graph export. TraceLoom
+requires a nonempty `CUDA_GRAPH_NODE_EVENTS` table, unique direct runtime
+correlation, supported `graphNodeId` activity tables, and at least two matching
+observations of the same raw node set and normalized visible body. Unsupported
+or incomplete evidence remains a typed unrecognized region.
+
 ## Artifact Policy
 
 Raw profiles are often large and can contain private workload details. Do not
