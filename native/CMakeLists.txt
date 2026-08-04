@@ -116,6 +116,7 @@ add_library(traceloom_native_materialize
   src/compat/aux_attribution_rows.cpp
   src/compat/collective_tag_rows.cpp
   src/compat/idle_explanation_rows.cpp
+  src/compat/idle_evidence_sql_rows.cpp
   src/compat/native_graph_replay_rows.cpp
   src/compat/native_sidecar_materializer.cpp
   src/compat/report_tree_rows.cpp

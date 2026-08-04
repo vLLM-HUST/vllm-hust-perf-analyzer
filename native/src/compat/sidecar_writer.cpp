@@ -765,6 +765,173 @@ void insert_semantic_edge_row(SqliteStmt& stmt, const SemanticEdgeSqlRow& row) {
   sqlite3_clear_bindings(stmt.get());
 }
 
+void finish_idle_insert(SqliteStmt& stmt, const char* row_kind) {
+  const int rc = sqlite3_step(stmt.get());
+  if (rc != SQLITE_DONE) {
+    throw std::runtime_error(std::string("failed to insert compatibility ") +
+                             row_kind + " row: " +
+                             sqlite3_errmsg(stmt.db()));
+  }
+  sqlite3_reset(stmt.get());
+  sqlite3_clear_bindings(stmt.get());
+}
+
+void insert_run_metadata_row(SqliteStmt& stmt, const RunMetadataSqlRow& row) {
+  bind_text(stmt, 1, row.run_id);
+  bind_text(stmt, 2, row.analysis_status);
+  if (row.has_span) {
+    bind_int64(stmt, 3, row.span_start_ns);
+    bind_int64(stmt, 4, row.span_end_ns);
+  } else {
+    bind_null(stmt, 3);
+    bind_null(stmt, 4);
+  }
+  bind_text(stmt, 5, row.contract_version);
+  bind_text(stmt, 6, row.semantic_rules_version);
+  bind_text(stmt, 7, row.semantic_rules_sha256);
+  bind_text(stmt, 8, row.attribution_rule_version);
+  bind_text(stmt, 9, row.host_api_rules_version);
+  bind_text(stmt, 10, row.host_api_rules_sha256);
+  bind_text(stmt, 11, row.collection_status);
+  bind_int64(stmt, 12, row.db_idx);
+  bind_text(stmt, 13, row.source_kind);
+  bind_text(stmt, 14, row.source_path);
+  bind_text(stmt, 15, row.metadata_json);
+  finish_idle_insert(stmt, "run metadata");
+}
+
+void insert_device_interval_row(SqliteStmt& stmt,
+                                const DeviceIntervalSqlRow& row) {
+  bind_text(stmt, 1, row.interval_id);
+  bind_text(stmt, 2, row.run_id);
+  bind_int64(stmt, 3, row.db_idx);
+  bind_int64(stmt, 4, row.device_id);
+  bind_int64(stmt, 5, row.interval_order);
+  bind_int64(stmt, 6, row.start_ns);
+  bind_int64(stmt, 7, row.end_ns);
+  bind_int64(stmt, 8, static_cast<sqlite3_int64>(row.duration_ns));
+  bind_double(stmt, 9, row.duration_us);
+  bind_text(stmt, 10, row.interval_kind);
+  bind_int64(stmt, 11, static_cast<sqlite3_int64>(row.source_count));
+  bind_text(stmt, 12, row.clock_domain);
+  bind_text(stmt, 13, row.contract_version);
+  bind_text(stmt, 14, row.semantic_rules_version);
+  bind_text(stmt, 15, row.attribution_rule_version);
+  finish_idle_insert(stmt, "device interval");
+}
+
+void insert_stream_state_row(SqliteStmt& stmt, const StreamStateSqlRow& row) {
+  bind_text(stmt, 1, row.state_id);
+  bind_text(stmt, 2, row.run_id);
+  bind_int64(stmt, 3, row.db_idx);
+  bind_int64(stmt, 4, row.device_id);
+  bind_int64(stmt, 5, static_cast<sqlite3_int64>(row.stream_id));
+  bind_int64(stmt, 6, row.state_order);
+  bind_int64(stmt, 7, row.start_ns);
+  bind_int64(stmt, 8, row.end_ns);
+  bind_int64(stmt, 9, static_cast<sqlite3_int64>(row.duration_ns));
+  bind_double(stmt, 10, row.duration_us);
+  bind_text(stmt, 11, row.state);
+  bind_int64(stmt, 12, static_cast<sqlite3_int64>(row.source_count));
+  bind_text(stmt, 13, row.stream_universe_kind);
+  bind_int64(stmt, 14,
+             static_cast<sqlite3_int64>(row.stream_universe_size));
+  bind_int64(stmt, 15,
+             static_cast<sqlite3_int64>(row.observed_stream_count));
+  bind_int64(stmt, 16, row.observed_universe_scan_complete ? 1 : 0);
+  bind_text(stmt, 17, row.collection_status);
+  bind_text(stmt, 18, row.clock_domain);
+  bind_text(stmt, 19, row.contract_version);
+  bind_text(stmt, 20, row.semantic_rules_version);
+  bind_text(stmt, 21, row.attribution_rule_version);
+  finish_idle_insert(stmt, "stream state");
+}
+
+void insert_idle_explanation_row(SqliteStmt& stmt,
+                                 const IdleExplanationSqlRow& row) {
+  bind_text(stmt, 1, row.idle_explanation_id);
+  bind_text(stmt, 2, row.run_id);
+  bind_text(stmt, 3, row.gap_interval_id);
+  bind_int64(stmt, 4, row.db_idx);
+  bind_int64(stmt, 5, row.device_id);
+  bind_int64(stmt, 6, row.explanation_order);
+  bind_int64(stmt, 7, row.start_ns);
+  bind_int64(stmt, 8, row.end_ns);
+  bind_int64(stmt, 9, static_cast<sqlite3_int64>(row.duration_ns));
+  bind_double(stmt, 10, row.duration_us);
+  bind_text(stmt, 11, row.category);
+  bind_text(stmt, 12, row.evidence_level);
+  bind_text(stmt, 13, row.evidence_relation);
+  bind_text(stmt, 14, row.alignment_status);
+  bind_text(stmt, 15, row.collection_status);
+  bind_text(stmt, 16, row.reason);
+  bind_int64(stmt, 17, static_cast<sqlite3_int64>(row.source_count));
+  bind_text(stmt, 18, row.clock_domain);
+  bind_text(stmt, 19, row.contract_version);
+  bind_text(stmt, 20, row.semantic_rules_version);
+  bind_text(stmt, 21, row.attribution_rule_version);
+  finish_idle_insert(stmt, "idle explanation");
+}
+
+void insert_evidence_link_row(SqliteStmt& stmt,
+                              const EvidenceLinkSqlRow& row) {
+  bind_text(stmt, 1, row.owner_kind);
+  bind_text(stmt, 2, row.owner_id);
+  bind_int64(stmt, 3, row.evidence_ordinal);
+  bind_text(stmt, 4, row.source_kind);
+  bind_text(stmt, 5, row.source_table);
+  bind_text(stmt, 6, row.source_key);
+  bind_text(stmt, 7, row.relation);
+  bind_text(stmt, 8, row.evidence_level);
+  if (row.has_overlap) {
+    bind_int64(stmt, 9, row.overlap_start_ns);
+    bind_int64(stmt, 10, row.overlap_end_ns);
+  } else {
+    bind_null(stmt, 9);
+    bind_null(stmt, 10);
+  }
+  if (row.has_stream_id) {
+    bind_int64(stmt, 11, static_cast<sqlite3_int64>(row.stream_id));
+  } else {
+    bind_null(stmt, 11);
+  }
+  row.state.empty() ? bind_null(stmt, 12) : bind_text(stmt, 12, row.state);
+  bind_text(stmt, 13, row.trace_event_id);
+  row.matched_rule_id.empty() ? bind_null(stmt, 14)
+                              : bind_text(stmt, 14, row.matched_rule_id);
+  finish_idle_insert(stmt, "evidence link");
+}
+
+void insert_anchor_idle_row(SqliteStmt& stmt,
+                            const AnchorIdleExplanationSqlRow& row) {
+  bind_text(stmt, 1, row.anchor_id);
+  bind_text(stmt, 2, row.run_id);
+  bind_int64(stmt, 3, row.db_idx);
+  bind_int64(stmt, 4, row.device_id);
+  bind_int64(stmt, 5, row.anchor_idx);
+  bind_text(stmt, 6, row.category);
+  bind_text(stmt, 7, row.evidence_level);
+  bind_int64(stmt, 8, static_cast<sqlite3_int64>(row.slice_count));
+  bind_int64(stmt, 9, static_cast<sqlite3_int64>(row.duration_ns));
+  bind_double(stmt, 10, row.duration_us);
+  finish_idle_insert(stmt, "anchor idle explanation");
+}
+
+void insert_node_idle_row(SqliteStmt& stmt,
+                          const NodeIdleExplanationSqlRow& row) {
+  bind_text(stmt, 1, row.node_id);
+  bind_text(stmt, 2, row.run_id);
+  bind_int64(stmt, 3, row.db_idx);
+  bind_int64(stmt, 4, row.device_id);
+  bind_text(stmt, 5, row.view_name);
+  bind_text(stmt, 6, row.category);
+  bind_text(stmt, 7, row.evidence_level);
+  bind_int64(stmt, 8, static_cast<sqlite3_int64>(row.slice_count));
+  bind_int64(stmt, 9, static_cast<sqlite3_int64>(row.duration_ns));
+  bind_double(stmt, 10, row.duration_us);
+  finish_idle_insert(stmt, "node idle explanation");
+}
+
 void materialize_cuda_graph_views(SqliteDb& db) {
   db.exec(
       "CREATE VIEW IF NOT EXISTS traceloom_v_cuda_graph_replay AS "
@@ -1167,6 +1334,26 @@ void materialize_report_compatibility_indexes(SqliteDb& db) {
       "CREATE INDEX IF NOT EXISTS idx_traceloom_collective_pair "
       "ON traceloom_collective_global_link(pair_id, occurrence_idx, op_type, "
       "idx_in_occurrence)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_device_interval_time "
+      "ON traceloom_device_interval(run_id, device_id, start_ns, end_ns)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_stream_state_time "
+      "ON traceloom_stream_state(run_id, device_id, stream_id, start_ns, "
+      "end_ns)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_idle_explanation_category "
+      "ON traceloom_idle_explanation(run_id, device_id, category, start_ns, "
+      "end_ns)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_evidence_owner "
+      "ON traceloom_evidence_link(owner_kind, owner_id, evidence_ordinal)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_anchor_idle "
+      "ON traceloom_anchor_idle_explanation(anchor_id, category)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_node_idle "
+      "ON traceloom_node_idle_explanation(node_id, category)");
 }
 
 void materialize_global_collective_indexes(SqliteDb& db) {
@@ -2404,6 +2591,142 @@ void replace_semantic_tree_rows(const std::string& sqlite_path,
     }
 
     materialize_semantic_tree_views(db);
+    db.exec("COMMIT");
+  } catch (...) {
+    try {
+      db.exec("ROLLBACK");
+    } catch (...) {
+    }
+    throw;
+  }
+#else
+  (void)sqlite_path;
+  (void)rows;
+  throw std::runtime_error(
+      "compatibility sidecar writer requires SQLite support");
+#endif
+}
+
+void replace_idle_evidence_rows(const std::string& sqlite_path,
+                                const IdleEvidenceSqlRows& rows) {
+#if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
+  materialize_compatibility_schema(
+      sqlite_path,
+      {run_metadata_table_schema(), device_interval_table_schema(),
+       stream_state_table_schema(), idle_explanation_table_schema(),
+       evidence_link_table_schema(), anchor_idle_explanation_table_schema(),
+       node_idle_explanation_table_schema()});
+
+  SqliteDb db(sqlite_path);
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.exec("DELETE FROM traceloom_node_idle_explanation");
+    db.exec("DELETE FROM traceloom_anchor_idle_explanation");
+    db.exec("DELETE FROM traceloom_evidence_link");
+    db.exec("DELETE FROM traceloom_idle_explanation");
+    db.exec("DELETE FROM traceloom_stream_state");
+    db.exec("DELETE FROM traceloom_device_interval");
+    db.exec("DELETE FROM traceloom_run_metadata");
+
+    SqliteStmt metadata_stmt(
+        db.get(),
+        "INSERT INTO traceloom_run_metadata (run_id, analysis_status, "
+        "span_start_ns, span_end_ns, contract_version, "
+        "semantic_rules_version, semantic_rules_sha256, "
+        "attribution_rule_version, host_api_rules_version, "
+        "host_api_rules_sha256, collection_status, db_idx, source_kind, "
+        "source_path, metadata_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+        "?, ?, ?, ?, ?)");
+    for (const RunMetadataSqlRow& row : rows.run_metadata) {
+      insert_run_metadata_row(metadata_stmt, row);
+    }
+
+    SqliteStmt interval_stmt(
+        db.get(),
+        "INSERT INTO traceloom_device_interval (interval_id, run_id, db_idx, "
+        "device_id, interval_order, start_ns, end_ns, duration_ns, "
+        "duration_us, interval_kind, source_count, clock_domain, "
+        "contract_version, semantic_rules_version, attribution_rule_version) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    for (const DeviceIntervalSqlRow& row : rows.device_intervals) {
+      insert_device_interval_row(interval_stmt, row);
+    }
+
+    SqliteStmt state_stmt(
+        db.get(),
+        "INSERT INTO traceloom_stream_state (state_id, run_id, db_idx, "
+        "device_id, stream_id, state_order, start_ns, end_ns, duration_ns, "
+        "duration_us, state, source_count, stream_universe_kind, "
+        "stream_universe_size, observed_stream_count, "
+        "observed_universe_scan_complete, collection_status, clock_domain, "
+        "contract_version, semantic_rules_version, attribution_rule_version) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+        "?, ?)");
+    for (const StreamStateSqlRow& row : rows.stream_states) {
+      insert_stream_state_row(state_stmt, row);
+    }
+
+    SqliteStmt explanation_stmt(
+        db.get(),
+        "INSERT INTO traceloom_idle_explanation (idle_explanation_id, run_id, "
+        "gap_interval_id, db_idx, device_id, explanation_order, start_ns, "
+        "end_ns, duration_ns, duration_us, category, evidence_level, "
+        "evidence_relation, alignment_status, collection_status, reason, "
+        "source_count, clock_domain, contract_version, "
+        "semantic_rules_version, attribution_rule_version) VALUES (?, ?, ?, "
+        "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    for (const IdleExplanationSqlRow& row : rows.idle_explanations) {
+      insert_idle_explanation_row(explanation_stmt, row);
+    }
+
+    SqliteStmt evidence_stmt(
+        db.get(),
+        "INSERT INTO traceloom_evidence_link (owner_kind, owner_id, "
+        "evidence_ordinal, source_kind, source_table, source_key, relation, "
+        "evidence_level, overlap_start_ns, overlap_end_ns, stream_id, state, "
+        "trace_event_id, matched_rule_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, "
+        "?, ?, ?, ?, ?)");
+    for (const EvidenceLinkSqlRow& row : rows.evidence_links) {
+      insert_evidence_link_row(evidence_stmt, row);
+    }
+
+    SqliteStmt anchor_stmt(
+        db.get(),
+        "INSERT INTO traceloom_anchor_idle_explanation (anchor_id, run_id, "
+        "db_idx, device_id, anchor_idx, category, evidence_level, slice_count, "
+        "duration_ns, duration_us) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    for (const AnchorIdleExplanationSqlRow& row : rows.anchor_attribution) {
+      insert_anchor_idle_row(anchor_stmt, row);
+    }
+
+    SqliteStmt node_stmt(
+        db.get(),
+        "INSERT INTO traceloom_node_idle_explanation (node_id, run_id, db_idx, "
+        "device_id, view_name, category, evidence_level, slice_count, "
+        "duration_ns, duration_us) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    for (const NodeIdleExplanationSqlRow& row : rows.node_attribution) {
+      insert_node_idle_row(node_stmt, row);
+    }
+    db.exec(
+        "CREATE INDEX IF NOT EXISTS idx_traceloom_device_interval_time "
+        "ON traceloom_device_interval(run_id, device_id, start_ns, end_ns)");
+    db.exec(
+        "CREATE INDEX IF NOT EXISTS idx_traceloom_stream_state_time "
+        "ON traceloom_stream_state(run_id, device_id, stream_id, start_ns, "
+        "end_ns)");
+    db.exec(
+        "CREATE INDEX IF NOT EXISTS idx_traceloom_idle_explanation_category "
+        "ON traceloom_idle_explanation(run_id, device_id, category, start_ns, "
+        "end_ns)");
+    db.exec(
+        "CREATE INDEX IF NOT EXISTS idx_traceloom_evidence_owner "
+        "ON traceloom_evidence_link(owner_kind, owner_id, evidence_ordinal)");
+    db.exec(
+        "CREATE INDEX IF NOT EXISTS idx_traceloom_anchor_idle "
+        "ON traceloom_anchor_idle_explanation(anchor_id, category)");
+    db.exec(
+        "CREATE INDEX IF NOT EXISTS idx_traceloom_node_idle "
+        "ON traceloom_node_idle_explanation(node_id, category)");
     db.exec("COMMIT");
   } catch (...) {
     try {

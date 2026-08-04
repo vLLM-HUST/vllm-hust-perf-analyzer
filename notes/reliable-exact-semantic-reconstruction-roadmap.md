@@ -93,8 +93,8 @@ fully productive device span creates no idle explanation.
 Both real kickstart ranks run E1→E4 successfully. E4 takes 640 ms and 421 ms
 in the recorded one-run audit and preserves the entire visible-gap duration;
 the larger input improved from 18,009 ms after replacing full-timeline rescans
-with indexed interval lookup. The remaining idle front is production
-materialization plus anchor/Loop Tree aggregation, not explanation semantics.
+with indexed interval lookup. The device-only explanation semantics are no
+longer the open front.
 
 The production `traceloom` command now runs that E1→E4 path for Ascend Loop
 Tree reports and renders a device-scoped `Visible Productive Idle Evidence`
@@ -113,8 +113,29 @@ an explicit device-only residual. The production report exposes the coverage
 ratio and top hierarchical hotspots and warns that parent/child rows are not
 additive. On the larger kickstart rank, 65,097,292,403 of 65,097,292,443 gap
 nanoseconds map to anchor preludes; the remaining 40 ns is retained rather than
-rounded into a node. Raw interval/lineage SQLite materialization remains the
-next idle-evidence front.
+rounded into a node.
+
+Raw idle evidence is now materialized in compatibility sidecars. One
+deterministic `traceloom_run_metadata` row records the frozen analysis,
+collection, ruleset, and attribution versions; its `run_id` is the lowercase
+SHA-256 of the generated RFC-8785-canonical metadata JSON without `run_id`.
+The sidecar also carries exact-nanosecond device intervals, per-stream state
+partitions and universe completeness, E4 explanation slices linked to their
+owning productive gaps, precise source-row evidence links, and anchor/node
+aggregates. Host API rules are explicitly `not_loaded`, so this materializer
+does not imply host correlation or collection completeness. Regenerating a
+sidecar without a provider-validated idle pipeline clears these tables instead
+of retaining stale Ascend conclusions.
+
+The larger real kickstart rank materializes 30,628 productive intervals and
+30,627 gaps. Explanation duration sums to the exact 65,097,292,443 ns gap
+total; anchor aggregation remains 65,097,292,403 ns, the root-node aggregate
+matches that value, all explanation-to-gap links resolve, and all 143,355
+materialized source links resolve to compatibility timeline events. The next
+idle-evidence front is therefore optional host/device correlation (only after
+real clock calibration and host allowlist import), not more device-only
+heuristics. Nearer-term analyzer work should use the new raw tables to harden
+goldens, capability matrices, and paper evaluation queries.
 
 Cross-stream reconstruction is intentionally **not** an active front. The
 stable TraceLoom boundary is a coarse, permutation-invariant projection of

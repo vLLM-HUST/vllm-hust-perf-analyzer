@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <string>
 
+#include "traceloom/analysis/idle_evidence_pipeline.h"
 #include "traceloom/compat/sidecar_writer.h"
 #include "traceloom/ir/native_ir.h"
 
@@ -30,7 +31,8 @@ void write_basic_native_compatibility_sidecar(
     const std::string& sqlite_path,
     const NativeIr& ir,
     const NativeCompatibilitySidecarOptions& options =
-        NativeCompatibilitySidecarOptions{});
+        NativeCompatibilitySidecarOptions{},
+    const IdleEvidencePipelineResult* idle_evidence = nullptr);
 
 NodeCoverageSqlRows build_native_loop_tree_node_coverage_rows(
     const NativeIr& ir,

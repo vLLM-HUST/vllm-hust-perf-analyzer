@@ -1,4 +1,6 @@
 #include "traceloom/compat/native_sidecar_materializer.h"
+#include "traceloom/analysis/idle_evidence_semantic_rules.h"
+#include "traceloom/core/sha256.h"
 #include "traceloom/testing/test_util.h"
 
 #include <sqlite3.h>
@@ -88,6 +90,47 @@ NativeIr build_collective_repeat_ir() {
     ir.tokens.append(anchors[idx], anchor.symbol_id, 0, idx, anchor.start_ns,
                      anchor.end_ns);
   }
+  return ir;
+}
+
+NativeIr build_idle_evidence_ir() {
+  NativeIr ir;
+  const SourceRefId source =
+      ir.source_refs.append("fixture", "idle-sidecar", "TASK", 0);
+  ir.streams.append(source, 0, 5);
+  ir.streams.append(source, 0, 7);
+  ir.streams.append(source, 0, 9);
+  const SymbolId ai_core = ir.symbols.intern("AI_CORE");
+  const SymbolId matmul = ir.symbols.intern("MatMul");
+  const SymbolId wait = ir.symbols.intern("EVENT_WAIT");
+  const SymbolId mystery = ir.symbols.intern("MysteryControl");
+  const SymbolId mystery_type = ir.symbols.intern("MYSTERY");
+
+  const auto add_task = [&](std::uint64_t source_row_id,
+                            std::uint32_t stream_id,
+                            std::int64_t start_ns,
+                            std::int64_t end_ns,
+                            SymbolId task_type,
+                            SymbolId op_name) {
+    const TraceEventId event = ir.trace_events.append(
+        source, source_row_id, 0, stream_id, start_ns, end_ns, op_name);
+    ir.tasks.append(source, event, source_row_id, source_row_id, -1, task_type,
+                    op_name, op_name, task_type, SymbolId::invalid());
+    return event;
+  };
+  const TraceEventId first = add_task(11, 5, 100, 200, ai_core, matmul);
+  (void)add_task(12, 7, 200, 300, wait, wait);
+  const TraceEventId second = add_task(13, 5, 400, 500, ai_core, matmul);
+  (void)add_task(14, 9, 300, 350, mystery_type, mystery);
+
+  const AnchorId first_anchor = ir.anchors.append(
+      source, first, ReplayUnitId::invalid(), AnchorKind::kDeviceEvent,
+      matmul, 0, 5, 100, 200);
+  const AnchorId second_anchor = ir.anchors.append(
+      source, second, ReplayUnitId::invalid(), AnchorKind::kDeviceEvent,
+      matmul, 0, 5, 400, 500);
+  ir.tokens.append(first_anchor, matmul, 0, 0, 100, 200);
+  ir.tokens.append(second_anchor, matmul, 0, 1, 400, 500);
   return ir;
 }
 
@@ -480,5 +523,109 @@ int main() {
           4);
 
   std::remove(collective_db_path.c_str());
+
+  const std::string idle_db_path = temp_db_path();
+  NativeIr idle_ir = build_idle_evidence_ir();
+  const SemanticTaskRuleset idle_rules =
+      load_default_idle_evidence_semantic_ruleset();
+  const IdleEvidencePipelineResult idle_pipeline =
+      run_idle_evidence_pipeline(idle_ir, idle_rules);
+  compat::NativeCompatibilitySidecarOptions idle_options;
+  idle_options.db_idx = 9;
+  idle_options.source_kind = "fixture";
+  idle_options.source_path = "idle-sidecar";
+  idle_options.materialize_grammar_report_tree = false;
+  compat::write_basic_native_compatibility_sidecar(
+      idle_db_path, idle_ir, idle_options, &idle_pipeline);
+
+  require(run_scalar_int(idle_db_path,
+                         "SELECT COUNT(*) FROM traceloom_run_metadata") == 1);
+  require(run_scalar_text(idle_db_path,
+                          "SELECT analysis_status FROM "
+                          "traceloom_run_metadata") == "ok");
+  require(run_scalar_text(idle_db_path,
+                          "SELECT collection_status FROM "
+                          "traceloom_run_metadata") == "unknown");
+  require(run_scalar_int(idle_db_path,
+                         "SELECT length(run_id) FROM "
+                         "traceloom_run_metadata") == 64);
+  require(run_scalar_int(idle_db_path,
+                         "SELECT json_valid(metadata_json) FROM "
+                         "traceloom_run_metadata") == 1);
+  require(run_scalar_text(idle_db_path,
+                          "SELECT run_id FROM traceloom_run_metadata") ==
+          sha256_hex(run_scalar_text(
+              idle_db_path,
+              "SELECT metadata_json FROM traceloom_run_metadata")));
+  require(run_scalar_int(idle_db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_device_interval") == 3);
+  require(run_scalar_int(idle_db_path,
+                         "SELECT SUM(duration_ns) FROM "
+                         "traceloom_device_interval") == 400);
+  require(run_scalar_int(idle_db_path,
+                         "SELECT COUNT(*) FROM traceloom_stream_state") == 9);
+  require(run_scalar_int(
+              idle_db_path,
+              "SELECT COUNT(*) FROM traceloom_idle_explanation") == 3);
+  require(run_scalar_int(
+              idle_db_path,
+              "SELECT duration_ns FROM traceloom_idle_explanation "
+              "WHERE category = 'blocked_by_visible_wait'") == 100);
+  require(run_scalar_text(
+              idle_db_path,
+              "SELECT evidence_relation FROM traceloom_idle_explanation "
+              "WHERE category = 'blocked_by_visible_wait'") ==
+          "device_event_coverage");
+  require(run_scalar_text(
+              idle_db_path,
+              "SELECT evidence_level FROM traceloom_idle_explanation "
+              "WHERE category = 'unattributed_visible_idle' LIMIT 1") ==
+          "none");
+  require(run_scalar_int(
+              idle_db_path,
+              "SELECT SUM(duration_ns) FROM traceloom_idle_explanation "
+              "WHERE category = 'unattributed_visible_idle'") == 100);
+  require(run_scalar_int(
+              idle_db_path,
+              "SELECT COUNT(*) FROM traceloom_evidence_link "
+              "WHERE owner_kind = 'explanation' AND source_table = 'TASK' "
+              "AND source_key = '12' AND matched_rule_id = "
+              "'wait.event_wait'") == 1);
+  require(run_scalar_int(
+              idle_db_path,
+              "SELECT COUNT(*) FROM traceloom_evidence_link "
+              "WHERE owner_kind = 'explanation' AND source_key = '14' "
+              "AND relation = 'none' AND evidence_level = 'none' "
+              "AND overlap_start_ns IS NULL AND overlap_end_ns IS NULL") ==
+          1);
+  require(run_scalar_int(
+              idle_db_path,
+              "SELECT COUNT(*) FROM traceloom_idle_explanation e "
+              "LEFT JOIN traceloom_device_interval g "
+              "ON g.interval_id = e.gap_interval_id "
+              "WHERE g.interval_id IS NULL OR "
+              "g.interval_kind != 'visible_productive_idle'") == 0);
+  require(run_scalar_int(
+              idle_db_path,
+              "SELECT SUM(duration_ns) FROM "
+              "traceloom_anchor_idle_explanation") == 200);
+  require(run_scalar_int(
+              idle_db_path,
+              "SELECT COUNT(*) FROM traceloom_node_idle_explanation") > 0);
+  compat::write_basic_native_compatibility_sidecar(idle_db_path, idle_ir,
+                                                    idle_options);
+  require(run_scalar_int(idle_db_path,
+                         "SELECT COUNT(*) FROM traceloom_run_metadata") == 0);
+  require(run_scalar_int(
+              idle_db_path,
+              "SELECT COUNT(*) FROM traceloom_device_interval") == 0);
+  require(run_scalar_int(
+              idle_db_path,
+              "SELECT COUNT(*) FROM traceloom_idle_explanation") == 0);
+  require(run_scalar_int(idle_db_path,
+                         "SELECT COUNT(*) FROM traceloom_evidence_link") ==
+          0);
+  std::remove(idle_db_path.c_str());
   return 0;
 }

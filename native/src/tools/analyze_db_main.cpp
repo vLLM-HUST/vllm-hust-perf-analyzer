@@ -567,10 +567,32 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
         pipeline_options.partition_config.target_tokens_per_partition;
     sidecar_options.timing_diagnostics = cli.timings;
 
+    std::optional<traceloom::IdleEvidencePipelineResult> idle_pipeline;
+    if (!is_cuda && !is_hygon &&
+        (!cli.compat_sidecar_out_path.empty() || cli.loop_tree_out_path_set)) {
+      const Stopwatch idle_evidence_watch;
+      const traceloom::SemanticTaskRuleset idle_ruleset =
+          cli.idle_evidence_rules_path.empty()
+              ? traceloom::load_default_idle_evidence_semantic_ruleset(
+                    cli.executable_path)
+              : traceloom::load_idle_evidence_semantic_ruleset(
+                    cli.idle_evidence_rules_path);
+      // Trace contents cannot attest collection completeness. The main CLI
+      // keeps the default kUnknown and never upgrades observed emptiness into
+      // an absence claim without external collection evidence.
+      idle_pipeline.emplace(
+          traceloom::run_idle_evidence_pipeline(ir, idle_ruleset));
+      if (cli.timings) {
+        std::cerr << "timing idle_evidence_pipeline_ms="
+                  << idle_evidence_watch.elapsed_ms() << "\n";
+      }
+    }
+
     if (!cli.compat_sidecar_out_path.empty()) {
       const Stopwatch sidecar_watch;
       traceloom::compat::write_basic_native_compatibility_sidecar(
-          cli.compat_sidecar_out_path, ir, sidecar_options);
+          cli.compat_sidecar_out_path, ir, sidecar_options,
+          idle_pipeline ? &*idle_pipeline : nullptr);
       if (cli.timings) {
         std::cerr << "timing compat_db_ms="
                   << sidecar_watch.elapsed_ms() << "\n";
@@ -642,21 +664,12 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
       // CUDA and Hygon reports free of Ascend-specific conclusions until each
       // provider supplies and validates its own semantic ruleset.
       if (!is_cuda && !is_hygon) {
-        const Stopwatch idle_evidence_watch;
-        const traceloom::SemanticTaskRuleset idle_ruleset =
-            cli.idle_evidence_rules_path.empty()
-                ? traceloom::load_default_idle_evidence_semantic_ruleset(
-                      cli.executable_path)
-                : traceloom::load_idle_evidence_semantic_ruleset(
-                      cli.idle_evidence_rules_path);
-        // Trace contents cannot attest collection completeness. The main CLI
-        // therefore keeps the default kUnknown, exactly like the real-profile
-        // audit, and never upgrades empty observed streams into an absence
-        // claim without external collection evidence.
-        const traceloom::IdleEvidencePipelineResult idle_pipeline =
-            traceloom::run_idle_evidence_pipeline(ir, idle_ruleset);
+        if (!idle_pipeline.has_value()) {
+          throw std::logic_error(
+              "Ascend Loop Tree idle evidence pipeline was not prepared");
+        }
         const traceloom::IdleExplanationRunResult& idle_explanations =
-            idle_pipeline.idle_explanations;
+            idle_pipeline->idle_explanations;
         markdown_options.has_idle_explanation_summary = true;
         markdown_options.idle_analysis_status =
             traceloom::analysis_status_name(idle_explanations.status);
@@ -796,10 +809,6 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
         constexpr std::size_t kIdleHotspotLimit = 12;
         if (markdown_options.idle_node_hotspots.size() > kIdleHotspotLimit) {
           markdown_options.idle_node_hotspots.resize(kIdleHotspotLimit);
-        }
-        if (cli.timings) {
-          std::cerr << "timing loop_tree_idle_evidence_ms="
-                    << idle_evidence_watch.elapsed_ms() << "\n";
         }
       }
       const Stopwatch loop_tree_render_watch;
