@@ -627,5 +627,43 @@ int main() {
                          "SELECT COUNT(*) FROM traceloom_evidence_link") ==
           0);
   std::remove(idle_db_path.c_str());
+
+  // E3 inspects unknown intervals that E2 intentionally excludes from the
+  // productive projection. A zero-duration unknown therefore makes E3/E4
+  // invalid_input while E2 remains ok. This is an auditable negative result,
+  // not a reason to abort sidecar materialization.
+  const std::string invalid_idle_db_path = temp_db_path();
+  NativeIr invalid_idle_ir = build_idle_evidence_ir();
+  const SourceRefId idle_source(0);
+  const SymbolId point_type = invalid_idle_ir.symbols.intern("POINT_UNKNOWN");
+  const SymbolId point_name = invalid_idle_ir.symbols.intern("UnknownPoint");
+  const TraceEventId point_event = invalid_idle_ir.trace_events.append(
+      idle_source, 15, 0, 9, 250, 250, point_name);
+  invalid_idle_ir.tasks.append(idle_source, point_event, 15, 15, -1,
+                               point_type, point_name, point_name, point_type,
+                               SymbolId::invalid());
+  const IdleEvidencePipelineResult invalid_idle_pipeline =
+      run_idle_evidence_pipeline(invalid_idle_ir, idle_rules);
+  require(invalid_idle_pipeline.productive_timeline.status ==
+              AnalysisStatus::kOk &&
+              invalid_idle_pipeline.stream_states.status ==
+                  AnalysisStatus::kInvalidInput &&
+              invalid_idle_pipeline.idle_explanations.status ==
+                  AnalysisStatus::kInvalidInput,
+          "zero-duration unknown fixture did not exercise E2/E3 status join");
+  compat::write_basic_native_compatibility_sidecar(
+      invalid_idle_db_path, invalid_idle_ir, idle_options,
+      &invalid_idle_pipeline);
+  require(run_scalar_text(invalid_idle_db_path,
+                          "SELECT analysis_status FROM "
+                          "traceloom_run_metadata") == "invalid_input");
+  require(run_scalar_int(invalid_idle_db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_idle_explanation") == 3);
+  require(run_scalar_text(invalid_idle_db_path,
+                          "SELECT json_extract(metadata_json, "
+                          "'$.analysis_status') FROM "
+                          "traceloom_run_metadata") == "invalid_input");
+  std::remove(invalid_idle_db_path.c_str());
   return 0;
 }

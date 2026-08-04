@@ -180,6 +180,12 @@ Two checked-in report queries form the golden audit surface:
   evidence extents, anchor/node references, and root conservation. Its final
   `audit_status` is `PASS` only when every checked invariant holds.
 
+`audit_status` and `analysis_status` answer different questions. `PASS` means
+the materialized tables are internally well formed and conserve their stated
+partition; it does not override `analysis_status=invalid_input` or establish
+collection completeness. A positive semantic result requires both a passing
+audit and an analysis/collection status sufficient for that specific claim.
+
 ## Visualization Structure
 
 ### `traceloom_viz_node`

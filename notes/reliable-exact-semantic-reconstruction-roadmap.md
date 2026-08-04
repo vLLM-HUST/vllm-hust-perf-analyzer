@@ -268,6 +268,14 @@ prelude but contribute no productive duration; only inverted intervals are
 rejected. This prevents valid point events from aborting sidecar materialization
 without weakening duration conservation.
 
+The second TP2 rank establishes a separate negative-result boundary: E2 can
+retain a valid productive projection while E3 rejects damaged unknown point
+events and marks the combined E4 analysis `invalid_input`. Sidecar
+materialization now records that conservative joined status instead of
+requiring every stage status to be identical and aborting. SQL
+`audit_status=PASS` remains table-integrity evidence only; it never promotes an
+`invalid_input` analysis into a positive semantic result.
+
 ## 2026-08-04 Hierarchical Projection And Cost Gate
 
 Exact replay units are now seeded as atomic semantic grammar symbols keyed by

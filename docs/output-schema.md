@@ -68,6 +68,11 @@ These queries are executable goldens: the native SQL compatibility test checks
 their columns and known-good outputs, and deliberately corrupts one idle
 interval to prove the audit changes from `PASS` to `FAIL`.
 
+The idle audit's `PASS` is a sidecar-integrity result, not a replacement for
+`analysis_status` or `collection_status`. Consumers must inspect all three:
+an internally conserved `invalid_input` run remains an auditable negative
+result, not positive semantic evidence.
+
 ## Provenance Contract
 
 Native events and sidecar rows retain source kind, source path, source table,

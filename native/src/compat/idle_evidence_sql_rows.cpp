@@ -82,7 +82,7 @@ std::string build_metadata_json(
   // booleans/null, and minimally escaped UTF-8 strings.
   std::ostringstream out;
   out << "{\"analysis_status\":"
-      << json_string(std::string(analysis_status_name(productive.status)))
+      << json_string(std::string(analysis_status_name(explanations.status)))
       << ",\"attribution_rule_version\":"
       << json_string(explanations.attribution_rule_version)
       << ",\"collection_status\":"
@@ -183,14 +183,24 @@ IdleEvidenceSqlRows build_idle_evidence_sql_rows(
   const ProductiveTimelineRunResult& productive = pipeline.productive_timeline;
   const StreamStateRunResult& streams = pipeline.stream_states;
   const IdleExplanationRunResult& explanations = pipeline.idle_explanations;
-  if (productive.status != streams.status ||
-      productive.status != explanations.status) {
+  // E3 validates every interval-bearing and unknown task, so it can
+  // legitimately degrade to invalid_input even when E2's productive-only
+  // projection remains valid. E4 deliberately carries the conservative join
+  // of those statuses. Reject only a pipeline whose E4 result does not match
+  // that contract; do not turn an auditable invalid-input result into a
+  // materialization failure.
+  const AnalysisStatus expected_status =
+      productive.status == AnalysisStatus::kInvalidInput ||
+              streams.status == AnalysisStatus::kInvalidInput
+          ? AnalysisStatus::kInvalidInput
+          : productive.status;
+  if (explanations.status != expected_status) {
     throw std::invalid_argument(
         "idle evidence pipeline stages disagree on analysis status");
   }
 
   RunMetadataSqlRow metadata;
-  metadata.analysis_status = analysis_status_name(productive.status);
+  metadata.analysis_status = analysis_status_name(explanations.status);
   metadata.contract_version = options.contract_version;
   metadata.semantic_rules_version = productive.semantic_rules_version;
   metadata.semantic_rules_sha256 = productive.semantic_rules_sha256;
