@@ -130,6 +130,10 @@ int main(int argc, char** argv) {
       "start INTEGER, end INTEGER, deviceId INTEGER, streamId INTEGER, "
       "correlationId INTEGER);"
       "INSERT INTO CUPTI_ACTIVITY_KIND_MEMCPY VALUES (86, 89, 0, 7, 10);"
+      "CREATE TABLE CUPTI_ACTIVITY_KIND_CUDA_EVENT("
+      "deviceId INTEGER, contextId INTEGER, streamId INTEGER, "
+      "correlationId INTEGER, eventId INTEGER);"
+      "INSERT INTO CUPTI_ACTIVITY_KIND_CUDA_EVENT VALUES (0, 1, 7, 10, 3);"
       "CREATE TABLE CUPTI_ACTIVITY_KIND_GRAPH_TRACE("
       "start INTEGER, end INTEGER, deviceId INTEGER, streamId INTEGER, "
       "graphId INTEGER);"
@@ -143,7 +147,7 @@ int main(int argc, char** argv) {
   require(inventory.kernel_row_count == 3, "kernel row count mismatch");
   require(inventory.missing_required_kernel_columns.empty(),
           "valid kernel schema was rejected");
-  require(inventory.present_activity_tables.size() == 3 &&
+  require(inventory.present_activity_tables.size() == 4 &&
               inventory.present_activity_tables.front() ==
                   "CUPTI_ACTIVITY_KIND_RUNTIME" &&
               inventory.present_activity_tables.back() ==
@@ -237,10 +241,23 @@ int main(int argc, char** argv) {
     (void)CudaNsightSQLiteAdapter(malformed_path).load();
   });
 
+  const std::string malformed_aux_path = temp_db_path("_malformed_aux");
+  create_db(malformed_aux_path,
+            "CREATE TABLE CUPTI_ACTIVITY_KIND_KERNEL("
+            "start INTEGER, end INTEGER, deviceId INTEGER, streamId INTEGER);"
+            "INSERT INTO CUPTI_ACTIVITY_KIND_KERNEL VALUES (10, 20, 0, 1);"
+            "CREATE TABLE CUPTI_ACTIVITY_KIND_MEMCPY("
+            "end INTEGER, deviceId INTEGER, streamId INTEGER);"
+            "INSERT INTO CUPTI_ACTIVITY_KIND_MEMCPY VALUES (30, 0, 1);");
+  require_throws_with("CUPTI_ACTIVITY_KIND_MEMCPY schema: missing start", [&]() {
+    (void)CudaNsightSQLiteAdapter(malformed_aux_path).load();
+  });
+
   if (!keep_fixture) {
     std::remove(db_path.c_str());
   }
   std::remove(fallback_path.c_str());
   std::remove(malformed_path.c_str());
+  std::remove(malformed_aux_path.c_str());
   return 0;
 }
