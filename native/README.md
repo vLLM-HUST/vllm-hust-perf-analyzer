@@ -112,6 +112,11 @@ available to the compatibility sidecar as child evidence. Missing optional
 tables are valid, while malformed present tables fail with an explicit schema
 error.
 
+Nsight versions that export `CUPTI_ACTIVITY_KIND_CUDA_EVENT` as an
+identity-only lookup table without `start` or `timestamp` keep that table as
+inventory evidence and skip timeline materialization; they do not block timed
+kernel, synchronization, or CUDA Graph evidence from loading.
+
 ## Developer Commands
 
 Build with native tests enabled:
