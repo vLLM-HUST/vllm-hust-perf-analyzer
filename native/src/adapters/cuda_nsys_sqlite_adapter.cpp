@@ -495,6 +495,17 @@ void load_auxiliary_activity_rows(
     const std::string start = first_column(columns, {"start", "timestamp"});
     const std::string end = find_column(columns, "end");
     if (start.empty()) {
+      // Recent Nsight exports can use CUPTI_ACTIVITY_KIND_CUDA_EVENT as an
+      // identity-only lookup table (eventId, device/context/stream) without a
+      // device timestamp. It remains useful inventory evidence, but cannot be
+      // materialized as a timeline event. Do not let that optional metadata
+      // prevent timed kernel, synchronization, or graph evidence from loading.
+      if (std::string(spec.table) == "CUPTI_ACTIVITY_KIND_CUDA_EVENT") {
+        if (options.timing_diagnostics) {
+          std::cerr << "cuda_nsys_metadata_only_table=" << spec.table << "\n";
+        }
+        continue;
+      }
       throw std::runtime_error("unsupported CUDA/Nsight " +
                                std::string(spec.table) +
                                " schema: missing start or timestamp");
