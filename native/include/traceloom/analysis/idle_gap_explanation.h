@@ -99,24 +99,35 @@ struct IdleExplanationSourceLink {
   }
 };
 
+// Proof produced by the host-evidence validation stage. E4 does not refit the
+// clock model or repeat connection resolution, but defensively verifies that
+// proof kind, category, alignment, and source shape agree before emitting an
+// official correlated explanation.
+enum class CorrelatedEvidenceProof {
+  kInvalid,
+  kUniqueExactConnectionRobustDelay,
+  kRobustTemporalOverlap,
+};
+
 // A device-clock interval that has ALREADY passed the contract's upstream
-// robustness gates. E4 accepts only the two correlated official categories:
-// queued delay must be a unique exact-connection robust_delay interval;
-// host sync must be a robust-overlap interval. Candidate-only/uncalibrated
-// observations must never be passed here.
+// robustness gates. The host-evidence validator owns construction of the
+// proof; this public handoff remains defensive against category/source-shape
+// mismatches. Candidate-only/uncalibrated observations must never be passed.
 struct ValidatedCorrelatedEvidenceInterval {
   std::uint32_t device_id = 0;
   std::int64_t start_ns = 0;
   std::int64_t end_ns = 0;
   IdleExplanationCategory category =
       IdleExplanationCategory::kHostSyncApiPresent;
+  CorrelatedEvidenceProof proof = CorrelatedEvidenceProof::kInvalid;
   AlignmentStatus alignment_status = AlignmentStatus::kInvalid;
   std::vector<IdleExplanationSourceLink> source_links;
 };
 
 // Collection completeness is an external attestation, never inferred from
 // trace emptiness. All fields must pass, together with E3's per-device scan
-// completeness, before no_observed_device_work can be emitted.
+// completeness and the absence of device-unattributable run diagnostics,
+// before no_observed_device_work can be emitted.
 struct CollectionCompletenessAttestation {
   CollectionStatus status = CollectionStatus::kUnknown;
   bool all_discovered_device_shards_imported = false;

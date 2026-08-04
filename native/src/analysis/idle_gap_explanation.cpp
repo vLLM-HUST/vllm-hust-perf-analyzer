@@ -60,6 +60,27 @@ bool state_matches_category(StreamState state,
   return false;
 }
 
+bool is_productive_state(StreamState state) {
+  return state == StreamState::kRunningCompute ||
+         state == StreamState::kRunningComm ||
+         state == StreamState::kRunningDataMove;
+}
+
+bool has_productive_component(const StreamStateInterval& interval) {
+  if (is_productive_state(interval.state)) {
+    return true;
+  }
+  if (interval.state != StreamState::kAmbiguousOverlap) {
+    return false;
+  }
+  for (const StreamStateSourceLink& source : interval.source_links) {
+    if (is_productive_state(source.observed_state)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void append_matching_state_sources(
     const StreamStateInterval& interval,
     IdleExplanationCategory category,
@@ -218,6 +239,15 @@ void validate_correlated_evidence(
     throw std::invalid_argument(
         "E4 correlated input may contain only queued-delay or host-sync");
   }
+  const bool queued = evidence.category ==
+                      IdleExplanationCategory::kQueuedVisibleTaskDelay;
+  const CorrelatedEvidenceProof required_proof =
+      queued ? CorrelatedEvidenceProof::kUniqueExactConnectionRobustDelay
+             : CorrelatedEvidenceProof::kRobustTemporalOverlap;
+  if (evidence.proof != required_proof) {
+    throw std::invalid_argument(
+        "correlated evidence proof does not match its category");
+  }
   if ((evidence.alignment_status != AlignmentStatus::kCalibrated &&
        evidence.alignment_status != AlignmentStatus::kSyntheticOnly) ||
       evidence.alignment_status != options.alignment_status) {
@@ -228,19 +258,32 @@ void validate_correlated_evidence(
     throw std::invalid_argument(
         "correlated evidence must preserve at least one source link");
   }
+  const IdleExplanationSourceLink::Kind required_source_kind =
+      queued ? IdleExplanationSourceLink::Kind::kTaskApiLink
+             : IdleExplanationSourceLink::Kind::kHostApi;
+  bool has_required_source = false;
   for (const IdleExplanationSourceLink& source : evidence.source_links) {
     validate_external_source(source);
+    has_required_source =
+        has_required_source || source.kind == required_source_kind;
+  }
+  if (!has_required_source) {
+    throw std::invalid_argument(
+        queued
+            ? "queued-delay evidence requires an exact task-api link source"
+            : "host-sync evidence requires a host API source");
   }
 }
 
 bool absence_claim_allowed(
     const CollectionCompletenessAttestation& collection,
-    const StreamStateDeviceResult& streams) {
+    const StreamStateRunResult& run,
+    const StreamStateDeviceResult& device) {
   return collection.status == CollectionStatus::kComplete &&
          collection.all_discovered_device_shards_imported &&
          collection.all_required_task_tables_readable &&
          collection.no_dropped_events_or_truncated_capture &&
-         streams.observed_universe_scan_complete;
+         device.observed_universe_scan_complete && run.diagnostics.empty();
 }
 
 const StreamStateInterval& interval_covering(
@@ -290,6 +333,11 @@ SliceDecision decide_slice(
     const StreamStateInterval& interval = interval_covering(
         stream_device.timelines[index], &(*stream_cursors)[index], start_ns,
         end_ns);
+    if (has_productive_component(interval)) {
+      throw std::invalid_argument(
+          "E2/E3 semantic mismatch: productive stream state intersects an "
+          "E2 visible gap");
+    }
     all_streams_empty =
         all_streams_empty && interval.state == StreamState::kEmptyObserved;
     append_matching_state_sources(
@@ -402,6 +450,7 @@ void explain_gap(
     const DeviceIntervalRow& gap,
     const StreamStateDeviceResult& stream_device,
     const std::vector<const ValidatedCorrelatedEvidenceInterval*>& device_evidence,
+    const StreamStateRunResult& stream_run,
     const IdleGapExplanationOptions& options,
     std::vector<IdleExplanationRow>* rows) {
   std::vector<std::int64_t> boundaries{gap.start_ns, gap.end_ns};
@@ -443,7 +492,7 @@ void explain_gap(
                    boundaries.end());
 
   const bool allow_absence =
-      absence_claim_allowed(options.collection, stream_device);
+      absence_claim_allowed(options.collection, stream_run, stream_device);
   for (std::size_t index = 0; index + 1 < boundaries.size(); ++index) {
     const std::int64_t start_ns = boundaries[index];
     const std::int64_t end_ns = boundaries[index + 1];
@@ -608,8 +657,8 @@ IdleExplanationRunResult build_idle_gap_explanations(
            index < productive_device.intervals.size(); ++index) {
         const DeviceIntervalRow& interval = productive_device.intervals[index];
         if (interval.kind == DeviceIntervalKind::kVisibleProductiveIdle) {
-          explain_gap(index, interval, stream_device, device_evidence, options,
-                      &result.rows);
+          explain_gap(index, interval, stream_device, device_evidence, streams,
+                      options, &result.rows);
         }
       }
     }

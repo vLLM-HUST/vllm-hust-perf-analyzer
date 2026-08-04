@@ -124,8 +124,10 @@ bool link_less(const StreamStateSourceLink& lhs,
   if (lhs.source_ref_id != rhs.source_ref_id) {
     return lhs.source_ref_id < rhs.source_ref_id;
   }
-  return lhs.matched_rule_id.value_or(std::string()) <
-         rhs.matched_rule_id.value_or(std::string());
+  if (lhs.matched_rule_id != rhs.matched_rule_id) {
+    return lhs.matched_rule_id < rhs.matched_rule_id;
+  }
+  return lhs.observed_state < rhs.observed_state;
 }
 
 // Identity for exact duplicates: same canonical source (kind + trace event),

@@ -100,6 +100,38 @@ CollectionCompletenessAttestation complete_collection() {
   return result;
 }
 
+DeviceTimelineResult gap_device(std::uint32_t device_id,
+                                std::int64_t start_ns = 0,
+                                std::int64_t end_ns = 10) {
+  DeviceTimelineResult result;
+  result.device_id = device_id;
+  result.status = AnalysisStatus::kOk;
+  result.span_start_ns = start_ns;
+  result.span_end_ns = end_ns;
+  result.intervals.push_back(DeviceIntervalRow{
+      start_ns, end_ns, DeviceIntervalKind::kVisibleProductiveIdle, {}});
+  return result;
+}
+
+StreamStateDeviceResult empty_stream_device(std::uint32_t device_id,
+                                            bool scan_complete,
+                                            std::int64_t start_ns = 0,
+                                            std::int64_t end_ns = 10) {
+  StreamStateDeviceResult result;
+  result.device_id = device_id;
+  result.status = AnalysisStatus::kOk;
+  result.span_start_ns = start_ns;
+  result.span_end_ns = end_ns;
+  result.timelines.push_back(
+      timeline(0, {state_interval(start_ns, end_ns,
+                                  StreamState::kEmptyObserved)},
+               start_ns, end_ns));
+  result.timelines.back().device_id = device_id;
+  result.stream_universe_size = 1;
+  result.observed_universe_scan_complete = scan_complete;
+  return result;
+}
+
 bool throws_invalid_argument(const std::function<void()>& fn) {
   try {
     fn();
@@ -202,6 +234,7 @@ int main() {
             10,
             60,
             IdleExplanationCategory::kQueuedVisibleTaskDelay,
+            CorrelatedEvidenceProof::kUniqueExactConnectionRobustDelay,
             AlignmentStatus::kSyntheticOnly,
             {external_source(IdleExplanationSourceLink::Kind::kTaskApiLink,
                              "TASK_API_LINK:1")}});
@@ -211,6 +244,7 @@ int main() {
             0,
             70,
             IdleExplanationCategory::kHostSyncApiPresent,
+            CorrelatedEvidenceProof::kRobustTemporalOverlap,
             AlignmentStatus::kSyntheticOnly,
             {external_source(IdleExplanationSourceLink::Kind::kHostApi,
                              "CANN_API:2")}});
@@ -323,6 +357,65 @@ int main() {
             "complete attestation enables absence");
   }
 
+  // Per-device damage does not poison a healthy sibling device, while
+  // device-unattributable run damage vetoes absence for every device.
+  {
+    ProductiveTimelineRunResult productive;
+    productive.devices.push_back(gap_device(0));
+    productive.devices.push_back(gap_device(1));
+
+    StreamStateRunResult streams;
+    streams.devices.push_back(empty_stream_device(0, true));
+    streams.devices.push_back(empty_stream_device(1, false));
+    streams.stream_universe_size = 2;
+    streams.observed_universe_scan_complete = false;
+
+    IdleGapExplanationOptions options;
+    options.collection = complete_collection();
+    IdleExplanationRunResult run =
+        build_idle_gap_explanations(productive, streams, options);
+    require(run.devices[0].rows[0].category ==
+                IdleExplanationCategory::kNoObservedDeviceWork,
+            "other device damage does not veto healthy device absence");
+    require(run.devices[1].rows[0].category ==
+                IdleExplanationCategory::kUnattributedVisibleIdle,
+            "damaged device cannot claim absence");
+
+    streams.diagnostics.push_back(TimelineDiagnostic{
+        "invalid_trace_event_reference: device cannot be resolved", -1});
+    streams.status = AnalysisStatus::kInvalidInput;
+    run = build_idle_gap_explanations(productive, streams, options);
+    require(run.devices[0].rows[0].category ==
+                IdleExplanationCategory::kUnattributedVisibleIdle,
+            "device-unattributable run damage vetoes healthy device absence");
+  }
+
+  // An E2 gap cannot intersect any E3 productive component. Reject both a
+  // direct productive state and an ambiguous interval containing one.
+  {
+    const ProductiveTimelineRunResult productive = one_gap_productive(0, 10);
+    StreamStateRunResult streams = stream_result(
+        {timeline(0,
+                  {state_interval(0, 10, StreamState::kRunningCompute, 1)},
+                  0, 10)},
+        true, 0, 10);
+    require(throws_invalid_argument([&]() {
+              (void)build_idle_gap_explanations(productive, streams);
+            }),
+            "E2 gap plus E3 running_compute is rejected");
+
+    StreamStateInterval ambiguous{0, 10, StreamState::kAmbiguousOverlap, {}};
+    ambiguous.source_links.push_back(
+        task_source(2, StreamState::kRunningCompute));
+    ambiguous.source_links.push_back(
+        task_source(3, StreamState::kRunningWait));
+    streams = stream_result({timeline(0, {ambiguous}, 0, 10)}, true, 0, 10);
+    require(throws_invalid_argument([&]() {
+              (void)build_idle_gap_explanations(productive, streams);
+            }),
+            "E2 gap plus ambiguous productive component is rejected");
+  }
+
   // Productive intervals never receive explanations; gap linkage uses the
   // source DeviceIntervalRow index and each distinct gap is covered exactly.
   {
@@ -377,6 +470,7 @@ int main() {
             0,
             10,
             IdleExplanationCategory::kHostSyncApiPresent,
+            CorrelatedEvidenceProof::kRobustTemporalOverlap,
             AlignmentStatus::kUncalibrated,
             {external_source(IdleExplanationSourceLink::Kind::kHostApi,
                              "CANN_API:1")}});
@@ -394,6 +488,74 @@ int main() {
               (void)build_idle_gap_explanations(productive, streams, options);
             }),
             "direct category injection rejected");
+
+    options.correlated_evidence[0].category =
+        IdleExplanationCategory::kQueuedVisibleTaskDelay;
+    options.correlated_evidence[0].proof =
+        CorrelatedEvidenceProof::kUniqueExactConnectionRobustDelay;
+    options.correlated_evidence[0].source_links = {
+        external_source(IdleExplanationSourceLink::Kind::kTask, "TASK:1")};
+    require(throws_invalid_argument([&]() {
+              (void)build_idle_gap_explanations(productive, streams, options);
+            }),
+            "queued evidence without task-api link source rejected");
+
+    options.correlated_evidence[0].category =
+        IdleExplanationCategory::kHostSyncApiPresent;
+    options.correlated_evidence[0].proof =
+        CorrelatedEvidenceProof::kUniqueExactConnectionRobustDelay;
+    options.correlated_evidence[0].source_links = {
+        external_source(IdleExplanationSourceLink::Kind::kHostApi,
+                        "CANN_API:1")};
+    require(throws_invalid_argument([&]() {
+              (void)build_idle_gap_explanations(productive, streams, options);
+            }),
+            "category/proof mismatch rejected");
+
+    options.correlated_evidence[0].proof =
+        CorrelatedEvidenceProof::kRobustTemporalOverlap;
+    options.correlated_evidence[0].source_links = {
+        external_source(IdleExplanationSourceLink::Kind::kTaskApiLink,
+                        "TASK_API_LINK:1")};
+    require(throws_invalid_argument([&]() {
+              (void)build_idle_gap_explanations(productive, streams, options);
+            }),
+            "host-sync evidence without host API source rejected");
+  }
+
+  // Host synchronization evidence cannot invent a gap when the E2 span is
+  // fully productive (the contract's host-wait/zero-visible-idle boundary).
+  {
+    ProductiveTimelineRunResult productive;
+    DeviceTimelineResult productive_device;
+    productive_device.device_id = 0;
+    productive_device.status = AnalysisStatus::kOk;
+    productive_device.span_start_ns = 0;
+    productive_device.span_end_ns = 10;
+    productive_device.intervals.push_back(DeviceIntervalRow{
+        0, 10, DeviceIntervalKind::kProductiveActive, {}});
+    productive.devices.push_back(std::move(productive_device));
+    const StreamStateRunResult streams = stream_result(
+        {timeline(0,
+                  {state_interval(0, 10, StreamState::kRunningCompute, 1)},
+                  0, 10)},
+        true, 0, 10);
+    IdleGapExplanationOptions options;
+    options.alignment_status = AlignmentStatus::kCalibrated;
+    options.correlated_evidence.push_back(
+        ValidatedCorrelatedEvidenceInterval{
+            0,
+            0,
+            10,
+            IdleExplanationCategory::kHostSyncApiPresent,
+            CorrelatedEvidenceProof::kRobustTemporalOverlap,
+            AlignmentStatus::kCalibrated,
+            {external_source(IdleExplanationSourceLink::Kind::kHostApi,
+                             "CANN_API:host_wait")}});
+    const IdleExplanationRunResult run =
+        build_idle_gap_explanations(productive, streams, options);
+    require(run.devices.size() == 1 && run.devices[0].rows.empty(),
+            "fully productive span stays explanation-free despite host wait");
   }
 
   // Non-ok stage results propagate without inventing rows.
