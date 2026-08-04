@@ -62,7 +62,8 @@ int main() {
   std::ostringstream out;
   write_loop_tree_markdown(out, rows, options);
   const std::string markdown = out.str();
-  require(markdown.find("## ACLGraph Reconstruction") != std::string::npos);
+  require(markdown.find("## Graph Replay Reconstruction") !=
+          std::string::npos);
   require(markdown.find("- regions: `3` (`1` recognized, `2` unrecognized)") !=
           std::string::npos);
   require(markdown.find("- replay_units: `1` (`1` exact, `0` legacy)") !=
@@ -90,8 +91,8 @@ int main() {
   empty_options.source_path = "profile.db";
   std::ostringstream empty_out;
   write_loop_tree_markdown(empty_out, rows, empty_options);
-  require(empty_out.str().find("## ACLGraph Reconstruction") ==
-          std::string::npos);
+  require(empty_out.str().find("## Graph Replay Reconstruction") ==
+              std::string::npos);
   require(empty_out.str().find("## Visible Productive Idle Evidence") ==
           std::string::npos);
 

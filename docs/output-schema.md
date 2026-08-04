@@ -19,6 +19,10 @@ The report contains the compressed execution tree, occurrence and repeat
 counts, total wall-clock cost, per-occurrence/per-iteration averages, compute,
 communication, idle, active, auxiliary, and self-cost columns.
 
+When graph evidence is available, the provider-neutral `Graph Replay
+Reconstruction` section summarizes recognized and typed unrecognized regions
+plus exact and legacy ReplayUnit counts for ACLGraph or CUDA Graph inputs.
+
 Ascend reports also contain a `Visible Productive Idle Evidence` section. It
 is the device-level E1→E4 explanation partition: profiler-visible wait,
 capture/control, runtime-control, and explicit unattributed residual. The

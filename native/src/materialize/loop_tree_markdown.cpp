@@ -295,7 +295,7 @@ void write_loop_tree_markdown(std::ostream& out,
   out << "- anchor_count: `" << options.anchor_count << "`\n";
 
   if (options.replay_composition_region_count != 0) {
-    out << "\n## ACLGraph Reconstruction\n\n";
+    out << "\n## Graph Replay Reconstruction\n\n";
     out << "- regions: `" << options.replay_composition_region_count
         << "` (`" << options.recognized_replay_composition_region_count
         << "` recognized, `"
