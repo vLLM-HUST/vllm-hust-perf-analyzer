@@ -62,6 +62,16 @@ int main() {
   ir.replay_composition_slots.append(composition, 0, captured_instance,
                                      slot_template, body_template,
                                      ReplayCompositionSlotRole::kHead, 9001);
+  const ReplayCompositionCandidateId single_graph_composition =
+      ir.replay_composition_candidates.append(
+          source, 0, graph_launch, graph_launch, 3, 0, 1, 3, 0, 67891,
+          ReplayCompositionIdentityPolicy::kCapturedGraphInstance,
+          ReplayCompositionOrderPolicy::kHostSubmissionOrder,
+          ReplayCompositionShapePolicy::kSingleGraph,
+          ReplayCompositionBoundaryPolicy::kExactPeriodicSuffix);
+  ir.replay_composition_slots.append(
+      single_graph_composition, 0, captured_instance, slot_template,
+      body_template, ReplayCompositionSlotRole::kGraph, -1);
   ir.replay_composition_regions.append(
       composition, 0, graph_launch, graph_launch, 0, 10, 1, 1,
       ReplayCompositionRegionStatus::kRecognizedCompletePattern);
@@ -178,11 +188,11 @@ int main() {
   require(json.find(
               "\"graph_launch_activity_unmatched_host_execute_count\": 0") !=
           std::string::npos);
-  require(json.find("\"replay_composition_candidate_count\": 1") !=
+  require(json.find("\"replay_composition_candidate_count\": 2") !=
           std::string::npos);
-  require(json.find("\"replay_composition_body_confirmed_count\": 1") !=
+  require(json.find("\"replay_composition_body_confirmed_count\": 2") !=
           std::string::npos);
-  require(json.find("\"replay_composition_slot_count\": 1") !=
+  require(json.find("\"replay_composition_slot_count\": 2") !=
           std::string::npos);
   require(json.find("\"replay_composition_region_count\": 7") !=
           std::string::npos);
@@ -233,6 +243,9 @@ int main() {
   require(json.find("\"shape_policy\": \"head_repeated_layer_tail\"") !=
           std::string::npos);
   require(json.find("\"role\": \"head\"") != std::string::npos);
+  require(json.find("\"shape_policy\": \"single_graph\"") !=
+          std::string::npos);
+  require(json.find("\"role\": \"graph\"") != std::string::npos);
   require(json.find("\"replay_composition_regions\": [") !=
           std::string::npos);
   require(json.find("\"replay_composition_region_members\": [") !=
