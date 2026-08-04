@@ -1,19 +1,16 @@
 #include "traceloom/compat/native_sidecar_materializer.h"
 
-#include <algorithm>
 #include <chrono>
-#include <cstdint>
 #include <exception>
 #include <iostream>
 #include <string>
-#include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 #include "traceloom/compat/anchor_cost_breakdown_rows.h"
 #include "traceloom/compat/anchor_sequence_rows.h"
 #include "traceloom/compat/aux_attribution_rows.h"
 #include "traceloom/compat/collective_tag_rows.h"
+#include "traceloom/compat/native_graph_replay_rows.h"
 #include "traceloom/compat/report_tree_rows.h"
 #include "traceloom/compat/sidecar_writer.h"
 #include "traceloom/compat/timeline_rows.h"
@@ -49,137 +46,6 @@ std::string basename_or_default(const std::string& path,
   }
   const std::string value = path.substr(pos + 1);
   return value.empty() ? fallback : value;
-}
-
-double ns_to_us(std::int64_t ns) {
-  return static_cast<double>(ns) / 1000.0;
-}
-
-GraphReplayEvidenceSqlRows build_native_graph_replay_evidence_rows(
-    const NativeIr& ir,
-    const NativeCompatibilitySidecarOptions& options) {
-  GraphReplayEvidenceSqlRows rows;
-  std::uint32_t envelope_idx = 0;
-  std::unordered_map<std::uint32_t, std::vector<const TraceEventRow*>>
-      events_by_device;
-  std::unordered_set<TraceEventId::value_type> replay_event_ids;
-  for (const TraceEventRow& event : ir.trace_events.rows()) {
-    events_by_device[event.device_id].push_back(&event);
-  }
-  for (auto& entry : events_by_device) {
-    std::sort(entry.second.begin(), entry.second.end(),
-              [](const TraceEventRow* lhs, const TraceEventRow* rhs) {
-                if (lhs->start_ns != rhs->start_ns) {
-                  return lhs->start_ns < rhs->start_ns;
-                }
-                if (lhs->end_ns != rhs->end_ns) {
-                  return lhs->end_ns < rhs->end_ns;
-                }
-                return lhs->id.value() < rhs->id.value();
-              });
-  }
-  for (const ReplayUnitRow& replay_unit : ir.replay_units.rows()) {
-    if (replay_unit.launch_trace_event_id.valid()) {
-      replay_event_ids.insert(replay_unit.launch_trace_event_id.value());
-    }
-  }
-
-  for (const ReplayUnitRow& replay_unit : ir.replay_units.rows()) {
-    if (!replay_unit.launch_trace_event_id.valid() ||
-        replay_unit.launch_trace_event_id.value() >= ir.trace_events.size()) {
-      continue;
-    }
-    const TraceEventRow& graph_event =
-        ir.trace_events.row(replay_unit.launch_trace_event_id);
-    const GraphTemplateRow& graph_template =
-        ir.graph_templates.row(replay_unit.graph_template_id);
-    const std::string graph_event_id =
-        trace_event_compat_id(graph_event.id);
-    const std::string graph_id =
-        std::to_string(graph_template.body_sequence_hash);
-    const std::string graph_exec_id =
-        "native-graph-template-" +
-        std::to_string(replay_unit.graph_template_id.value());
-
-    GraphReplaySqlRow replay;
-    replay.graph_event_id = graph_event_id;
-    replay.db_idx = options.db_idx;
-    replay.device_id = graph_event.device_id;
-    replay.graph_provider = options.source_kind == "cuda_nsys_sqlite"
-                                ? "cuda"
-                                : options.source_kind;
-    replay.graph_kind = replay.graph_provider + "_graph_replay";
-    replay.graph_event_idx = replay_unit.id.value();
-    replay.event_id = graph_event_id;
-    replay.step_idx = graph_event.id.value();
-    replay.stream_id = graph_event.stream_id;
-    replay.graph_id = graph_id;
-    replay.graph_exec_id = graph_exec_id;
-    replay.start_ns = graph_event.start_ns;
-    replay.end_ns = graph_event.end_ns;
-    replay.dur_us = ns_to_us(graph_event.end_ns - graph_event.start_ns);
-
-    const auto device_events = events_by_device.find(graph_event.device_id);
-    if (device_events == events_by_device.end()) {
-      rows.graph_replays.push_back(std::move(replay));
-      continue;
-    }
-    auto child_it = std::lower_bound(
-        device_events->second.begin(), device_events->second.end(),
-        graph_event.start_ns,
-        [](const TraceEventRow* event, std::int64_t start_ns) {
-          return event->start_ns < start_ns;
-        });
-    for (; child_it != device_events->second.end() &&
-           (*child_it)->start_ns <= graph_event.end_ns;
-         ++child_it) {
-      const TraceEventRow& child = **child_it;
-      if (replay_event_ids.find(child.id.value()) != replay_event_ids.end() ||
-          child.end_ns > graph_event.end_ns) {
-        continue;
-      }
-      const SourceRefRow& child_source = ir.source_refs.row(child.source_ref_id);
-      const bool is_kernel =
-          child_source.table_name == "CUPTI_ACTIVITY_KIND_KERNEL";
-      ++replay.enclosed_event_count;
-      replay.enclosed_event_us += ns_to_us(child.end_ns - child.start_ns);
-      if (is_kernel) {
-        ++replay.enclosed_kernel_count;
-        replay.enclosed_kernel_us += ns_to_us(child.end_ns - child.start_ns);
-      }
-
-      GraphEnvelopeSqlRow envelope;
-      envelope.envelope_id =
-          "native-graph-envelope-" + std::to_string(envelope_idx);
-      envelope.db_idx = options.db_idx;
-      envelope.device_id = graph_event.device_id;
-      envelope.graph_provider = replay.graph_provider;
-      envelope.graph_kind = replay.graph_kind;
-      envelope.envelope_idx = envelope_idx++;
-      envelope.graph_event_id = graph_event_id;
-      envelope.child_event_id = trace_event_compat_id(child.id);
-      envelope.graph_step_idx = graph_event.id.value();
-      envelope.child_step_idx = child.id.value();
-      envelope.relation = "contains";
-      envelope.stream_relation =
-          graph_event.stream_id == child.stream_id ? "same_stream"
-                                                    : "cross_stream";
-      envelope.graph_id = graph_id;
-      envelope.graph_exec_id = graph_exec_id;
-      envelope.graph_start_ns = graph_event.start_ns;
-      envelope.graph_end_ns = graph_event.end_ns;
-      envelope.child_start_ns = child.start_ns;
-      envelope.child_end_ns = child.end_ns;
-      envelope.start_offset_us =
-          ns_to_us(child.start_ns - graph_event.start_ns);
-      envelope.end_offset_us =
-          ns_to_us(graph_event.end_ns - child.end_ns);
-      envelope.child_dur_us = ns_to_us(child.end_ns - child.start_ns);
-      rows.graph_envelopes.push_back(std::move(envelope));
-    }
-    rows.graph_replays.push_back(std::move(replay));
-  }
-  return rows;
 }
 
 ReportTree build_sidecar_report_tree(
@@ -286,6 +152,8 @@ void write_basic_native_compatibility_sidecar(
       {"source_path", options.source_path},
       {"trace_event_count", std::to_string(ir.trace_events.size())},
       {"anchor_count", std::to_string(ir.anchors.size())},
+      {"graph_template_count", std::to_string(ir.graph_templates.size())},
+      {"replay_unit_count", std::to_string(ir.replay_units.size())},
   };
 
   replace_metadata_rows(sqlite_path, metadata);
@@ -294,6 +162,10 @@ void write_basic_native_compatibility_sidecar(
                         split_timeline_event_sql_rows(event_rows));
   replace_event_source_rows(sqlite_path,
                             split_source_lineage_sql_rows(event_rows));
+  replace_graph_replay_evidence_rows(
+      sqlite_path,
+      build_native_graph_replay_evidence_sql_rows(
+          ir, options.source_kind, options.db_idx));
   const std::vector<AnchorSqlRow> anchor_rows =
       build_anchor_sequence_sql_rows(ir, options.db_idx);
   replace_anchor_rows(sqlite_path, anchor_rows);
@@ -315,9 +187,6 @@ void write_basic_native_compatibility_sidecar(
   const NodeAnchorCoverageSqlRows coverage_rows =
       split_node_anchor_coverage_sql_rows(node_rows);
   replace_node_anchor_coverage_rows(sqlite_path, coverage_rows);
-  replace_graph_replay_evidence_rows(
-      sqlite_path, build_native_graph_replay_evidence_rows(ir, options));
-
   if (options.materialize_collective_tags) {
     CollectiveTagMemberInput member;
     member.db_name = options.collective_db_name.empty()

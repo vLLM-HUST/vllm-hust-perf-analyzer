@@ -91,6 +91,33 @@ NativeIr build_collective_repeat_ir() {
   return ir;
 }
 
+NativeIr build_graph_replay_ir() {
+  NativeIr ir;
+  const SourceRefId task_source =
+      ir.source_refs.append("fixture", "graph", "TASK", 0);
+  const SourceRefId graph_source = ir.source_refs.append(
+      "fixture", "graph", "ACLGRAPH_REPLAY_UNIT", 0);
+  const SymbolId ai_core = ir.symbols.intern("AI_CORE");
+  const SymbolId matmul = ir.symbols.intern("MatMul");
+  const SymbolId graph = ir.symbols.intern("GraphReplayUnit T1");
+
+  const TraceEventId first =
+      ir.trace_events.append(task_source, 11, 0, 7, 1100, 1600, ai_core);
+  ir.tasks.append(task_source, first, 1, 1, 101, ai_core, matmul, matmul,
+                  ai_core, SymbolId::invalid());
+  const TraceEventId second =
+      ir.trace_events.append(task_source, 12, 0, 8, 1500, 2100, ai_core);
+  ir.tasks.append(task_source, second, 2, 2, 102, ai_core, matmul, matmul,
+                  ai_core, SymbolId::invalid());
+  const TraceEventId launch =
+      ir.trace_events.append(graph_source, 1, 0, 7, 1000, 2000, graph);
+  const GraphTemplateId graph_template =
+      ir.graph_templates.append(graph_source, 12345, 2);
+  ir.replay_units.append(graph_template, graph_source, AnchorId::invalid(),
+                         AnchorId::invalid(), launch);
+  return ir;
+}
+
 }  // namespace
 
 int main() {
@@ -121,7 +148,7 @@ int main() {
   compat::write_basic_native_compatibility_sidecar(db_path, ir, options);
 
   require(run_scalar_int(db_path,
-                         "SELECT COUNT(*) FROM traceloom_metadata") == 6);
+                         "SELECT COUNT(*) FROM traceloom_metadata") == 8);
   require(run_scalar_text(db_path,
                           "SELECT value FROM traceloom_metadata "
                           "WHERE key = 'native_compatibility_materializer'") ==
@@ -179,6 +206,51 @@ int main() {
                          "traceloom_collective_global_link") == 0);
 
   std::remove(db_path.c_str());
+
+  const std::string graph_db_path = temp_db_path();
+  compat::NativeCompatibilitySidecarOptions graph_options;
+  graph_options.db_idx = 4;
+  graph_options.source_kind = "fixture";
+  graph_options.source_path = "graph-smoke";
+  compat::write_basic_native_compatibility_sidecar(
+      graph_db_path, build_graph_replay_ir(), graph_options);
+  require(run_scalar_int(graph_db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_cuda_graph_replay") == 1);
+  require(run_scalar_text(graph_db_path,
+                          "SELECT graph_provider FROM "
+                          "traceloom_cuda_graph_replay") == "aclgraph");
+  require(run_scalar_text(graph_db_path,
+                          "SELECT graph_id FROM "
+                          "traceloom_cuda_graph_replay") ==
+          "aclgraph-template-0");
+  require(run_scalar_int(graph_db_path,
+                         "SELECT enclosed_event_count FROM "
+                         "traceloom_cuda_graph_replay") == 2);
+  require(run_scalar_int(graph_db_path,
+                         "SELECT enclosed_kernel_count FROM "
+                         "traceloom_cuda_graph_replay") == 2);
+  require(run_scalar_int(graph_db_path,
+                         "SELECT json_extract(raw_json, "
+                         "'$.capture_group_size') FROM "
+                         "traceloom_cuda_graph_replay") == 2);
+  require(run_scalar_int(graph_db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_cuda_graph_envelope") == 2);
+  require(run_scalar_int(graph_db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_cuda_graph_envelope "
+                         "WHERE relation = 'time_overlap'") == 1);
+  require(run_scalar_int(graph_db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_cuda_graph_envelope e "
+                         "LEFT JOIN traceloom_event c "
+                         "ON c.event_id = e.child_event_id "
+                         "WHERE c.event_id IS NULL") == 0);
+  require(run_scalar_text(graph_db_path,
+                          "SELECT value FROM traceloom_metadata "
+                          "WHERE key = 'replay_unit_count'") == "1");
+  std::remove(graph_db_path.c_str());
 
   const std::string collective_db_path = temp_db_path();
   compat::NativeCompatibilitySidecarOptions collective_options;

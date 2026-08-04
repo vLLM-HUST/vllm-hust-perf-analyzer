@@ -53,7 +53,6 @@ struct AscendLoadTiming {
   double string_ids_ms = 0.0;
   double compute_info_ms = 0.0;
   double cann_api_metadata_ms = 0.0;
-  double aclgraph_execute_launches_ms = 0.0;
   double communication_task_info_ms = 0.0;
   double task_rows_ms = 0.0;
   double communication_op_rows_ms = 0.0;
@@ -70,8 +69,6 @@ void print_load_timing(const AscendLoadTiming& timing) {
             << "\n";
   std::cerr << "timing load_cann_api_metadata_ms="
             << timing.cann_api_metadata_ms << "\n";
-  std::cerr << "timing load_aclgraph_execute_launches_ms="
-            << timing.aclgraph_execute_launches_ms << "\n";
   std::cerr << "timing load_communication_task_info_ms="
             << timing.communication_task_info_ms << "\n";
   std::cerr << "timing load_task_rows_ms=" << timing.task_rows_ms << "\n";
@@ -627,7 +624,7 @@ std::vector<GraphReplayUnitView> split_rows_by_execute_waves(
     const std::vector<GraphTaskView>& rows,
     const std::vector<GraphLaunchView>& launches,
     std::uint32_t capture_group_size) {
-  if (rows.empty() || capture_group_size <= 1 ||
+  if (rows.empty() || capture_group_size == 0 ||
       launches.size() < capture_group_size ||
       launches.size() % capture_group_size != 0) {
     return {};
@@ -678,14 +675,12 @@ std::vector<GraphReplayUnitView> split_rows_by_execute_waves(
     if (unit.rows.empty()) {
       continue;
     }
-    const std::size_t launch_index = wave * group_size;
+    // Host launches identify wave membership. The replay interval itself is a
+    // device-side TASK envelope; including the next launch or the host API
+    // would turn scheduler gaps and launch overhead into graph execution cost.
     unit.has_window = true;
-    unit.start_ns = ordered_launches[launch_index].start_ns;
-    if (wave + 1 < wave_count) {
-      unit.end_ns = ordered_launches[(wave + 1) * group_size].start_ns;
-    } else {
-      unit.end_ns = ordered_launches.back().end_ns;
-    }
+    unit.start_ns = unit.rows.front().event->start_ns;
+    unit.end_ns = unit.rows.front().event->end_ns;
     for (const GraphTaskView& row : unit.rows) {
       unit.start_ns = std::min(unit.start_ns, row.event->start_ns);
       unit.end_ns = std::max(unit.end_ns, row.event->end_ns);
@@ -696,6 +691,38 @@ std::vector<GraphReplayUnitView> split_rows_by_execute_waves(
     out.push_back(std::move(unit));
   }
   return out;
+}
+
+std::vector<GraphLaunchView> device_backed_execute_launches(
+    const std::vector<GraphLaunchView>& launches,
+    const std::vector<GraphTaskView>& model_executes,
+    std::uint32_t capture_group_size) {
+  if (launches.empty() || model_executes.empty() || capture_group_size == 0) {
+    return launches;
+  }
+  std::unordered_set<std::int64_t> device_connections;
+  device_connections.reserve(model_executes.size());
+  for (const GraphTaskView& model_execute : model_executes) {
+    if (model_execute.task->raw_connection_id >= 0) {
+      device_connections.insert(model_execute.task->raw_connection_id);
+    }
+  }
+  std::vector<GraphLaunchView> matched;
+  matched.reserve(launches.size());
+  for (const GraphLaunchView& launch : launches) {
+    if (device_connections.find(launch.connection_id) !=
+        device_connections.end()) {
+      matched.push_back(launch);
+    }
+  }
+  // Some profiles retain trailing aclmdlRIExecuteAsync host calls without a
+  // corresponding device MODEL_EXECUTE. Prefer correlation-backed launches
+  // only when they still form complete capture groups.
+  if (matched.size() >= capture_group_size &&
+      matched.size() % capture_group_size == 0) {
+    return matched;
+  }
+  return launches;
 }
 
 std::vector<std::int64_t> control_boundaries(
@@ -1517,23 +1544,33 @@ AclGraphCaptureInfo load_aclgraph_capture_info(
     return out;
   }
   SqliteDb db(stream_info_path);
-  if (!table_has_column(db, "CaptureStreamInfo", "model_stream_id")) {
+  const bool has_stream_id =
+      table_has_column(db, "CaptureStreamInfo", "stream_id");
+  const bool has_model_stream_id =
+      table_has_column(db, "CaptureStreamInfo", "model_stream_id");
+  if (!has_stream_id && !has_model_stream_id) {
     return out;
   }
+  // CANN 9 exports the model-side stream as stream_id; older fixtures and
+  // profiler versions used model_stream_id for the same field.
+  const std::string model_stream_column =
+      has_stream_id ? "stream_id" : "model_stream_id";
   const bool has_model_id =
       table_has_column(db, "CaptureStreamInfo", "model_id");
   const bool has_original_stream_id =
       table_has_column(db, "CaptureStreamInfo", "original_stream_id");
-  const char* kSql =
-      "SELECT device_id, model_id, original_stream_id, model_stream_id "
-      "FROM CaptureStreamInfo "
-      "ORDER BY device_id, model_id, model_stream_id";
-  const char* kLegacySql =
-      "SELECT device_id, model_stream_id "
-      "FROM CaptureStreamInfo "
-      "ORDER BY device_id, model_stream_id";
-  SqliteStmt stmt(db.get(),
-                  has_model_id && has_original_stream_id ? kSql : kLegacySql);
+  const std::string quoted_model_stream_column =
+      quote_identifier(model_stream_column);
+  const std::string sql =
+      has_model_id && has_original_stream_id
+          ? "SELECT device_id, model_id, original_stream_id, " +
+                quoted_model_stream_column + " FROM CaptureStreamInfo " +
+                "ORDER BY device_id, model_id, " +
+                quoted_model_stream_column
+          : "SELECT device_id, " + quoted_model_stream_column +
+                " FROM CaptureStreamInfo ORDER BY device_id, " +
+                quoted_model_stream_column;
+  SqliteStmt stmt(db.get(), sql.c_str());
   std::set<std::uint64_t> model_ids;
   std::set<std::uint64_t> original_stream_ids;
   while (true) {
@@ -1669,11 +1706,12 @@ void materialize_aclgraph_replay_units(
       controls_with_symbol_set(control_rows, graph_symbols.model_execute);
 
   std::vector<GraphReplayUnitView> units;
-  bool used_execute_waves = false;
   if (!execute_launches.empty()) {
-    units = split_rows_by_execute_waves(model_rows, execute_launches,
+    const std::vector<GraphLaunchView> device_launches =
+        device_backed_execute_launches(execute_launches, model_execute_rows,
+                                       capture_group_size);
+    units = split_rows_by_execute_waves(model_rows, device_launches,
                                         capture_group_size);
-    used_execute_waves = !units.empty();
   }
 
   static constexpr std::int64_t kGapNs = 5'000'000;
@@ -1741,18 +1779,6 @@ void materialize_aclgraph_replay_units(
     }
     windows.push_back(ReplayUnitWindow{start_ns, end_ns});
   }
-  if (!used_execute_waves) {
-    for (std::size_t index = 0; index + 1 < windows.size(); ++index) {
-      if (windows[index].end_ns <= 0 || windows[index + 1].start_ns <= 0) {
-        continue;
-      }
-      const std::int64_t gap =
-          windows[index + 1].start_ns - windows[index].end_ns;
-      if (gap > 0 && gap <= kGapNs) {
-        windows[index].end_ns = windows[index + 1].start_ns;
-      }
-    }
-  }
 
   std::map<std::string, GraphTemplateId> templates_by_signature;
   for (std::size_t unit_index = 0; unit_index < units.size(); ++unit_index) {
@@ -1785,7 +1811,8 @@ void materialize_aclgraph_replay_units(
     auto template_found = templates_by_signature.find(signature);
     GraphTemplateId graph_template;
     if (template_found == templates_by_signature.end()) {
-      graph_template = ir.graph_templates.append(source_ref, hash, 0);
+      graph_template =
+          ir.graph_templates.append(source_ref, hash, capture_group_size);
       templates_by_signature.emplace(signature, graph_template);
     } else {
       graph_template = template_found->second;

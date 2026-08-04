@@ -76,6 +76,12 @@ void require_aclgraph_sidecar(const std::string& path) {
   traceloom::testing::require(
       run_scalar_int(path,
                      "SELECT COUNT(*) FROM traceloom_cuda_graph_envelope") > 0);
+  traceloom::testing::require(run_scalar_int(
+                                  path,
+                                  "SELECT COUNT(*) FROM "
+                                  "traceloom_cuda_graph_replay WHERE "
+                                  "graph_provider != 'aclgraph' OR "
+                                  "NOT json_valid(raw_json)") == 0);
   traceloom::testing::require(
       run_scalar_int(path,
                      "SELECT COUNT(*) FROM traceloom_cuda_graph_envelope ge "
@@ -101,6 +107,19 @@ void require_cuda_sidecar(const std::string& path) {
   traceloom::testing::require(
       run_scalar_int(path,
                      "SELECT COUNT(*) FROM traceloom_cuda_graph_envelope") > 0);
+  traceloom::testing::require(run_scalar_int(
+                                  path,
+                                  "SELECT COUNT(*) FROM "
+                                  "traceloom_cuda_graph_replay WHERE "
+                                  "graph_provider != 'cuda' OR "
+                                  "NOT json_valid(raw_json)") == 0);
+  traceloom::testing::require(run_scalar_int(
+                                  path,
+                                  "SELECT COUNT(*) FROM "
+                                  "traceloom_cuda_graph_envelope ge "
+                                  "LEFT JOIN traceloom_event e ON "
+                                  "e.event_id = ge.child_event_id "
+                                  "WHERE e.event_id IS NULL") == 0);
   traceloom::testing::require(run_scalar_int(
                                   path,
                                   "SELECT COUNT(*) FROM traceloom_event "

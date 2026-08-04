@@ -82,6 +82,14 @@ Important columns:
 - `start_ns`, `end_ns`, `dur_us`.
 - `enclosed_event_count`, `enclosed_kernel_count`: best-effort envelope counts.
 
+For native ACLGraph reconstruction, host-side `aclmdlRIExecuteAsync` rows are
+used only to partition complete replay waves. The reported interval is the
+device-side `TASK` envelope, so host launch overhead and inter-wave gaps do not
+inflate graph execution cost. When `MODEL_EXECUTE.connectionId` evidence is
+available, host launches without a matching device execution are excluded.
+`raw_json` records the reconstruction mode, template hash, and recovered
+capture-group size.
+
 ### `traceloom_cuda_graph_envelope`
 
 Best-effort links from a graph replay event to visible TraceLoom events
@@ -99,6 +107,10 @@ Important columns:
 - `relation`: `time_contained`, `time_overlap`, or `post_replay_segment`.
 - `start_offset_us`, `end_offset_us`: child timing relative to graph replay
   start.
+
+Native ACLGraph envelope `raw_json` retains the child's `SourceRef` and source
+row identifiers so every overlap relation can be drilled back to profiler
+evidence.
 
 ## Visualization Structure
 
