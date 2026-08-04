@@ -20,6 +20,20 @@ struct IdleExplanationSummaryCount {
   std::uint64_t duration_ns = 0;
 };
 
+struct IdleExplanationNodeHotspot {
+  std::string node_id;
+  std::string label;
+  std::string kind;
+  std::uint64_t attributed_ns = 0;
+  std::uint64_t direct_ns = 0;
+  std::uint64_t wait_ns = 0;
+  std::uint64_t capture_control_ns = 0;
+  std::uint64_t runtime_control_ns = 0;
+  std::uint64_t no_observed_work_ns = 0;
+  std::uint64_t unattributed_ns = 0;
+  double average_attributed_ns = 0.0;
+};
+
 struct LoopTreeMarkdownOptions {
   std::string db_label;
   std::string source_kind = "native_ir";
@@ -42,6 +56,9 @@ struct LoopTreeMarkdownOptions {
   std::uint64_t visible_productive_idle_ns = 0;
   std::uint64_t direct_explained_idle_ns = 0;
   std::vector<IdleExplanationSummaryCount> idle_explanation_counts;
+  std::uint64_t anchor_prelude_attributed_idle_ns = 0;
+  std::uint64_t device_only_unassigned_idle_ns = 0;
+  std::vector<IdleExplanationNodeHotspot> idle_node_hotspots;
 };
 
 void write_loop_tree_markdown(

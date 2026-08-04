@@ -32,6 +32,14 @@ This section is intentionally separate from the tree's compatibility
 the former is a device-global productive-gap partition and may include visible
 wait/control tasks. They must not be substituted for one another.
 
+The `Anchor-Prelude Attribution` subsection intersects E4 slices with the same
+disjoint prelude windows used by Loop Tree cost packets, then aggregates those
+intersections through existing node/anchor coverage. It reports the exact
+device-only residual rather than forcing uncovered time onto a node. Hotspot
+rows are hierarchical: a parent's duration includes its descendants, so
+parent and child rows are not additive. Nanosecond fields are authoritative;
+microsecond fields are readable rounded summaries.
+
 ## Explicit Native Artifacts
 
 Use `traceloom --help-advanced` for non-default outputs:

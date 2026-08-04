@@ -153,6 +153,13 @@ not portable performance guarantees. An indexed interval lookup reduced E4
 from 18,009 ms to 640 ms on the larger profile without changing any category,
 boundary, duration, or lineage result.
 
+The production Loop Tree attribution pass conservatively maps only exact
+intersections with disjoint anchor-prelude windows. On
+`AJJGNKPPJMEGGLFA`/device 0 it attributes 65,097,292,403 of
+65,097,292,443 visible-gap nanoseconds; the remaining 40 ns stays explicitly
+device-only. Node hotspot rows aggregate through the existing anchor coverage
+graph and are hierarchical, so parent and child values are not additive.
+
 ## Re-run
 
 ```bash

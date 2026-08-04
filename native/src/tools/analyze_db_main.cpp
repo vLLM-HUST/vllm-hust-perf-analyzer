@@ -8,6 +8,7 @@
 #include <iomanip>
 #include <iostream>
 #include <map>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -23,7 +24,9 @@
 #include "traceloom/analysis/idle_evidence_pipeline.h"
 #include "traceloom/analysis/idle_evidence_semantic_rules.h"
 #include "traceloom/analysis/native_pipeline.h"
+#include "traceloom/compat/idle_explanation_rows.h"
 #include "traceloom/compat/native_sidecar_materializer.h"
+#include "traceloom/compat/report_tree_rows.h"
 #include "traceloom/ir/native_ir.h"
 #include "traceloom/materialize/grammar_debug_json.h"
 #include "traceloom/materialize/loop_tree_markdown.h"
@@ -705,6 +708,94 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
           markdown_options.idle_explanation_counts.push_back(
               traceloom::IdleExplanationSummaryCount{
                   item.first, item.second.slices, item.second.duration_ns});
+        }
+
+        const std::optional<std::uint32_t> attribution_device_id =
+            filter_idle_device
+                ? std::optional<std::uint32_t>(idle_device_id)
+                : std::nullopt;
+        const std::vector<traceloom::ReportToken> idle_report_tokens =
+            traceloom::compat::build_report_tokens_from_native_ir(ir);
+        const traceloom::compat::IdleExplanationAttributionRows attribution =
+            traceloom::compat::build_idle_explanation_attribution_rows(
+                idle_report_tokens, idle_explanations, loop_tree_rows,
+                sidecar_options.db_idx, attribution_device_id);
+        if (attribution.visible_productive_idle_ns !=
+            markdown_options.visible_productive_idle_ns) {
+          throw std::logic_error(
+              "Loop Tree idle summary/attribution device scope mismatch");
+        }
+        markdown_options.anchor_prelude_attributed_idle_ns =
+            attribution.anchor_prelude_attributed_ns;
+        markdown_options.device_only_unassigned_idle_ns =
+            attribution.device_only_unassigned_ns;
+
+        std::map<std::string, const traceloom::compat::VizNodeSqlRow*>
+            report_nodes;
+        for (const traceloom::compat::VizNodeSqlRow& node :
+             loop_tree_rows.nodes) {
+          if (node.db_idx == sidecar_options.db_idx &&
+              node.view_name == "native_report_tree" &&
+              (!filter_idle_device || node.device_id == idle_device_id)) {
+            report_nodes[node.node_id] = &node;
+          }
+        }
+        std::map<std::string, traceloom::IdleExplanationNodeHotspot> hotspots;
+        for (const traceloom::compat::NodeIdleExplanationRow& row :
+             attribution.nodes) {
+          const auto node_it = report_nodes.find(row.node_id);
+          if (node_it == report_nodes.end()) {
+            throw std::logic_error(
+                "idle attribution references an absent Loop Tree node");
+          }
+          const traceloom::compat::VizNodeSqlRow& node = *node_it->second;
+          traceloom::IdleExplanationNodeHotspot& hotspot =
+              hotspots[row.node_id];
+          hotspot.node_id = row.node_id;
+          hotspot.label = node.label;
+          hotspot.kind = node.kind;
+          hotspot.attributed_ns += row.duration_ns;
+          if (row.evidence_level == "direct") {
+            hotspot.direct_ns += row.duration_ns;
+          }
+          if (row.category == "blocked_by_visible_wait") {
+            hotspot.wait_ns += row.duration_ns;
+          } else if (row.category == "capture_control_present") {
+            hotspot.capture_control_ns += row.duration_ns;
+          } else if (row.category == "runtime_control_present") {
+            hotspot.runtime_control_ns += row.duration_ns;
+          } else if (row.category == "no_observed_device_work") {
+            hotspot.no_observed_work_ns += row.duration_ns;
+          } else if (row.category == "unattributed_visible_idle") {
+            hotspot.unattributed_ns += row.duration_ns;
+          }
+        }
+        for (auto& item : hotspots) {
+          traceloom::IdleExplanationNodeHotspot& hotspot = item.second;
+          const traceloom::compat::VizNodeSqlRow& node =
+              *report_nodes.at(item.first);
+          double divisor = static_cast<double>(
+              node.occurrence_count == 0 ? 1 : node.occurrence_count);
+          if (node.kind == "repeat" && node.repeat_count > 0) {
+            divisor *= static_cast<double>(node.repeat_count);
+          }
+          hotspot.average_attributed_ns =
+              static_cast<double>(hotspot.attributed_ns) / divisor;
+          markdown_options.idle_node_hotspots.push_back(hotspot);
+        }
+        std::stable_sort(
+            markdown_options.idle_node_hotspots.begin(),
+            markdown_options.idle_node_hotspots.end(),
+            [](const traceloom::IdleExplanationNodeHotspot& lhs,
+               const traceloom::IdleExplanationNodeHotspot& rhs) {
+              if (lhs.attributed_ns != rhs.attributed_ns) {
+                return lhs.attributed_ns > rhs.attributed_ns;
+              }
+              return lhs.node_id < rhs.node_id;
+            });
+        constexpr std::size_t kIdleHotspotLimit = 12;
+        if (markdown_options.idle_node_hotspots.size() > kIdleHotspotLimit) {
+          markdown_options.idle_node_hotspots.resize(kIdleHotspotLimit);
         }
         if (cli.timings) {
           std::cerr << "timing loop_tree_idle_evidence_ms="

@@ -103,9 +103,18 @@ directly explained coverage, and every category including unattributed
 residual. It remains separate from the compatibility tree's historical
 prelude `idle_us`, preventing two different measurements from being silently
 conflated. Ascend-specific rules are deliberately gated off for CUDA and Hygon
-reports until those providers have validated taxonomies. Remaining work is
-raw SQLite materialization and exact anchor/node attribution rather than mere
-report visibility.
+reports until those providers have validated taxonomies.
+
+Exact anchor/node attribution is now implemented for the conservative
+anchor-prelude view. E4 slices are intersected with the same disjoint prelude
+windows used by Loop Tree cost packets; intersections aggregate through the
+existing node/anchor coverage rows, while uncovered explanation time remains
+an explicit device-only residual. The production report exposes the coverage
+ratio and top hierarchical hotspots and warns that parent/child rows are not
+additive. On the larger kickstart rank, 65,097,292,403 of 65,097,292,443 gap
+nanoseconds map to anchor preludes; the remaining 40 ns is retained rather than
+rounded into a node. Raw interval/lineage SQLite materialization remains the
+next idle-evidence front.
 
 Cross-stream reconstruction is intentionally **not** an active front. The
 stable TraceLoom boundary is a coarse, permutation-invariant projection of

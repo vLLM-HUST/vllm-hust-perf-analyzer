@@ -46,6 +46,18 @@ int main() {
       {"blocked_by_visible_wait", 2, 4000},
       {"unattributed_visible_idle", 1, 6000},
   };
+  options.anchor_prelude_attributed_idle_ns = 8000;
+  options.device_only_unassigned_idle_ns = 2000;
+  IdleExplanationNodeHotspot hotspot;
+  hotspot.node_id = "node-0";
+  hotspot.label = "Seq";
+  hotspot.kind = "sequence";
+  hotspot.attributed_ns = 8000;
+  hotspot.direct_ns = 4000;
+  hotspot.wait_ns = 4000;
+  hotspot.unattributed_ns = 4000;
+  hotspot.average_attributed_ns = 8000.0;
+  options.idle_node_hotspots = {hotspot};
 
   std::ostringstream out;
   write_loop_tree_markdown(out, rows, options);
@@ -63,7 +75,15 @@ int main() {
           std::string::npos);
   require(markdown.find("- directly_explained_us: `4` (`40%`)") !=
           std::string::npos);
-  require(markdown.find("| `blocked_by_visible_wait` | 2 | 4 | 40% |") !=
+  require(markdown.find(
+              "| `blocked_by_visible_wait` | 2 | 4000 | 4 | 40% |") !=
+          std::string::npos);
+  require(markdown.find("### Anchor-Prelude Attribution") !=
+          std::string::npos);
+  require(markdown.find(
+              "- attributed_visible_productive_idle_us: `8` (`80%`)") !=
+          std::string::npos);
+  require(markdown.find("| `node-0` Seq | `sequence` | 8 | 8 | 4 | 0.00 |") !=
           std::string::npos);
 
   LoopTreeMarkdownOptions empty_options;
