@@ -38,6 +38,9 @@ namespace traceloom {
 // keep the status ok. Events carrying the adapter's unassigned-stream
 // sentinel also keep the status ok, emit no fabricated timeline, and void
 // observed-universe completeness because they could not be scanned per stream.
+// Point-only and unassigned-stream semantics apply independently: a sentinel
+// point marker emits no interval or universe membership but still voids
+// completeness.
 
 enum class StreamState {
   kRunningCompute,

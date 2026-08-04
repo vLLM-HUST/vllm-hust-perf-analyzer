@@ -769,6 +769,55 @@ int main() {
     check_stream_state_invariants(run);
   }
 
+  // ---- E3 addendum conformance case 4. Stream assignment and point-only
+  // semantics are independent: a legitimate zero-duration point marker with
+  // the 0xFFFFFFFF sentinel emits no interval and establishes no universe
+  // membership, while still voiding device and run scan completeness. ----
+  {
+    const Scene scene = make_scene(
+        {{.stream_id = kUnassignedStreamSentinel,
+          .start_ns = 150,
+          .end_ns = 150,
+          .role = SemanticTaskRole::kRecord,
+          .omit_stream_row = true},
+         {.stream_id = 3,
+          .start_ns = 200,
+          .end_ns = 300,
+          .role = SemanticTaskRole::kProductiveCompute}},
+        explicit_span(100, 400));
+    const StreamStateRunResult run = build_stream_states(scene);
+    require(run.status == AnalysisStatus::kOk,
+            "unassigned point marker is not corrupt input");
+    const StreamStateDeviceResult* device = find_device(run, 0);
+    require(device != nullptr && device->status == AnalysisStatus::kOk,
+            "affected device remains analyzable");
+    require(has_diagnostic(device->diagnostics,
+                           "zero_duration_point_event_ignored"),
+            "point-only diagnostic emitted");
+    require(has_diagnostic(device->diagnostics, "unassigned_stream"),
+            "unassigned-stream diagnostic emitted independently");
+    require(!has_diagnostic(device->diagnostics,
+                            "unknown_stream_identity"),
+            "sentinel is not reported as an unknown stream");
+    require(!device->observed_universe_scan_complete,
+            "unassigned point marker voids device completeness");
+    require(!run.observed_universe_scan_complete,
+            "run completeness reflects the affected device");
+    require(find_timeline(run, 0, kUnassignedStreamSentinel) == nullptr,
+            "point-only sentinel creates no timeline");
+    require(device->stream_universe_size == 1 &&
+                run.stream_universe_size == 1,
+            "point-only sentinel creates no universe membership");
+    const StreamStateTimeline* healthy = find_timeline(run, 0, 3);
+    require(healthy != nullptr && healthy->intervals.size() == 3 &&
+                healthy->intervals[1].state ==
+                    StreamState::kRunningCompute &&
+                healthy->intervals[1].start_ns == 200 &&
+                healthy->intervals[1].end_ns == 300,
+            "healthy sibling stream remains intact");
+    check_stream_state_invariants(run);
+  }
+
   // ---- 15. Invalid trace_event_id -> run kInvalidInput, run-level diag. ----
   {
     const Scene scene = make_scene(

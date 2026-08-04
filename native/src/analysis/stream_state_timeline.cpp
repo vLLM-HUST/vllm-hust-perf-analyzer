@@ -440,25 +440,32 @@ StreamStateRunResult build_stream_state_timelines(
       run_invalid = true;
       continue;
     }
+    const bool unassigned_stream =
+        event->stream_id == kUnassignedStreamSentinel;
+    if (unassigned_stream) {
+      // Stream assignment and interval extent are independent axes. Even a
+      // legitimate zero-duration point marker cannot attest per-stream scan
+      // completeness when its stream identity is unavailable.
+      fail_unassignable(*event, task.raw_global_task_id);
+    }
     if (event->end_ns == event->start_ns) {
       diagnostics_by_device[event->device_id].push_back(TimelineDiagnostic{
           "zero_duration_point_event_ignored: task has no interval extent",
           task.raw_global_task_id});
       continue;
     }
+    if (unassigned_stream) {
+      continue;  // diagnosed above; never fabricate a sentinel timeline.
+    }
     const StreamId stream = resolve_stream(stream_index, *event);
     if (!stream.valid()) {
-      if (event->stream_id == kUnassignedStreamSentinel) {
-        fail_unassignable(*event, task.raw_global_task_id);
-      } else {
-        diagnostics_by_device[event->device_id].push_back(TimelineDiagnostic{
-            "unknown_stream_identity: no StreamRow for (device " +
-                std::to_string(event->device_id) + ", stream " +
-                std::to_string(event->stream_id) + ")",
-            task.raw_global_task_id});
-        scan_incomplete_devices.insert(event->device_id);
-        run_invalid = true;
-      }
+      diagnostics_by_device[event->device_id].push_back(TimelineDiagnostic{
+          "unknown_stream_identity: no StreamRow for (device " +
+              std::to_string(event->device_id) + ", stream " +
+              std::to_string(event->stream_id) + ")",
+          task.raw_global_task_id});
+      scan_incomplete_devices.insert(event->device_id);
+      run_invalid = true;
       continue;
     }
     const StreamRow& stream_row = ir.streams.row(stream);
