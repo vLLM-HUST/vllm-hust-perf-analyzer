@@ -21,6 +21,21 @@ The `torch_npu.profiler` database must contain the same usable `TASK` schema as
 the monolithic CANN export. TraceLoom reads it directly; renaming or copying it
 to an `msprof_*.db` name is unnecessary.
 
+The integrated PyTorch database does not embed CANN's `CaptureStreamInfo`.
+Therefore it is sufficient for the base task timeline and fail-closed graph
+launch/body evidence, but not by itself for exact ACLGraph instance identity.
+When the raw sibling `PROF_*` directory is retained, export a database layout
+that preserves `host/sqlite/stream_info.db`, then analyze the root
+`msprof_*.db`:
+
+```bash
+msprof --export=on --type=db --output=/path/to/PROF_...
+traceloom /path/to/PROF_.../msprof_*.db
+```
+
+TraceLoom will not infer the missing captured-stream identity from timestamp
+proximity when only the integrated PyTorch database is available.
+
 For each `PROF_*` directory, the native analyzer prefers a monolithic DB with a
 nonempty `TASK` table. If it is absent or unusable, TraceLoom reports a warning
 and normalizes the split `AscendTask`, `TaskInfo`, `HostTask`, `ApiData`, and
