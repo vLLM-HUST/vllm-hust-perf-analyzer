@@ -92,7 +92,9 @@ traceloom /path/to/PROF_.../msprof_YYYYMMDDHHMMSS.db
 traceloom /path/to/msprof_output
 ```
 
-TraceLoom 会自动发现 monolithic `PROF_*/msprof_*.db` 和 split
+TraceLoom 会自动发现 monolithic `PROF_*/msprof_*.db`、
+`torch_npu.profiler` 生成的
+`*/ASCEND_PROFILER_OUTPUT/ascend_pytorch_profiler.db`，以及 split
 `PROF_*/{host,device_*}/sqlite/*.db`，并为每张设备数据库生成报告：
 
 ```text

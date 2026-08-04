@@ -105,9 +105,10 @@ The default report is written beside the database:
 traceloom /path/to/msprof_output
 ```
 
-TraceLoom discovers monolithic `PROF_*/msprof_*.db` files and split
-`PROF_*/{host,device_*}/sqlite/*.db` layouts, then writes one report per
-device/database:
+TraceLoom discovers monolithic `PROF_*/msprof_*.db` files,
+`torch_npu.profiler` `*/ASCEND_PROFILER_OUTPUT/ascend_pytorch_profiler.db`
+files, and split `PROF_*/{host,device_*}/sqlite/*.db` layouts, then writes one
+report per device/database:
 
 ```text
 /path/to/msprof_output/traceloom/device0_loop_tree_v2.md
