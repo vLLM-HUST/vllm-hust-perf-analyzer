@@ -18,6 +18,7 @@ struct NativeResultJsonOptions {
   std::size_t top_candidate_limit = 16;
   double load_source_adapter_ms = 0.0;
   double materialization_ms = 0.0;
+  const NativeIr* native_ir = nullptr;
   const AnchorInternalCostBreakdown* anchor_internal_cost_breakdown = nullptr;
 };
 

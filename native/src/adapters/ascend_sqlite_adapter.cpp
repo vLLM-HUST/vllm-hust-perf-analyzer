@@ -1,5 +1,6 @@
 #include "traceloom/adapters/ascend_sqlite_adapter.h"
 
+#include "traceloom/analysis/exact_periodic_suffix.h"
 #include "traceloom/runtime/thread_pool.h"
 
 #include <sqlite3.h>
@@ -58,6 +59,11 @@ struct AscendLoadTiming {
   double communication_op_rows_ms = 0.0;
   double stream_info_capture_ms = 0.0;
   double cann_api_capture_slots_ms = 0.0;
+  double aclgraph_capture_instances_ms = 0.0;
+  double aclgraph_launch_occurrences_ms = 0.0;
+  double aclgraph_launch_bodies_ms = 0.0;
+  double aclgraph_launch_activities_ms = 0.0;
+  double replay_composition_candidates_ms = 0.0;
   double aclgraph_replay_units_ms = 0.0;
 };
 
@@ -78,6 +84,16 @@ void print_load_timing(const AscendLoadTiming& timing) {
             << timing.stream_info_capture_ms << "\n";
   std::cerr << "timing load_cann_api_capture_slots_ms="
             << timing.cann_api_capture_slots_ms << "\n";
+  std::cerr << "timing load_aclgraph_capture_instances_ms="
+            << timing.aclgraph_capture_instances_ms << "\n";
+  std::cerr << "timing load_aclgraph_launch_occurrences_ms="
+            << timing.aclgraph_launch_occurrences_ms << "\n";
+  std::cerr << "timing load_aclgraph_launch_bodies_ms="
+            << timing.aclgraph_launch_bodies_ms << "\n";
+  std::cerr << "timing load_aclgraph_launch_activities_ms="
+            << timing.aclgraph_launch_activities_ms << "\n";
+  std::cerr << "timing load_replay_composition_candidates_ms="
+            << timing.replay_composition_candidates_ms << "\n";
   std::cerr << "timing load_aclgraph_replay_units_ms="
             << timing.aclgraph_replay_units_ms << "\n";
 }
@@ -193,6 +209,9 @@ struct LinkedTaskStats {
 };
 
 using StreamIndex = std::unordered_map<std::uint64_t, StreamId>;
+using CapturedGraphInstanceKey = std::pair<std::uint32_t, std::int64_t>;
+using CapturedGraphInstanceIndex =
+    std::map<CapturedGraphInstanceKey, CapturedGraphInstanceId>;
 
 struct TaskLink {
   std::uint64_t stream_id = 0;
@@ -214,6 +233,7 @@ struct RawTaskRow {
   std::int64_t raw_global_task_id = -1;
   std::int64_t raw_connection_id = -1;
   std::int64_t raw_task_type_id = -1;
+  std::int64_t raw_model_id = -1;
 };
 
 struct RowidRange {
@@ -246,14 +266,52 @@ struct ReplayUnitWindow {
 };
 
 struct GraphLaunchView {
+  std::int64_t raw_row_id = -1;
   std::int64_t start_ns = 0;
   std::int64_t end_ns = 0;
   std::int64_t connection_id = 0;
+  std::uint64_t raw_global_tid = 0;
+};
+
+struct HostBlockingSyncView {
+  std::int64_t raw_row_id = -1;
+  std::int64_t start_ns = 0;
+  std::int64_t end_ns = 0;
+  std::uint64_t raw_global_tid = 0;
+  std::string api_name;
+};
+
+struct GraphLaunchActivityView {
+  std::uint64_t raw_global_tid = 0;
+  std::vector<std::int64_t> host_execute_row_ids;
+  std::int64_t first_host_api_row_id = -1;
+  std::int64_t last_host_api_row_id = -1;
+  std::int64_t boundary_host_api_row_id = -1;
+  std::int64_t start_ns = 0;
+  std::int64_t end_ns = 0;
+  std::string boundary_api_name;
+  GraphLaunchActivityBoundaryPolicy boundary_policy =
+      GraphLaunchActivityBoundaryPolicy::kHostThreadTail;
 };
 
 struct CaptureSlotSignature {
   std::uint32_t slot_index = 0;
+  std::int64_t start_ns = 0;
+  std::int64_t end_ns = 0;
   std::string host_api_signature;
+};
+
+struct CaptureModelStreamEvidence {
+  std::uint64_t source_row_id = 0;
+  std::int64_t raw_original_stream_id = -1;
+  std::uint64_t raw_model_stream_id = 0;
+};
+
+struct CaptureModelGroupEvidence {
+  std::uint32_t device_id = 0;
+  std::int64_t raw_model_id = -1;
+  std::int64_t raw_timestamp = -1;
+  std::vector<CaptureModelStreamEvidence> streams;
 };
 
 struct CaptureInterval {
@@ -269,6 +327,7 @@ struct CaptureTokenCandidate {
 
 struct AclGraphCannApiMetadata {
   std::vector<GraphLaunchView> execute_launches;
+  std::vector<GraphLaunchActivityView> launch_activities;
   std::vector<CaptureSlotSignature> capture_slots;
 };
 
@@ -276,6 +335,7 @@ struct AclGraphCaptureInfo {
   std::unordered_map<std::uint32_t, std::unordered_set<std::uint64_t>>
       model_streams_by_device;
   std::uint32_t capture_group_size = 0;
+  std::vector<CaptureModelGroupEvidence> model_groups;
   std::vector<CaptureSlotSignature> capture_slots;
   std::string replay_unit_signature;
 };
@@ -283,6 +343,7 @@ struct AclGraphCaptureInfo {
 struct GraphTaskSymbolSets {
   std::unordered_set<std::uint32_t> graph_control;
   std::unordered_set<std::uint32_t> notify_wait;
+  std::unordered_set<std::uint32_t> notify_record;
   std::unordered_set<std::uint32_t> model_execute;
 };
 
@@ -303,6 +364,15 @@ std::uint32_t sqlite_u32(sqlite3_stmt* stmt, int column) {
 std::uint64_t sqlite_u64(sqlite3_stmt* stmt, int column) {
   const std::int64_t value = sqlite_i64(stmt, column, 0);
   return value < 0 ? 0u : static_cast<std::uint64_t>(value);
+}
+
+std::int64_t normalize_raw_model_id(std::int64_t value) {
+  if (value < 0 ||
+      value == static_cast<std::int64_t>(
+                   std::numeric_limits<std::uint32_t>::max())) {
+    return -1;
+  }
+  return value;
 }
 
 std::string sqlite_text(sqlite3_stmt* stmt, int column) {
@@ -1020,9 +1090,89 @@ std::vector<CaptureSlotSignature> build_aclgraph_capture_slots(
   std::vector<CaptureSlotSignature> out;
   out.reserve(intervals.size());
   for (std::size_t index = 0; index < intervals.size(); ++index) {
-    out.push_back(CaptureSlotSignature{static_cast<std::uint32_t>(index),
-                                       join_capture_tokens(tokens[index])});
+    out.push_back(CaptureSlotSignature{
+        static_cast<std::uint32_t>(index), intervals[index].start_ns,
+        intervals[index].end_ns, join_capture_tokens(tokens[index])});
   }
+  return out;
+}
+
+std::vector<GraphLaunchActivityView> build_graph_launch_activities(
+    const std::vector<GraphLaunchView>& execute_launches,
+    const std::vector<HostBlockingSyncView>& blocking_syncs) {
+  struct HostEvent {
+    std::int64_t raw_row_id = -1;
+    std::int64_t start_ns = 0;
+    std::int64_t end_ns = 0;
+    const GraphLaunchView* execute = nullptr;
+    const HostBlockingSyncView* boundary = nullptr;
+  };
+
+  std::map<std::uint64_t, std::vector<HostEvent>> events_by_thread;
+  for (const GraphLaunchView& execute : execute_launches) {
+    events_by_thread[execute.raw_global_tid].push_back(HostEvent{
+        execute.raw_row_id, execute.start_ns, execute.end_ns, &execute,
+        nullptr});
+  }
+  for (const HostBlockingSyncView& boundary : blocking_syncs) {
+    events_by_thread[boundary.raw_global_tid].push_back(HostEvent{
+        boundary.raw_row_id, boundary.start_ns, boundary.end_ns, nullptr,
+        &boundary});
+  }
+
+  std::vector<GraphLaunchActivityView> out;
+  for (auto& item : events_by_thread) {
+    std::vector<HostEvent>& events = item.second;
+    std::sort(events.begin(), events.end(),
+              [](const HostEvent& lhs, const HostEvent& rhs) {
+                if (lhs.start_ns != rhs.start_ns) {
+                  return lhs.start_ns < rhs.start_ns;
+                }
+                if (lhs.end_ns != rhs.end_ns) {
+                  return lhs.end_ns < rhs.end_ns;
+                }
+                return lhs.raw_row_id < rhs.raw_row_id;
+              });
+    GraphLaunchActivityView activity;
+    activity.raw_global_tid = item.first;
+    for (const HostEvent& event : events) {
+      if (event.execute != nullptr) {
+        if (activity.host_execute_row_ids.empty()) {
+          activity.first_host_api_row_id = event.execute->raw_row_id;
+          activity.start_ns = event.execute->start_ns;
+        }
+        activity.host_execute_row_ids.push_back(event.execute->raw_row_id);
+        activity.last_host_api_row_id = event.execute->raw_row_id;
+        activity.end_ns = event.execute->end_ns;
+        continue;
+      }
+      if (activity.host_execute_row_ids.empty()) {
+        continue;
+      }
+      activity.boundary_host_api_row_id = event.boundary->raw_row_id;
+      activity.boundary_api_name = event.boundary->api_name;
+      activity.boundary_policy =
+          GraphLaunchActivityBoundaryPolicy::kHostBlockingSync;
+      activity.end_ns = std::max(activity.end_ns, event.boundary->end_ns);
+      out.push_back(std::move(activity));
+      activity = GraphLaunchActivityView{};
+      activity.raw_global_tid = item.first;
+    }
+    if (!activity.host_execute_row_ids.empty()) {
+      out.push_back(std::move(activity));
+    }
+  }
+  std::sort(out.begin(), out.end(),
+            [](const GraphLaunchActivityView& lhs,
+               const GraphLaunchActivityView& rhs) {
+              if (lhs.start_ns != rhs.start_ns) {
+                return lhs.start_ns < rhs.start_ns;
+              }
+              if (lhs.raw_global_tid != rhs.raw_global_tid) {
+                return lhs.raw_global_tid < rhs.raw_global_tid;
+              }
+              return lhs.first_host_api_row_id < rhs.first_host_api_row_id;
+            });
   return out;
 }
 
@@ -1033,6 +1183,7 @@ AclGraphCannApiMetadata load_aclgraph_cann_api_metadata(
   if (!table_has_column(db, "CANN_API", "name")) {
     return metadata;
   }
+  const bool has_global_tid = table_has_column(db, "CANN_API", "globalTid");
 
   const std::vector<std::int64_t> execute_ids =
       string_ids_for_value(string_ids, "aclmdlRIExecuteAsync");
@@ -1040,6 +1191,15 @@ AclGraphCannApiMetadata load_aclgraph_cann_api_metadata(
       string_ids_for_value(string_ids, "aclmdlRICaptureBegin");
   const std::vector<std::int64_t> end_ids =
       string_ids_for_value(string_ids, "aclmdlRICaptureEnd");
+  static constexpr const char* kBlockingSyncNames[] = {
+      "aclrtSynchronizeStreamWithTimeout", "aclrtSynchronizeStream",
+      "aclrtSynchronizeDeviceWithTimeout", "aclrtSynchronizeDevice"};
+  std::unordered_map<std::int64_t, std::string> blocking_sync_by_id;
+  for (const char* name : kBlockingSyncNames) {
+    for (std::int64_t id : string_ids_for_value(string_ids, name)) {
+      blocking_sync_by_id.emplace(id, name);
+    }
+  }
   std::unordered_map<std::int64_t, std::string> capture_token_by_id;
   for (const auto& item : string_ids) {
     const std::string token = capture_host_api_token(item.second);
@@ -1056,6 +1216,9 @@ AclGraphCannApiMetadata load_aclgraph_cann_api_metadata(
   interesting_names.insert(execute_ids.begin(), execute_ids.end());
   interesting_names.insert(begin_ids.begin(), begin_ids.end());
   interesting_names.insert(end_ids.begin(), end_ids.end());
+  for (const auto& item : blocking_sync_by_id) {
+    interesting_names.insert(item.first);
+  }
   for (const auto& item : capture_token_by_id) {
     interesting_names.insert(item.first);
   }
@@ -1067,7 +1230,9 @@ AclGraphCannApiMetadata load_aclgraph_cann_api_metadata(
     placeholders += "?";
   }
   const std::string sql =
-      "SELECT startNs, endNs, connectionId, name "
+      "SELECT rowid, startNs, endNs, connectionId, " +
+      std::string(has_global_tid ? "globalTid, " : "0, ") +
+      "name "
       "FROM CANN_API "
       "WHERE name IN (" +
       placeholders +
@@ -1081,16 +1246,25 @@ AclGraphCannApiMetadata load_aclgraph_cann_api_metadata(
   std::vector<CaptureInterval> begin_markers;
   std::vector<CaptureInterval> end_markers;
   std::vector<CaptureTokenCandidate> token_candidates;
+  std::vector<HostBlockingSyncView> blocking_syncs;
   while (true) {
     const int rc = sqlite3_step(stmt.get());
     if (rc == SQLITE_ROW) {
-      const std::int64_t start_ns = sqlite_i64(stmt.get(), 0, 0);
-      const std::int64_t end_ns = sqlite_i64(stmt.get(), 1, 0);
-      const std::int64_t connection_id = sqlite_i64(stmt.get(), 2, 0);
-      const std::int64_t name_id = sqlite_i64(stmt.get(), 3, -1);
+      const std::int64_t row_id = sqlite_i64(stmt.get(), 0, -1);
+      const std::int64_t start_ns = sqlite_i64(stmt.get(), 1, 0);
+      const std::int64_t end_ns = sqlite_i64(stmt.get(), 2, 0);
+      const std::int64_t connection_id = sqlite_i64(stmt.get(), 3, 0);
+      const std::uint64_t global_tid = sqlite_u64(stmt.get(), 4);
+      const std::int64_t name_id = sqlite_i64(stmt.get(), 5, -1);
       if (contains_i64(execute_ids, name_id)) {
         metadata.execute_launches.push_back(
-            GraphLaunchView{start_ns, end_ns, connection_id});
+            GraphLaunchView{row_id, start_ns, end_ns, connection_id,
+                            global_tid});
+      }
+      const auto sync_found = blocking_sync_by_id.find(name_id);
+      if (sync_found != blocking_sync_by_id.end()) {
+        blocking_syncs.push_back(HostBlockingSyncView{
+            row_id, start_ns, end_ns, global_tid, sync_found->second});
       }
       if (contains_i64(begin_ids, name_id)) {
         begin_markers.push_back(CaptureInterval{start_ns, end_ns});
@@ -1120,12 +1294,19 @@ AclGraphCannApiMetadata load_aclgraph_cann_api_metadata(
               if (lhs.end_ns != rhs.end_ns) {
                 return lhs.end_ns < rhs.end_ns;
               }
-              return lhs.connection_id < rhs.connection_id;
+              if (lhs.connection_id != rhs.connection_id) {
+                return lhs.connection_id < rhs.connection_id;
+              }
+              return lhs.raw_row_id < rhs.raw_row_id;
             });
   const std::vector<CaptureInterval> intervals =
       build_capture_intervals(std::move(begin_markers), std::move(end_markers));
   metadata.capture_slots =
       build_aclgraph_capture_slots(intervals, std::move(token_candidates));
+  if (has_global_tid) {
+    metadata.launch_activities = build_graph_launch_activities(
+        metadata.execute_launches, blocking_syncs);
+  }
   return metadata;
 }
 
@@ -1155,6 +1336,9 @@ GraphTaskSymbolSets build_graph_task_symbol_sets(const SymbolTable& symbols) {
     }
     if (key == "NOTIFY_WAIT") {
       out.notify_wait.insert(symbol_id.value());
+    }
+    if (key == "NOTIFY_RECORD") {
+      out.notify_record.insert(symbol_id.value());
     }
     if (key == "MODEL_EXECUTE") {
       out.model_execute.insert(symbol_id.value());
@@ -1264,10 +1448,12 @@ std::vector<RowidRange> task_rowid_ranges(SqliteDb& db,
 
 std::vector<RawTaskRow> read_task_raw_rows(SqliteDb& db,
                                            const RowidRange* range,
-                                           bool ordered) {
+                                           bool ordered,
+                                           bool has_model_id) {
   std::string sql =
       "SELECT rowid, startNs, endNs, deviceId, streamId, taskId, "
-      "globalTaskId, connectionId, taskType "
+      "globalTaskId, connectionId, taskType, " +
+      std::string(has_model_id ? "modelId " : "-1 ") +
       "FROM TASK ";
   if (range != nullptr) {
     sql += "WHERE rowid BETWEEN ? AND ? ";
@@ -1291,7 +1477,8 @@ std::vector<RawTaskRow> read_task_raw_rows(SqliteDb& db,
           sqlite_i64(stmt.get(), 2, 0), sqlite_u32(stmt.get(), 3),
           sqlite_u64(stmt.get(), 4), sqlite_u64(stmt.get(), 5),
           sqlite_i64(stmt.get(), 6), sqlite_i64(stmt.get(), 7),
-          sqlite_i64(stmt.get(), 8)});
+          sqlite_i64(stmt.get(), 8),
+          normalize_raw_model_id(sqlite_i64(stmt.get(), 9, -1))});
       continue;
     }
     if (rc == SQLITE_DONE) {
@@ -1309,19 +1496,21 @@ std::vector<RawTaskRow> load_task_raw_rows(SqliteDb& db,
   static constexpr std::size_t kMaxTaskReaderThreads = 8;
   const std::size_t reader_count =
       std::min(std::max<std::size_t>(1, thread_count), kMaxTaskReaderThreads);
+  const bool has_model_id = table_has_column(db, "TASK", "modelId");
   if (reader_count <= 1) {
-    return read_task_raw_rows(db, nullptr, true);
+    return read_task_raw_rows(db, nullptr, true, has_model_id);
   }
   const std::vector<RowidRange> ranges = task_rowid_ranges(db, reader_count);
   if (ranges.size() <= 1) {
-    return read_task_raw_rows(db, nullptr, true);
+    return read_task_raw_rows(db, nullptr, true, has_model_id);
   }
 
   std::vector<std::vector<RawTaskRow>> chunks(ranges.size());
   ThreadPool pool(reader_count);
   pool.parallel_for(ranges.size(), [&](std::size_t index) {
     SqliteDb worker_db(db_path);
-    chunks[index] = read_task_raw_rows(worker_db, &ranges[index], false);
+    chunks[index] =
+        read_task_raw_rows(worker_db, &ranges[index], false, has_model_id);
   });
 
   std::size_t total_rows = 0;
@@ -1396,7 +1585,8 @@ void load_task_rows(
                     task_type_symbol, compute.op_name_symbol_id,
                     compute.op_type_symbol_id,
                     compute.compute_task_type_symbol_id,
-                    comm_task.comm_name_symbol_id);
+                    comm_task.comm_name_symbol_id, row.raw_model_id,
+                    comm_task.task_type_symbol_id);
   }
 }
 
@@ -1559,32 +1749,52 @@ AclGraphCaptureInfo load_aclgraph_capture_info(
       table_has_column(db, "CaptureStreamInfo", "model_id");
   const bool has_original_stream_id =
       table_has_column(db, "CaptureStreamInfo", "original_stream_id");
+  const bool has_timestamp =
+      table_has_column(db, "CaptureStreamInfo", "timestamp");
   const std::string quoted_model_stream_column =
       quote_identifier(model_stream_column);
   const std::string sql =
-      has_model_id && has_original_stream_id
-          ? "SELECT device_id, model_id, original_stream_id, " +
-                quoted_model_stream_column + " FROM CaptureStreamInfo " +
-                "ORDER BY device_id, model_id, " +
-                quoted_model_stream_column
-          : "SELECT device_id, " + quoted_model_stream_column +
-                " FROM CaptureStreamInfo ORDER BY device_id, " +
-                quoted_model_stream_column;
+      "SELECT rowid, device_id, " +
+      std::string(has_model_id ? "model_id, " : "-1, ") +
+      std::string(has_original_stream_id ? "original_stream_id, " : "-1, ") +
+      quoted_model_stream_column + ", " +
+      std::string(has_timestamp ? "timestamp " : "-1 ") +
+      "FROM CaptureStreamInfo ORDER BY device_id, " +
+      std::string(has_timestamp ? "timestamp, " : "") +
+      std::string(has_model_id ? "model_id, " : "") +
+      quoted_model_stream_column + ", rowid";
   SqliteStmt stmt(db.get(), sql.c_str());
   std::set<std::uint64_t> model_ids;
   std::set<std::uint64_t> original_stream_ids;
+  std::map<std::pair<std::uint32_t, std::int64_t>, CaptureModelGroupEvidence>
+      model_groups;
   while (true) {
     const int rc = sqlite3_step(stmt.get());
     if (rc == SQLITE_ROW) {
-      const std::uint32_t device_id = sqlite_u32(stmt.get(), 0);
-      if (has_model_id && has_original_stream_id) {
-        model_ids.insert(sqlite_u64(stmt.get(), 1));
-        original_stream_ids.insert(sqlite_u64(stmt.get(), 2));
-        out.model_streams_by_device[device_id].insert(
-            sqlite_u64(stmt.get(), 3));
-      } else {
-        out.model_streams_by_device[device_id].insert(
-            sqlite_u64(stmt.get(), 1));
+      const std::uint64_t source_row_id = sqlite_u64(stmt.get(), 0);
+      const std::uint32_t device_id = sqlite_u32(stmt.get(), 1);
+      const std::int64_t model_id =
+          normalize_raw_model_id(sqlite_i64(stmt.get(), 2, -1));
+      const std::int64_t original_stream_id = sqlite_i64(stmt.get(), 3, -1);
+      const std::uint64_t model_stream_id = sqlite_u64(stmt.get(), 4);
+      const std::int64_t timestamp = sqlite_i64(stmt.get(), 5, -1);
+      out.model_streams_by_device[device_id].insert(model_stream_id);
+      if (model_id >= 0) {
+        model_ids.insert(static_cast<std::uint64_t>(model_id));
+        if (original_stream_id >= 0) {
+          original_stream_ids.insert(
+              static_cast<std::uint64_t>(original_stream_id));
+        }
+        const auto key = std::make_pair(device_id, model_id);
+        auto inserted = model_groups.emplace(
+            key, CaptureModelGroupEvidence{device_id, model_id, timestamp, {}});
+        CaptureModelGroupEvidence& group = inserted.first->second;
+        if (group.raw_timestamp < 0 ||
+            (timestamp >= 0 && timestamp < group.raw_timestamp)) {
+          group.raw_timestamp = timestamp;
+        }
+        group.streams.push_back(CaptureModelStreamEvidence{
+            source_row_id, original_stream_id, model_stream_id});
       }
       continue;
     }
@@ -1596,7 +1806,109 @@ AclGraphCaptureInfo load_aclgraph_capture_info(
   }
   out.capture_group_size =
       infer_capture_group_size_from_stream_info(model_ids, original_stream_ids);
+  out.model_groups.reserve(model_groups.size());
+  for (auto& item : model_groups) {
+    out.model_groups.push_back(std::move(item.second));
+  }
   return out;
+}
+
+CapturedGraphInstanceIndex materialize_aclgraph_capture_instances(
+    NativeIr& ir,
+    const AclGraphCaptureInfo& capture_info,
+    SourceRefId capture_stream_source_ref,
+    SourceRefId cann_api_source_ref) {
+  CapturedGraphInstanceIndex index;
+  if (capture_info.model_groups.empty() ||
+      !capture_stream_source_ref.valid()) {
+    return index;
+  }
+
+  std::map<std::uint32_t, std::vector<const CaptureModelGroupEvidence*>>
+      groups_by_device;
+  for (const CaptureModelGroupEvidence& group : capture_info.model_groups) {
+    groups_by_device[group.device_id].push_back(&group);
+  }
+  std::map<std::string, GraphSlotTemplateId> templates_by_signature;
+  for (auto& device_groups : groups_by_device) {
+    std::vector<const CaptureModelGroupEvidence*>& groups =
+        device_groups.second;
+    std::sort(groups.begin(), groups.end(),
+              [](const CaptureModelGroupEvidence* lhs,
+                 const CaptureModelGroupEvidence* rhs) {
+                if (lhs->raw_timestamp != rhs->raw_timestamp) {
+                  if (lhs->raw_timestamp < 0) {
+                    return false;
+                  }
+                  if (rhs->raw_timestamp < 0) {
+                    return true;
+                  }
+                  return lhs->raw_timestamp < rhs->raw_timestamp;
+                }
+                return lhs->raw_model_id < rhs->raw_model_id;
+              });
+    bool ordinal_aligned = groups_by_device.size() == 1 &&
+                           groups.size() == capture_info.capture_slots.size() &&
+                           !groups.empty();
+    for (std::size_t group_index = 0;
+         ordinal_aligned && group_index < groups.size(); ++group_index) {
+      if (groups[group_index]->raw_timestamp < 0 ||
+          (group_index > 0 &&
+           groups[group_index - 1]->raw_timestamp >=
+               groups[group_index]->raw_timestamp)) {
+        ordinal_aligned = false;
+      }
+    }
+
+    for (std::size_t group_index = 0; group_index < groups.size();
+         ++group_index) {
+      const CaptureModelGroupEvidence& group = *groups[group_index];
+      GraphSlotTemplateId slot_template_id = GraphSlotTemplateId::invalid();
+      std::int64_t capture_ordinal = -1;
+      CaptureAssociationPolicy association_policy =
+          CaptureAssociationPolicy::kModelGroupOnly;
+      if (ordinal_aligned) {
+        capture_ordinal = static_cast<std::int64_t>(group_index);
+        association_policy = CaptureAssociationPolicy::kCaptureOrdinalAligned;
+        const std::string& signature =
+            capture_info.capture_slots[group_index].host_api_signature;
+        if (!signature.empty() && cann_api_source_ref.valid()) {
+          const auto template_found = templates_by_signature.find(signature);
+          if (template_found == templates_by_signature.end()) {
+            slot_template_id = ir.graph_slot_templates.append(
+                cann_api_source_ref, stable_hash64(signature),
+                ir.symbols.intern(signature));
+            templates_by_signature.emplace(signature, slot_template_id);
+          } else {
+            slot_template_id = template_found->second;
+          }
+        }
+      }
+      std::uint64_t first_source_row_id = 0;
+      for (const CaptureModelStreamEvidence& stream : group.streams) {
+        if (first_source_row_id == 0 ||
+            stream.source_row_id < first_source_row_id) {
+          first_source_row_id = stream.source_row_id;
+        }
+      }
+      const CapturedGraphInstanceId instance_id =
+          ir.captured_graph_instances.append(
+              capture_stream_source_ref, first_source_row_id, group.device_id,
+              group.raw_model_id, group.raw_timestamp, capture_ordinal,
+              slot_template_id,
+              static_cast<std::uint32_t>(group.streams.size()),
+              association_policy);
+      index.emplace(
+          CapturedGraphInstanceKey{group.device_id, group.raw_model_id},
+          instance_id);
+      for (const CaptureModelStreamEvidence& stream : group.streams) {
+        ir.captured_graph_streams.append(
+            instance_id, capture_stream_source_ref, stream.source_row_id,
+            stream.raw_original_stream_id, stream.raw_model_stream_id);
+      }
+    }
+  }
+  return index;
 }
 
 bool event_overlaps(const TraceEventRow& event,
@@ -1634,6 +1946,1082 @@ std::vector<GraphTaskView> controls_in_interval_from_sorted(
     ++scan;
   }
   return out;
+}
+
+std::uint64_t absolute_timestamp_delta(std::int64_t lhs, std::int64_t rhs) {
+  static constexpr std::uint64_t kSignBit = std::uint64_t{1} << 63u;
+  const std::uint64_t ordered_lhs = static_cast<std::uint64_t>(lhs) ^ kSignBit;
+  const std::uint64_t ordered_rhs = static_cast<std::uint64_t>(rhs) ^ kSignBit;
+  return ordered_lhs >= ordered_rhs ? ordered_lhs - ordered_rhs
+                                    : ordered_rhs - ordered_lhs;
+}
+
+void materialize_aclgraph_launch_occurrences(
+    NativeIr& ir,
+    const StreamIndex& streams,
+    const CapturedGraphInstanceIndex& captured_graph_instances,
+    const std::vector<GraphLaunchView>& host_execute_launches,
+    SourceRefId host_api_source_ref) {
+  const GraphTaskSymbolSets graph_symbols =
+      build_graph_task_symbol_sets(ir.symbols);
+  std::vector<GraphTaskView> model_executes;
+  std::vector<GraphTaskView> notify_waits;
+  std::vector<GraphTaskView> notify_records;
+  for (const TaskRow& task : ir.tasks.rows()) {
+    if (!task.trace_event_id.valid()) {
+      continue;
+    }
+    const TraceEventRow& event = ir.trace_events.row(task.trace_event_id);
+    const GraphTaskView view{&task, &event};
+    if (symbol_in_set(graph_symbols.model_execute,
+                      task.task_type_symbol_id)) {
+      model_executes.push_back(view);
+    } else if (symbol_in_set(graph_symbols.notify_wait,
+                             task.task_type_symbol_id)) {
+      notify_waits.push_back(view);
+    } else if (symbol_in_set(graph_symbols.notify_record,
+                             task.task_type_symbol_id)) {
+      notify_records.push_back(view);
+    }
+  }
+  if (model_executes.empty()) {
+    return;
+  }
+
+  const auto graph_task_less = [](const GraphTaskView& lhs,
+                                  const GraphTaskView& rhs) {
+    if (lhs.event->start_ns != rhs.event->start_ns) {
+      return lhs.event->start_ns < rhs.event->start_ns;
+    }
+    if (lhs.event->end_ns != rhs.event->end_ns) {
+      return lhs.event->end_ns < rhs.event->end_ns;
+    }
+    if (lhs.event->device_id != rhs.event->device_id) {
+      return lhs.event->device_id < rhs.event->device_id;
+    }
+    return lhs.task->id < rhs.task->id;
+  };
+  std::sort(model_executes.begin(), model_executes.end(), graph_task_less);
+  std::sort(notify_waits.begin(), notify_waits.end(), graph_task_less);
+  std::sort(notify_records.begin(), notify_records.end(), graph_task_less);
+
+  struct WorkingLaunch {
+    GraphTaskView execute;
+    const GraphLaunchView* host_execute = nullptr;
+    const GraphTaskView* wait = nullptr;
+    const GraphTaskView* record = nullptr;
+    GraphLaunchMatchPolicy policy = GraphLaunchMatchPolicy::kUnmatched;
+  };
+  std::vector<WorkingLaunch> launches;
+  launches.reserve(model_executes.size());
+
+  std::unordered_map<std::int64_t, std::vector<const GraphLaunchView*>>
+      host_by_connection;
+  for (const GraphLaunchView& host : host_execute_launches) {
+    host_by_connection[host.connection_id].push_back(&host);
+  }
+  std::vector<bool> wait_claimed(notify_waits.size(), false);
+  for (const GraphTaskView& execute : model_executes) {
+    WorkingLaunch launch;
+    launch.execute = execute;
+    const auto host_found =
+        host_by_connection.find(execute.task->raw_connection_id);
+    if (host_found != host_by_connection.end()) {
+      for (const GraphLaunchView* candidate : host_found->second) {
+        if (launch.host_execute == nullptr ||
+            absolute_timestamp_delta(candidate->end_ns,
+                                     execute.event->start_ns) <
+                absolute_timestamp_delta(launch.host_execute->end_ns,
+                                         execute.event->start_ns)) {
+          launch.host_execute = candidate;
+        }
+      }
+    }
+
+    std::size_t best_wait = notify_waits.size();
+    std::uint64_t best_delta = std::numeric_limits<std::uint64_t>::max();
+    for (std::size_t index = 0; index < notify_waits.size(); ++index) {
+      if (wait_claimed[index]) {
+        continue;
+      }
+      const GraphTaskView& candidate = notify_waits[index];
+      if (candidate.event->device_id != execute.event->device_id ||
+          candidate.task->raw_connection_id !=
+              execute.task->raw_connection_id) {
+        continue;
+      }
+      const std::uint64_t delta = absolute_timestamp_delta(
+          candidate.event->start_ns, execute.event->start_ns);
+      if (delta < best_delta) {
+        best_wait = index;
+        best_delta = delta;
+      }
+    }
+    if (best_wait != notify_waits.size()) {
+      wait_claimed[best_wait] = true;
+      launch.wait = &notify_waits[best_wait];
+    }
+    launches.push_back(launch);
+  }
+
+  struct CompletionCandidate {
+    std::size_t launch_index = 0;
+    std::size_t record_index = 0;
+    std::uint64_t absolute_delta_ns = 0;
+  };
+  static constexpr std::uint64_t kCompletionAdjacencyThresholdNs = 10'000;
+  std::vector<CompletionCandidate> candidates;
+  for (std::size_t launch_index = 0; launch_index < launches.size();
+       ++launch_index) {
+    const WorkingLaunch& launch = launches[launch_index];
+    if (launch.wait == nullptr) {
+      continue;
+    }
+    for (std::size_t record_index = 0; record_index < notify_records.size();
+         ++record_index) {
+      const GraphTaskView& record = notify_records[record_index];
+      if (record.event->device_id != launch.execute.event->device_id) {
+        continue;
+      }
+      const std::uint64_t delta = absolute_timestamp_delta(
+          launch.wait->event->end_ns, record.event->end_ns);
+      if (delta <= kCompletionAdjacencyThresholdNs) {
+        candidates.push_back(
+            CompletionCandidate{launch_index, record_index, delta});
+      }
+    }
+  }
+  std::sort(candidates.begin(), candidates.end(),
+            [](const CompletionCandidate& lhs,
+               const CompletionCandidate& rhs) {
+              if (lhs.absolute_delta_ns != rhs.absolute_delta_ns) {
+                return lhs.absolute_delta_ns < rhs.absolute_delta_ns;
+              }
+              if (lhs.launch_index != rhs.launch_index) {
+                return lhs.launch_index < rhs.launch_index;
+              }
+              return lhs.record_index < rhs.record_index;
+            });
+  std::vector<bool> record_claimed(notify_records.size(), false);
+  for (const CompletionCandidate& candidate : candidates) {
+    WorkingLaunch& launch = launches[candidate.launch_index];
+    if (launch.record != nullptr || record_claimed[candidate.record_index]) {
+      continue;
+    }
+    launch.record = &notify_records[candidate.record_index];
+    launch.policy = GraphLaunchMatchPolicy::kNotifyCompletionAdjacent;
+    record_claimed[candidate.record_index] = true;
+  }
+
+  std::map<std::uint32_t, std::vector<std::size_t>> unmatched_by_device;
+  std::map<std::uint32_t, std::vector<std::size_t>> records_by_device;
+  for (std::size_t index = 0; index < launches.size(); ++index) {
+    const WorkingLaunch& launch = launches[index];
+    if (launch.wait != nullptr && launch.record == nullptr) {
+      unmatched_by_device[launch.execute.event->device_id].push_back(index);
+    }
+  }
+  for (std::size_t index = 0; index < notify_records.size(); ++index) {
+    if (!record_claimed[index]) {
+      records_by_device[notify_records[index].event->device_id].push_back(
+          index);
+    }
+  }
+  for (const auto& item : unmatched_by_device) {
+    const auto records_found = records_by_device.find(item.first);
+    if (records_found == records_by_device.end() ||
+        item.second.size() != records_found->second.size()) {
+      continue;
+    }
+    for (std::size_t index = 0; index < item.second.size(); ++index) {
+      WorkingLaunch& launch = launches[item.second[index]];
+      const std::size_t record_index = records_found->second[index];
+      launch.record = &notify_records[record_index];
+      launch.policy = GraphLaunchMatchPolicy::kNotifyOrderedFallback;
+      record_claimed[record_index] = true;
+    }
+  }
+
+  ir.graph_launch_occurrences.reserve(launches.size());
+  for (const WorkingLaunch& launch : launches) {
+    const TraceEventRow& execute_event = *launch.execute.event;
+    const auto execute_stream =
+        streams.find(stream_key(execute_event.device_id,
+                                execute_event.stream_id));
+    StreamId model_stream_id = StreamId::invalid();
+    CapturedGraphInstanceId captured_graph_instance_id =
+        CapturedGraphInstanceId::invalid();
+    TaskId wait_task_id = TaskId::invalid();
+    TaskId record_task_id = TaskId::invalid();
+    std::int64_t raw_graph_connection_id = -1;
+    std::int64_t raw_model_id = -1;
+    std::int64_t end_ns = execute_event.end_ns;
+    std::int64_t wait_record_delta_ns = -1;
+    if (launch.wait != nullptr) {
+      wait_task_id = launch.wait->task->id;
+      end_ns = std::max(end_ns, launch.wait->event->end_ns);
+    }
+    if (launch.record != nullptr) {
+      record_task_id = launch.record->task->id;
+      raw_graph_connection_id = launch.record->task->raw_connection_id;
+      raw_model_id = launch.record->task->raw_model_id;
+      if (raw_model_id >= 0) {
+        const auto instance = captured_graph_instances.find(
+            CapturedGraphInstanceKey{execute_event.device_id, raw_model_id});
+        if (instance != captured_graph_instances.end()) {
+          captured_graph_instance_id = instance->second;
+        }
+      }
+      end_ns = std::max(end_ns, launch.record->event->end_ns);
+      wait_record_delta_ns =
+          launch.wait->event->end_ns - launch.record->event->end_ns;
+      const auto model_stream = streams.find(stream_key(
+          launch.record->event->device_id, launch.record->event->stream_id));
+      if (model_stream != streams.end()) {
+        model_stream_id = model_stream->second;
+      }
+    }
+    ir.graph_launch_occurrences.append(
+        launch.execute.task->source_ref_id, host_api_source_ref,
+        execute_event.device_id,
+        launch.host_execute == nullptr ? -1 : launch.host_execute->raw_row_id,
+        launch.execute.task->raw_connection_id, raw_graph_connection_id,
+        raw_model_id,
+        execute_stream == streams.end() ? StreamId::invalid()
+                                        : execute_stream->second,
+        model_stream_id, captured_graph_instance_id, launch.execute.task->id,
+        wait_task_id, record_task_id, execute_event.start_ns, end_ns,
+        wait_record_delta_ns, launch.policy);
+  }
+}
+
+void materialize_graph_launch_activities(
+    NativeIr& ir,
+    const std::vector<GraphLaunchActivityView>& activities,
+    SourceRefId host_api_source_ref) {
+  if (!host_api_source_ref.valid()) {
+    return;
+  }
+  std::unordered_map<std::int64_t,
+                     std::vector<GraphLaunchOccurrenceId>>
+      launches_by_host_row;
+  for (const GraphLaunchOccurrenceRow& launch :
+       ir.graph_launch_occurrences.rows()) {
+    if (launch.raw_host_api_row_id >= 0) {
+      launches_by_host_row[launch.raw_host_api_row_id].push_back(launch.id);
+    }
+  }
+
+  for (const GraphLaunchActivityView& activity : activities) {
+    std::uint32_t matched_launch_count = 0;
+    for (std::int64_t row_id : activity.host_execute_row_ids) {
+      const auto found = launches_by_host_row.find(row_id);
+      if (found != launches_by_host_row.end()) {
+        matched_launch_count +=
+            static_cast<std::uint32_t>(found->second.size());
+      }
+    }
+    const GraphLaunchActivityId activity_id =
+        ir.graph_launch_activities.append(
+            host_api_source_ref, activity.raw_global_tid,
+            activity.first_host_api_row_id, activity.last_host_api_row_id,
+            activity.boundary_host_api_row_id,
+            activity.boundary_api_name.empty()
+                ? SymbolId::invalid()
+                : ir.symbols.intern(activity.boundary_api_name),
+            activity.start_ns, activity.end_ns,
+            static_cast<std::uint32_t>(
+                activity.host_execute_row_ids.size()),
+            matched_launch_count, activity.boundary_policy);
+    for (std::size_t order = 0;
+         order < activity.host_execute_row_ids.size(); ++order) {
+      const auto found =
+          launches_by_host_row.find(activity.host_execute_row_ids[order]);
+      if (found == launches_by_host_row.end()) {
+        continue;
+      }
+      for (GraphLaunchOccurrenceId launch_id : found->second) {
+        ir.graph_launch_activity_members.append(
+            activity_id, launch_id, static_cast<std::uint32_t>(order));
+      }
+    }
+  }
+}
+
+void materialize_graph_launch_bodies(NativeIr& ir) {
+  std::unordered_map<std::uint64_t, std::vector<GraphTaskView>>
+      normalized_tasks_by_stream;
+  for (const TaskRow& task : ir.tasks.rows()) {
+    if (!task.trace_event_id.valid() ||
+        (!task.op_type_symbol_id.valid() && !task.op_name_symbol_id.valid() &&
+         !task.comm_name_symbol_id.valid())) {
+      continue;
+    }
+    const TraceEventRow& event = ir.trace_events.row(task.trace_event_id);
+    normalized_tasks_by_stream[stream_key(event.device_id, event.stream_id)]
+        .push_back(GraphTaskView{&task, &event});
+  }
+  const auto task_order = [](const GraphTaskView& lhs,
+                             const GraphTaskView& rhs) {
+    if (lhs.event->start_ns != rhs.event->start_ns) {
+      return lhs.event->start_ns < rhs.event->start_ns;
+    }
+    if (lhs.event->end_ns != rhs.event->end_ns) {
+      return lhs.event->end_ns < rhs.event->end_ns;
+    }
+    return lhs.task->id < rhs.task->id;
+  };
+  for (auto& item : normalized_tasks_by_stream) {
+    std::sort(item.second.begin(), item.second.end(), task_order);
+  }
+
+  struct StreamBody {
+    std::uint64_t raw_stream_id = 0;
+    std::vector<const GraphTaskView*> tasks;
+    std::string exact_sequence;
+    std::string readable_sequence;
+  };
+
+  std::map<std::string, ReplayBodyTemplateId> templates_by_topology;
+  for (const GraphLaunchOccurrenceRow& launch :
+       ir.graph_launch_occurrences.rows()) {
+    if (!launch.model_stream_id.valid()) {
+      continue;
+    }
+
+    ReplayBodyTopologyPolicy topology_policy =
+        ReplayBodyTopologyPolicy::kSingleModelStream;
+    std::vector<std::uint64_t> body_stream_ids;
+    if (launch.captured_graph_instance_id.valid()) {
+      if (launch.captured_graph_instance_id.value() >=
+          ir.captured_graph_instances.size()) {
+        throw std::invalid_argument(
+            "graph launch references invalid captured graph instance");
+      }
+      const CapturedGraphInstanceRow& instance =
+          ir.captured_graph_instances.row(launch.captured_graph_instance_id);
+      for (const CapturedGraphStreamRow& stream :
+           ir.captured_graph_streams.rows()) {
+        if (stream.captured_graph_instance_id == instance.id) {
+          body_stream_ids.push_back(stream.raw_model_stream_id);
+        }
+      }
+      std::sort(body_stream_ids.begin(), body_stream_ids.end());
+      body_stream_ids.erase(
+          std::unique(body_stream_ids.begin(), body_stream_ids.end()),
+          body_stream_ids.end());
+      if (body_stream_ids.empty() ||
+          body_stream_ids.size() != instance.model_stream_count) {
+        continue;
+      }
+      const StreamRow& launch_model_stream =
+          ir.streams.row(launch.model_stream_id);
+      if (!std::binary_search(body_stream_ids.begin(), body_stream_ids.end(),
+                              launch_model_stream.raw_stream_id)) {
+        continue;
+      }
+      topology_policy =
+          ReplayBodyTopologyPolicy::kCapturedStreamSetUnordered;
+    } else {
+      body_stream_ids.push_back(
+          ir.streams.row(launch.model_stream_id).raw_stream_id);
+    }
+
+    std::vector<StreamBody> stream_bodies;
+    stream_bodies.reserve(body_stream_ids.size());
+    std::vector<const GraphTaskView*> body_tasks;
+    for (std::uint64_t raw_stream_id : body_stream_ids) {
+      StreamBody stream_body;
+      stream_body.raw_stream_id = raw_stream_id;
+      const auto found = normalized_tasks_by_stream.find(
+          stream_key(launch.device_id, raw_stream_id));
+      if (found != normalized_tasks_by_stream.end()) {
+        const std::vector<GraphTaskView>& tasks = found->second;
+        auto task = std::lower_bound(
+            tasks.begin(), tasks.end(), launch.start_ns,
+            [](const GraphTaskView& row, std::int64_t start_ns) {
+              return row.event->start_ns < start_ns;
+            });
+        for (; task != tasks.end() && task->event->start_ns <= launch.end_ns;
+             ++task) {
+          if (task->event->end_ns > launch.end_ns ||
+              (launch.raw_model_id >= 0 &&
+               task->task->raw_model_id != launch.raw_model_id)) {
+            continue;
+          }
+          stream_body.tasks.push_back(&*task);
+          body_tasks.push_back(&*task);
+        }
+      }
+      for (const GraphTaskView* row : stream_body.tasks) {
+        const TaskRow& task = *row->task;
+        const bool is_communication =
+            !task.op_type_symbol_id.valid() &&
+            !task.op_name_symbol_id.valid() &&
+            task.comm_name_symbol_id.valid();
+        std::string op;
+        if (is_communication) {
+          op = ir.symbols.value(task.comm_name_symbol_id);
+          const std::size_t suffix = op.find("__");
+          if (suffix != std::string::npos) {
+            op.resize(suffix);
+          }
+          op = "comm:" + op;
+          if (task.communication_task_type_symbol_id.valid()) {
+            op += "/" +
+                  ir.symbols.value(task.communication_task_type_symbol_id);
+          }
+        } else {
+          op = task.op_type_symbol_id.valid()
+                   ? ir.symbols.value(task.op_type_symbol_id)
+                   : ir.symbols.value(task.op_name_symbol_id);
+        }
+        if (!stream_body.readable_sequence.empty()) {
+          stream_body.readable_sequence += "\n";
+        }
+        stream_body.readable_sequence += op;
+        stream_body.exact_sequence += is_communication ? "communication\t"
+                                                       : "compute\t";
+        stream_body.exact_sequence += op;
+        stream_body.exact_sequence += "\t";
+        if (task.compute_task_type_symbol_id.valid()) {
+          stream_body.exact_sequence +=
+              ir.symbols.value(task.compute_task_type_symbol_id);
+        } else if (task.communication_task_type_symbol_id.valid()) {
+          stream_body.exact_sequence +=
+              ir.symbols.value(task.communication_task_type_symbol_id);
+        }
+        stream_body.exact_sequence += "\t";
+        if (task.task_type_symbol_id.valid()) {
+          stream_body.exact_sequence +=
+              ir.symbols.value(task.task_type_symbol_id);
+        }
+        stream_body.exact_sequence += "\n";
+      }
+      stream_bodies.push_back(std::move(stream_body));
+    }
+    if (body_tasks.empty()) {
+      continue;
+    }
+
+    std::sort(stream_bodies.begin(), stream_bodies.end(),
+              [](const StreamBody& lhs, const StreamBody& rhs) {
+                if (lhs.exact_sequence != rhs.exact_sequence) {
+                  return lhs.exact_sequence < rhs.exact_sequence;
+                }
+                return lhs.raw_stream_id < rhs.raw_stream_id;
+              });
+    std::string exact_topology =
+        topology_policy ==
+                ReplayBodyTopologyPolicy::kCapturedStreamSetUnordered
+            ? "captured_stream_set_unordered\n"
+            : "single_model_stream\n";
+    exact_topology += "stream_count=" +
+                      std::to_string(stream_bodies.size()) + "\n";
+    std::string readable_topology;
+    for (std::size_t lane = 0; lane < stream_bodies.size(); ++lane) {
+      exact_topology += "lane_begin\n";
+      exact_topology += stream_bodies[lane].exact_sequence;
+      exact_topology += "lane_end\n";
+      if (stream_bodies.size() == 1) {
+        readable_topology = stream_bodies[lane].readable_sequence;
+        continue;
+      }
+      if (!readable_topology.empty()) {
+        readable_topology += "\n";
+      }
+      readable_topology += "lane " + std::to_string(lane) + ":\n";
+      readable_topology += stream_bodies[lane].readable_sequence.empty()
+                               ? "<no normalized compute>"
+                               : stream_bodies[lane].readable_sequence;
+    }
+    std::sort(body_tasks.begin(), body_tasks.end(),
+              [&](const GraphTaskView* lhs, const GraphTaskView* rhs) {
+                return task_order(*lhs, *rhs);
+              });
+    const std::uint32_t communication_task_count =
+        static_cast<std::uint32_t>(std::count_if(
+            body_tasks.begin(), body_tasks.end(),
+            [](const GraphTaskView* row) {
+              return !row->task->op_type_symbol_id.valid() &&
+                     !row->task->op_name_symbol_id.valid() &&
+                     row->task->comm_name_symbol_id.valid();
+            }));
+    const std::uint32_t compute_task_count =
+        static_cast<std::uint32_t>(body_tasks.size()) -
+        communication_task_count;
+
+    ReplayBodyTemplateId template_id = ReplayBodyTemplateId::invalid();
+    const auto existing = templates_by_topology.find(exact_topology);
+    if (existing == templates_by_topology.end()) {
+      template_id = ir.replay_body_templates.append(
+          body_tasks.front()->task->source_ref_id,
+          stable_hash64(exact_topology), ir.symbols.intern(readable_topology),
+          compute_task_count, communication_task_count,
+          static_cast<std::uint32_t>(stream_bodies.size()), topology_policy);
+      templates_by_topology.emplace(std::move(exact_topology), template_id);
+    } else {
+      template_id = existing->second;
+    }
+    ir.graph_launch_bodies.append(
+        launch.id, template_id, body_tasks.front()->task->id,
+        body_tasks.back()->task->id,
+        compute_task_count, communication_task_count,
+        static_cast<std::uint32_t>(stream_bodies.size()));
+  }
+}
+
+ReplayBodyTemplateId replay_body_template_for_launch(
+    const NativeIr& ir,
+    GraphLaunchOccurrenceId launch_id) {
+  for (const GraphLaunchBodyRow& body : ir.graph_launch_bodies.rows()) {
+    if (body.graph_launch_occurrence_id == launch_id) {
+      return body.replay_body_template_id;
+    }
+  }
+  return ReplayBodyTemplateId::invalid();
+}
+
+void materialize_replay_composition_segment(
+    NativeIr& ir,
+    const std::vector<const GraphLaunchOccurrenceRow*>& segment,
+    ReplayCompositionOrderPolicy order_policy) {
+  if (segment.empty()) {
+    return;
+  }
+  bool all_instances = true;
+  std::vector<std::int64_t> identities;
+  identities.reserve(segment.size());
+  for (const GraphLaunchOccurrenceRow* launch : segment) {
+    if (!launch->captured_graph_instance_id.valid()) {
+      all_instances = false;
+      break;
+    }
+    identities.push_back(
+        static_cast<std::int64_t>(launch->captured_graph_instance_id.value()));
+  }
+  ReplayCompositionIdentityPolicy identity_policy =
+      ReplayCompositionIdentityPolicy::kCapturedGraphInstance;
+  if (!all_instances) {
+    identity_policy = ReplayCompositionIdentityPolicy::kGraphConnection;
+    identities.clear();
+    for (const GraphLaunchOccurrenceRow* launch : segment) {
+      if (launch->raw_graph_connection_id < 0) {
+        return;
+      }
+      identities.push_back(launch->raw_graph_connection_id);
+    }
+  }
+
+  const ExactPeriodicSuffixCandidate periodic =
+      find_exact_periodic_suffix(identities);
+  if (periodic.period == 0) {
+    return;
+  }
+  std::string hash_input =
+      identity_policy == ReplayCompositionIdentityPolicy::kCapturedGraphInstance
+          ? "captured_graph_instance\n"
+          : "graph_connection\n";
+  hash_input +=
+      order_policy == ReplayCompositionOrderPolicy::kHostSubmissionOrder
+          ? "host_submission_order\n"
+          : "device_execution_order\n";
+  for (std::size_t index = 0; index < periodic.period; ++index) {
+    hash_input += std::to_string(identities[periodic.start + index]);
+    hash_input += "\n";
+  }
+  const GraphLaunchOccurrenceRow& first_pattern =
+      *segment[periodic.start];
+  std::vector<ReplayBodyTemplateId> body_templates;
+  body_templates.reserve(periodic.period);
+  for (std::size_t index = 0; index < periodic.period; ++index) {
+    body_templates.push_back(replay_body_template_for_launch(
+        ir, segment[periodic.start + index]->id));
+  }
+  ReplayCompositionShapePolicy shape_policy =
+      ReplayCompositionShapePolicy::kUnclassified;
+  if (body_templates.size() >= 3 && body_templates.front().valid() &&
+      body_templates.back().valid() && body_templates[1].valid() &&
+      body_templates.front() != body_templates[1] &&
+      body_templates.back() != body_templates[1] &&
+      body_templates.front() != body_templates.back() &&
+      std::all_of(body_templates.begin() + 1, body_templates.end() - 1,
+                  [&](ReplayBodyTemplateId id) {
+                    return id == body_templates[1];
+                  })) {
+    shape_policy = ReplayCompositionShapePolicy::kHeadRepeatedLayerTail;
+  }
+
+  // A one-shot prefill cannot prove periodicity by repetition.  It can still
+  // be recognized exactly when it occupies precisely one decode-sized leading
+  // composition and independently has an H + L* + T body shape.  Requiring
+  // the already-confirmed periodic suffix to have the same high-level shape
+  // prevents arbitrary leading context from being promoted by this rule.
+  bool recognized_one_shot_leading = false;
+  if (shape_policy ==
+          ReplayCompositionShapePolicy::kHeadRepeatedLayerTail &&
+      periodic.start == periodic.period && periodic.start >= 3) {
+    std::vector<ReplayBodyTemplateId> leading_bodies;
+    leading_bodies.reserve(periodic.start);
+    for (std::size_t index = 0; index < periodic.start; ++index) {
+      leading_bodies.push_back(
+          replay_body_template_for_launch(ir, segment[index]->id));
+    }
+    const bool leading_hlt =
+        leading_bodies.front().valid() && leading_bodies.back().valid() &&
+        leading_bodies[1].valid() &&
+        leading_bodies.front() != leading_bodies[1] &&
+        leading_bodies.back() != leading_bodies[1] &&
+        leading_bodies.front() != leading_bodies.back() &&
+        std::all_of(leading_bodies.begin() + 1, leading_bodies.end() - 1,
+                    [&](ReplayBodyTemplateId id) {
+                      return id == leading_bodies[1];
+                    });
+    if (leading_hlt) {
+      std::string leading_hash_input =
+          identity_policy ==
+                  ReplayCompositionIdentityPolicy::kCapturedGraphInstance
+              ? "captured_graph_instance\n"
+              : "graph_connection\n";
+      leading_hash_input +=
+          order_policy == ReplayCompositionOrderPolicy::kHostSubmissionOrder
+              ? "host_submission_order\n"
+              : "device_execution_order\n";
+      leading_hash_input += "exact_one_shot_leading_composition\n";
+      for (std::size_t index = 0; index < periodic.start; ++index) {
+        leading_hash_input += std::to_string(identities[index]);
+        leading_hash_input += "\n";
+      }
+      const ReplayCompositionCandidateId leading_candidate =
+          ir.replay_composition_candidates.append(
+              segment.front()->source_ref_id, segment.front()->device_id,
+              segment.front()->id, segment.front()->id,
+              static_cast<std::uint32_t>(periodic.start), 0,
+              static_cast<std::uint32_t>(periodic.start), 1, 0,
+              stable_hash64(leading_hash_input), identity_policy, order_policy,
+              ReplayCompositionShapePolicy::kHeadRepeatedLayerTail,
+              ReplayCompositionBoundaryPolicy::
+                  kExactOneShotLeadingComposition);
+      for (std::size_t index = 0; index < periodic.start; ++index) {
+        const GraphLaunchOccurrenceRow& launch = *segment[index];
+        GraphSlotTemplateId slot_template_id =
+            GraphSlotTemplateId::invalid();
+        if (launch.captured_graph_instance_id.valid()) {
+          slot_template_id =
+              ir.captured_graph_instances
+                  .row(launch.captured_graph_instance_id)
+                  .slot_template_id;
+        }
+        const ReplayCompositionSlotRole role =
+            index == 0
+                ? ReplayCompositionSlotRole::kHead
+                : (index + 1 == periodic.start
+                       ? ReplayCompositionSlotRole::kTail
+                       : ReplayCompositionSlotRole::kLayer);
+        ir.replay_composition_slots.append(
+            leading_candidate, static_cast<std::uint32_t>(index),
+            launch.captured_graph_instance_id, slot_template_id,
+            leading_bodies[index], role, launch.raw_graph_connection_id);
+      }
+      std::int64_t leading_start_ns = segment.front()->start_ns;
+      std::int64_t leading_end_ns = segment.front()->end_ns;
+      for (std::size_t index = 1; index < periodic.start; ++index) {
+        leading_start_ns =
+            std::min(leading_start_ns, segment[index]->start_ns);
+        leading_end_ns = std::max(leading_end_ns, segment[index]->end_ns);
+      }
+      const ReplayCompositionRegionId leading_region =
+          ir.replay_composition_regions.append(
+              leading_candidate, 0, segment.front()->id,
+              segment[periodic.start - 1]->id, leading_start_ns,
+              leading_end_ns, static_cast<std::uint32_t>(periodic.start),
+              static_cast<std::uint32_t>(periodic.start),
+              ReplayCompositionRegionStatus::kRecognizedCompletePattern);
+      for (std::size_t index = 0; index < periodic.start; ++index) {
+        ir.replay_composition_region_members.append(
+            leading_region, static_cast<std::uint32_t>(index),
+            segment[index]->id, static_cast<std::int64_t>(index));
+      }
+      recognized_one_shot_leading = true;
+    }
+  }
+
+  const ReplayCompositionCandidateId candidate_id =
+      ir.replay_composition_candidates.append(
+          first_pattern.source_ref_id, first_pattern.device_id,
+          segment.front()->id, first_pattern.id,
+          static_cast<std::uint32_t>(segment.size()),
+          static_cast<std::uint32_t>(periodic.start),
+          static_cast<std::uint32_t>(periodic.period),
+          static_cast<std::uint32_t>(periodic.full_repeats),
+          static_cast<std::uint32_t>(periodic.trailing),
+          stable_hash64(hash_input), identity_policy, order_policy,
+          shape_policy,
+          ReplayCompositionBoundaryPolicy::kExactPeriodicSuffix);
+  for (std::size_t index = 0; index < periodic.period; ++index) {
+    const GraphLaunchOccurrenceRow& launch =
+        *segment[periodic.start + index];
+    GraphSlotTemplateId slot_template_id = GraphSlotTemplateId::invalid();
+    if (launch.captured_graph_instance_id.valid()) {
+      slot_template_id =
+          ir.captured_graph_instances
+              .row(launch.captured_graph_instance_id)
+              .slot_template_id;
+    }
+    ReplayCompositionSlotRole role = ReplayCompositionSlotRole::kUnclassified;
+    if (shape_policy ==
+        ReplayCompositionShapePolicy::kHeadRepeatedLayerTail) {
+      role = index == 0
+                 ? ReplayCompositionSlotRole::kHead
+                 : (index + 1 == periodic.period
+                        ? ReplayCompositionSlotRole::kTail
+                        : ReplayCompositionSlotRole::kLayer);
+    }
+    ir.replay_composition_slots.append(
+        candidate_id, static_cast<std::uint32_t>(index),
+        launch.captured_graph_instance_id, slot_template_id,
+        body_templates[index], role,
+        launch.raw_graph_connection_id);
+  }
+
+  const auto append_region = [&](std::uint32_t region_order,
+                                 std::size_t begin,
+                                 std::size_t count,
+                                 std::uint32_t expected_launch_count,
+                                 ReplayCompositionRegionStatus status,
+                                 bool has_expected_slots) {
+    std::int64_t start_ns = segment[begin]->start_ns;
+    std::int64_t end_ns = segment[begin]->end_ns;
+    for (std::size_t offset = 1; offset < count; ++offset) {
+      start_ns = std::min(start_ns, segment[begin + offset]->start_ns);
+      end_ns = std::max(end_ns, segment[begin + offset]->end_ns);
+    }
+    const ReplayCompositionRegionId region_id =
+        ir.replay_composition_regions.append(
+            candidate_id, region_order, segment[begin]->id,
+            segment[begin + count - 1]->id, start_ns, end_ns,
+            static_cast<std::uint32_t>(count), expected_launch_count, status);
+    for (std::size_t offset = 0; offset < count; ++offset) {
+      ir.replay_composition_region_members.append(
+          region_id, static_cast<std::uint32_t>(offset),
+          segment[begin + offset]->id,
+          has_expected_slots ? static_cast<std::int64_t>(offset) : -1);
+    }
+  };
+  const auto body_status = [&](std::size_t begin, std::size_t count,
+                               ReplayCompositionRegionStatus matched_status) {
+    for (std::size_t offset = 0; offset < count; ++offset) {
+      const ReplayBodyTemplateId expected = body_templates[offset];
+      const ReplayBodyTemplateId observed = replay_body_template_for_launch(
+          ir, segment[begin + offset]->id);
+      if (!expected.valid() || !observed.valid()) {
+        return ReplayCompositionRegionStatus::
+            kUnrecognizedMissingBodyEvidence;
+      }
+      if (expected != observed) {
+        return ReplayCompositionRegionStatus::kUnrecognizedBodyMismatch;
+      }
+    }
+    return matched_status;
+  };
+
+  std::uint32_t region_order = 0;
+  if (periodic.start > 0 && !recognized_one_shot_leading) {
+    append_region(region_order++, 0, periodic.start, 0,
+                  ReplayCompositionRegionStatus::
+                      kUnrecognizedLeadingContext,
+                  false);
+  }
+  for (std::size_t repeat = 0; repeat < periodic.full_repeats; ++repeat) {
+    const std::size_t begin = periodic.start + repeat * periodic.period;
+    append_region(
+        region_order++, begin, periodic.period,
+        static_cast<std::uint32_t>(periodic.period),
+        body_status(
+            begin, periodic.period,
+            ReplayCompositionRegionStatus::kRecognizedCompletePattern),
+        true);
+  }
+  if (periodic.trailing > 0) {
+    const std::size_t begin =
+        periodic.start + periodic.full_repeats * periodic.period;
+    append_region(
+        region_order++, begin, periodic.trailing,
+        static_cast<std::uint32_t>(periodic.period),
+        body_status(
+            begin, periodic.trailing,
+            ReplayCompositionRegionStatus::kUnrecognizedIncompleteTail),
+        true);
+  }
+}
+
+bool graph_launches_in_host_submission_order(
+    const NativeIr& ir,
+    std::vector<const GraphLaunchOccurrenceRow*>& ordered) {
+  if (ir.graph_launch_occurrences.empty() ||
+      ir.graph_launch_activity_members.empty()) {
+    return false;
+  }
+  std::vector<std::uint32_t> launch_membership_counts(
+      ir.graph_launch_occurrences.size(), 0);
+  std::vector<std::uint32_t> activity_member_counts(
+      ir.graph_launch_activities.size(), 0);
+  ordered.clear();
+  ordered.reserve(ir.graph_launch_occurrences.size());
+  for (const GraphLaunchActivityMemberRow& member :
+       ir.graph_launch_activity_members.rows()) {
+    if (!member.graph_launch_activity_id.valid() ||
+        !member.graph_launch_occurrence_id.valid()) {
+      return false;
+    }
+    ++activity_member_counts[member.graph_launch_activity_id.value()];
+    ++launch_membership_counts[member.graph_launch_occurrence_id.value()];
+    ordered.push_back(
+        &ir.graph_launch_occurrences.row(member.graph_launch_occurrence_id));
+  }
+  for (const GraphLaunchActivityRow& activity :
+       ir.graph_launch_activities.rows()) {
+    const std::uint32_t member_count = activity_member_counts[activity.id.value()];
+    if (member_count == 0) {
+      continue;
+    }
+    if (activity.boundary_policy !=
+            GraphLaunchActivityBoundaryPolicy::kHostBlockingSync ||
+        activity.host_execute_count != activity.matched_launch_count ||
+        activity.matched_launch_count != member_count) {
+      ordered.clear();
+      return false;
+    }
+  }
+  if (ordered.size() != ir.graph_launch_occurrences.size() ||
+      std::any_of(launch_membership_counts.begin(),
+                  launch_membership_counts.end(),
+                  [](std::uint32_t count) { return count != 1; })) {
+    ordered.clear();
+    return false;
+  }
+  return true;
+}
+
+void materialize_replay_composition_candidates_for_order(
+    NativeIr& ir,
+    const std::vector<const GraphLaunchOccurrenceRow*>& ordered_launches,
+    ReplayCompositionOrderPolicy order_policy) {
+  std::map<std::uint32_t, std::vector<const GraphLaunchOccurrenceRow*>>
+      launches_by_device;
+  for (const GraphLaunchOccurrenceRow* launch : ordered_launches) {
+    launches_by_device[launch->device_id].push_back(launch);
+  }
+  for (const auto& item : launches_by_device) {
+    std::vector<const GraphLaunchOccurrenceRow*> segment;
+    for (const GraphLaunchOccurrenceRow* launch : item.second) {
+      if (launch->raw_graph_connection_id < 0) {
+        materialize_replay_composition_segment(ir, segment, order_policy);
+        segment.clear();
+        continue;
+      }
+      segment.push_back(launch);
+    }
+    materialize_replay_composition_segment(ir, segment, order_policy);
+  }
+}
+
+void materialize_replay_composition_candidates(NativeIr& ir) {
+  std::vector<const GraphLaunchOccurrenceRow*> device_order;
+  device_order.reserve(ir.graph_launch_occurrences.size());
+  for (const GraphLaunchOccurrenceRow& launch :
+       ir.graph_launch_occurrences.rows()) {
+    device_order.push_back(&launch);
+  }
+
+  std::vector<const GraphLaunchOccurrenceRow*> host_order;
+  if (!graph_launches_in_host_submission_order(ir, host_order)) {
+    materialize_replay_composition_candidates_for_order(
+        ir, device_order, ReplayCompositionOrderPolicy::kDeviceExecutionOrder);
+    return;
+  }
+  const bool identical_order =
+      std::equal(device_order.begin(), device_order.end(), host_order.begin(),
+                 host_order.end(),
+                 [](const GraphLaunchOccurrenceRow* lhs,
+                    const GraphLaunchOccurrenceRow* rhs) {
+                   return lhs->id == rhs->id;
+                 });
+  if (!identical_order) {
+    materialize_replay_composition_candidates_for_order(
+        ir, device_order, ReplayCompositionOrderPolicy::kDeviceExecutionOrder);
+  }
+  materialize_replay_composition_candidates_for_order(
+      ir, host_order, ReplayCompositionOrderPolicy::kHostSubmissionOrder);
+}
+
+std::set<std::uint32_t> materialize_exact_aclgraph_replay_units(
+    NativeIr& ir,
+    const std::string& source_kind,
+    const std::string& source_path) {
+  std::map<std::uint32_t,
+           std::vector<const ReplayCompositionCandidateRow*>>
+      candidates_by_device;
+  for (const ReplayCompositionCandidateRow& candidate :
+       ir.replay_composition_candidates.rows()) {
+    if (candidate.order_policy ==
+            ReplayCompositionOrderPolicy::kHostSubmissionOrder &&
+        candidate.shape_policy ==
+            ReplayCompositionShapePolicy::kHeadRepeatedLayerTail) {
+      candidates_by_device[candidate.device_id].push_back(&candidate);
+    }
+  }
+  if (candidates_by_device.empty()) {
+    return {};
+  }
+
+  // Once strong exact H/L/T evidence exists for a device, do not fall back
+  // to the older capture-cardinality heuristic on that device.  Ambiguous,
+  // missing, or contradictory exact evidence must remain explicit unknowns
+  // rather than being silently reclassified by a weaker projector.
+  std::set<std::uint32_t> exact_claimed_devices;
+  for (const auto& device_candidates : candidates_by_device) {
+    exact_claimed_devices.insert(device_candidates.first);
+  }
+
+  const SourceRefId source_ref = ir.source_refs.append(
+      source_kind, source_path, "ACLGRAPH_REPLAY_UNIT", 0);
+  std::map<std::string, GraphTemplateId> templates_by_signature;
+  for (const auto& device_candidates : candidates_by_device) {
+    std::int64_t previous_end_ns = std::numeric_limits<std::int64_t>::min();
+    for (const ReplayCompositionCandidateRow* candidate_ptr :
+         device_candidates.second) {
+      const ReplayCompositionCandidateRow& candidate = *candidate_ptr;
+      std::vector<const ReplayCompositionSlotRow*> slots(
+          candidate.pattern_length, nullptr);
+      for (const ReplayCompositionSlotRow& slot :
+           ir.replay_composition_slots.rows()) {
+        if (slot.replay_composition_candidate_id != candidate.id) {
+          continue;
+        }
+        if (slot.slot_order >= slots.size() ||
+            slots[slot.slot_order] != nullptr) {
+          throw std::logic_error(
+              "exact replay composition has invalid slot membership");
+        }
+        slots[slot.slot_order] = &slot;
+      }
+      if (std::any_of(slots.begin(), slots.end(),
+                      [](const ReplayCompositionSlotRow* slot) {
+                        return slot == nullptr ||
+                               !slot->replay_body_template_id.valid();
+                      })) {
+        continue;
+      }
+
+      std::string template_signature = "exact_replay_composition_v1\n";
+      for (const ReplayCompositionSlotRow* slot : slots) {
+        const ReplayBodyTemplateRow& body = ir.replay_body_templates.row(
+            slot->replay_body_template_id);
+        template_signature += std::to_string(slot->slot_order);
+        template_signature += ":";
+        template_signature += std::to_string(body.exact_sequence_hash);
+        template_signature += ":";
+        template_signature += std::to_string(static_cast<unsigned>(slot->role));
+        template_signature += "\n";
+      }
+      GraphTemplateId graph_template = GraphTemplateId::invalid();
+      const auto existing_template =
+          templates_by_signature.find(template_signature);
+      if (existing_template == templates_by_signature.end()) {
+        graph_template = ir.graph_templates.append(
+            source_ref, stable_hash64(template_signature),
+            candidate.pattern_length);
+        templates_by_signature.emplace(template_signature, graph_template);
+      } else {
+        graph_template = existing_template->second;
+      }
+
+      std::vector<std::vector<const ReplayCompositionRegionMemberRow*>>
+          members_by_region(ir.replay_composition_regions.size());
+      for (const ReplayCompositionRegionMemberRow& member :
+           ir.replay_composition_region_members.rows()) {
+        if (member.replay_composition_region_id.valid() &&
+            member.replay_composition_region_id.value() <
+                members_by_region.size()) {
+          members_by_region[member.replay_composition_region_id.value()]
+              .push_back(&member);
+        }
+      }
+
+      for (const ReplayCompositionRegionRow& region :
+           ir.replay_composition_regions.rows()) {
+        if (region.replay_composition_candidate_id != candidate.id ||
+            region.status !=
+                ReplayCompositionRegionStatus::kRecognizedCompletePattern) {
+          continue;
+        }
+        std::vector<const ReplayCompositionRegionMemberRow*>& members =
+            members_by_region[region.id.value()];
+        std::sort(members.begin(), members.end(),
+                  [](const ReplayCompositionRegionMemberRow* lhs,
+                     const ReplayCompositionRegionMemberRow* rhs) {
+                    return lhs->member_order < rhs->member_order;
+                  });
+        if (members.size() != candidate.pattern_length ||
+            region.observed_launch_count != candidate.pattern_length ||
+            region.expected_launch_count != candidate.pattern_length ||
+            region.start_ns >= region.end_ns ||
+            region.start_ns < previous_end_ns) {
+          throw std::logic_error(
+              "recognized exact replay region violates projection invariants");
+        }
+
+        std::uint32_t raw_stream_id =
+            std::numeric_limits<std::uint32_t>::max();
+        for (std::size_t index = 0; index < members.size(); ++index) {
+          const ReplayCompositionRegionMemberRow& member = *members[index];
+          if (member.member_order != index ||
+              member.expected_slot_order != static_cast<std::int64_t>(index)) {
+            throw std::logic_error(
+                "recognized exact replay region lost ordered slot membership");
+          }
+          const GraphLaunchOccurrenceRow& launch =
+              ir.graph_launch_occurrences.row(
+                  member.graph_launch_occurrence_id);
+          if (launch.device_id != candidate.device_id ||
+              replay_body_template_for_launch(ir, launch.id) !=
+                  slots[index]->replay_body_template_id) {
+            throw std::logic_error(
+                "recognized exact replay region body no longer matches slot");
+          }
+          if (index == 0) {
+            const StreamId stream_id = launch.model_stream_id.valid()
+                                           ? launch.model_stream_id
+                                           : launch.execute_stream_id;
+            if (stream_id.valid()) {
+              raw_stream_id = static_cast<std::uint32_t>(
+                  ir.streams.row(stream_id).raw_stream_id);
+            }
+          }
+        }
+
+        const std::string symbol =
+            "GraphReplayUnit ExactT" +
+            std::to_string(graph_template.value() +
+                           static_cast<std::uint32_t>(1));
+        const TraceEventId event_id = ir.trace_events.append(
+            source_ref, region.id.value() + 1, candidate.device_id,
+            raw_stream_id, region.start_ns, region.end_ns,
+            ir.symbols.intern(symbol));
+        const ReplayUnitId replay_unit = ir.replay_units.append(
+            graph_template, source_ref, AnchorId::invalid(),
+            AnchorId::invalid(), event_id, region.id);
+        for (std::size_t index = 0; index < members.size(); ++index) {
+          ir.replay_unit_launch_members.append(
+              replay_unit, static_cast<std::uint32_t>(index),
+              members[index]->graph_launch_occurrence_id, slots[index]->id);
+        }
+        previous_end_ns = region.end_ns;
+      }
+    }
+  }
+  return exact_claimed_devices;
 }
 
 void materialize_aclgraph_replay_units(
@@ -1939,6 +3327,16 @@ struct SplitComputeInfo {
 using SplitComputeIndex =
     std::unordered_map<SplitTaskKey, SplitComputeInfo, SplitTaskKeyHash>;
 
+struct SplitCommunicationInfo {
+  SymbolId comm_name_symbol_id;
+  SymbolId task_type_symbol_id;
+};
+
+using SplitCommunicationIndex =
+    std::unordered_map<SplitTaskKey, SplitCommunicationInfo, SplitTaskKeyHash>;
+
+std::uint32_t split_device_id_from_path(const std::string& db_path);
+
 SplitComputeIndex load_split_task_info(
     const AscendSplitSQLiteTableInfo* table,
     NativeIr& ir) {
@@ -1977,6 +3375,38 @@ SplitComputeIndex load_split_task_info(
   return out;
 }
 
+SplitCommunicationIndex load_split_communication_task_info(
+    const std::vector<const AscendSplitSQLiteTableInfo*>& tables,
+    NativeIr& ir) {
+  SplitCommunicationIndex out;
+  for (const AscendSplitSQLiteTableInfo* table : tables) {
+    const std::uint32_t device_id = split_device_id_from_path(table->db_path);
+    SqliteDb db(table->db_path);
+    SqliteStmt stmt(
+        db.get(),
+        "SELECT stream_id, task_id, context_id, op_name, hccl_name "
+        "FROM HCCLTaskSingleDevice ORDER BY stream_id, task_id, context_id");
+    while (true) {
+      const int rc = sqlite3_step(stmt.get());
+      if (rc == SQLITE_DONE) {
+        break;
+      }
+      if (rc != SQLITE_ROW) {
+        throw std::runtime_error(
+            "failed to load split HCCLTaskSingleDevice: " +
+            std::string(sqlite3_errmsg(stmt.db())));
+      }
+      out.emplace(
+          SplitTaskKey{device_id, sqlite_u64(stmt.get(), 0),
+                       sqlite_u64(stmt.get(), 1), sqlite_u64(stmt.get(), 2)},
+          SplitCommunicationInfo{
+              ir.symbols.intern(sqlite_text(stmt.get(), 3)),
+              ir.symbols.intern(sqlite_text(stmt.get(), 4))});
+    }
+  }
+  return out;
+}
+
 std::unordered_map<std::int64_t, std::string> load_split_host_task_types(
     const AscendSplitSQLiteTableInfo* table) {
   std::unordered_map<std::int64_t, std::string> out;
@@ -2008,14 +3438,18 @@ AclGraphCannApiMetadata load_split_aclgraph_api_metadata(
     return metadata;
   }
   SqliteDb db(table->db_path);
-  SqliteStmt stmt(
-      db.get(),
-      "SELECT start, end, connection_id, id FROM ApiData "
+  const bool has_thread_id = table_has_column(db, "ApiData", "thread_id");
+  const std::string sql =
+      "SELECT rowid, start, end, connection_id, id, " +
+      std::string(has_thread_id ? "thread_id " : "0 ") +
+      "FROM ApiData "
       "WHERE start IS NOT NULL AND end IS NOT NULL AND end > start "
-      "ORDER BY start, end, rowid");
+      "ORDER BY start, end, rowid";
+  SqliteStmt stmt(db.get(), sql.c_str());
   std::vector<CaptureInterval> begin_markers;
   std::vector<CaptureInterval> end_markers;
   std::vector<CaptureTokenCandidate> token_candidates;
+  std::vector<HostBlockingSyncView> blocking_syncs;
   while (true) {
     const int rc = sqlite3_step(stmt.get());
     if (rc == SQLITE_DONE) {
@@ -2025,17 +3459,27 @@ AclGraphCannApiMetadata load_split_aclgraph_api_metadata(
       throw std::runtime_error("failed to load split ApiData: " +
                                std::string(sqlite3_errmsg(stmt.db())));
     }
-    const std::int64_t start_ns = sqlite_i64(stmt.get(), 0, 0) * 10;
-    const std::int64_t end_ns = sqlite_i64(stmt.get(), 1, 0) * 10;
-    const std::int64_t connection_id = sqlite_i64(stmt.get(), 2, 0);
-    const std::string name = sqlite_text(stmt.get(), 3);
+    const std::int64_t row_id = sqlite_i64(stmt.get(), 0, -1);
+    const std::int64_t start_ns = sqlite_i64(stmt.get(), 1, 0) * 10;
+    const std::int64_t end_ns = sqlite_i64(stmt.get(), 2, 0) * 10;
+    const std::int64_t connection_id = sqlite_i64(stmt.get(), 3, 0);
+    const std::string name = sqlite_text(stmt.get(), 4);
+    const std::uint64_t global_tid = sqlite_u64(stmt.get(), 5);
     if (name == "aclmdlRIExecuteAsync") {
       metadata.execute_launches.push_back(
-          GraphLaunchView{start_ns, end_ns, connection_id});
+          GraphLaunchView{row_id, start_ns, end_ns, connection_id,
+                          global_tid});
     } else if (name == "aclmdlRICaptureBegin") {
       begin_markers.push_back(CaptureInterval{start_ns, end_ns});
     } else if (name == "aclmdlRICaptureEnd") {
       end_markers.push_back(CaptureInterval{start_ns, end_ns});
+    }
+    if (name == "aclrtSynchronizeStreamWithTimeout" ||
+        name == "aclrtSynchronizeStream" ||
+        name == "aclrtSynchronizeDeviceWithTimeout" ||
+        name == "aclrtSynchronizeDevice") {
+      blocking_syncs.push_back(HostBlockingSyncView{
+          row_id, start_ns, end_ns, global_tid, name});
     }
     const std::string token = capture_host_api_token(name);
     if (!token.empty()) {
@@ -2047,6 +3491,10 @@ AclGraphCannApiMetadata load_split_aclgraph_api_metadata(
       build_capture_intervals(std::move(begin_markers), std::move(end_markers));
   metadata.capture_slots =
       build_aclgraph_capture_slots(intervals, std::move(token_candidates));
+  if (has_thread_id) {
+    metadata.launch_activities = build_graph_launch_activities(
+        metadata.execute_launches, blocking_syncs);
+  }
   return metadata;
 }
 
@@ -2055,6 +3503,7 @@ struct SplitRawTask {
   SourceRefId source_ref;
   SymbolId task_type_symbol;
   SplitComputeInfo compute;
+  SplitCommunicationInfo communication;
 };
 
 std::uint32_t split_device_id_from_path(const std::string& db_path) {
@@ -2119,6 +3568,9 @@ NativeIr load_split_profile(const AscendSQLiteAdapterOptions& options) {
 
   const SplitComputeIndex compute_info =
       load_split_task_info(find_split_table(inventory, "TaskInfo"), ir);
+  const SplitCommunicationIndex communication_info =
+      load_split_communication_task_info(
+          find_split_tables(inventory, "HCCLTaskSingleDevice"), ir);
   const auto host_task_types =
       load_split_host_task_types(find_split_table(inventory, "HostTask"));
   std::vector<SplitRawTask> raw_tasks;
@@ -2128,12 +3580,15 @@ NativeIr load_split_profile(const AscendSQLiteAdapterOptions& options) {
     const SourceRefId source_ref =
         table_refs.at(table->db_path + "\n" + table->table_name);
     SqliteDb db(table->db_path);
-    SqliteStmt stmt(
-        db.get(),
+    const bool has_model_id =
+        table_has_column(db, "AscendTask", "model_id");
+    const std::string task_sql =
         "SELECT rowid, start_time, duration, device_task_type, stream_id, "
-        "task_id, context_id, connection_id, host_task_type "
+        "task_id, context_id, connection_id, host_task_type, " +
+        std::string(has_model_id ? "model_id " : "-1 ") +
         "FROM AscendTask WHERE start_time >= 0 AND duration >= 0 "
-        "ORDER BY start_time, stream_id, task_id, context_id, rowid");
+        "ORDER BY start_time, stream_id, task_id, context_id, rowid";
+    SqliteStmt stmt(db.get(), task_sql.c_str());
     while (true) {
       const int rc = sqlite3_step(stmt.get());
       if (rc == SQLITE_DONE) {
@@ -2151,6 +3606,8 @@ NativeIr load_split_profile(const AscendSQLiteAdapterOptions& options) {
       const std::uint64_t context_id = sqlite_u64(stmt.get(), 6);
       const std::int64_t connection_id = sqlite_i64(stmt.get(), 7);
       std::string host_task_type = sqlite_text(stmt.get(), 8);
+      const std::int64_t model_id =
+          normalize_raw_model_id(sqlite_i64(stmt.get(), 9, -1));
       const auto host_found = host_task_types.find(connection_id);
       if (host_task_type.empty() && host_found != host_task_types.end()) {
         host_task_type = host_found->second;
@@ -2164,11 +3621,23 @@ NativeIr load_split_profile(const AscendSQLiteAdapterOptions& options) {
       if (compute_found != compute_info.end()) {
         compute = compute_found->second;
       }
+      SplitCommunicationInfo communication;
+      auto communication_found = communication_info.find(key);
+      if (communication_found != communication_info.end()) {
+        communication = communication_found->second;
+      }
+      const std::string normalized_task_type =
+          communication.comm_name_symbol_id.valid() &&
+                  !device_task_type.empty() && device_task_type != "UNKNOWN"
+              ? device_task_type
+              : host_task_type;
       raw_tasks.push_back(SplitRawTask{
           RawTaskRow{sqlite_u64(stmt.get(), 0), start_ns,
                      start_ns + duration_ns, table_device_id, stream_id, task_id,
-                     compute.synthetic_global_task_id, connection_id, -1},
-          source_ref, ir.symbols.intern(host_task_type), compute});
+                     compute.synthetic_global_task_id, connection_id, -1,
+                     model_id},
+          source_ref, ir.symbols.intern(normalized_task_type), compute,
+          communication});
     }
   }
   std::sort(raw_tasks.begin(), raw_tasks.end(),
@@ -2189,14 +3658,49 @@ NativeIr load_split_profile(const AscendSQLiteAdapterOptions& options) {
                     raw.task_type_symbol, raw.compute.symbols.op_name_symbol_id,
                     raw.compute.symbols.op_type_symbol_id,
                     raw.compute.symbols.compute_task_type_symbol_id,
-                    SymbolId::invalid());
+                    raw.communication.comm_name_symbol_id,
+                    raw.row.raw_model_id,
+                    raw.communication.task_type_symbol_id);
   }
 
-  // Parse the split host API metadata now so schema/unit drift fails clearly.
-  // Graph replay and communication attribution need additional split-only
-  // clocks and are intentionally left to the incremental attribution model.
-  (void)load_split_aclgraph_api_metadata(
-      find_split_table(inventory, "ApiData"));
+  const AscendSplitSQLiteTableInfo* api_table =
+      find_split_table(inventory, "ApiData");
+  const AclGraphCannApiMetadata cann_api_metadata =
+      load_split_aclgraph_api_metadata(api_table);
+  const AscendSplitSQLiteTableInfo* capture_stream_table =
+      find_split_table(inventory, "CaptureStreamInfo");
+  AclGraphCaptureInfo capture_info;
+  if (capture_stream_table != nullptr) {
+    capture_info =
+        load_aclgraph_capture_info(capture_stream_table->db_path);
+  }
+  capture_info.capture_slots = cann_api_metadata.capture_slots;
+  capture_info.replay_unit_signature = build_capture_replay_unit_signature(
+      capture_info.capture_slots, capture_info.capture_group_size);
+
+  const auto source_ref_for = [&](const AscendSplitSQLiteTableInfo* table) {
+    return table == nullptr
+               ? SourceRefId::invalid()
+               : table_refs.at(table->db_path + "\n" + table->table_name);
+  };
+  const SourceRefId api_source_ref = source_ref_for(api_table);
+  CapturedGraphInstanceIndex captured_graph_instances;
+  if (!capture_info.model_groups.empty()) {
+    captured_graph_instances = materialize_aclgraph_capture_instances(
+        ir, capture_info, source_ref_for(capture_stream_table),
+        api_source_ref);
+  }
+  materialize_aclgraph_launch_occurrences(
+      ir, streams, captured_graph_instances,
+      cann_api_metadata.execute_launches, api_source_ref);
+  materialize_graph_launch_bodies(ir);
+  if (api_source_ref.valid()) {
+    materialize_graph_launch_activities(
+        ir, cann_api_metadata.launch_activities, api_source_ref);
+  }
+  materialize_replay_composition_candidates(ir);
+  (void)materialize_exact_aclgraph_replay_units(
+      ir, options.source_kind, options.db_path);
   return ir;
 }
 
@@ -2352,12 +3856,52 @@ NativeIr AscendSQLiteAdapter::load() const {
           capture_info.capture_slots, capture_info.capture_group_size);
     }
   });
+  CapturedGraphInstanceIndex captured_graph_instances;
+  timing.aclgraph_capture_instances_ms = time_stage([&]() {
+    if (!capture_info.model_groups.empty()) {
+      const SourceRefId capture_stream_source_ref = ir.source_refs.append(
+          options_.source_kind, stream_info_path, "CaptureStreamInfo", 0);
+      captured_graph_instances = materialize_aclgraph_capture_instances(
+          ir, capture_info, capture_stream_source_ref,
+          table_refs.find("CANN_API") == table_refs.end()
+              ? SourceRefId::invalid()
+              : table_refs.at("CANN_API"));
+    }
+  });
+  timing.aclgraph_launch_occurrences_ms = time_stage([&]() {
+    if (table_refs.find("TASK") != table_refs.end()) {
+      materialize_aclgraph_launch_occurrences(
+          ir, streams, captured_graph_instances,
+          cann_api_metadata.execute_launches,
+          table_refs.find("CANN_API") == table_refs.end()
+              ? SourceRefId::invalid()
+              : table_refs.at("CANN_API"));
+    }
+  });
+  timing.aclgraph_launch_bodies_ms =
+      time_stage([&]() { materialize_graph_launch_bodies(ir); });
+  timing.aclgraph_launch_activities_ms = time_stage([&]() {
+    const auto host_api_source = table_refs.find("CANN_API");
+    if (host_api_source != table_refs.end()) {
+      materialize_graph_launch_activities(
+          ir, cann_api_metadata.launch_activities, host_api_source->second);
+    }
+  });
+  timing.replay_composition_candidates_ms =
+      time_stage([&]() { materialize_replay_composition_candidates(ir); });
   timing.aclgraph_replay_units_ms = time_stage([&]() {
-    if (!capture_info.model_streams_by_device.empty()) {
+    const std::set<std::uint32_t> exact_claimed_devices =
+        materialize_exact_aclgraph_replay_units(
+            ir, options_.source_kind, options_.db_path);
+    auto legacy_model_streams = capture_info.model_streams_by_device;
+    for (std::uint32_t device_id : exact_claimed_devices) {
+      legacy_model_streams.erase(device_id);
+    }
+    if (!legacy_model_streams.empty()) {
       const SourceRefId replay_source_ref = ir.source_refs.append(
           options_.source_kind, stream_info_path, "ACLGRAPH_REPLAY_UNIT", 0);
       materialize_aclgraph_replay_units(
-          ir, capture_info.model_streams_by_device,
+          ir, legacy_model_streams,
           cann_api_metadata.execute_launches, replay_source_ref,
           capture_info.capture_group_size,
           capture_info.replay_unit_signature);

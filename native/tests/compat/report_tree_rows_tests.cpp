@@ -1,4 +1,6 @@
 #include "traceloom/compat/report_tree_rows.h"
+#include "traceloom/pattern/grammar_state.h"
+#include "traceloom/report/report_tree_builder.h"
 #include "traceloom/testing/test_util.h"
 
 #include <stdexcept>
@@ -183,6 +185,115 @@ int main() {
   require(overlap_rows.nodes.front().comm_us == 10.0);
   require(overlap_rows.nodes.front().idle_us == 0.0);
   require(overlap_rows.nodes.front().total_us == 15.0);
+
+  // A semantic ReplayUnit hierarchy preserves the same overlap-safe root
+  // wall clock as the flat tree. Communication owns its overlap with graph
+  // compute, and structural parent/child costs are views rather than additive
+  // siblings.
+  NativeIr semantic_cost_ir;
+  const SourceRefId semantic_cost_source = semantic_cost_ir.source_refs.append(
+      "fixture", "semantic_cost", "TASK", 0);
+  const SymbolId semantic_h = semantic_cost_ir.symbols.intern("ACLH");
+  const SymbolId semantic_l = semantic_cost_ir.symbols.intern("ACLL");
+  const SymbolId semantic_t = semantic_cost_ir.symbols.intern("ACLT");
+  const SymbolId semantic_eager = semantic_cost_ir.symbols.intern("Eager");
+  const auto append_semantic_token =
+      [&](std::uint64_t source_row_id, SymbolId symbol, AnchorKind kind,
+          std::uint32_t stream_id, std::int64_t start_ns,
+          std::int64_t end_ns) {
+        const TraceEventId event = semantic_cost_ir.trace_events.append(
+            semantic_cost_source, source_row_id, 0, stream_id, start_ns,
+            end_ns, symbol);
+        const AnchorId anchor = semantic_cost_ir.anchors.append(
+            semantic_cost_source, event, ReplayUnitId::invalid(), kind, symbol,
+            0, stream_id, start_ns, end_ns);
+        semantic_cost_ir.tokens.append(
+            anchor, symbol, 0,
+            static_cast<std::uint32_t>(semantic_cost_ir.tokens.size()),
+            start_ns, end_ns);
+      };
+  append_semantic_token(1, semantic_h, AnchorKind::kGraphH, 1, 0, 10000);
+  append_semantic_token(2, semantic_l, AnchorKind::kCommunication, 2, 5000,
+                        15000);
+  append_semantic_token(3, semantic_t, AnchorKind::kGraphT, 1, 15000, 20000);
+  append_semantic_token(4, semantic_eager, AnchorKind::kDeviceEvent, 1, 20000,
+                        25000);
+  append_semantic_token(5, semantic_h, AnchorKind::kGraphH, 1, 25000, 35000);
+  append_semantic_token(6, semantic_l, AnchorKind::kCommunication, 2, 30000,
+                        40000);
+  append_semantic_token(7, semantic_t, AnchorKind::kGraphT, 1, 40000, 45000);
+  append_semantic_token(8, semantic_eager, AnchorKind::kDeviceEvent, 1, 45000,
+                        50000);
+
+  const std::vector<ReportToken> semantic_cost_tokens =
+      compat::build_report_tokens_from_native_ir(semantic_cost_ir);
+  const ReportTree flat_cost_tree =
+      build_report_tree_from_tokens(semantic_cost_tokens);
+
+  const SymbolId semantic_unit_symbol(1000);
+  GlobalGrammarState semantic_cost_state;
+  semantic_cost_state.stage = GrammarStage::kDone;
+  semantic_cost_state.nodes = {
+      GrammarNode{GrammarNodeId(0), semantic_unit_symbol, MacroDefId(0), 0, 3,
+                  0, 20000, GrammarChunkId(0), GrammarNodeId::invalid(),
+                  GrammarNodeId(1), true},
+      GrammarNode{GrammarNodeId(1), semantic_eager, MacroDefId::invalid(), 3, 4,
+                  20000, 25000, GrammarChunkId(0), GrammarNodeId(0),
+                  GrammarNodeId(2), true},
+      GrammarNode{GrammarNodeId(2), semantic_unit_symbol, MacroDefId(0), 4, 7,
+                  25000, 45000, GrammarChunkId(0), GrammarNodeId(1),
+                  GrammarNodeId(3), true},
+      GrammarNode{GrammarNodeId(3), semantic_eager, MacroDefId::invalid(), 7, 8,
+                  45000, 50000, GrammarChunkId(0), GrammarNodeId(2),
+                  GrammarNodeId::invalid(), true},
+  };
+  semantic_cost_state.chunks = {GrammarChunk{
+      GrammarChunkId(0), 0, 0, GrammarNodeId(0), GrammarNodeId(3), 4, 0}};
+  semantic_cost_state.macro_defs = {MacroDefRow{
+      MacroDefId(0), semantic_unit_symbol, MacroLevel::kSemantic,
+      {semantic_h, semantic_l, semantic_t}, 3, 2, 2, 0, "ReplayUnit T1"}};
+  semantic_cost_state.live_node_count = 4;
+  const ReportTree semantic_cost_tree = build_report_tree_from_grammar_state(
+      semantic_cost_tokens, semantic_cost_state);
+
+  const compat::NodeCoverageSqlRows flat_cost_rows =
+      compat::build_report_tree_node_coverage_sql_rows(flat_cost_tree,
+                                                       semantic_cost_tokens);
+  const compat::NodeCoverageSqlRows semantic_cost_rows =
+      compat::build_report_tree_node_coverage_sql_rows(
+          semantic_cost_tree, semantic_cost_tokens);
+  require(flat_cost_rows.nodes.front().total_us == 50.0,
+          "flat semantic fixture wall clock");
+  require(semantic_cost_rows.nodes.front().total_us ==
+              flat_cost_rows.nodes.front().total_us,
+          "semantic and flat roots conserve the same wall clock");
+  require(semantic_cost_rows.nodes.front().compute_us == 30.0,
+          "semantic fixture compute cost");
+  require(semantic_cost_rows.nodes.front().comm_us == 20.0,
+          "semantic fixture communication cost");
+  std::uint32_t semantic_unit_anchor_count = 0;
+  double semantic_unit_total_us = 0.0;
+  for (const compat::VizNodeSqlRow& row : semantic_cost_rows.nodes) {
+    if (row.label == "ReplayUnit T1") {
+      semantic_unit_anchor_count += row.anchor_count;
+      semantic_unit_total_us += row.total_us;
+    }
+  }
+  require(semantic_unit_anchor_count == 6, "semantic unit anchor count");
+  require(semantic_unit_total_us == 40.0,
+          "semantic unit overlap-safe wall clock");
+
+  bool rejected_nonconserved_cost = false;
+  try {
+    std::vector<ReportToken> bad_cost_tokens = semantic_cost_tokens;
+    bad_cost_tokens.front().timeline_anchor_us += 1.0;
+    (void)compat::build_report_tree_node_coverage_sql_rows(
+        semantic_cost_tree, bad_cost_tokens);
+  } catch (const std::invalid_argument&) {
+    rejected_nonconserved_cost = true;
+  }
+  require(rejected_nonconserved_cost,
+          "non-conserved normalized wall clock must be rejected");
 
   // Prelude classification uses disjoint wall-clock buckets, includes an
   // event that began before the gap, and keeps overlapping/wait evidence in

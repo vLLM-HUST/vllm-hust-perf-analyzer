@@ -16,7 +16,32 @@ struct AnchorCandidate {
   ReplayUnitId replay_unit_id = ReplayUnitId::invalid();
   AnchorKind kind = AnchorKind::kUnknown;
   SymbolId symbol_id;
+  SourceRefId source_ref_id;
+  std::uint64_t source_row_id = 0;
+  std::uint32_t device_id = 0;
+  std::uint32_t stream_id = 0;
+  std::int64_t start_ns = 0;
+  std::int64_t end_ns = 0;
 };
+
+AnchorCandidate anchor_candidate_from_event(
+    const NativeIr& ir,
+    TraceEventId trace_event_id,
+    ReplayUnitId replay_unit_id,
+    AnchorKind kind,
+    SymbolId symbol_id) {
+  const TraceEventRow& event = ir.trace_events.row(trace_event_id);
+  return AnchorCandidate{trace_event_id,
+                         replay_unit_id,
+                         kind,
+                         symbol_id,
+                         event.source_ref_id,
+                         event.source_row_id,
+                         event.device_id,
+                         event.stream_id,
+                         event.start_ns,
+                         event.end_ns};
+}
 
 struct CommunicationSpan {
   std::int64_t start_ns = 0;
@@ -317,22 +342,19 @@ bool event_is_covered_by_replay_unit(
   return event.start_ns >= span.start_ns && event.end_ns <= span.end_ns;
 }
 
-bool candidate_less(const NativeIr& ir,
-                    const AnchorCandidate& lhs,
+bool candidate_less(const AnchorCandidate& lhs,
                     const AnchorCandidate& rhs) {
-  const TraceEventRow& a = ir.trace_events.row(lhs.trace_event_id);
-  const TraceEventRow& b = ir.trace_events.row(rhs.trace_event_id);
-  if (a.device_id != b.device_id) {
-    return a.device_id < b.device_id;
+  if (lhs.device_id != rhs.device_id) {
+    return lhs.device_id < rhs.device_id;
   }
-  if (a.start_ns != b.start_ns) {
-    return a.start_ns < b.start_ns;
+  if (lhs.start_ns != rhs.start_ns) {
+    return lhs.start_ns < rhs.start_ns;
   }
-  if (a.end_ns != b.end_ns) {
-    return a.end_ns < b.end_ns;
+  if (lhs.end_ns != rhs.end_ns) {
+    return lhs.end_ns < rhs.end_ns;
   }
-  if (a.stream_id != b.stream_id) {
-    return a.stream_id < b.stream_id;
+  if (lhs.stream_id != rhs.stream_id) {
+    return lhs.stream_id < rhs.stream_id;
   }
   const auto source_kind_order = [](AnchorKind kind) {
     switch (kind) {
@@ -361,13 +383,13 @@ bool candidate_less(const NativeIr& ir,
   if (lhs.symbol_id != rhs.symbol_id) {
     return lhs.symbol_id < rhs.symbol_id;
   }
-  if (a.source_ref_id != b.source_ref_id) {
-    return a.source_ref_id < b.source_ref_id;
+  if (lhs.source_ref_id != rhs.source_ref_id) {
+    return lhs.source_ref_id < rhs.source_ref_id;
   }
-  if (a.source_row_id != b.source_row_id) {
-    return a.source_row_id < b.source_row_id;
+  if (lhs.source_row_id != rhs.source_row_id) {
+    return lhs.source_row_id < rhs.source_row_id;
   }
-  return lhs.trace_event_id.value() < rhs.trace_event_id.value();
+  return lhs.trace_event_id < rhs.trace_event_id;
 }
 
 }  // namespace
@@ -429,20 +451,83 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
         comm_event_ids.end()) {
       continue;
     }
-    candidates.push_back(
-        AnchorCandidate{task.trace_event_id, ReplayUnitId::invalid(),
-                        AnchorKind::kDeviceEvent,
-                        choose_task_anchor_symbol(ir, task)});
+    candidates.push_back(anchor_candidate_from_event(
+        ir, task.trace_event_id, ReplayUnitId::invalid(),
+        AnchorKind::kDeviceEvent, choose_task_anchor_symbol(ir, task)));
   }
 
   for (const ReplayUnitRow& replay : ir.replay_units.rows()) {
     if (!replay.launch_trace_event_id.valid()) {
       continue;
     }
-    const TraceEventRow& event = ir.trace_events.row(replay.launch_trace_event_id);
-    candidates.push_back(AnchorCandidate{
-        replay.launch_trace_event_id, replay.id, AnchorKind::kGraphReplayUnit,
-        event.raw_name_symbol_id});
+    const TraceEventRow& event =
+        ir.trace_events.row(replay.launch_trace_event_id);
+    if (!replay.replay_composition_region_id.valid()) {
+      candidates.push_back(anchor_candidate_from_event(
+          ir, replay.launch_trace_event_id, replay.id,
+          AnchorKind::kGraphReplayUnit, event.raw_name_symbol_id));
+      continue;
+    }
+    std::vector<const ReplayUnitLaunchMemberRow*> members;
+    for (const ReplayUnitLaunchMemberRow& member :
+         ir.replay_unit_launch_members.rows()) {
+      if (member.replay_unit_id == replay.id) {
+        members.push_back(&member);
+      }
+    }
+    std::sort(members.begin(), members.end(),
+              [](const ReplayUnitLaunchMemberRow* lhs,
+                 const ReplayUnitLaunchMemberRow* rhs) {
+                return lhs->member_order < rhs->member_order;
+              });
+    if (members.empty()) {
+      throw std::logic_error(
+          "exact ReplayUnit has no graph launch membership");
+    }
+    for (std::size_t index = 0; index < members.size(); ++index) {
+      const ReplayUnitLaunchMemberRow& member = *members[index];
+      if (member.member_order != index) {
+        throw std::logic_error(
+            "exact ReplayUnit launch membership order is not contiguous");
+      }
+      const GraphLaunchOccurrenceRow& launch =
+          ir.graph_launch_occurrences.row(
+              member.graph_launch_occurrence_id);
+      const ReplayCompositionSlotRow& slot =
+          ir.replay_composition_slots.row(
+              member.replay_composition_slot_id);
+      AnchorKind kind = AnchorKind::kUnknown;
+      const char* symbol = nullptr;
+      switch (slot.role) {
+        case ReplayCompositionSlotRole::kHead:
+          kind = AnchorKind::kGraphH;
+          symbol = "ACLH";
+          break;
+        case ReplayCompositionSlotRole::kLayer:
+          kind = AnchorKind::kGraphL;
+          symbol = "ACLL";
+          break;
+        case ReplayCompositionSlotRole::kTail:
+          kind = AnchorKind::kGraphT;
+          symbol = "ACLT";
+          break;
+        case ReplayCompositionSlotRole::kUnclassified:
+          throw std::logic_error(
+              "exact ReplayUnit member has an unclassified slot role");
+      }
+      std::uint32_t raw_stream_id = event.stream_id;
+      const StreamId stream_id = launch.model_stream_id.valid()
+                                     ? launch.model_stream_id
+                                     : launch.execute_stream_id;
+      if (stream_id.valid()) {
+        raw_stream_id = static_cast<std::uint32_t>(
+            ir.streams.row(stream_id).raw_stream_id);
+      }
+      candidates.push_back(AnchorCandidate{
+          TraceEventId::invalid(), replay.id, kind, ir.symbols.intern(symbol),
+          replay.source_ref_id, member.id.value() + 1, launch.device_id,
+          raw_stream_id, launch.start_ns, launch.end_ns});
+    }
   }
 
   for (const CommunicationOpRow& comm : ir.communication_ops.rows()) {
@@ -454,35 +539,63 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
         event_is_covered_by_replay_unit(event, replay_spans)) {
       continue;
     }
-    candidates.push_back(
-        AnchorCandidate{comm.trace_event_id, ReplayUnitId::invalid(),
-                        AnchorKind::kCommunication,
-                        choose_communication_symbol(ir, comm)});
+    candidates.push_back(anchor_candidate_from_event(
+        ir, comm.trace_event_id, ReplayUnitId::invalid(),
+        AnchorKind::kCommunication, choose_communication_symbol(ir, comm)));
   }
 
   std::sort(candidates.begin(), candidates.end(),
-            [&ir](const AnchorCandidate& lhs, const AnchorCandidate& rhs) {
-              return candidate_less(ir, lhs, rhs);
+            [](const AnchorCandidate& lhs, const AnchorCandidate& rhs) {
+              return candidate_less(lhs, rhs);
             });
 
+  struct ReplayAnchorSpan {
+    AnchorId first_anchor_id = AnchorId::invalid();
+    AnchorId last_anchor_id = AnchorId::invalid();
+    TokenId first_token_id = TokenId::invalid();
+    TokenId last_token_id = TokenId::invalid();
+  };
+  std::vector<ReplayAnchorSpan> replay_anchor_spans(ir.replay_units.size());
   std::uint32_t sequence_index = 0;
   for (const AnchorCandidate& candidate : candidates) {
-    const TraceEventRow& event = ir.trace_events.row(candidate.trace_event_id);
     const AnchorId anchor = ir.anchors.append(
-        event.source_ref_id, candidate.trace_event_id, candidate.replay_unit_id,
-        candidate.kind, candidate.symbol_id, event.device_id, event.stream_id,
-        event.start_ns, event.end_ns);
-    ir.tokens.append(anchor, candidate.symbol_id, event.device_id,
-                     sequence_index++, event.start_ns, event.end_ns);
+        candidate.source_ref_id, candidate.trace_event_id,
+        candidate.replay_unit_id, candidate.kind, candidate.symbol_id,
+        candidate.device_id, candidate.stream_id, candidate.start_ns,
+        candidate.end_ns);
+    const TokenId token = ir.tokens.append(
+        anchor, candidate.symbol_id, candidate.device_id, sequence_index++,
+        candidate.start_ns, candidate.end_ns);
 
     if (candidate.replay_unit_id.valid()) {
-      ir.replay_units.set_anchor_bounds(candidate.replay_unit_id, anchor, anchor);
+      ReplayAnchorSpan& span =
+          replay_anchor_spans[candidate.replay_unit_id.value()];
+      if (!span.first_anchor_id.valid()) {
+        span.first_anchor_id = anchor;
+        span.first_token_id = token;
+      }
+      span.last_anchor_id = anchor;
+      span.last_token_id = token;
     }
 
     if (candidate.kind == AnchorKind::kCommunication) {
       ++stats.communication_anchors;
     } else {
       ++stats.device_event_anchors;
+    }
+  }
+  for (const ReplayUnitRow& replay : ir.replay_units.rows()) {
+    ReplayAnchorSpan& span = replay_anchor_spans[replay.id.value()];
+    if (!span.first_anchor_id.valid()) {
+      continue;
+    }
+    ir.replay_units.set_anchor_bounds(replay.id, span.first_anchor_id,
+                                      span.last_anchor_id);
+    if (replay.replay_composition_region_id.valid()) {
+      ir.protected_intervals.append(
+          ProtectedIntervalKind::kGraphReplayUnit, BoundaryPolicy::kNoCross,
+          span.first_token_id, span.last_token_id, span.first_anchor_id,
+          span.last_anchor_id, replay.source_ref_id);
     }
   }
   stats.tokens = ir.tokens.size();

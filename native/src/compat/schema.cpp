@@ -239,6 +239,34 @@ const CompatTableSchema& cuda_graph_envelope_table_schema() {
   return schema;
 }
 
+const CompatTableSchema& aclgraph_reconstruction_region_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_aclgraph_reconstruction_region",
+      {
+          {"region_id", CompatColumnType::kText, false},
+          {"db_idx", CompatColumnType::kInteger, false},
+          {"device_id", CompatColumnType::kInteger, false},
+          {"graph_provider", CompatColumnType::kText, false},
+          {"candidate_id", CompatColumnType::kText, false},
+          {"region_order", CompatColumnType::kInteger, false},
+          {"status", CompatColumnType::kText, false},
+          {"boundary_policy", CompatColumnType::kText, false},
+          {"order_policy", CompatColumnType::kText, false},
+          {"identity_policy", CompatColumnType::kText, false},
+          {"shape_policy", CompatColumnType::kText, false},
+          {"first_launch_occurrence_id", CompatColumnType::kInteger, false},
+          {"last_launch_occurrence_id", CompatColumnType::kInteger, false},
+          {"observed_launch_count", CompatColumnType::kInteger, false},
+          {"expected_launch_count", CompatColumnType::kInteger, false},
+          {"start_ns", CompatColumnType::kInteger, false},
+          {"end_ns", CompatColumnType::kInteger, false},
+          {"dur_us", CompatColumnType::kReal, false},
+          {"raw_json", CompatColumnType::kText, true},
+      },
+  };
+  return schema;
+}
+
 const CompatTableSchema& viz_node_table_schema() {
   static const CompatTableSchema schema{
       "traceloom_viz_node",
@@ -567,6 +595,7 @@ std::vector<CompatTableSchema> compatibility_table_schemas() {
       aux_link_table_schema(),
       cuda_graph_replay_table_schema(),
       cuda_graph_envelope_table_schema(),
+      aclgraph_reconstruction_region_table_schema(),
       viz_node_table_schema(),
       viz_edge_table_schema(),
       viz_node_anchor_table_schema(),

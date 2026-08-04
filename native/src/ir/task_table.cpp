@@ -13,13 +13,16 @@ TaskId TaskTable::append(SourceRefId source_ref_id,
                          SymbolId op_name_symbol_id,
                          SymbolId op_type_symbol_id,
                          SymbolId compute_task_type_symbol_id,
-                         SymbolId comm_name_symbol_id) {
+                         SymbolId comm_name_symbol_id,
+                         std::int64_t raw_model_id,
+                         SymbolId communication_task_type_symbol_id) {
   const auto id = checked_next_id<TaskId>(rows_.size());
   rows_.push_back(TaskRow{id, source_ref_id, trace_event_id, raw_task_id,
                           raw_global_task_id, raw_connection_id,
                           task_type_symbol_id, op_name_symbol_id,
                           op_type_symbol_id, compute_task_type_symbol_id,
-                          comm_name_symbol_id});
+                          comm_name_symbol_id, raw_model_id,
+                          communication_task_type_symbol_id});
   return id;
 }
 

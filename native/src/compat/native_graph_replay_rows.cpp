@@ -28,6 +28,14 @@ std::string replay_id(ReplayUnitId id) {
   return "aclgraph-replay-unit-" + std::to_string(id.value());
 }
 
+std::string composition_candidate_id(ReplayCompositionCandidateId id) {
+  return "aclgraph-composition-candidate-" + std::to_string(id.value());
+}
+
+std::string composition_region_id(ReplayCompositionRegionId id) {
+  return "aclgraph-reconstruction-region-" + std::to_string(id.value());
+}
+
 struct IndexedEvent {
   const TraceEventRow* event = nullptr;
 };
@@ -109,6 +117,12 @@ GraphReplayEvidenceSqlRows build_native_graph_replay_evidence_sql_rows(
   }
   std::vector<const ReplayUnitRow*> replay_units;
   replay_units.reserve(ir.replay_units.size());
+  std::unordered_map<ReplayUnitId::value_type, std::uint32_t>
+      launch_member_count_by_unit;
+  for (const ReplayUnitLaunchMemberRow& member :
+       ir.replay_unit_launch_members.rows()) {
+    ++launch_member_count_by_unit[member.replay_unit_id.value()];
+  }
   std::unordered_set<TraceEventId::value_type> replay_event_ids;
   replay_event_ids.reserve(ir.replay_units.size());
   for (const ReplayUnitRow& replay_unit : ir.replay_units.rows()) {
@@ -148,6 +162,92 @@ GraphReplayEvidenceSqlRows build_native_graph_replay_evidence_sql_rows(
             });
 
   GraphReplayEvidenceSqlRows rows;
+  std::unordered_map<ReplayCompositionRegionId::value_type, std::uint32_t>
+      member_count_by_region;
+  member_count_by_region.reserve(ir.replay_composition_regions.size());
+  for (const ReplayCompositionRegionMemberRow& member :
+       ir.replay_composition_region_members.rows()) {
+    if (!member.replay_composition_region_id.valid() ||
+        member.replay_composition_region_id.value() >=
+            ir.replay_composition_regions.size()) {
+      throw std::invalid_argument(
+          "ReplayCompositionRegionMemberRow region id is out of range");
+    }
+    if (!member.graph_launch_occurrence_id.valid() ||
+        member.graph_launch_occurrence_id.value() >=
+            ir.graph_launch_occurrences.size()) {
+      throw std::invalid_argument(
+          "ReplayCompositionRegionMemberRow launch id is out of range");
+    }
+    ++member_count_by_region[member.replay_composition_region_id.value()];
+  }
+  rows.reconstruction_regions.reserve(ir.replay_composition_regions.size());
+  for (const ReplayCompositionRegionRow& region :
+       ir.replay_composition_regions.rows()) {
+    if (!region.replay_composition_candidate_id.valid() ||
+        region.replay_composition_candidate_id.value() >=
+            ir.replay_composition_candidates.size()) {
+      throw std::invalid_argument(
+          "ReplayCompositionRegionRow candidate id is out of range");
+    }
+    if (!region.first_launch_id.valid() ||
+        region.first_launch_id.value() >= ir.graph_launch_occurrences.size() ||
+        !region.last_launch_id.valid() ||
+        region.last_launch_id.value() >= ir.graph_launch_occurrences.size()) {
+      throw std::invalid_argument(
+          "ReplayCompositionRegionRow launch bounds are out of range");
+    }
+    if (region.end_ns < region.start_ns) {
+      throw std::invalid_argument(
+          "ReplayCompositionRegionRow has a negative duration");
+    }
+    const std::uint32_t member_count = member_count_by_region[region.id.value()];
+    if (member_count != region.observed_launch_count) {
+      throw std::invalid_argument(
+          "ReplayCompositionRegionRow observed launch count disagrees with "
+          "region membership");
+    }
+    const ReplayCompositionCandidateRow& candidate =
+        ir.replay_composition_candidates.row(
+            region.replay_composition_candidate_id);
+
+    GraphReconstructionRegionSqlRow sql_region;
+    sql_region.region_id = composition_region_id(region.id);
+    sql_region.db_idx = db_idx;
+    sql_region.device_id = candidate.device_id;
+    sql_region.candidate_id = composition_candidate_id(candidate.id);
+    sql_region.region_order = region.region_order;
+    sql_region.status = replay_composition_region_status_name(region.status);
+    sql_region.boundary_policy =
+        replay_composition_boundary_policy_name(candidate.boundary_policy);
+    sql_region.order_policy =
+        replay_composition_order_policy_name(candidate.order_policy);
+    sql_region.identity_policy =
+        replay_composition_identity_policy_name(candidate.identity_policy);
+    sql_region.shape_policy =
+        replay_composition_shape_policy_name(candidate.shape_policy);
+    sql_region.first_launch_occurrence_id = region.first_launch_id.value();
+    sql_region.last_launch_occurrence_id = region.last_launch_id.value();
+    sql_region.observed_launch_count = region.observed_launch_count;
+    sql_region.expected_launch_count = region.expected_launch_count;
+    sql_region.start_ns = region.start_ns;
+    sql_region.end_ns = region.end_ns;
+    sql_region.dur_us = ns_to_us(region.end_ns - region.start_ns);
+    sql_region.raw_json =
+        "{\"native_region_id\":" + std::to_string(region.id.value()) +
+        ",\"native_candidate_id\":" + std::to_string(candidate.id.value()) +
+        ",\"region_member_count\":" + std::to_string(member_count) +
+        ",\"segment_launch_count\":" +
+        std::to_string(candidate.segment_launch_count) +
+        ",\"leading_launch_count\":" +
+        std::to_string(candidate.leading_launch_count) +
+        ",\"pattern_length\":" + std::to_string(candidate.pattern_length) +
+        ",\"full_repeat_count\":" +
+        std::to_string(candidate.full_repeat_count) +
+        ",\"trailing_launch_count\":" +
+        std::to_string(candidate.trailing_launch_count) + "}";
+    rows.reconstruction_regions.push_back(std::move(sql_region));
+  }
   rows.graph_replays.reserve(ir.replay_units.size());
   std::uint32_t envelope_idx = 1;
   for (const ReplayUnitRow* replay_unit_ptr : replay_units) {
@@ -187,17 +287,31 @@ GraphReplayEvidenceSqlRows build_native_graph_replay_evidence_sql_rows(
     replay.start_ns = graph_event.start_ns;
     replay.end_ns = graph_event.end_ns;
     replay.dur_us = ns_to_us(graph_event.end_ns - graph_event.start_ns);
+    const bool is_exact_aclgraph =
+        is_aclgraph && replay_unit.replay_composition_region_id.valid();
     replay.raw_json =
         "{\"reconstruction\":\"" +
-        std::string(is_aclgraph ? "capture_stream_task_overlap"
-                                : "graph_trace_interval_overlap") +
+        std::string(is_exact_aclgraph
+                        ? "exact_replay_composition"
+                        : (is_aclgraph ? "capture_stream_task_overlap"
+                                       : "graph_trace_interval_overlap")) +
         "\","
         "\"graph_template_id\":" +
         std::to_string(replay_unit.graph_template_id.value()) +
         ",\"body_sequence_hash\":" +
         std::to_string(graph_template.body_sequence_hash) +
         ",\"capture_group_size\":" +
-        std::to_string(graph_template.slot_count) + "}";
+        std::to_string(graph_template.slot_count);
+    if (is_exact_aclgraph) {
+      replay.raw_json +=
+          ",\"replay_composition_region_id\":" +
+          std::to_string(
+              replay_unit.replay_composition_region_id.value()) +
+          ",\"launch_member_count\":" +
+          std::to_string(
+              launch_member_count_by_unit[replay_unit.id.value()]);
+    }
+    replay.raw_json += "}";
 
     const auto device_found = events_by_device.find(graph_event.device_id);
     if (device_found == events_by_device.end()) {

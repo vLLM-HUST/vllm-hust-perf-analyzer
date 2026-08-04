@@ -256,7 +256,8 @@ std::vector<ReplacementMacroAssignment> allocate_macro_run_assignments(
         assignment.run_len,
         assignment.replace_count,
         static_cast<std::ptrdiff_t>(assignment.gain),
-        assignment.first_dense_index});
+        assignment.first_dense_index,
+        ""});
   }
   return assignments;
 }
@@ -304,7 +305,8 @@ GrammarApplyResult apply_validated_commit_plan(
         rhs_symbols.size(),
         plan.replacement_spans.size(),
         static_cast<std::ptrdiff_t>(plan.action.gain),
-        plan.action.first_dense_index});
+        plan.action.first_dense_index,
+        ""});
   }
 
   std::vector<GrammarNode> rewritten_nodes;

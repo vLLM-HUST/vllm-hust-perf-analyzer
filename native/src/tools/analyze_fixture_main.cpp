@@ -160,6 +160,7 @@ int main(int argc, char** argv) {
     json_options.thread_count = cli.threads;
     json_options.top_candidate_limit = cli.top_candidate_limit;
     json_options.load_source_adapter_ms = load_ms;
+    json_options.native_ir = &ir;
 
     std::ostringstream first_pass;
     const Stopwatch materialize_watch;

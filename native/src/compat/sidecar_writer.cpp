@@ -528,6 +528,39 @@ void insert_graph_envelope_row(SqliteStmt& stmt,
   sqlite3_clear_bindings(stmt.get());
 }
 
+void insert_graph_reconstruction_region_row(
+    SqliteStmt& stmt,
+    const GraphReconstructionRegionSqlRow& row) {
+  bind_text(stmt, 1, row.region_id);
+  bind_int64(stmt, 2, row.db_idx);
+  bind_int64(stmt, 3, row.device_id);
+  bind_text(stmt, 4, row.graph_provider);
+  bind_text(stmt, 5, row.candidate_id);
+  bind_int64(stmt, 6, row.region_order);
+  bind_text(stmt, 7, row.status);
+  bind_text(stmt, 8, row.boundary_policy);
+  bind_text(stmt, 9, row.order_policy);
+  bind_text(stmt, 10, row.identity_policy);
+  bind_text(stmt, 11, row.shape_policy);
+  bind_int64(stmt, 12, row.first_launch_occurrence_id);
+  bind_int64(stmt, 13, row.last_launch_occurrence_id);
+  bind_int64(stmt, 14, row.observed_launch_count);
+  bind_int64(stmt, 15, row.expected_launch_count);
+  bind_int64(stmt, 16, row.start_ns);
+  bind_int64(stmt, 17, row.end_ns);
+  bind_double(stmt, 18, row.dur_us);
+  bind_text(stmt, 19, row.raw_json);
+
+  const int rc = sqlite3_step(stmt.get());
+  if (rc != SQLITE_DONE) {
+    throw std::runtime_error(
+        "failed to insert ACLGraph reconstruction region row: " +
+        std::string(sqlite3_errmsg(stmt.db())));
+  }
+  sqlite3_reset(stmt.get());
+  sqlite3_clear_bindings(stmt.get());
+}
+
 void insert_collective_global_link_row(
     SqliteStmt& stmt,
     const CollectiveGlobalLinkSqlRow& row) {
@@ -1104,6 +1137,10 @@ void materialize_report_compatibility_indexes(SqliteDb& db) {
   db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_cuda_graph_envelope_child "
       "ON traceloom_cuda_graph_envelope(child_event_id)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_aclgraph_region_status "
+      "ON traceloom_aclgraph_reconstruction_region("
+      "db_idx, device_id, status)");
   db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_node_anchor_node "
       "ON traceloom_viz_node_anchor(node_id)");
@@ -1859,13 +1896,15 @@ void replace_graph_replay_evidence_rows(
 #if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
   materialize_compatibility_schema(
       sqlite_path,
-      {cuda_graph_replay_table_schema(), cuda_graph_envelope_table_schema()});
+      {cuda_graph_replay_table_schema(), cuda_graph_envelope_table_schema(),
+       aclgraph_reconstruction_region_table_schema()});
 
   SqliteDb db(sqlite_path);
   db.exec("BEGIN IMMEDIATE");
   try {
     db.exec("DELETE FROM traceloom_cuda_graph_envelope");
     db.exec("DELETE FROM traceloom_cuda_graph_replay");
+    db.exec("DELETE FROM traceloom_aclgraph_reconstruction_region");
 
     SqliteStmt graph_stmt(
         db.get(),
@@ -1895,6 +1934,21 @@ void replace_graph_replay_evidence_rows(
       insert_graph_envelope_row(envelope_stmt, row);
     }
 
+    SqliteStmt region_stmt(
+        db.get(),
+        "INSERT INTO traceloom_aclgraph_reconstruction_region ("
+        "region_id, db_idx, device_id, graph_provider, candidate_id, "
+        "region_order, status, boundary_policy, order_policy, "
+        "identity_policy, shape_policy, first_launch_occurrence_id, "
+        "last_launch_occurrence_id, observed_launch_count, "
+        "expected_launch_count, start_ns, end_ns, dur_us, raw_json"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+        "?)");
+    for (const GraphReconstructionRegionSqlRow& row :
+         rows.reconstruction_regions) {
+      insert_graph_reconstruction_region_row(region_stmt, row);
+    }
+
     materialize_cuda_graph_views(db);
     db.exec("COMMIT");
   } catch (...) {
@@ -1918,13 +1972,15 @@ void replace_graph_replay_rows(const std::string& sqlite_path,
   materialize_compatibility_schema(
       sqlite_path,
       {event_table_schema(), event_source_table_schema(), anchor_table_schema(),
-       cuda_graph_replay_table_schema(), cuda_graph_envelope_table_schema()});
+       cuda_graph_replay_table_schema(), cuda_graph_envelope_table_schema(),
+       aclgraph_reconstruction_region_table_schema()});
 
   SqliteDb db(sqlite_path);
   db.exec("BEGIN IMMEDIATE");
   try {
     db.exec("DELETE FROM traceloom_cuda_graph_envelope");
     db.exec("DELETE FROM traceloom_cuda_graph_replay");
+    db.exec("DELETE FROM traceloom_aclgraph_reconstruction_region");
     db.exec("DELETE FROM traceloom_anchor");
     db.exec("DELETE FROM traceloom_event_source");
     db.exec("DELETE FROM traceloom_event");
@@ -1988,6 +2044,21 @@ void replace_graph_replay_rows(const std::string& sqlite_path,
         "?, ?, ?, ?)");
     for (const GraphEnvelopeSqlRow& row : rows.graph_envelopes) {
       insert_graph_envelope_row(envelope_stmt, row);
+    }
+
+    SqliteStmt region_stmt(
+        db.get(),
+        "INSERT INTO traceloom_aclgraph_reconstruction_region ("
+        "region_id, db_idx, device_id, graph_provider, candidate_id, "
+        "region_order, status, boundary_policy, order_policy, "
+        "identity_policy, shape_policy, first_launch_occurrence_id, "
+        "last_launch_occurrence_id, observed_launch_count, "
+        "expected_launch_count, start_ns, end_ns, dur_us, raw_json"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+        "?)");
+    for (const GraphReconstructionRegionSqlRow& row :
+         rows.reconstruction_regions) {
+      insert_graph_reconstruction_region_row(region_stmt, row);
     }
 
     materialize_cuda_graph_views(db);
