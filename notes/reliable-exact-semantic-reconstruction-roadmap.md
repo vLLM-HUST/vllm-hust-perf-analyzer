@@ -13,11 +13,12 @@ explicit unrecognized result instead of becoming a plausible-looking guess.
 
 The input/provenance, anchor/grammar, overlap-safe cost, ACLGraph launch
 identity, capture/replay body templates, and exact composition evidence are
-working. Body-confirmed `H + L* + T` regions now drive default replay-unit and
-Loop Tree projection. The legacy `capture_group_size` path remains only for
-devices which have no strong exact H/L/T candidate; once exact evidence claims
-a device, ambiguity or contradiction stays unknown and never falls back to the
-weaker heuristic.
+working. Capability-complete, body-confirmed `H + L* + T` regions drive
+default replay-unit and Loop Tree projection. Exact body capability requires a
+complete captured stream set plus classified identity for every observed body
+task; a stable sequence on one visible stream is not enough to prove that the
+graph has no other lanes. The legacy `capture_group_size` path remains only
+where no completion-backed exact reconstruction is available.
 
 The exact path currently recognizes both:
 
@@ -37,22 +38,22 @@ missing bodies, and body mismatches remain typed unrecognized regions.
   and an unrecognized final prefix.
 - A changed-body regression proves repeated graph identity cannot override a
   contradictory replay body.
-- All eight bounded real profiles complete. The two kickstart profiles now
-  yield `1 + 8` and `1 + 6` exact 25-launch units respectively: one prefill,
-  then decode repetitions. Their 11- and 10-launch suffixes remain
-  `unrecognized_incomplete_tail`.
-- Default report root wall-clock totals are identical before and after exact
-  cutover on all eight profiles. Kickstart exact membership is 225 and 175
-  launches, with roles `H=9,L=207,T=9` and `H=7,L=161,T=7`.
-- Exact sidecar evidence identifies `exact_replay_composition`, the source
-  region, and launch-member count instead of claiming legacy overlap
-  reconstruction.
+- All eight bounded real profiles still analyze successfully. Six retain their
+  prior unit/region outcomes after the capability gate.
+- The two older kickstart profiles contain strong 25-launch H/L/T periodic
+  evidence but no `CaptureStreamInfo` database. Their previous `9` and `7`
+  promoted units were therefore stronger claims than the artifact supports:
+  they are now typed unknowns rather than single-stream bodies presented as
+  complete graphs.
+- Exact sidecar rows continue to identify `exact_replay_composition`, source
+  region, and launch membership when promotion is supported. Capability-gated
+  unknowns create no replay or timeline event.
 
 ## Active Front
 
-1. Complete legacy/incomplete-schema and truncation golden coverage without
-   weakening exact promotion gates.
-2. Carry the same exact/unknown distinction into higher-level report summaries
+1. Capture a fresh capability-complete LLM H/L/T trace and re-establish real,
+   not only synthetic, exact prefill/decode promotion.
+2. Carry the exact/unknown distinction into higher-level report summaries
    only where it improves a concrete diagnostic, without fabricating events.
 
 Cross-stream reconstruction is intentionally **not** an active front. The
@@ -69,7 +70,7 @@ insufficient.
 
 The compatibility sidecar now publishes a complete ACLGraph reconstruction
 ledger in `traceloom_aclgraph_reconstruction_region`. Recognized regions and
-all five unknown statuses share one typed schema with candidate policy,
+all six unknown statuses share one typed schema with candidate policy,
 launch-occurrence bounds, observed/expected launch counts, time bounds, and a
 forward-compatible raw payload. The status and policy spellings are shared
 with native JSON rather than duplicated across materializers.
@@ -80,11 +81,11 @@ real `traceloom_event`, while consumers can audit unsupported structure with
 `status LIKE 'unrecognized_%'`. Sidecar metadata separately exposes total and
 unrecognized region counts.
 
-On the two kickstart profiles the new table reports exactly `9 recognized + 1
-incomplete(11/25)` and `7 recognized + 1 incomplete(10/25)`. The replay table
-still contains only the 9 and 7 exact units. A compatibility fixture exercises
-all six region statuses and proves that unknown rows neither create replay
-units nor survive an evidence-table replacement with an empty result.
+On the two kickstart profiles the table now reports `10 missing body
+capability + 1 missing completion` and `8 missing body capability + 1 missing
+completion`. Their replay tables contain zero rows. A compatibility fixture
+exercises all seven region statuses and proves that unknown rows neither create
+replay units nor survive an evidence-table replacement with an empty result.
 
 ## 2026-08-04 Split CANN Semantic Parity
 
@@ -125,6 +126,34 @@ published as `unrecognized_missing_completion_evidence` under the explicit
 composition segment break, fabricate a graph identity, or disturb the four
 earlier exact units.
 
+## 2026-08-04 CANN Schema Capability Gate
+
+Exact body reconstruction now distinguishes an observed empty dimension from
+an unavailable profiler dimension. The minimum capability matrix is:
+
+| Semantic dimension | Monolithic source | Split source | Exact behavior when unavailable |
+| --- | --- | --- | --- |
+| Device task timeline | `TASK` | `AscendTask` | Required input; incompatible schemas are rejected |
+| Compute body identity | `COMPUTE_TASK_INFO` | `TaskInfo` | Candidate regions become `unrecognized_missing_body_capability` |
+| Communication body identity | `COMMUNICATION_TASK_INFO` | `HCCLTaskSingleDevice` | An unclassified carrier makes the body unknown; fully classified tasks may prove an observed zero |
+| Complete captured stream set | `CaptureStreamInfo` | `CaptureStreamInfo` | A visible single stream is not promoted as a proven complete body |
+| Host submission order | `CANN_API` | `ApiData` | Optional; exact reconstruction may continue in `device_execution_order` |
+| Per-launch completion identity | `NOTIFY_WAIT` + `NOTIFY_RECORD` | corresponding `AscendTask` controls | The launch becomes `unrecognized_missing_completion_evidence` |
+
+Optional tables which exist with incompatible columns are treated as
+unavailable capabilities rather than causing an incidental SQL exception.
+When a completion-backed graph launch exists but any body capability is
+missing, its device cannot fall through to the capture-cardinality projector.
+Older capture-only inputs with no completion-backed exact launch retain their
+explicitly legacy reconstruction path for compatibility.
+
+Portable goldens cover an incompatible compute table, a missing communication
+table with an unclassified `SDMA` task, a missing capture-stream database, an
+incompatible split `TaskInfo`, and a profile with no host API table. The first
+four retain all 14 launch
+members as five typed unknown regions and promote no ReplayUnits; the last
+still promotes four exact units using device execution order.
+
 ## 2026-08-04 Hierarchical Projection And Cost Gate
 
 Exact replay units are now seeded as atomic semantic grammar symbols keyed by
@@ -135,10 +164,12 @@ ReplayUnit. Report lowering expands the semantic symbol back into a visible
 `ReplayUnit T<n>` node with H/L/T children and folds a uniform layer run into
 an inner `Rep xN`.
 
-On the two kickstart ranks this exposes the decode body as
-`[MatMul, AllReduce, BroadcastTo, ReplayUnit T2] x8/x6`; both prefill units and
-decode units retain `H + Rep x23(L) + T`. Root wall-clock totals remain exactly
-`67,662,917 us` and `56,556,040 us`.
+Before the schema capability gate, the two kickstart ranks exposed the decode
+body as `[MatMul, AllReduce, BroadcastTo, ReplayUnit T2] x8/x6`. That result
+remains useful structural evidence, but it is no longer emitted as exact
+because those artifacts cannot prove the captured stream set. The hierarchical
+ReplayUnit path remains covered by capability-complete synthetic fixtures
+until a fresh LLM trace supplies the missing real evidence.
 
 The report-tree validator now checks that every structural node's children
 exactly tile its span, atoms own one token, every occurrence has one matching
@@ -168,13 +199,14 @@ normalized-total, and stream counts.
 The crossed two-lane real profile now yields one shared body template per two
 launches with `2` streams, `3` compute tasks, and `14` communication tasks. A
 generated multi-stream exact-HLT fixture still promotes one prefill and three
-decode units while preserving its incomplete H/L suffix as unrecognized. All
-eight real-profile candidate counts, exact-unit counts, and root wall-clock
-totals remain unchanged.
+decode units while preserving its incomplete H/L suffix as unrecognized. Six
+bounded real profiles retain their prior outcomes; the two older kickstart
+profiles are deliberately downgraded because their absent capture-stream
+metadata cannot establish a complete lane set.
 
 ## Following Fronts
 
-- legacy/incomplete CANN capability coverage;
+- capability-complete real LLM H/L/T capture and promotion;
 - main-pipeline idle explanation and Loop Tree aggregation;
 - provider-neutral lowered-op and graph semantics;
 - portable S1-S6, ambiguity, truncation, and cost-conservation

@@ -80,6 +80,9 @@ int main() {
       composition, 5, graph_launch, graph_launch, 0, 10, 1, 1,
       ReplayCompositionRegionStatus::
           kUnrecognizedMissingCompletionEvidence);
+  ir.replay_composition_regions.append(
+      composition, 6, graph_launch, graph_launch, 0, 10, 1, 1,
+      ReplayCompositionRegionStatus::kUnrecognizedMissingBodyCapability);
   ir.replay_composition_region_members.append(
       ReplayCompositionRegionId(0), 0, graph_launch, 0);
   ir.replay_composition_region_members.append(
@@ -92,6 +95,8 @@ int main() {
       ReplayCompositionRegionId(4), 0, graph_launch, 0);
   ir.replay_composition_region_members.append(
       ReplayCompositionRegionId(5), 0, graph_launch, -1);
+  ir.replay_composition_region_members.append(
+      ReplayCompositionRegionId(6), 0, graph_launch, -1);
   const GraphTemplateId graph_template =
       ir.graph_templates.append(source, 97531, 1);
   const ReplayUnitId replay_unit = ir.replay_units.append(
@@ -178,15 +183,15 @@ int main() {
           std::string::npos);
   require(json.find("\"replay_composition_slot_count\": 1") !=
           std::string::npos);
-  require(json.find("\"replay_composition_region_count\": 6") !=
+  require(json.find("\"replay_composition_region_count\": 7") !=
           std::string::npos);
-  require(json.find("\"replay_composition_region_member_count\": 6") !=
+  require(json.find("\"replay_composition_region_member_count\": 7") !=
           std::string::npos);
   require(json.find(
               "\"replay_composition_recognized_region_count\": 1") !=
           std::string::npos);
   require(json.find(
-              "\"replay_composition_unrecognized_region_count\": 5") !=
+              "\"replay_composition_unrecognized_region_count\": 6") !=
           std::string::npos);
   require(json.find("\"replay_unit_count\": 1") != std::string::npos);
   require(json.find("\"exact_replay_unit_count\": 1") !=
@@ -243,6 +248,9 @@ int main() {
           std::string::npos);
   require(json.find(
               "\"status\": \"unrecognized_missing_completion_evidence\"") !=
+          std::string::npos);
+  require(json.find(
+              "\"status\": \"unrecognized_missing_body_capability\"") !=
           std::string::npos);
   require(json.find("\"expected_launch_count\": null") !=
           std::string::npos);

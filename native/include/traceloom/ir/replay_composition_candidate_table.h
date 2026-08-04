@@ -130,6 +130,7 @@ enum class ReplayCompositionRegionStatus : std::uint8_t {
   kUnrecognizedMissingBodyEvidence = 3,
   kUnrecognizedBodyMismatch = 4,
   kUnrecognizedMissingCompletionEvidence = 5,
+  kUnrecognizedMissingBodyCapability = 6,
 };
 
 const char* replay_composition_identity_policy_name(

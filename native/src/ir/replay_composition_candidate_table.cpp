@@ -68,6 +68,8 @@ const char* replay_composition_region_status_name(
     case ReplayCompositionRegionStatus::
         kUnrecognizedMissingCompletionEvidence:
       return "unrecognized_missing_completion_evidence";
+    case ReplayCompositionRegionStatus::kUnrecognizedMissingBodyCapability:
+      return "unrecognized_missing_body_capability";
   }
   return "unrecognized_incomplete_tail";
 }

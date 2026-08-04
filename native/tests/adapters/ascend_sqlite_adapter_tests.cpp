@@ -507,6 +507,8 @@ void create_aclgraph_body_mismatch_profile(const std::string& path) {
            "name INTEGER, opType INTEGER, taskType INTEGER);"
            "INSERT INTO COMPUTE_TASK_INFO VALUES "
            "(100, 31, 31, 30), (101, 32, 32, 30);"
+           "CREATE TABLE COMMUNICATION_TASK_INFO(globalTaskId INTEGER, "
+           "name INTEGER, taskType INTEGER);"
            "CREATE TABLE CANN_API(startNs INTEGER, endNs INTEGER, "
            "type INTEGER, globalTid INTEGER, connectionId INTEGER, "
            "name INTEGER);");
@@ -1345,6 +1347,146 @@ int main() {
               truncated_launch.raw_graph_connection_id < 0,
           "truncated launch unexpectedly acquired completion identity");
 
+  const auto require_missing_body_capability = [](const NativeIr& candidate,
+                                                  const char* message) {
+    std::size_t capability_regions = 0;
+    for (const ReplayCompositionRegionRow& region :
+         candidate.replay_composition_regions.rows()) {
+      if (region.status == ReplayCompositionRegionStatus::
+                               kUnrecognizedMissingBodyCapability) {
+        ++capability_regions;
+      }
+    }
+    require(candidate.graph_launch_occurrences.size() == 14 &&
+                candidate.replay_composition_candidates.size() == 1 &&
+                candidate.replay_composition_regions.size() == 5 &&
+                candidate.replay_composition_region_members.size() == 14 &&
+                capability_regions == 5 && candidate.replay_units.empty() &&
+                candidate.replay_unit_launch_members.empty(),
+            message);
+  };
+
+  const std::filesystem::path incomplete_compute_dir =
+      temp_prof_dir("_incomplete_compute_schema");
+  std::filesystem::create_directories(incomplete_compute_dir);
+  const std::string incomplete_compute_path =
+      (incomplete_compute_dir / "msprof.db").string();
+  create_aclgraph_exact_hlt_profile(incomplete_compute_path);
+  sqlite3* incomplete_compute_db = nullptr;
+  require(sqlite3_open_v2(incomplete_compute_path.c_str(),
+                          &incomplete_compute_db, SQLITE_OPEN_READWRITE,
+                          nullptr) == SQLITE_OK,
+          "failed to reopen incomplete compute schema fixture");
+  exec_sql(incomplete_compute_db,
+           "DROP TABLE COMPUTE_TASK_INFO;"
+           "CREATE TABLE COMPUTE_TASK_INFO(globalTaskId INTEGER, "
+           "name INTEGER, taskType INTEGER);");
+  sqlite3_close(incomplete_compute_db);
+  require_missing_body_capability(
+      AscendSQLiteAdapter(incomplete_compute_path,
+                          "graph_incomplete_compute_schema")
+          .load(),
+      "incompatible compute schema was promoted or disappeared");
+
+  const std::filesystem::path missing_communication_dir =
+      temp_prof_dir("_missing_communication_schema");
+  std::filesystem::create_directories(missing_communication_dir);
+  const std::string missing_communication_path =
+      (missing_communication_dir / "msprof.db").string();
+  create_aclgraph_exact_hlt_profile(missing_communication_path);
+  sqlite3* missing_communication_db = nullptr;
+  require(sqlite3_open_v2(missing_communication_path.c_str(),
+                          &missing_communication_db, SQLITE_OPEN_READWRITE,
+                          nullptr) == SQLITE_OK,
+          "failed to reopen missing communication schema fixture");
+  exec_sql(missing_communication_db,
+           "DROP TABLE COMMUNICATION_TASK_INFO;"
+           "INSERT INTO STRING_IDS VALUES (40, 'SDMA');");
+  for (std::int64_t index = 0; index < 14; ++index) {
+    const std::int64_t base = 100 + index * 100;
+    const std::int64_t model_id = index < 3 ? 10 + index : 7 + (index - 3) % 3;
+    const std::int64_t stream_id = 36 + (model_id - 7) * 2;
+    const std::string ambiguous_task_sql =
+        "INSERT INTO TASK VALUES (" + std::to_string(base + 16) + ", " +
+        std::to_string(base + 17) + ", 0, " +
+        std::to_string(7777 + index) + ", " +
+        std::to_string(9999 + index) + ", 1, 40, 0, " +
+        std::to_string(stream_id) + ", " +
+        std::to_string(999 + index) + ", " + std::to_string(model_id) +
+        ");";
+    exec_sql(missing_communication_db, ambiguous_task_sql.c_str());
+  }
+  sqlite3_close(missing_communication_db);
+  require_missing_body_capability(
+      AscendSQLiteAdapter(missing_communication_path,
+                          "graph_missing_communication_schema")
+          .load(),
+      "missing communication schema was treated as an observed empty body");
+
+  const std::filesystem::path missing_capture_dir =
+      temp_prof_dir("_missing_capture_schema");
+  std::filesystem::create_directories(missing_capture_dir);
+  const std::string missing_capture_path =
+      (missing_capture_dir / "msprof.db").string();
+  create_aclgraph_exact_hlt_profile(missing_capture_path);
+  require(std::filesystem::remove(
+              missing_capture_dir / "host" / "sqlite" / "stream_info.db"),
+          "failed to remove capture schema fixture DB");
+  require_missing_body_capability(
+      AscendSQLiteAdapter(missing_capture_path,
+                          "graph_missing_capture_schema")
+          .load(),
+      "missing capture stream schema was treated as a complete stream set");
+
+  const std::filesystem::path incomplete_split_dir =
+      exact_hlt_dir / "split_incomplete_task_info";
+  create_split_aclgraph_profile_from_monolithic(
+      incomplete_split_dir, exact_hlt_path,
+      (exact_hlt_dir / "host" / "sqlite" / "stream_info.db").string());
+  const std::string incomplete_split_task_info_path =
+      (incomplete_split_dir / "host" / "sqlite" / "ge_info.db").string();
+  sqlite3* incomplete_split_task_info_db = nullptr;
+  require(sqlite3_open_v2(incomplete_split_task_info_path.c_str(),
+                          &incomplete_split_task_info_db,
+                          SQLITE_OPEN_READWRITE, nullptr) == SQLITE_OK,
+          "failed to reopen incomplete split TaskInfo fixture");
+  exec_sql(incomplete_split_task_info_db,
+           "ALTER TABLE TaskInfo RENAME TO CompleteTaskInfo;"
+           "CREATE TABLE TaskInfo AS SELECT device_id, stream_id, task_id, "
+           "context_id, op_name, task_type FROM CompleteTaskInfo;");
+  sqlite3_close(incomplete_split_task_info_db);
+  require_missing_body_capability(
+      AscendSQLiteAdapter(incomplete_split_dir.string(),
+                          "graph_incomplete_split_task_info")
+          .load(),
+      "incomplete split TaskInfo schema was promoted or rejected");
+
+  const std::filesystem::path device_order_dir =
+      temp_prof_dir("_device_order_without_host_api");
+  std::filesystem::create_directories(device_order_dir);
+  const std::string device_order_path =
+      (device_order_dir / "msprof.db").string();
+  create_aclgraph_exact_hlt_profile(device_order_path);
+  sqlite3* device_order_db = nullptr;
+  require(sqlite3_open_v2(device_order_path.c_str(), &device_order_db,
+                          SQLITE_OPEN_READWRITE, nullptr) == SQLITE_OK,
+          "failed to reopen device-order fixture");
+  exec_sql(device_order_db, "DROP TABLE CANN_API;");
+  sqlite3_close(device_order_db);
+  const NativeIr device_order_ir =
+      AscendSQLiteAdapter(device_order_path, "graph_device_order").load();
+  require(device_order_ir.replay_composition_candidates.size() == 2 &&
+              device_order_ir.replay_units.size() == 4 &&
+              std::all_of(
+                  device_order_ir.replay_composition_candidates.rows().begin(),
+                  device_order_ir.replay_composition_candidates.rows().end(),
+                  [](const ReplayCompositionCandidateRow& candidate) {
+                    return candidate.order_policy ==
+                           ReplayCompositionOrderPolicy::
+                               kDeviceExecutionOrder;
+                  }),
+          "missing host API should retain exact device-order reconstruction");
+
   const std::filesystem::path split_dir = temp_prof_dir("_split");
   const std::string golden_path = temp_db_path("_split_golden");
   create_split_golden_profiles(split_dir, golden_path);
@@ -1374,6 +1516,19 @@ int main() {
   sqlite3_close(unusable_db);
   require(!ascend_sqlite_has_usable_task_table(unusable_monolithic),
           "monolithic DB without TASK should not suppress split fallback");
+  const std::string incompatible_monolithic =
+      (split_dir / "msprof_incompatible_task.db").string();
+  sqlite3* incompatible_db = nullptr;
+  require(sqlite3_open_v2(incompatible_monolithic.c_str(), &incompatible_db,
+                          SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE,
+                          nullptr) == SQLITE_OK,
+          "failed to create incompatible monolithic fixture");
+  exec_sql(incompatible_db,
+           "CREATE TABLE TASK(startNs INTEGER);"
+           "INSERT INTO TASK VALUES (1);");
+  sqlite3_close(incompatible_db);
+  require(!ascend_sqlite_has_usable_task_table(incompatible_monolithic),
+          "incompatible TASK schema should not suppress split fallback");
 
   AscendSQLiteAdapter golden_adapter(golden_path, "golden_monolithic");
   AscendSQLiteAdapter split_adapter(split_dir.string(), "golden_split");

@@ -824,7 +824,7 @@ included too, so the table is a complete ledger rather than an error-only log.
 
 This is intentionally separate from `traceloom_cuda_graph_replay`. Unknown
 regions have no fabricated semantic event, so existing event joins and graph
-replay invariants remain exact. Synthetic coverage exercises all six status
+replay invariants remain exact. Synthetic coverage exercises all seven status
 values. The two kickstart sidecars report 10 regions (`9` exact plus an
 `11/25` incomplete tail) and 8 regions (`7` exact plus a `10/25` incomplete
 tail), while retaining only 9 and 7 rows respectively in the replay table.
@@ -858,3 +858,29 @@ The adapter golden suite also deletes both normalized lanes from one decode
 launch while leaving graph identity intact. That region is emitted as
 `unrecognized_missing_body_evidence`; the surrounding exact units remain
 promoted and the weaker legacy projector does not reinterpret the gap.
+
+## Schema Capability Gate Addendum
+
+The later capability audit found one overclaim in the promotion evidence
+above. The two kickstart databases have no companion `CaptureStreamInfo`
+database. Their 25-launch periodicity and observed completion-stream bodies
+are real, but the artifacts cannot prove that the visible stream is the whole
+captured graph. The earlier 9/7-unit promotion therefore treated an observed
+single-stream projection as a complete graph body.
+
+TraceLoom now requires a complete captured stream set and complete identity
+coverage for every observed task in those streams. Missing or incompatible
+compute/communication tables are tolerated as schema inputs, but an
+unclassified body task makes the region
+`unrecognized_missing_body_capability`; absence of a communication table may
+still prove an observed zero only when every body task is otherwise classified.
+`CANN_API`/`ApiData` remains optional because device execution order is an
+explicit, independently named order policy.
+
+The eight-profile audit now has the following result: six profiles preserve
+their previous unit/region outcome, while the two kickstart profiles emit
+`10 + 1` and `8 + 1` typed unknown regions (missing body capability plus one
+missing completion region) and zero graph replay rows. This supersedes the
+kickstart promotion/count claims in the chronological sections above. A fresh
+LLM graph trace with complete capture-stream metadata is required before those
+H/L/T shapes can again be called exact.

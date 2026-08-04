@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <initializer_list>
 #include <iostream>
 #include <iterator>
 #include <limits>
@@ -415,6 +416,14 @@ bool table_has_column(SqliteDb& db,
   return false;
 }
 
+bool table_has_columns(SqliteDb& db,
+                       const std::string& table_name,
+                       std::initializer_list<const char*> columns) {
+  return std::all_of(columns.begin(), columns.end(), [&](const char* column) {
+    return table_has_column(db, table_name, column);
+  });
+}
+
 std::string lower_ascii(std::string value) {
   for (char& ch : value) {
     ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
@@ -456,6 +465,15 @@ bool graph_body_excluded_task_key(const std::string& key) {
       "MEMCPY_ASYNC",   "MODEL_EXECUTE",  "MODEL_MAINTAINCE",
       "MODEL_MAINTENANCE", "NOTIFY",      "NOTIFY_RECORD",
       "NOTIFY_WAIT",    "SDMA",           "WRITE_VALUE"};
+  return kKeys.find(key) != kKeys.end();
+}
+
+bool graph_body_infrastructure_task_key(const std::string& key) {
+  static const std::unordered_set<std::string> kKeys{
+      "CAPTURE_RECORD",    "CAPTURE_WAIT",      "EVENT_RECORD",
+      "EVENT_WAIT",       "MEM_WRITE_VALUE",   "MODEL_MAINTAINCE",
+      "MODEL_MAINTENANCE", "PROFILING_DISABLE", "PROFILING_ENABLE",
+      "TASK_TIMEOUT_SET"};
   return kKeys.find(key) != kKeys.end();
 }
 
@@ -1705,6 +1723,18 @@ std::string stream_info_db_path_for_msprof(const std::string& db_path) {
   return (path.parent_path() / "host" / "sqlite" / "stream_info.db").string();
 }
 
+bool aclgraph_capture_stream_schema_usable(
+    const std::string& stream_info_path) {
+  if (!file_exists(stream_info_path)) {
+    return false;
+  }
+  SqliteDb db(stream_info_path);
+  return table_has_columns(
+             db, "CaptureStreamInfo", {"device_id", "model_id"}) &&
+         (table_has_column(db, "CaptureStreamInfo", "stream_id") ||
+          table_has_column(db, "CaptureStreamInfo", "model_stream_id"));
+}
+
 std::uint32_t infer_capture_group_size_from_stream_info(
     const std::set<std::uint64_t>& model_ids,
     const std::set<std::uint64_t>& original_stream_ids) {
@@ -2248,16 +2278,25 @@ void materialize_graph_launch_activities(
   }
 }
 
-void materialize_graph_launch_bodies(NativeIr& ir) {
+std::set<GraphLaunchOccurrenceId> materialize_graph_launch_bodies(
+    NativeIr& ir,
+    bool compute_identity_source,
+    bool communication_identity_source) {
+  std::unordered_map<std::uint64_t, std::vector<GraphTaskView>>
+      tasks_by_stream;
   std::unordered_map<std::uint64_t, std::vector<GraphTaskView>>
       normalized_tasks_by_stream;
   for (const TaskRow& task : ir.tasks.rows()) {
-    if (!task.trace_event_id.valid() ||
-        (!task.op_type_symbol_id.valid() && !task.op_name_symbol_id.valid() &&
-         !task.comm_name_symbol_id.valid())) {
+    if (!task.trace_event_id.valid()) {
       continue;
     }
     const TraceEventRow& event = ir.trace_events.row(task.trace_event_id);
+    tasks_by_stream[stream_key(event.device_id, event.stream_id)].push_back(
+        GraphTaskView{&task, &event});
+    if (!task.op_type_symbol_id.valid() && !task.op_name_symbol_id.valid() &&
+        !task.comm_name_symbol_id.valid()) {
+      continue;
+    }
     normalized_tasks_by_stream[stream_key(event.device_id, event.stream_id)]
         .push_back(GraphTaskView{&task, &event});
   }
@@ -2274,6 +2313,9 @@ void materialize_graph_launch_bodies(NativeIr& ir) {
   for (auto& item : normalized_tasks_by_stream) {
     std::sort(item.second.begin(), item.second.end(), task_order);
   }
+  for (auto& item : tasks_by_stream) {
+    std::sort(item.second.begin(), item.second.end(), task_order);
+  }
 
   struct StreamBody {
     std::uint64_t raw_stream_id = 0;
@@ -2283,8 +2325,13 @@ void materialize_graph_launch_bodies(NativeIr& ir) {
   };
 
   std::map<std::string, ReplayBodyTemplateId> templates_by_topology;
+  std::set<GraphLaunchOccurrenceId> missing_body_capability_launches;
   for (const GraphLaunchOccurrenceRow& launch :
        ir.graph_launch_occurrences.rows()) {
+    if (launch.raw_graph_connection_id >= 0 &&
+        !launch.captured_graph_instance_id.valid()) {
+      missing_body_capability_launches.insert(launch.id);
+    }
     if (!launch.model_stream_id.valid()) {
       continue;
     }
@@ -2330,9 +2377,43 @@ void materialize_graph_launch_bodies(NativeIr& ir) {
     std::vector<StreamBody> stream_bodies;
     stream_bodies.reserve(body_stream_ids.size());
     std::vector<const GraphTaskView*> body_tasks;
+    bool launch_identity_coverage = true;
     for (std::uint64_t raw_stream_id : body_stream_ids) {
       StreamBody stream_body;
       stream_body.raw_stream_id = raw_stream_id;
+      if (!compute_identity_source || !communication_identity_source) {
+        const auto all_tasks = tasks_by_stream.find(
+            stream_key(launch.device_id, raw_stream_id));
+        if (all_tasks != tasks_by_stream.end()) {
+          auto task = std::lower_bound(
+              all_tasks->second.begin(), all_tasks->second.end(),
+              launch.start_ns,
+              [](const GraphTaskView& row, std::int64_t start_ns) {
+                return row.event->start_ns < start_ns;
+              });
+          for (; task != all_tasks->second.end() &&
+                 task->event->start_ns <= launch.end_ns;
+               ++task) {
+            if (task->event->end_ns > launch.end_ns ||
+                (launch.raw_model_id >= 0 &&
+                 task->task->raw_model_id != launch.raw_model_id) ||
+                task->task->id == launch.model_execute_task_id ||
+                task->task->id == launch.notify_wait_task_id ||
+                task->task->id == launch.notify_record_task_id ||
+                task->task->op_type_symbol_id.valid() ||
+                task->task->op_name_symbol_id.valid() ||
+                task->task->comm_name_symbol_id.valid()) {
+              continue;
+            }
+            const std::string task_key = normalize_key(symbol_value_or_empty(
+                ir, task->task->task_type_symbol_id));
+            if (!graph_body_infrastructure_task_key(task_key)) {
+              launch_identity_coverage = false;
+              break;
+            }
+          }
+        }
+      }
       const auto found = normalized_tasks_by_stream.find(
           stream_key(launch.device_id, raw_stream_id));
       if (found != normalized_tasks_by_stream.end()) {
@@ -2399,6 +2480,10 @@ void materialize_graph_launch_bodies(NativeIr& ir) {
         stream_body.exact_sequence += "\n";
       }
       stream_bodies.push_back(std::move(stream_body));
+    }
+    if (!launch_identity_coverage) {
+      missing_body_capability_launches.insert(launch.id);
+      continue;
     }
     if (body_tasks.empty()) {
       continue;
@@ -2469,6 +2554,7 @@ void materialize_graph_launch_bodies(NativeIr& ir) {
         compute_task_count, communication_task_count,
         static_cast<std::uint32_t>(stream_bodies.size()));
   }
+  return missing_body_capability_launches;
 }
 
 ReplayBodyTemplateId replay_body_template_for_launch(
@@ -2485,7 +2571,9 @@ ReplayBodyTemplateId replay_body_template_for_launch(
 void materialize_replay_composition_segment(
     NativeIr& ir,
     const std::vector<const GraphLaunchOccurrenceRow*>& segment,
-    ReplayCompositionOrderPolicy order_policy) {
+    ReplayCompositionOrderPolicy order_policy,
+    const std::set<GraphLaunchOccurrenceId>&
+        missing_body_capability_launches) {
   if (segment.empty()) {
     return;
   }
@@ -2551,6 +2639,16 @@ void materialize_replay_composition_segment(
                   })) {
     shape_policy = ReplayCompositionShapePolicy::kHeadRepeatedLayerTail;
   }
+  const auto range_has_body_capability = [&](std::size_t begin,
+                                             std::size_t count) {
+    for (std::size_t offset = 0; offset < count; ++offset) {
+      if (missing_body_capability_launches.find(segment[begin + offset]->id) !=
+          missing_body_capability_launches.end()) {
+        return false;
+      }
+    }
+    return true;
+  };
 
   // A one-shot prefill cannot prove periodicity by repetition.  It can still
   // be recognized exactly when it occupies precisely one decode-sized leading
@@ -2558,7 +2656,8 @@ void materialize_replay_composition_segment(
   // the already-confirmed periodic suffix to have the same high-level shape
   // prevents arbitrary leading context from being promoted by this rule.
   bool recognized_one_shot_leading = false;
-  if (shape_policy ==
+  if (range_has_body_capability(0, periodic.start + periodic.period) &&
+      shape_policy ==
           ReplayCompositionShapePolicy::kHeadRepeatedLayerTail &&
       periodic.start == periodic.period && periodic.start >= 3) {
     std::vector<ReplayBodyTemplateId> leading_bodies;
@@ -2710,6 +2809,10 @@ void materialize_replay_composition_segment(
   };
   const auto body_status = [&](std::size_t begin, std::size_t count,
                                ReplayCompositionRegionStatus matched_status) {
+    if (!range_has_body_capability(begin, count)) {
+      return ReplayCompositionRegionStatus::
+          kUnrecognizedMissingBodyCapability;
+    }
     for (std::size_t offset = 0; offset < count; ++offset) {
       const ReplayBodyTemplateId expected = body_templates[offset];
       const ReplayBodyTemplateId observed = replay_body_template_for_launch(
@@ -2728,8 +2831,11 @@ void materialize_replay_composition_segment(
   std::uint32_t region_order = 0;
   if (periodic.start > 0 && !recognized_one_shot_leading) {
     append_region(region_order++, 0, periodic.start, 0,
-                  ReplayCompositionRegionStatus::
-                      kUnrecognizedLeadingContext,
+                  range_has_body_capability(0, periodic.start)
+                      ? ReplayCompositionRegionStatus::
+                            kUnrecognizedLeadingContext
+                      : ReplayCompositionRegionStatus::
+                            kUnrecognizedMissingBodyCapability,
                   false);
   }
   for (std::size_t repeat = 0; repeat < periodic.full_repeats; ++repeat) {
@@ -2848,7 +2954,9 @@ bool graph_launches_in_host_submission_order(
 void materialize_replay_composition_candidates_for_order(
     NativeIr& ir,
     const std::vector<const GraphLaunchOccurrenceRow*>& ordered_launches,
-    ReplayCompositionOrderPolicy order_policy) {
+    ReplayCompositionOrderPolicy order_policy,
+    const std::set<GraphLaunchOccurrenceId>&
+        missing_body_capability_launches) {
   std::map<std::uint32_t, std::vector<const GraphLaunchOccurrenceRow*>>
       launches_by_device;
   for (const GraphLaunchOccurrenceRow* launch : ordered_launches) {
@@ -2859,7 +2967,8 @@ void materialize_replay_composition_candidates_for_order(
     std::vector<const GraphLaunchOccurrenceRow*> incomplete_segment;
     for (const GraphLaunchOccurrenceRow* launch : item.second) {
       if (launch->raw_graph_connection_id < 0) {
-        materialize_replay_composition_segment(ir, segment, order_policy);
+        materialize_replay_composition_segment(
+            ir, segment, order_policy, missing_body_capability_launches);
         segment.clear();
         incomplete_segment.push_back(launch);
         continue;
@@ -2869,13 +2978,17 @@ void materialize_replay_composition_candidates_for_order(
       incomplete_segment.clear();
       segment.push_back(launch);
     }
-    materialize_replay_composition_segment(ir, segment, order_policy);
+    materialize_replay_composition_segment(
+        ir, segment, order_policy, missing_body_capability_launches);
     materialize_incomplete_launch_segment(
         ir, incomplete_segment, order_policy);
   }
 }
 
-void materialize_replay_composition_candidates(NativeIr& ir) {
+void materialize_replay_composition_candidates(
+    NativeIr& ir,
+    const std::set<GraphLaunchOccurrenceId>&
+        missing_body_capability_launches) {
   std::vector<const GraphLaunchOccurrenceRow*> device_order;
   device_order.reserve(ir.graph_launch_occurrences.size());
   for (const GraphLaunchOccurrenceRow& launch :
@@ -2886,7 +2999,8 @@ void materialize_replay_composition_candidates(NativeIr& ir) {
   std::vector<const GraphLaunchOccurrenceRow*> host_order;
   if (!graph_launches_in_host_submission_order(ir, host_order)) {
     materialize_replay_composition_candidates_for_order(
-        ir, device_order, ReplayCompositionOrderPolicy::kDeviceExecutionOrder);
+        ir, device_order, ReplayCompositionOrderPolicy::kDeviceExecutionOrder,
+        missing_body_capability_launches);
     return;
   }
   const bool identical_order =
@@ -2898,10 +3012,12 @@ void materialize_replay_composition_candidates(NativeIr& ir) {
                  });
   if (!identical_order) {
     materialize_replay_composition_candidates_for_order(
-        ir, device_order, ReplayCompositionOrderPolicy::kDeviceExecutionOrder);
+        ir, device_order, ReplayCompositionOrderPolicy::kDeviceExecutionOrder,
+        missing_body_capability_launches);
   }
   materialize_replay_composition_candidates_for_order(
-      ir, host_order, ReplayCompositionOrderPolicy::kHostSubmissionOrder);
+      ir, host_order, ReplayCompositionOrderPolicy::kHostSubmissionOrder,
+      missing_body_capability_launches);
 }
 
 std::set<std::uint32_t> materialize_exact_aclgraph_replay_units(
@@ -3346,6 +3462,28 @@ std::vector<const AscendSplitSQLiteTableInfo*> find_split_tables(
   return out;
 }
 
+bool split_table_has_columns(
+    const AscendSplitSQLiteTableInfo* table,
+    std::initializer_list<const char*> columns) {
+  if (table == nullptr) {
+    return false;
+  }
+  SqliteDb db(table->db_path);
+  return table_has_columns(db, table->table_name, columns);
+}
+
+std::vector<const AscendSplitSQLiteTableInfo*> usable_split_tables(
+    const std::vector<const AscendSplitSQLiteTableInfo*>& tables,
+    std::initializer_list<const char*> columns) {
+  std::vector<const AscendSplitSQLiteTableInfo*> out;
+  for (const AscendSplitSQLiteTableInfo* table : tables) {
+    if (split_table_has_columns(table, columns)) {
+      out.push_back(table);
+    }
+  }
+  return out;
+}
+
 struct SplitTaskKey {
   std::uint32_t device_id = 0;
   std::uint64_t stream_id = 0;
@@ -3584,6 +3722,16 @@ NativeIr load_split_profile(const AscendSQLiteAdapterOptions& options) {
         "device_*/sqlite/ascend_task.db:AscendTask table: " +
         options.db_path);
   }
+  for (const AscendSplitSQLiteTableInfo* task_table : task_tables) {
+    if (!split_table_has_columns(
+            task_table,
+            {"start_time", "duration", "device_task_type", "stream_id",
+             "task_id", "context_id", "connection_id", "host_task_type"})) {
+      throw std::invalid_argument(
+          "split SQLite profile has an incompatible AscendTask schema: " +
+          task_table->db_path);
+    }
+  }
 
   std::vector<std::string> missing_optional;
   for (const char* table_name : {"ApiData", "HostTask", "TaskInfo"}) {
@@ -3615,13 +3763,32 @@ NativeIr load_split_profile(const AscendSQLiteAdapterOptions& options) {
     }
   }
 
+  const AscendSplitSQLiteTableInfo* task_info_table =
+      find_split_table(inventory, "TaskInfo");
+  const bool task_info_usable = split_table_has_columns(
+      task_info_table,
+      {"device_id", "stream_id", "task_id", "context_id", "op_name",
+       "op_type", "task_type"});
   const SplitComputeIndex compute_info =
-      load_split_task_info(find_split_table(inventory, "TaskInfo"), ir);
+      load_split_task_info(task_info_usable ? task_info_table : nullptr, ir);
+  const std::vector<const AscendSplitSQLiteTableInfo*> communication_tables =
+      find_split_tables(inventory, "HCCLTaskSingleDevice");
+  const std::vector<const AscendSplitSQLiteTableInfo*>
+      usable_communication_tables = usable_split_tables(
+          communication_tables,
+          {"stream_id", "task_id", "context_id", "op_name", "hccl_name"});
+  const bool communication_info_usable =
+      !communication_tables.empty() &&
+      usable_communication_tables.size() == communication_tables.size();
   const SplitCommunicationIndex communication_info =
       load_split_communication_task_info(
-          find_split_tables(inventory, "HCCLTaskSingleDevice"), ir);
-  const auto host_task_types =
-      load_split_host_task_types(find_split_table(inventory, "HostTask"));
+          usable_communication_tables, ir);
+  const AscendSplitSQLiteTableInfo* host_task_table =
+      find_split_table(inventory, "HostTask");
+  const auto host_task_types = load_split_host_task_types(
+      split_table_has_columns(host_task_table, {"connection_id", "task_type"})
+          ? host_task_table
+          : nullptr);
   std::vector<SplitRawTask> raw_tasks;
   for (const AscendSplitSQLiteTableInfo* table : task_tables) {
     const std::uint32_t table_device_id =
@@ -3712,14 +3879,22 @@ NativeIr load_split_profile(const AscendSQLiteAdapterOptions& options) {
                     raw.communication.task_type_symbol_id);
   }
 
-  const AscendSplitSQLiteTableInfo* api_table =
+  const AscendSplitSQLiteTableInfo* raw_api_table =
       find_split_table(inventory, "ApiData");
+  const AscendSplitSQLiteTableInfo* api_table =
+      split_table_has_columns(
+          raw_api_table, {"start", "end", "connection_id", "id"})
+          ? raw_api_table
+          : nullptr;
   const AclGraphCannApiMetadata cann_api_metadata =
       load_split_aclgraph_api_metadata(api_table);
   const AscendSplitSQLiteTableInfo* capture_stream_table =
       find_split_table(inventory, "CaptureStreamInfo");
+  const bool capture_stream_usable =
+      capture_stream_table != nullptr &&
+      aclgraph_capture_stream_schema_usable(capture_stream_table->db_path);
   AclGraphCaptureInfo capture_info;
-  if (capture_stream_table != nullptr) {
+  if (capture_stream_usable) {
     capture_info =
         load_aclgraph_capture_info(capture_stream_table->db_path);
   }
@@ -3742,12 +3917,15 @@ NativeIr load_split_profile(const AscendSQLiteAdapterOptions& options) {
   materialize_aclgraph_launch_occurrences(
       ir, streams, captured_graph_instances,
       cann_api_metadata.execute_launches, api_source_ref);
-  materialize_graph_launch_bodies(ir);
+  const std::set<GraphLaunchOccurrenceId> missing_body_capability_launches =
+      materialize_graph_launch_bodies(
+          ir, task_info_usable, communication_info_usable);
   if (api_source_ref.valid()) {
     materialize_graph_launch_activities(
         ir, cann_api_metadata.launch_activities, api_source_ref);
   }
-  materialize_replay_composition_candidates(ir);
+  materialize_replay_composition_candidates(
+      ir, missing_body_capability_launches);
   (void)materialize_exact_aclgraph_replay_units(
       ir, options.source_kind, options.db_path);
   return ir;
@@ -3756,7 +3934,18 @@ NativeIr load_split_profile(const AscendSQLiteAdapterOptions& options) {
 }  // namespace
 
 bool ascend_sqlite_has_usable_task_table(const std::string& db_path) {
-  return file_exists(db_path) && sqlite_table_has_rows(db_path, "TASK");
+  if (!file_exists(db_path) || !sqlite_table_has_rows(db_path, "TASK")) {
+    return false;
+  }
+  try {
+    SqliteDb db(db_path);
+    return table_has_columns(db, "TASK",
+                             {"startNs", "endNs", "deviceId", "streamId",
+                              "taskId", "globalTaskId", "connectionId",
+                              "taskType"});
+  } catch (const std::exception&) {
+    return false;
+  }
 }
 
 bool looks_like_ascend_split_sqlite_profile(const std::string& profile_dir) {
@@ -3849,28 +4038,61 @@ NativeIr AscendSQLiteAdapter::load() const {
                           "sqlite_schema", 0);
   }
 
+  const auto has_table = [&](const char* table_name) {
+    return table_refs.find(table_name) != table_refs.end();
+  };
+  if (has_table("TASK") &&
+      !table_has_columns(db, "TASK",
+                         {"startNs", "endNs", "deviceId", "streamId",
+                          "taskId", "globalTaskId", "connectionId",
+                          "taskType"})) {
+    throw std::invalid_argument(
+        "Ascend SQLite profile has an incompatible TASK schema: " +
+        options_.db_path);
+  }
+  const bool string_ids_usable =
+      has_table("STRING_IDS") &&
+      table_has_columns(db, "STRING_IDS", {"id", "value"});
+  const bool compute_info_usable =
+      has_table("COMPUTE_TASK_INFO") &&
+      table_has_columns(db, "COMPUTE_TASK_INFO",
+                        {"globalTaskId", "name", "opType", "taskType"});
+  const bool communication_task_info_usable =
+      has_table("COMMUNICATION_TASK_INFO") &&
+      table_has_columns(db, "COMMUNICATION_TASK_INFO",
+                        {"globalTaskId", "name"});
+  const bool cann_api_usable =
+      has_table("CANN_API") &&
+      table_has_columns(db, "CANN_API",
+                        {"startNs", "endNs", "connectionId", "name"});
+  const bool communication_op_usable =
+      has_table("COMMUNICATION_OP") &&
+      table_has_columns(db, "COMMUNICATION_OP",
+                        {"startNs", "endNs", "deviceId", "connectionId",
+                         "opName", "opId"});
+
   std::unordered_map<std::int64_t, std::string> string_ids;
   timing.string_ids_ms = time_stage([&]() {
-    if (table_refs.find("STRING_IDS") != table_refs.end()) {
+    if (string_ids_usable) {
       string_ids = load_string_ids(db, ir);
     }
   });
   std::unordered_map<std::int64_t, ComputeInfo> compute_info;
   timing.compute_info_ms = time_stage([&]() {
-    if (table_refs.find("COMPUTE_TASK_INFO") != table_refs.end()) {
+    if (compute_info_usable) {
       compute_info = load_compute_info(db, ir, string_ids);
     }
   });
   AclGraphCannApiMetadata cann_api_metadata;
   timing.cann_api_metadata_ms = time_stage([&]() {
-    if (table_refs.find("CANN_API") != table_refs.end()) {
+    if (cann_api_usable) {
       cann_api_metadata = load_aclgraph_cann_api_metadata(db, string_ids);
     }
   });
   std::unordered_map<std::int64_t, CommunicationTaskInfo>
       communication_task_info;
   timing.communication_task_info_ms = time_stage([&]() {
-    if (table_refs.find("COMMUNICATION_TASK_INFO") != table_refs.end()) {
+    if (communication_task_info_usable) {
       communication_task_info = load_communication_task_info(
           db, ir, string_ids,
           table_has_column(db, "COMMUNICATION_TASK_INFO", "taskType"));
@@ -3879,14 +4101,14 @@ NativeIr AscendSQLiteAdapter::load() const {
   StreamIndex streams;
   TaskLinkIndex task_links;
   timing.task_rows_ms = time_stage([&]() {
-    if (table_refs.find("TASK") != table_refs.end()) {
+    if (has_table("TASK")) {
       load_task_rows(db, options_.db_path, options_.thread_count, ir, streams,
                      task_links, string_ids, compute_info,
                      communication_task_info, table_refs.at("TASK"));
     }
   });
   timing.communication_op_rows_ms = time_stage([&]() {
-    if (table_refs.find("COMMUNICATION_OP") != table_refs.end()) {
+    if (communication_op_usable) {
       load_communication_op_rows(db, ir, streams, task_links, string_ids,
                                  table_refs.at("COMMUNICATION_OP"),
                                  table_has_column(db, "COMMUNICATION_OP",
@@ -3895,11 +4117,16 @@ NativeIr AscendSQLiteAdapter::load() const {
   });
   const std::string stream_info_path =
       stream_info_db_path_for_msprof(options_.db_path);
+  const bool capture_stream_usable =
+      aclgraph_capture_stream_schema_usable(stream_info_path);
   AclGraphCaptureInfo capture_info;
-  timing.stream_info_capture_ms = time_stage(
-      [&]() { capture_info = load_aclgraph_capture_info(stream_info_path); });
+  timing.stream_info_capture_ms = time_stage([&]() {
+    if (capture_stream_usable) {
+      capture_info = load_aclgraph_capture_info(stream_info_path);
+    }
+  });
   timing.cann_api_capture_slots_ms = time_stage([&]() {
-    if (table_refs.find("CANN_API") != table_refs.end()) {
+    if (cann_api_usable) {
       capture_info.capture_slots = std::move(cann_api_metadata.capture_slots);
       capture_info.replay_unit_signature = build_capture_replay_unit_signature(
           capture_info.capture_slots, capture_info.capture_group_size);
@@ -3912,32 +4139,38 @@ NativeIr AscendSQLiteAdapter::load() const {
           options_.source_kind, stream_info_path, "CaptureStreamInfo", 0);
       captured_graph_instances = materialize_aclgraph_capture_instances(
           ir, capture_info, capture_stream_source_ref,
-          table_refs.find("CANN_API") == table_refs.end()
+          !cann_api_usable
               ? SourceRefId::invalid()
               : table_refs.at("CANN_API"));
     }
   });
   timing.aclgraph_launch_occurrences_ms = time_stage([&]() {
-    if (table_refs.find("TASK") != table_refs.end()) {
+    if (has_table("TASK")) {
       materialize_aclgraph_launch_occurrences(
           ir, streams, captured_graph_instances,
           cann_api_metadata.execute_launches,
-          table_refs.find("CANN_API") == table_refs.end()
+          !cann_api_usable
               ? SourceRefId::invalid()
               : table_refs.at("CANN_API"));
     }
   });
-  timing.aclgraph_launch_bodies_ms =
-      time_stage([&]() { materialize_graph_launch_bodies(ir); });
+  std::set<GraphLaunchOccurrenceId> missing_body_capability_launches;
+  timing.aclgraph_launch_bodies_ms = time_stage([&]() {
+    missing_body_capability_launches = materialize_graph_launch_bodies(
+        ir, compute_info_usable, communication_task_info_usable);
+  });
   timing.aclgraph_launch_activities_ms = time_stage([&]() {
     const auto host_api_source = table_refs.find("CANN_API");
-    if (host_api_source != table_refs.end()) {
+    if (cann_api_usable && host_api_source != table_refs.end()) {
       materialize_graph_launch_activities(
           ir, cann_api_metadata.launch_activities, host_api_source->second);
     }
   });
   timing.replay_composition_candidates_ms =
-      time_stage([&]() { materialize_replay_composition_candidates(ir); });
+      time_stage([&]() {
+        materialize_replay_composition_candidates(
+            ir, missing_body_capability_launches);
+      });
   timing.aclgraph_replay_units_ms = time_stage([&]() {
     const std::set<std::uint32_t> exact_claimed_devices =
         materialize_exact_aclgraph_replay_units(
@@ -3945,6 +4178,12 @@ NativeIr AscendSQLiteAdapter::load() const {
     auto legacy_model_streams = capture_info.model_streams_by_device;
     for (std::uint32_t device_id : exact_claimed_devices) {
       legacy_model_streams.erase(device_id);
+    }
+    for (GraphLaunchOccurrenceId launch_id :
+         missing_body_capability_launches) {
+      const GraphLaunchOccurrenceRow& launch =
+          ir.graph_launch_occurrences.row(launch_id);
+      legacy_model_streams.erase(launch.device_id);
     }
     if (!legacy_model_streams.empty()) {
       const SourceRefId replay_source_ref = ir.source_refs.append(
