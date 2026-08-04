@@ -266,6 +266,36 @@ int main(int argc, char** argv) {
                   "AllReduce",
           "NCCL kernel did not become a normalized collective anchor");
 
+  const std::string ambiguous_communication_path =
+      temp_db_path("_ambiguous_communication");
+  create_db(
+      ambiguous_communication_path,
+      "CREATE TABLE StringIds(id INTEGER PRIMARY KEY, value TEXT);"
+      "INSERT INTO StringIds VALUES "
+      "(1, 'broadcast_kernel'), (2, 'ncclDevKernel_SendRecv');"
+      "CREATE TABLE CUPTI_ACTIVITY_KIND_KERNEL("
+      "start INTEGER, end INTEGER, deviceId INTEGER, streamId INTEGER, "
+      "correlationId INTEGER, shortName INTEGER);"
+      "INSERT INTO CUPTI_ACTIVITY_KIND_KERNEL VALUES "
+      "(10, 20, 0, 7, 41, 1), (30, 40, 0, 7, 42, 2);");
+  NativeIr ambiguous_communication_ir =
+      CudaNsightSQLiteAdapter(ambiguous_communication_path).load();
+  require(ambiguous_communication_ir.tasks.size() == 2 &&
+              ambiguous_communication_ir.communication_ops.empty(),
+          "ambiguous CUDA kernel names became communication evidence");
+  for (const TaskRow& task : ambiguous_communication_ir.tasks.rows()) {
+    require(task.compute_task_type_symbol_id.valid() &&
+                !task.comm_name_symbol_id.valid() &&
+                !task.communication_task_type_symbol_id.valid(),
+            "ambiguous CUDA kernel task was promoted to communication");
+  }
+  const FlatAnchorBuildStats ambiguous_communication_anchor_stats =
+      build_flat_anchors(ambiguous_communication_ir,
+                         collective_anchor_config);
+  require(ambiguous_communication_anchor_stats.communication_anchors == 0 &&
+              ambiguous_communication_anchor_stats.device_event_anchors == 2,
+          "ambiguous CUDA kernel names became collective anchors");
+
   const std::string malformed_path = temp_db_path("_malformed");
   create_db(malformed_path,
             "CREATE TABLE CUPTI_ACTIVITY_KIND_KERNEL("
@@ -327,6 +357,7 @@ int main(int argc, char** argv) {
   }
   std::remove(fallback_path.c_str());
   std::remove(collective_path.c_str());
+  std::remove(ambiguous_communication_path.c_str());
   std::remove(malformed_path.c_str());
   std::remove(malformed_aux_path.c_str());
   std::remove(partial_cuda_event_path.c_str());

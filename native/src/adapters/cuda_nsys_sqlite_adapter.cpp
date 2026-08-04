@@ -353,9 +353,9 @@ std::string choose_kernel_label(const std::string& short_name,
   return short_name.empty() ? demangled_name : short_name;
 }
 
-bool is_collective_kernel(const std::string& raw_name) {
+bool is_nccl_collective_kernel(const std::string& raw_name) {
   const std::string low = lower_ascii(raw_name);
-  return low.find("nccl") != std::string::npos ||
+  return low.find("nccl") != std::string::npos &&
          contains_any(low, {"allreduce", "all_reduce", "allgather",
                             "all_gather", "reducescatter", "reduce_scatter",
                             "alltoall", "all_to_all", "broadcast"});
@@ -363,7 +363,7 @@ bool is_collective_kernel(const std::string& raw_name) {
 
 std::string lift_cuda_kernel_label(const std::string& raw_name) {
   const std::string low = lower_ascii(raw_name);
-  if (is_collective_kernel(raw_name)) {
+  if (is_nccl_collective_kernel(raw_name)) {
     return raw_name;
   }
   if (contains_any(low,
@@ -747,7 +747,7 @@ void load_kernel_rows(
     }
     const std::string lifted_label = lift_cuda_kernel_label(raw_label);
     const bool auxiliary = lifted_label.rfind("CudaAux:", 0) == 0;
-    const bool collective = is_collective_kernel(raw_label);
+    const bool collective = is_nccl_collective_kernel(raw_label);
     const std::string task_type =
         auxiliary ? "CUDA_KERNEL_AUX"
                   : (collective ? "CUDA_COLLECTIVE_KERNEL" : "CUDA_KERNEL");
