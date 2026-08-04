@@ -358,7 +358,8 @@ void create_aclgraph_launch_identity_profile(const std::string& path) {
            "CREATE TABLE STRING_IDS(id INTEGER PRIMARY KEY, value TEXT);"
            "INSERT INTO STRING_IDS VALUES "
            "(10, 'MODEL_EXECUTE'), (11, 'NOTIFY_WAIT'), "
-           "(12, 'NOTIFY_RECORD'), (20, 'aclmdlRIExecuteAsync'), "
+           "(12, 'NOTIFY_RECORD'), (13, 'NOTIFY_RECORD_SQE'), "
+           "(20, 'aclmdlRIExecuteAsync'), "
            "(21, 'aclmdlRICaptureBegin'), (22, 'aclmdlRICaptureEnd'), "
            "(23, 'aclnnMuls'), (24, 'aclnnAdds'), (25, 'aclnnSubs'), "
            "(26, 'aclrtSynchronizeStreamWithTimeout'), "
@@ -371,7 +372,7 @@ void create_aclgraph_launch_identity_profile(const std::string& path) {
            "INSERT INTO TASK VALUES "
            "(100, 110, 0, 100, 1, 1, 10, 0, 3, 1, 7), "
            "(115, 120, 0, 100, 2, 1, 11, 0, 3, 2, 7), "
-           "(118, 120, 0, 9001, 3, 1, 12, 0, 36, 3, 7), "
+           "(118, 120, 0, -1, 3, 1, 13, 0, 36, 3, 4294967295), "
            "(200, 210, 0, 101, 4, 1, 10, 0, 3, 4, 8), "
            "(215, 220, 0, 101, 5, 1, 11, 0, 3, 5, 8), "
            "(218, 220, 0, 9002, 6, 1, 12, 0, 37, 6, 8), "
@@ -733,6 +734,68 @@ void create_aclgraph_exact_hlt_profile(
   sqlite3_close(db);
 }
 
+void create_aclgraph_single_graph_profile(const std::string& path) {
+  sqlite3* db = nullptr;
+  const int rc = sqlite3_open_v2(
+      path.c_str(), &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
+  require(rc == SQLITE_OK, "failed to create exact single-graph DB");
+  exec_sql(db,
+           "CREATE TABLE STRING_IDS(id INTEGER PRIMARY KEY, value TEXT);"
+           "INSERT INTO STRING_IDS VALUES "
+           "(10, 'MODEL_EXECUTE'), (11, 'NOTIFY_WAIT'), "
+           "(12, 'NOTIFY_RECORD_SQE'), (20, 'aclmdlRIExecuteAsync'), "
+           "(21, 'aclrtSynchronizeStreamWithTimeout'), "
+           "(30, 'KERNEL_AIVEC'), (31, 'GraphBodyOp');"
+           "CREATE TABLE TASK(startNs INTEGER, endNs INTEGER, "
+           "deviceId INTEGER, connectionId INTEGER, globalTaskId INTEGER, "
+           "globalPid INTEGER, taskType INTEGER, contextId INTEGER, "
+           "streamId INTEGER, taskId INTEGER, modelId INTEGER);"
+           "INSERT INTO TASK VALUES "
+           "(100, 110, 0, 1000, 1, 1, 10, 0, 3, 1, 4294967295), "
+           "(115, 120, 0, 1000, 2, 1, 11, 0, 3, 2, 4294967295), "
+           "(116, 117, 0, 2000, 100, 1, 30, 0, 36, 3, 7), "
+           "(118, 120, 0, -1, 3, 1, 12, 0, 36, 4, 4294967295), "
+           "(200, 210, 0, 1001, 4, 1, 10, 0, 3, 5, 4294967295), "
+           "(215, 220, 0, 1001, 5, 1, 11, 0, 3, 6, 4294967295), "
+           "(216, 217, 0, 2001, 100, 1, 30, 0, 36, 7, 7), "
+           "(218, 220, 0, -1, 6, 1, 12, 0, 36, 8, 4294967295), "
+           "(300, 310, 0, 1002, 7, 1, 10, 0, 3, 9, 4294967295), "
+           "(315, 320, 0, 1002, 8, 1, 11, 0, 3, 10, 4294967295), "
+           "(316, 317, 0, 2002, 100, 1, 30, 0, 36, 11, 7), "
+           "(318, 320, 0, -1, 9, 1, 12, 0, 36, 12, 4294967295);"
+           "CREATE TABLE COMPUTE_TASK_INFO(globalTaskId INTEGER, "
+           "name INTEGER, opType INTEGER, taskType INTEGER);"
+           "INSERT INTO COMPUTE_TASK_INFO VALUES (100, 31, 31, 30);"
+           "CREATE TABLE CANN_API(startNs INTEGER, endNs INTEGER, "
+           "type INTEGER, globalTid INTEGER, connectionId INTEGER, "
+           "name INTEGER);"
+           "INSERT INTO CANN_API VALUES "
+           "(90, 95, 0, 1, 1000, 20), "
+           "(190, 195, 0, 1, 1001, 20), "
+           "(290, 295, 0, 1, 1002, 20), "
+           "(325, 330, 0, 1, 9999, 21);");
+  sqlite3_close(db);
+
+  const std::filesystem::path stream_info_path =
+      std::filesystem::path(path).parent_path() / "host" / "sqlite" /
+      "stream_info.db";
+  std::filesystem::create_directories(stream_info_path.parent_path());
+  db = nullptr;
+  const int stream_rc = sqlite3_open_v2(
+      stream_info_path.string().c_str(), &db,
+      SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
+  require(stream_rc == SQLITE_OK,
+          "failed to create exact single-graph stream_info DB");
+  exec_sql(db,
+           "CREATE TABLE CaptureStreamInfo(device_id INTEGER, "
+           "model_id INTEGER, original_stream_id INTEGER, stream_id INTEGER, "
+           "batch_id INTEGER, capture_status INTEGER, timestamp NUMERIC);"
+           "INSERT INTO CaptureStreamInfo VALUES "
+           "(0, 7, 3, 36, 0, 0, 1), "
+           "(0, 7, 3, 36, 1, 0, 2);");
+  sqlite3_close(db);
+}
+
 }  // namespace
 
 int main() {
@@ -892,7 +955,12 @@ int main() {
            "TO stream_id;"
            "ALTER TABLE CaptureStreamInfo ADD COLUMN batch_id INTEGER;"
            "ALTER TABLE CaptureStreamInfo ADD COLUMN capture_status INTEGER;"
-           "ALTER TABLE CaptureStreamInfo ADD COLUMN timestamp NUMERIC;");
+           "ALTER TABLE CaptureStreamInfo ADD COLUMN timestamp NUMERIC;"
+           "UPDATE CaptureStreamInfo SET batch_id = 0, capture_status = 0, "
+           "timestamp = 100 + model_id;"
+           "INSERT INTO CaptureStreamInfo "
+           "SELECT device_id, model_id, original_stream_id, stream_id, 1, 0, "
+           "timestamp + 1000 FROM CaptureStreamInfo WHERE batch_id = 0;");
   sqlite3_close(current_stream_db);
 
   const AscendSQLiteAdapter current_graph_adapter(
@@ -903,6 +971,15 @@ int main() {
           "ACLGraph replay reconstruction missed current stream_id schema");
   require(current_graph_ir.graph_templates.size() == 1,
           "current ACLGraph stream_id schema changed graph identity");
+  require(current_graph_ir.captured_graph_instances.size() == 2 &&
+              current_graph_ir.captured_graph_streams.size() == 4 &&
+              current_graph_ir.captured_graph_instances
+                      .row(CapturedGraphInstanceId(0))
+                      .model_stream_count == 1 &&
+              current_graph_ir.captured_graph_instances
+                      .row(CapturedGraphInstanceId(1))
+                      .model_stream_count == 1,
+          "repeated CANN 9 capture batches inflated unique stream counts");
 
   current_stream_db = nullptr;
   const int single_slot_stream_rc = sqlite3_open_v2(
@@ -962,8 +1039,8 @@ int main() {
   require(launch3.match_policy == GraphLaunchMatchPolicy::kUnmatched,
           "incomplete launch should remain unmatched");
   require(launch0.raw_launch_connection_id == 100 &&
-              launch0.raw_graph_connection_id == 9001 &&
-              launch0.raw_model_id == 7,
+              launch0.raw_graph_connection_id == -1 &&
+              launch0.raw_model_id == -1,
           "first graph launch identity mismatch");
   require(launch1.raw_graph_connection_id == 9002 &&
               launch1.raw_model_id == 8,
@@ -1046,7 +1123,7 @@ int main() {
           "launches did not link to captured graph instances by direct record "
           "identity");
   require(launch0.instance_association_policy ==
-                  GraphLaunchInstanceAssociationPolicy::kRecordModelId &&
+                  GraphLaunchInstanceAssociationPolicy::kRecordModelStream &&
               launch1.instance_association_policy ==
                   GraphLaunchInstanceAssociationPolicy::kRecordModelId &&
               launch2.instance_association_policy ==
@@ -1281,6 +1358,60 @@ int main() {
             split_exact_hlt_body_hashes.end());
   require(split_exact_hlt_body_hashes == exact_hlt_body_hashes,
           "split exact HLT body identities differ from monolithic");
+
+  const std::filesystem::path single_graph_dir =
+      temp_prof_dir("_single_graph");
+  std::filesystem::create_directories(single_graph_dir);
+  const std::string single_graph_path =
+      (single_graph_dir / "msprof.db").string();
+  create_aclgraph_single_graph_profile(single_graph_path);
+  NativeIr single_graph_ir =
+      AscendSQLiteAdapter(single_graph_path, "graph_single_graph").load();
+  require(single_graph_ir.captured_graph_instances.size() == 1 &&
+              single_graph_ir.captured_graph_streams.size() == 2 &&
+              single_graph_ir.captured_graph_instances
+                      .row(CapturedGraphInstanceId(0))
+                      .model_stream_count == 1,
+          "CANN 9 capture batches changed single-graph stream cardinality");
+  require(single_graph_ir.graph_launch_occurrences.size() == 3 &&
+              single_graph_ir.graph_launch_bodies.size() == 3 &&
+              single_graph_ir.replay_body_templates.size() == 1 &&
+              single_graph_ir.replay_composition_candidates.size() == 1 &&
+              single_graph_ir.replay_composition_slots.size() == 1 &&
+              single_graph_ir.replay_composition_regions.size() == 3 &&
+              single_graph_ir.replay_composition_region_members.size() == 3 &&
+              single_graph_ir.replay_units.size() == 3 &&
+              single_graph_ir.replay_unit_launch_members.size() == 3,
+          "body-backed CANN 9 single-graph replays were not exact");
+  require(single_graph_ir.replay_composition_candidates
+                      .row(ReplayCompositionCandidateId(0))
+                      .shape_policy ==
+                  ReplayCompositionShapePolicy::kSingleGraph &&
+              single_graph_ir.replay_composition_slots
+                      .row(ReplayCompositionSlotId(0))
+                      .role == ReplayCompositionSlotRole::kGraph,
+          "single-graph composition lost its explicit shape and slot role");
+  for (const ReplayUnitLaunchMemberRow& member :
+       single_graph_ir.replay_unit_launch_members.rows()) {
+    require(single_graph_ir.replay_composition_slots
+                    .row(member.replay_composition_slot_id)
+                    .role == ReplayCompositionSlotRole::kGraph,
+            "single-graph replay member lost its graph slot role");
+  }
+
+  FlatAnchorBuildConfig single_graph_anchor_config;
+  single_graph_anchor_config.filter_auxiliary_task_anchors = true;
+  single_graph_anchor_config.skip_events_covered_by_replay_units = true;
+  const FlatAnchorBuildStats single_graph_anchor_stats =
+      build_flat_anchors(single_graph_ir, single_graph_anchor_config);
+  require(single_graph_anchor_stats.device_event_anchors == 3 &&
+              single_graph_anchor_stats.communication_anchors == 0 &&
+              single_graph_ir.protected_intervals.size() == 3,
+          "single-graph exact projection did not preserve its replay units");
+  for (const AnchorRow& anchor : single_graph_ir.anchors.rows()) {
+    require(anchor.kind == AnchorKind::kGraphReplayUnit,
+            "single-graph exact projection emitted a non-graph anchor");
+  }
 
   FlatAnchorBuildConfig exact_anchor_config;
   exact_anchor_config.filter_auxiliary_task_anchors = true;
@@ -1858,6 +1989,7 @@ int main() {
   std::filesystem::remove_all(launch_identity_dir);
   std::filesystem::remove_all(body_mismatch_dir);
   std::filesystem::remove_all(exact_hlt_dir);
+  std::filesystem::remove_all(single_graph_dir);
   std::filesystem::remove_all(missing_body_dir);
   std::filesystem::remove_all(graph_dir);
   std::filesystem::remove_all(split_dir);

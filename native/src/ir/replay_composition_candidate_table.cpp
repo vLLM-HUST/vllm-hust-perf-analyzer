@@ -48,6 +48,8 @@ const char* replay_composition_shape_policy_name(
       return "unclassified";
     case ReplayCompositionShapePolicy::kHeadRepeatedLayerTail:
       return "head_repeated_layer_tail";
+    case ReplayCompositionShapePolicy::kSingleGraph:
+      return "single_graph";
   }
   return "unclassified";
 }

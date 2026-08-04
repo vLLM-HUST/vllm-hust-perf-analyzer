@@ -462,7 +462,7 @@ std::string normalize_key(std::string value) {
 bool graph_task_key(const std::string& key) {
   static const std::unordered_set<std::string> kKeys{
       "MODEL_EXECUTE", "MODEL_MAINTAINCE", "MODEL_MAINTENANCE",
-      "NOTIFY_WAIT", "NOTIFY_RECORD"};
+      "NOTIFY_WAIT", "NOTIFY_RECORD", "NOTIFY_RECORD_SQE"};
   return kKeys.find(key) != kKeys.end();
 }
 
@@ -472,7 +472,7 @@ bool graph_body_excluded_task_key(const std::string& key) {
       "EVENT_RECORD",   "MEM_WRITE_VALUE", "MEMCPY",
       "MEMCPY_ASYNC",   "MODEL_EXECUTE",  "MODEL_MAINTAINCE",
       "MODEL_MAINTENANCE", "NOTIFY",      "NOTIFY_RECORD",
-      "NOTIFY_WAIT",    "SDMA",           "WRITE_VALUE"};
+      "NOTIFY_RECORD_SQE", "NOTIFY_WAIT", "SDMA", "WRITE_VALUE"};
   return kKeys.find(key) != kKeys.end();
 }
 
@@ -1363,7 +1363,7 @@ GraphTaskSymbolSets build_graph_task_symbol_sets(const SymbolTable& symbols) {
     if (key == "NOTIFY_WAIT") {
       out.notify_wait.insert(symbol_id.value());
     }
-    if (key == "NOTIFY_RECORD") {
+    if (key == "NOTIFY_RECORD" || key == "NOTIFY_RECORD_SQE") {
       out.notify_record.insert(symbol_id.value());
     }
     if (key == "MODEL_EXECUTE") {
@@ -1923,18 +1923,20 @@ CapturedGraphInstanceIndexes materialize_aclgraph_capture_instances(
         }
       }
       std::uint64_t first_source_row_id = 0;
+      std::set<std::uint64_t> unique_model_stream_ids;
       for (const CaptureModelStreamEvidence& stream : group.streams) {
         if (first_source_row_id == 0 ||
             stream.source_row_id < first_source_row_id) {
           first_source_row_id = stream.source_row_id;
         }
+        unique_model_stream_ids.insert(stream.raw_model_stream_id);
       }
       const CapturedGraphInstanceId instance_id =
           ir.captured_graph_instances.append(
               capture_stream_source_ref, first_source_row_id, group.device_id,
               group.raw_model_id, group.raw_timestamp, capture_ordinal,
               slot_template_id,
-              static_cast<std::uint32_t>(group.streams.size()),
+              static_cast<std::uint32_t>(unique_model_stream_ids.size()),
               association_policy);
       indexes.by_model_id.emplace(
           CapturedGraphInstanceKey{group.device_id, group.raw_model_id},
@@ -2660,7 +2662,9 @@ void materialize_replay_composition_segment(
   }
   ReplayCompositionShapePolicy shape_policy =
       ReplayCompositionShapePolicy::kUnclassified;
-  if (body_templates.size() >= 3 && body_templates.front().valid() &&
+  if (body_templates.size() == 1 && body_templates.front().valid()) {
+    shape_policy = ReplayCompositionShapePolicy::kSingleGraph;
+  } else if (body_templates.size() >= 3 && body_templates.front().valid() &&
       body_templates.back().valid() && body_templates[1].valid() &&
       body_templates.front() != body_templates[1] &&
       body_templates.back() != body_templates[1] &&
@@ -2800,7 +2804,9 @@ void materialize_replay_composition_segment(
               .slot_template_id;
     }
     ReplayCompositionSlotRole role = ReplayCompositionSlotRole::kUnclassified;
-    if (shape_policy ==
+    if (shape_policy == ReplayCompositionShapePolicy::kSingleGraph) {
+      role = ReplayCompositionSlotRole::kGraph;
+    } else if (shape_policy ==
         ReplayCompositionShapePolicy::kHeadRepeatedLayerTail) {
       role = index == 0
                  ? ReplayCompositionSlotRole::kHead
@@ -2998,7 +3004,14 @@ void materialize_replay_composition_candidates_for_order(
     std::vector<const GraphLaunchOccurrenceRow*> segment;
     std::vector<const GraphLaunchOccurrenceRow*> incomplete_segment;
     for (const GraphLaunchOccurrenceRow* launch : item.second) {
-      if (launch->raw_graph_connection_id < 0) {
+      const bool completion_backed =
+          launch->notify_wait_task_id.valid() &&
+          launch->notify_record_task_id.valid() &&
+          launch->match_policy != GraphLaunchMatchPolicy::kUnmatched;
+      const bool identity_backed =
+          launch->captured_graph_instance_id.valid() ||
+          launch->raw_graph_connection_id >= 0;
+      if (!completion_backed || !identity_backed) {
         materialize_replay_composition_segment(
             ir, segment, order_policy, missing_body_capability_launches);
         segment.clear();
@@ -3065,7 +3078,8 @@ std::set<std::uint32_t> materialize_exact_aclgraph_replay_units(
   for (const ReplayCompositionCandidateRow& candidate :
        ir.replay_composition_candidates.rows()) {
     if (candidate.shape_policy !=
-        ReplayCompositionShapePolicy::kHeadRepeatedLayerTail) {
+            ReplayCompositionShapePolicy::kHeadRepeatedLayerTail &&
+        candidate.shape_policy != ReplayCompositionShapePolicy::kSingleGraph) {
       continue;
     }
     auto& destination =

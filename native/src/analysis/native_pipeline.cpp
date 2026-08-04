@@ -109,7 +109,8 @@ NativePipelineStats collect_stats(
   for (const ReplayCompositionCandidateRow& candidate :
        ir.replay_composition_candidates.rows()) {
     if (candidate.shape_policy ==
-        ReplayCompositionShapePolicy::kHeadRepeatedLayerTail) {
+            ReplayCompositionShapePolicy::kHeadRepeatedLayerTail ||
+        candidate.shape_policy == ReplayCompositionShapePolicy::kSingleGraph) {
       ++stats.replay_composition_body_confirmed_count;
     }
   }
