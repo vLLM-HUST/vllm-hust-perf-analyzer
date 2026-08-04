@@ -21,7 +21,8 @@ GraphLaunchOccurrenceId GraphLaunchOccurrenceTable::append(
     std::int64_t start_ns,
     std::int64_t end_ns,
     std::int64_t wait_record_end_delta_ns,
-    GraphLaunchMatchPolicy match_policy) {
+    GraphLaunchMatchPolicy match_policy,
+    GraphLaunchInstanceAssociationPolicy instance_association_policy) {
   const auto id = checked_next_id<GraphLaunchOccurrenceId>(rows_.size());
   rows_.push_back(GraphLaunchOccurrenceRow{
       id,
@@ -42,6 +43,7 @@ GraphLaunchOccurrenceId GraphLaunchOccurrenceTable::append(
       end_ns,
       wait_record_end_delta_ns,
       match_policy,
+      instance_association_policy,
   });
   return id;
 }

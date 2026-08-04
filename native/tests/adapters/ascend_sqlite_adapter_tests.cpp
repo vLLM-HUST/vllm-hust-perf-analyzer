@@ -331,7 +331,7 @@ void create_aclgraph_launch_identity_profile(const std::string& path) {
            "(218, 220, 0, 9002, 6, 1, 12, 0, 37, 6, 8), "
            "(300, 310, 0, 102, 7, 1, 10, 0, 3, 7, 7), "
            "(315, 320, 0, 102, 8, 1, 11, 0, 3, 8, 7), "
-           "(699990, 700000, 0, 9001, 9, 1, 12, 0, 36, 9, 7), "
+           "(699990, 700000, 0, 9001, 9, 1, 12, 0, 36, 9, 4294967295), "
            "(800000, 800010, 0, 103, 10, 1, 10, 0, 3, 10, 7), "
            "(116, 117, 0, 300, 100, 1, 30, 0, 36, 11, 7), "
            "(216, 217, 0, 301, 101, 1, 30, 0, 37, 12, 8), "
@@ -923,8 +923,8 @@ int main() {
               launch1.raw_model_id == 8,
           "second graph launch identity mismatch");
   require(launch2.raw_graph_connection_id == 9001 &&
-              launch2.raw_model_id == 7,
-          "fallback graph launch identity mismatch");
+              launch2.raw_model_id == -1,
+          "stream-associated graph launch raw identity mismatch");
   require(launch3.raw_graph_connection_id == -1 &&
               launch3.raw_model_id == -1 &&
               !launch3.notify_wait_task_id.valid() &&
@@ -997,7 +997,17 @@ int main() {
               launch2.captured_graph_instance_id ==
                   launch0.captured_graph_instance_id &&
               !launch3.captured_graph_instance_id.valid(),
-          "launches did not link to captured graph instances by model id");
+          "launches did not link to captured graph instances by direct record "
+          "identity");
+  require(launch0.instance_association_policy ==
+                  GraphLaunchInstanceAssociationPolicy::kRecordModelId &&
+              launch1.instance_association_policy ==
+                  GraphLaunchInstanceAssociationPolicy::kRecordModelId &&
+              launch2.instance_association_policy ==
+                  GraphLaunchInstanceAssociationPolicy::kRecordModelStream &&
+              launch3.instance_association_policy ==
+                  GraphLaunchInstanceAssociationPolicy::kNone,
+          "graph launch instance association policy mismatch");
   require(launch_identity_ir.captured_graph_instances
                   .row(launch0.captured_graph_instance_id)
                   .slot_template_id !=
@@ -1061,6 +1071,8 @@ int main() {
                 split.raw_graph_connection_id ==
                     monolithic.raw_graph_connection_id &&
                 split.raw_model_id == monolithic.raw_model_id &&
+                split.instance_association_policy ==
+                    monolithic.instance_association_policy &&
                 split.match_policy == monolithic.match_policy,
             "split ACLGraph launch identity differs from monolithic");
     require(split_graph_ir.source_refs.row(split.source_ref_id).table_name ==
@@ -1477,6 +1489,13 @@ int main() {
       AscendSQLiteAdapter(device_order_path, "graph_device_order").load();
   require(device_order_ir.replay_composition_candidates.size() == 2 &&
               device_order_ir.replay_units.size() == 4 &&
+              device_order_ir.replay_unit_launch_members.size() == 12 &&
+              std::all_of(
+                  device_order_ir.replay_units.rows().begin(),
+                  device_order_ir.replay_units.rows().end(),
+                  [](const ReplayUnitRow& unit) {
+                    return unit.replay_composition_region_id.valid();
+                  }) &&
               std::all_of(
                   device_order_ir.replay_composition_candidates.rows().begin(),
                   device_order_ir.replay_composition_candidates.rows().end(),

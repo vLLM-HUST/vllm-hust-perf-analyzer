@@ -14,6 +14,12 @@ enum class GraphLaunchMatchPolicy : std::uint8_t {
   kNotifyOrderedFallback = 2,
 };
 
+enum class GraphLaunchInstanceAssociationPolicy : std::uint8_t {
+  kNone = 0,
+  kRecordModelId = 1,
+  kRecordModelStream = 2,
+};
+
 struct GraphLaunchOccurrenceRow {
   GraphLaunchOccurrenceId id;
   SourceRefId source_ref_id;
@@ -33,6 +39,8 @@ struct GraphLaunchOccurrenceRow {
   std::int64_t end_ns = 0;
   std::int64_t wait_record_end_delta_ns = -1;
   GraphLaunchMatchPolicy match_policy = GraphLaunchMatchPolicy::kUnmatched;
+  GraphLaunchInstanceAssociationPolicy instance_association_policy =
+      GraphLaunchInstanceAssociationPolicy::kNone;
 };
 
 class GraphLaunchOccurrenceTable {
@@ -54,7 +62,9 @@ class GraphLaunchOccurrenceTable {
       std::int64_t start_ns,
       std::int64_t end_ns,
       std::int64_t wait_record_end_delta_ns,
-      GraphLaunchMatchPolicy match_policy);
+      GraphLaunchMatchPolicy match_policy,
+      GraphLaunchInstanceAssociationPolicy instance_association_policy =
+          GraphLaunchInstanceAssociationPolicy::kNone);
 
   std::size_t size() const noexcept { return rows_.size(); }
   bool empty() const noexcept { return rows_.empty(); }

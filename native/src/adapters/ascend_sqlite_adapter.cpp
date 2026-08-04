@@ -213,6 +213,14 @@ using StreamIndex = std::unordered_map<std::uint64_t, StreamId>;
 using CapturedGraphInstanceKey = std::pair<std::uint32_t, std::int64_t>;
 using CapturedGraphInstanceIndex =
     std::map<CapturedGraphInstanceKey, CapturedGraphInstanceId>;
+using CapturedGraphModelStreamKey =
+    std::pair<std::uint32_t, std::uint64_t>;
+
+struct CapturedGraphInstanceIndexes {
+  CapturedGraphInstanceIndex by_model_id;
+  std::map<CapturedGraphModelStreamKey, CapturedGraphInstanceId>
+      by_model_stream;
+};
 
 struct TaskLink {
   std::uint64_t stream_id = 0;
@@ -1843,15 +1851,15 @@ AclGraphCaptureInfo load_aclgraph_capture_info(
   return out;
 }
 
-CapturedGraphInstanceIndex materialize_aclgraph_capture_instances(
+CapturedGraphInstanceIndexes materialize_aclgraph_capture_instances(
     NativeIr& ir,
     const AclGraphCaptureInfo& capture_info,
     SourceRefId capture_stream_source_ref,
     SourceRefId cann_api_source_ref) {
-  CapturedGraphInstanceIndex index;
+  CapturedGraphInstanceIndexes indexes;
   if (capture_info.model_groups.empty() ||
       !capture_stream_source_ref.valid()) {
-    return index;
+    return indexes;
   }
 
   std::map<std::uint32_t, std::vector<const CaptureModelGroupEvidence*>>
@@ -1928,17 +1936,26 @@ CapturedGraphInstanceIndex materialize_aclgraph_capture_instances(
               slot_template_id,
               static_cast<std::uint32_t>(group.streams.size()),
               association_policy);
-      index.emplace(
+      indexes.by_model_id.emplace(
           CapturedGraphInstanceKey{group.device_id, group.raw_model_id},
           instance_id);
       for (const CaptureModelStreamEvidence& stream : group.streams) {
+        const CapturedGraphModelStreamKey stream_key{group.device_id,
+                                                     stream.raw_model_stream_id};
+        const auto inserted =
+            indexes.by_model_stream.emplace(stream_key, instance_id);
+        if (!inserted.second && inserted.first->second != instance_id) {
+          // A stream claimed by multiple graph instances is ambiguous. Keep
+          // the evidence but make it unusable for exact launch association.
+          inserted.first->second = CapturedGraphInstanceId::invalid();
+        }
         ir.captured_graph_streams.append(
             instance_id, capture_stream_source_ref, stream.source_row_id,
             stream.raw_original_stream_id, stream.raw_model_stream_id);
       }
     }
   }
-  return index;
+  return indexes;
 }
 
 bool event_overlaps(const TraceEventRow& event,
@@ -1989,7 +2006,7 @@ std::uint64_t absolute_timestamp_delta(std::int64_t lhs, std::int64_t rhs) {
 void materialize_aclgraph_launch_occurrences(
     NativeIr& ir,
     const StreamIndex& streams,
-    const CapturedGraphInstanceIndex& captured_graph_instances,
+    const CapturedGraphInstanceIndexes& captured_graph_instances,
     const std::vector<GraphLaunchView>& host_execute_launches,
     SourceRefId host_api_source_ref) {
   const GraphTaskSymbolSets graph_symbols =
@@ -2181,6 +2198,8 @@ void materialize_aclgraph_launch_occurrences(
     StreamId model_stream_id = StreamId::invalid();
     CapturedGraphInstanceId captured_graph_instance_id =
         CapturedGraphInstanceId::invalid();
+    GraphLaunchInstanceAssociationPolicy instance_association_policy =
+        GraphLaunchInstanceAssociationPolicy::kNone;
     TaskId wait_task_id = TaskId::invalid();
     TaskId record_task_id = TaskId::invalid();
     std::int64_t raw_graph_connection_id = -1;
@@ -2196,10 +2215,12 @@ void materialize_aclgraph_launch_occurrences(
       raw_graph_connection_id = launch.record->task->raw_connection_id;
       raw_model_id = launch.record->task->raw_model_id;
       if (raw_model_id >= 0) {
-        const auto instance = captured_graph_instances.find(
+        const auto instance = captured_graph_instances.by_model_id.find(
             CapturedGraphInstanceKey{execute_event.device_id, raw_model_id});
-        if (instance != captured_graph_instances.end()) {
+        if (instance != captured_graph_instances.by_model_id.end()) {
           captured_graph_instance_id = instance->second;
+          instance_association_policy =
+              GraphLaunchInstanceAssociationPolicy::kRecordModelId;
         }
       }
       end_ns = std::max(end_ns, launch.record->event->end_ns);
@@ -2209,6 +2230,17 @@ void materialize_aclgraph_launch_occurrences(
           launch.record->event->device_id, launch.record->event->stream_id));
       if (model_stream != streams.end()) {
         model_stream_id = model_stream->second;
+      }
+      if (!captured_graph_instance_id.valid()) {
+        const auto instance = captured_graph_instances.by_model_stream.find(
+            CapturedGraphModelStreamKey{launch.record->event->device_id,
+                                        launch.record->event->stream_id});
+        if (instance != captured_graph_instances.by_model_stream.end() &&
+            instance->second.valid()) {
+          captured_graph_instance_id = instance->second;
+          instance_association_policy =
+              GraphLaunchInstanceAssociationPolicy::kRecordModelStream;
+        }
       }
     }
     ir.graph_launch_occurrences.append(
@@ -2221,7 +2253,7 @@ void materialize_aclgraph_launch_occurrences(
                                         : execute_stream->second,
         model_stream_id, captured_graph_instance_id, launch.execute.task->id,
         wait_task_id, record_task_id, execute_event.start_ns, end_ns,
-        wait_record_delta_ns, launch.policy);
+        wait_record_delta_ns, launch.policy, instance_association_policy);
   }
 }
 
@@ -3026,14 +3058,33 @@ std::set<std::uint32_t> materialize_exact_aclgraph_replay_units(
     const std::string& source_path) {
   std::map<std::uint32_t,
            std::vector<const ReplayCompositionCandidateRow*>>
-      candidates_by_device;
+      host_candidates_by_device;
+  std::map<std::uint32_t,
+           std::vector<const ReplayCompositionCandidateRow*>>
+      device_candidates_by_device;
   for (const ReplayCompositionCandidateRow& candidate :
        ir.replay_composition_candidates.rows()) {
-    if (candidate.order_policy ==
-            ReplayCompositionOrderPolicy::kHostSubmissionOrder &&
-        candidate.shape_policy ==
-            ReplayCompositionShapePolicy::kHeadRepeatedLayerTail) {
-      candidates_by_device[candidate.device_id].push_back(&candidate);
+    if (candidate.shape_policy !=
+        ReplayCompositionShapePolicy::kHeadRepeatedLayerTail) {
+      continue;
+    }
+    auto& destination =
+        candidate.order_policy ==
+                ReplayCompositionOrderPolicy::kHostSubmissionOrder
+            ? host_candidates_by_device
+            : device_candidates_by_device;
+    destination[candidate.device_id].push_back(&candidate);
+  }
+
+  std::map<std::uint32_t,
+           std::vector<const ReplayCompositionCandidateRow*>>
+      candidates_by_device;
+  for (const auto& item : host_candidates_by_device) {
+    candidates_by_device.emplace(item.first, item.second);
+  }
+  for (const auto& item : device_candidates_by_device) {
+    if (candidates_by_device.find(item.first) == candidates_by_device.end()) {
+      candidates_by_device.emplace(item.first, item.second);
     }
   }
   if (candidates_by_device.empty()) {
@@ -3908,7 +3959,7 @@ NativeIr load_split_profile(const AscendSQLiteAdapterOptions& options) {
                : table_refs.at(table->db_path + "\n" + table->table_name);
   };
   const SourceRefId api_source_ref = source_ref_for(api_table);
-  CapturedGraphInstanceIndex captured_graph_instances;
+  CapturedGraphInstanceIndexes captured_graph_instances;
   if (!capture_info.model_groups.empty()) {
     captured_graph_instances = materialize_aclgraph_capture_instances(
         ir, capture_info, source_ref_for(capture_stream_table),
@@ -4132,7 +4183,7 @@ NativeIr AscendSQLiteAdapter::load() const {
           capture_info.capture_slots, capture_info.capture_group_size);
     }
   });
-  CapturedGraphInstanceIndex captured_graph_instances;
+  CapturedGraphInstanceIndexes captured_graph_instances;
   timing.aclgraph_capture_instances_ms = time_stage([&]() {
     if (!capture_info.model_groups.empty()) {
       const SourceRefId capture_stream_source_ref = ir.source_refs.append(

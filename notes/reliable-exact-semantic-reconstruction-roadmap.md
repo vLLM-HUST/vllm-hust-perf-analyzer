@@ -45,16 +45,31 @@ missing bodies, and body mismatches remain typed unrecognized regions.
   promoted units were therefore stronger claims than the artifact supports:
   they are now typed unknowns rather than single-stream bodies presented as
   complete graphs.
+- The retained capability-complete TP2 LLM showcase supplies the missing real
+  decode evidence. Each rank has 74 captured graph instances with two model
+  streams each and 1,110 completed launches. CANN leaves `NOTIFY_RECORD.modelId`
+  unavailable in this package, but the record stream is a direct, unique member
+  of exactly one `CaptureStreamInfo` model group. The explicit
+  `record_model_stream` association recovers all launches without ordinal or
+  timestamp inference.
+- Both ranks independently recover the same exact 37-launch
+  `H + L×35 + T` composition repeated 30 times. All 30 regions per rank become
+  exact ReplayUnits with 1,110 ordered launch members; no region is unknown.
+  The sidecars likewise contain 30 `exact_replay_composition` rows and 30
+  recognized ledger rows per rank.
 - Exact sidecar rows continue to identify `exact_replay_composition`, source
   region, and launch membership when promotion is supported. Capability-gated
   unknowns create no replay or timeline event.
 
 ## Active Front
 
-1. Capture a fresh capability-complete LLM H/L/T trace and re-establish real,
-   not only synthetic, exact prefill/decode promotion.
-2. Carry the exact/unknown distinction into higher-level report summaries
+1. Carry the exact/unknown distinction into higher-level report summaries
    only where it improves a concrete diagnostic, without fabricating events.
+2. Capture a current-runtime prefill graph only if the runtime actually graphs
+   prefill and a concrete consumer needs that additional real promotion case.
+   Exact periodic decode promotion is now established on real TP2 LLM data;
+   the one-shot prefill rule remains synthetic because this retained workload
+   executes prefill outside the 30 decode graph replays.
 
 Cross-stream reconstruction is intentionally **not** an active front. The
 stable TraceLoom boundary is a coarse, permutation-invariant projection of

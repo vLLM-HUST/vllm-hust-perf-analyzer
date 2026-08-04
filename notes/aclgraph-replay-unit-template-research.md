@@ -881,6 +881,51 @@ The eight-profile audit now has the following result: six profiles preserve
 their previous unit/region outcome, while the two kickstart profiles emit
 `10 + 1` and `8 + 1` typed unknown regions (missing body capability plus one
 missing completion region) and zero graph replay rows. This supersedes the
-kickstart promotion/count claims in the chronological sections above. A fresh
-LLM graph trace with complete capture-stream metadata is required before those
-H/L/T shapes can again be called exact.
+kickstart promotion/count claims in the chronological sections above.
+
+## Direct Model-Stream Association And Real TP2 Decode Promotion
+
+The retained TP2 LLM showcase already contains the capability-complete package
+that the kickstart artifacts lack. Each rank exposes 74
+`CaptureStreamInfo` model groups with two streams per group and 1,110 completed
+launches. Its `NOTIFY_RECORD` rows do not carry usable `modelId` values, so the
+old launch linker stopped at the stable graph connection and incorrectly
+treated every launch as missing complete-body capability.
+
+The completion record itself runs on a model stream listed by
+`CaptureStreamInfo`. That `(device, model_stream)` pair is unique to one
+captured graph instance on both ranks, making it a direct schema relationship,
+not an order, timestamp, or cardinality guess. TraceLoom now uses model id when
+present and otherwise uses this unique record-stream membership. Ambiguous
+stream ownership remains unassociated. Native JSON publishes the choice as
+`instance_association_policy = record_model_id | record_model_stream | none`.
+
+This also exposed a separate cutover hole: the exact projector accepted only
+host-submission-order candidates even though the candidate builder explicitly
+supports device execution order when host API boundaries are unavailable or
+incomplete. It now prefers host order per device when proven and otherwise
+promotes the device-order candidate. A golden without `CANN_API` requires all
+four units to retain exact composition-region links, preventing legacy units
+from satisfying an exact-count assertion.
+
+With both fixes, each TP2 rank independently reports:
+
+```text
+captured instances:              74
+captured model streams:         148
+completed launches:           1,110
+record-model-stream links:    1,110
+composition shape:        H + L×35 + T
+exact full repeats:              30
+exact ReplayUnits:               30
+ordered launch members:       1,110
+unknown regions:                  0
+```
+
+Every body uses `captured_stream_set_unordered` with two lanes. The 37-slot
+template has distinct head and tail bodies and one repeated layer body. Both
+compatibility sidecars contain 30 `exact_replay_composition` rows and 30
+`recognized_complete_pattern` ledger rows, with no fabricated fallback rows.
+This establishes real capability-complete TP2 LLM decode promotion; the
+one-shot prefill rule remains covered synthetically because this workload's
+prefill is outside its 30 graph replay compositions.

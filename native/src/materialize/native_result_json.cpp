@@ -131,6 +131,19 @@ const char* graph_launch_match_policy_name(GraphLaunchMatchPolicy policy) {
   return "unmatched";
 }
 
+const char* graph_launch_instance_association_policy_name(
+    GraphLaunchInstanceAssociationPolicy policy) {
+  switch (policy) {
+    case GraphLaunchInstanceAssociationPolicy::kNone:
+      return "none";
+    case GraphLaunchInstanceAssociationPolicy::kRecordModelId:
+      return "record_model_id";
+    case GraphLaunchInstanceAssociationPolicy::kRecordModelStream:
+      return "record_model_stream";
+  }
+  return "none";
+}
+
 const char* graph_launch_activity_boundary_policy_name(
     GraphLaunchActivityBoundaryPolicy policy) {
   switch (policy) {
@@ -301,6 +314,10 @@ void write_graph_launch_occurrences(std::ostream& out, const NativeIr* ir) {
           << ", \"device_id\": " << row.device_id
           << ", \"match_policy\": ";
       write_json_string(out, graph_launch_match_policy_name(row.match_policy));
+      out << ", \"instance_association_policy\": ";
+      write_json_string(
+          out, graph_launch_instance_association_policy_name(
+                   row.instance_association_policy));
       out << ", \"task_source_table\": ";
       write_json_string(out, ir->source_refs.row(row.source_ref_id).table_name);
       out << ", \"host_api_source_table\": ";

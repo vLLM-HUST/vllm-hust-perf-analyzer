@@ -155,7 +155,8 @@ int main() {
   const GraphLaunchOccurrenceId launch0 = graph_launches.append(
       source0, source0, 0, 51, 777, 9001, 88, stream0, stream0,
       captured_instance0, task0, task0, task0, 100, 160, -4,
-      GraphLaunchMatchPolicy::kNotifyCompletionAdjacent);
+      GraphLaunchMatchPolicy::kNotifyCompletionAdjacent,
+      GraphLaunchInstanceAssociationPolicy::kRecordModelId);
   require(launch0.valid());
   require(graph_launches.row(launch0).source_ref_id == source0);
   require(graph_launches.row(launch0).host_api_source_ref_id == source0);
@@ -170,6 +171,8 @@ int main() {
   require(graph_launches.row(launch0).wait_record_end_delta_ns == -4);
   require(graph_launches.row(launch0).match_policy ==
           GraphLaunchMatchPolicy::kNotifyCompletionAdjacent);
+  require(graph_launches.row(launch0).instance_association_policy ==
+          GraphLaunchInstanceAssociationPolicy::kRecordModelId);
 
   ReplayBodyTemplateTable replay_body_templates;
   const ReplayBodyTemplateId body_template0 = replay_body_templates.append(

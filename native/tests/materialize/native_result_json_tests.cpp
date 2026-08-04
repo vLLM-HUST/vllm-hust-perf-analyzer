@@ -39,7 +39,8 @@ int main() {
       source, source, 0, 7, 1001, 9001, 42, StreamId::invalid(),
       StreamId::invalid(), captured_instance, TaskId(0), TaskId(0), TaskId(0),
       0, 10, 0,
-      GraphLaunchMatchPolicy::kNotifyCompletionAdjacent);
+      GraphLaunchMatchPolicy::kNotifyCompletionAdjacent,
+      GraphLaunchInstanceAssociationPolicy::kRecordModelStream);
   const GraphLaunchActivityId graph_activity =
       ir.graph_launch_activities.append(
           source, 123, 7, 7, 9,
@@ -201,6 +202,9 @@ int main() {
   require(json.find("\"graph_launch_occurrences\": [") !=
           std::string::npos);
   require(json.find("\"match_policy\": \"notify_completion_adjacent\"") !=
+          std::string::npos);
+  require(json.find(
+              "\"instance_association_policy\": \"record_model_stream\"") !=
           std::string::npos);
   require(json.find("\"host_api_source_row_id\": 7") !=
           std::string::npos);
