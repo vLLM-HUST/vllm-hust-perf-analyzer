@@ -465,6 +465,18 @@ std::string select_or_null(const std::string& column) {
   return column.empty() ? std::string("NULL") : quote_identifier(column);
 }
 
+std::vector<std::string> missing_cuda_event_identity_columns(
+    const ColumnMap& columns) {
+  std::vector<std::string> out;
+  for (const char* required : {"deviceId", "contextId", "streamId",
+                               "eventId"}) {
+    if (find_column(columns, required).empty()) {
+      out.push_back(required);
+    }
+  }
+  return out;
+}
+
 struct AuxiliaryActivitySpec {
   const char* table;
   const char* task_type;
@@ -501,6 +513,19 @@ void load_auxiliary_activity_rows(
       // materialized as a timeline event. Do not let that optional metadata
       // prevent timed kernel, synchronization, or graph evidence from loading.
       if (std::string(spec.table) == "CUPTI_ACTIVITY_KIND_CUDA_EVENT") {
+        if (!end.empty()) {
+          throw std::runtime_error(
+              "unsupported CUDA/Nsight CUPTI_ACTIVITY_KIND_CUDA_EVENT "
+              "schema: end without start or timestamp");
+        }
+        const std::vector<std::string> missing_identity_columns =
+            missing_cuda_event_identity_columns(columns);
+        if (!missing_identity_columns.empty()) {
+          throw std::runtime_error(
+              "unsupported CUDA/Nsight CUPTI_ACTIVITY_KIND_CUDA_EVENT "
+              "metadata schema: missing identity column(s): " +
+              join(missing_identity_columns, ", "));
+        }
         if (options.timing_diagnostics) {
           std::cerr << "cuda_nsys_metadata_only_table=" << spec.table << "\n";
         }
