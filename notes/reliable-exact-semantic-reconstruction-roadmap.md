@@ -69,7 +69,7 @@ insufficient.
 
 The compatibility sidecar now publishes a complete ACLGraph reconstruction
 ledger in `traceloom_aclgraph_reconstruction_region`. Recognized regions and
-all four unknown statuses share one typed schema with candidate policy,
+all five unknown statuses share one typed schema with candidate policy,
 launch-occurrence bounds, observed/expected launch counts, time bounds, and a
 forward-compatible raw payload. The status and policy spellings are shared
 with native JSON rather than duplicated across materializers.
@@ -83,7 +83,7 @@ unrecognized region counts.
 On the two kickstart profiles the new table reports exactly `9 recognized + 1
 incomplete(11/25)` and `7 recognized + 1 incomplete(10/25)`. The replay table
 still contains only the 9 and 7 exact units. A compatibility fixture exercises
-all five region statuses and proves that unknown rows neither create replay
+all six region statuses and proves that unknown rows neither create replay
 units nor survive an evidence-table replacement with an empty result.
 
 ## 2026-08-04 Split CANN Semantic Parity
@@ -116,6 +116,14 @@ units survive, the affected region becomes
 `unrecognized_missing_body_evidence`, and only the other three complete units
 are promoted. This proves the failure mode from raw schema rows through the
 exact projector rather than only at an isolated IR contract.
+
+A true trace-cutoff golden now removes the final `NOTIFY_RECORD` while leaving
+the host launch, `MODEL_EXECUTE`, `NOTIFY_WAIT`, and body task rows intact. The
+launch occurrence remains in the IR with unmatched completion evidence and is
+published as `unrecognized_missing_completion_evidence` under the explicit
+`incomplete_launch_evidence` boundary policy. It does not disappear at the
+composition segment break, fabricate a graph identity, or disturb the four
+earlier exact units.
 
 ## 2026-08-04 Hierarchical Projection And Cost Gate
 

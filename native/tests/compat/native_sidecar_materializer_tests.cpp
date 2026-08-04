@@ -203,6 +203,22 @@ NativeIr build_exact_graph_replay_ir() {
           ReplayCompositionRegionStatus::kUnrecognizedMissingBodyEvidence);
   ir.replay_composition_region_members.append(
       missing_body_region, 0, missing_body_occurrence, 0);
+  const ReplayCompositionCandidateId incomplete_composition =
+      ir.replay_composition_candidates.append(
+          source, 0, missing_body_occurrence, missing_body_occurrence, 1, 0,
+          0, 0, 0, 44, ReplayCompositionIdentityPolicy::kUnavailable,
+          ReplayCompositionOrderPolicy::kHostSubmissionOrder,
+          ReplayCompositionShapePolicy::kUnclassified,
+          ReplayCompositionBoundaryPolicy::kIncompleteLaunchEvidence);
+  const ReplayCompositionRegionId missing_completion_region =
+      ir.replay_composition_regions.append(
+          incomplete_composition, 0, missing_body_occurrence,
+          missing_body_occurrence,
+          3500, 4000, 1, 1,
+          ReplayCompositionRegionStatus::
+              kUnrecognizedMissingCompletionEvidence);
+  ir.replay_composition_region_members.append(
+      missing_completion_region, 0, missing_body_occurrence, -1);
   const GraphTemplateId graph_template =
       ir.graph_templates.append(source, 33, 1);
   const ReplayUnitId unit = ir.replay_units.append(
@@ -365,12 +381,12 @@ int main() {
   require(run_scalar_int(
               exact_graph_db_path,
               "SELECT COUNT(*) FROM "
-              "traceloom_aclgraph_reconstruction_region") == 5);
+              "traceloom_aclgraph_reconstruction_region") == 6);
   require(run_scalar_int(
               exact_graph_db_path,
               "SELECT COUNT(*) FROM "
               "traceloom_aclgraph_reconstruction_region "
-              "WHERE status LIKE 'unrecognized_%'") == 4);
+              "WHERE status LIKE 'unrecognized_%'") == 5);
   require(run_scalar_text(
               exact_graph_db_path,
               "SELECT status FROM "
@@ -390,19 +406,31 @@ int main() {
   require(run_scalar_int(
               exact_graph_db_path,
               "SELECT COUNT(DISTINCT status) FROM "
-              "traceloom_aclgraph_reconstruction_region") == 5);
+              "traceloom_aclgraph_reconstruction_region") == 6);
+  require(run_scalar_text(
+              exact_graph_db_path,
+              "SELECT boundary_policy FROM "
+              "traceloom_aclgraph_reconstruction_region WHERE status = "
+              "'unrecognized_missing_completion_evidence'") ==
+          "incomplete_launch_evidence");
+  require(run_scalar_text(
+              exact_graph_db_path,
+              "SELECT identity_policy FROM "
+              "traceloom_aclgraph_reconstruction_region WHERE status = "
+              "'unrecognized_missing_completion_evidence'") ==
+          "unavailable");
   require(run_scalar_int(
               exact_graph_db_path,
               "SELECT COUNT(*) FROM traceloom_cuda_graph_replay") == 1);
   require(run_scalar_text(
               exact_graph_db_path,
               "SELECT value FROM traceloom_metadata "
-              "WHERE key = 'replay_composition_region_count'") == "5");
+              "WHERE key = 'replay_composition_region_count'") == "6");
   require(run_scalar_text(
               exact_graph_db_path,
               "SELECT value FROM traceloom_metadata "
               "WHERE key = 'unrecognized_replay_composition_region_count'") ==
-          "4");
+          "5");
   std::remove(exact_graph_db_path.c_str());
 
   const std::string collective_db_path = temp_db_path();

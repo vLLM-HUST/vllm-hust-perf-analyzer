@@ -1290,6 +1290,61 @@ int main() {
               missing_body_ir.replay_unit_launch_members.size() == 9,
           "missing graph body evidence did not stay typed and unpromoted");
 
+  const std::filesystem::path truncated_launch_dir =
+      temp_prof_dir("_truncated_launch");
+  std::filesystem::create_directories(truncated_launch_dir);
+  const std::string truncated_launch_path =
+      (truncated_launch_dir / "msprof.db").string();
+  create_aclgraph_exact_hlt_profile(truncated_launch_path);
+  sqlite3* truncated_db = nullptr;
+  const int truncated_rc = sqlite3_open_v2(
+      truncated_launch_path.c_str(), &truncated_db, SQLITE_OPEN_READWRITE,
+      nullptr);
+  require(truncated_rc == SQLITE_OK,
+          "failed to reopen truncated launch fixture");
+  exec_sql(truncated_db,
+           "DELETE FROM TASK WHERE taskType = 12 AND taskId = 70;");
+  sqlite3_close(truncated_db);
+  const NativeIr truncated_launch_ir =
+      AscendSQLiteAdapter(truncated_launch_path, "graph_truncated_launch")
+          .load();
+  std::size_t missing_completion_regions = 0;
+  for (const ReplayCompositionRegionRow& region :
+       truncated_launch_ir.replay_composition_regions.rows()) {
+    if (region.status == ReplayCompositionRegionStatus::
+                             kUnrecognizedMissingCompletionEvidence) {
+      ++missing_completion_regions;
+      const ReplayCompositionCandidateRow& candidate =
+          truncated_launch_ir.replay_composition_candidates.row(
+              region.replay_composition_candidate_id);
+      require(candidate.identity_policy ==
+                  ReplayCompositionIdentityPolicy::kUnavailable &&
+                  candidate.boundary_policy ==
+                      ReplayCompositionBoundaryPolicy::
+                          kIncompleteLaunchEvidence &&
+                  region.observed_launch_count == 1 &&
+                  region.expected_launch_count == 1,
+              "truncated launch region lost its explicit evidence policy");
+    }
+  }
+  require(truncated_launch_ir.graph_launch_occurrences.size() == 14 &&
+              truncated_launch_ir.graph_launch_bodies.size() == 13 &&
+              truncated_launch_ir.replay_composition_candidates.size() == 3 &&
+              truncated_launch_ir.replay_composition_regions.size() == 6 &&
+              truncated_launch_ir.replay_composition_region_members.size() ==
+                  14 &&
+              missing_completion_regions == 1 &&
+              truncated_launch_ir.replay_units.size() == 4 &&
+              truncated_launch_ir.replay_unit_launch_members.size() == 12,
+          "truncated completion evidence disappeared or changed exact units");
+  const GraphLaunchOccurrenceRow& truncated_launch =
+      truncated_launch_ir.graph_launch_occurrences.row(
+          GraphLaunchOccurrenceId(13));
+  require(truncated_launch.match_policy == GraphLaunchMatchPolicy::kUnmatched &&
+              !truncated_launch.notify_record_task_id.valid() &&
+              truncated_launch.raw_graph_connection_id < 0,
+          "truncated launch unexpectedly acquired completion identity");
+
   const std::filesystem::path split_dir = temp_prof_dir("_split");
   const std::string golden_path = temp_db_path("_split_golden");
   create_split_golden_profiles(split_dir, golden_path);

@@ -11,6 +11,8 @@ const char* replay_composition_identity_policy_name(
       return "captured_graph_instance";
     case ReplayCompositionIdentityPolicy::kGraphConnection:
       return "graph_connection";
+    case ReplayCompositionIdentityPolicy::kUnavailable:
+      return "unavailable";
   }
   return "graph_connection";
 }
@@ -22,6 +24,8 @@ const char* replay_composition_boundary_policy_name(
       return "exact_periodic_suffix";
     case ReplayCompositionBoundaryPolicy::kExactOneShotLeadingComposition:
       return "exact_one_shot_leading_composition";
+    case ReplayCompositionBoundaryPolicy::kIncompleteLaunchEvidence:
+      return "incomplete_launch_evidence";
   }
   return "exact_periodic_suffix";
 }
@@ -61,6 +65,9 @@ const char* replay_composition_region_status_name(
       return "unrecognized_missing_body_evidence";
     case ReplayCompositionRegionStatus::kUnrecognizedBodyMismatch:
       return "unrecognized_body_mismatch";
+    case ReplayCompositionRegionStatus::
+        kUnrecognizedMissingCompletionEvidence:
+      return "unrecognized_missing_completion_evidence";
   }
   return "unrecognized_incomplete_tail";
 }

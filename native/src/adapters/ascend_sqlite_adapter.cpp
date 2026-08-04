@@ -2755,6 +2755,48 @@ void materialize_replay_composition_segment(
   }
 }
 
+void materialize_incomplete_launch_segment(
+    NativeIr& ir,
+    const std::vector<const GraphLaunchOccurrenceRow*>& segment,
+    ReplayCompositionOrderPolicy order_policy) {
+  if (segment.empty()) {
+    return;
+  }
+  std::string hash_input = "incomplete_launch_evidence\n";
+  hash_input +=
+      order_policy == ReplayCompositionOrderPolicy::kHostSubmissionOrder
+          ? "host_submission_order\n"
+          : "device_execution_order\n";
+  std::int64_t start_ns = segment.front()->start_ns;
+  std::int64_t end_ns = segment.front()->end_ns;
+  for (const GraphLaunchOccurrenceRow* launch : segment) {
+    hash_input += std::to_string(launch->raw_launch_connection_id);
+    hash_input += "\n";
+    start_ns = std::min(start_ns, launch->start_ns);
+    end_ns = std::max(end_ns, launch->end_ns);
+  }
+  const ReplayCompositionCandidateId candidate_id =
+      ir.replay_composition_candidates.append(
+          segment.front()->source_ref_id, segment.front()->device_id,
+          segment.front()->id, segment.front()->id,
+          static_cast<std::uint32_t>(segment.size()), 0, 0, 0, 0,
+          stable_hash64(hash_input),
+          ReplayCompositionIdentityPolicy::kUnavailable, order_policy,
+          ReplayCompositionShapePolicy::kUnclassified,
+          ReplayCompositionBoundaryPolicy::kIncompleteLaunchEvidence);
+  const ReplayCompositionRegionId region_id =
+      ir.replay_composition_regions.append(
+          candidate_id, 0, segment.front()->id, segment.back()->id, start_ns,
+          end_ns, static_cast<std::uint32_t>(segment.size()),
+          static_cast<std::uint32_t>(segment.size()),
+          ReplayCompositionRegionStatus::
+              kUnrecognizedMissingCompletionEvidence);
+  for (std::size_t index = 0; index < segment.size(); ++index) {
+    ir.replay_composition_region_members.append(
+        region_id, static_cast<std::uint32_t>(index), segment[index]->id, -1);
+  }
+}
+
 bool graph_launches_in_host_submission_order(
     const NativeIr& ir,
     std::vector<const GraphLaunchOccurrenceRow*>& ordered) {
@@ -2814,15 +2856,22 @@ void materialize_replay_composition_candidates_for_order(
   }
   for (const auto& item : launches_by_device) {
     std::vector<const GraphLaunchOccurrenceRow*> segment;
+    std::vector<const GraphLaunchOccurrenceRow*> incomplete_segment;
     for (const GraphLaunchOccurrenceRow* launch : item.second) {
       if (launch->raw_graph_connection_id < 0) {
         materialize_replay_composition_segment(ir, segment, order_policy);
         segment.clear();
+        incomplete_segment.push_back(launch);
         continue;
       }
+      materialize_incomplete_launch_segment(
+          ir, incomplete_segment, order_policy);
+      incomplete_segment.clear();
       segment.push_back(launch);
     }
     materialize_replay_composition_segment(ir, segment, order_policy);
+    materialize_incomplete_launch_segment(
+        ir, incomplete_segment, order_policy);
   }
 }
 

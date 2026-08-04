@@ -11,11 +11,13 @@ namespace traceloom {
 enum class ReplayCompositionIdentityPolicy : std::uint8_t {
   kCapturedGraphInstance = 0,
   kGraphConnection = 1,
+  kUnavailable = 2,
 };
 
 enum class ReplayCompositionBoundaryPolicy : std::uint8_t {
   kExactPeriodicSuffix = 0,
   kExactOneShotLeadingComposition = 1,
+  kIncompleteLaunchEvidence = 2,
 };
 
 enum class ReplayCompositionOrderPolicy : std::uint8_t {
@@ -127,6 +129,7 @@ enum class ReplayCompositionRegionStatus : std::uint8_t {
   kUnrecognizedIncompleteTail = 2,
   kUnrecognizedMissingBodyEvidence = 3,
   kUnrecognizedBodyMismatch = 4,
+  kUnrecognizedMissingCompletionEvidence = 5,
 };
 
 const char* replay_composition_identity_policy_name(

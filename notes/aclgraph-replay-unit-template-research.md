@@ -824,7 +824,7 @@ included too, so the table is a complete ledger rather than an error-only log.
 
 This is intentionally separate from `traceloom_cuda_graph_replay`. Unknown
 regions have no fabricated semantic event, so existing event joins and graph
-replay invariants remain exact. Synthetic coverage exercises all five status
+replay invariants remain exact. Synthetic coverage exercises all six status
 values. The two kickstart sidecars report 10 regions (`9` exact plus an
 `11/25` incomplete tail) and 8 regions (`7` exact plus a `10/25` incomplete
 tail), while retaining only 9 and 7 rows respectively in the replay table.
