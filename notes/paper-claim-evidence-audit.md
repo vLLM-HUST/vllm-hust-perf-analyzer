@@ -137,12 +137,17 @@ The raw communication total and average differ by 10.526×. This broader number
 includes all communication events, so the position-preserving 9.864× Loop Tree
 comparison is the preferred diagnostic evidence.
 
-The split-directory fallback reaches the same exact capability outcome but not
-the same report compactness: it emits 2,512/2,510 nodes and 30 separate
-ReplayUnit nodes on the two ranks. The extra split-only anchor surface is a
-report-parity limitation, not a reason to substitute split reports into the
-paper table. Claims of monolithic/split evidence parity are supported; claims
-of identical compression or tree shape are not yet supported.
+The split-directory fallback now reaches the same exact capability **and**
+primary report structure. The previous 2,512/2,510-node outputs were caused by
+promoting all `3,655` HCCL device tasks because split input lacked explicit
+collective-operation events. TraceLoom now combines observed
+`HCCLOP`/`HCCLOpSingleDevice` identity with linked task-derived device
+geometry. Rank 2 now has 133,292 events, 3,119 anchors, and 157 report nodes;
+rank 3 has 236,946 events, 3,115 anchors, and 155 report nodes. For each rank,
+the monolithic and split outputs have identical structural report-node rows,
+anchor histograms, and collective-duration multisets. All 3,655 communication
+task events remain available as detail, with 3,646 nonzero rows linked as
+auxiliary evidence and nine zero-duration rows retained only as raw events.
 
 Both monolithic paper-path idle sidecars have `analysis_status=ok` and pass
 every SQL invariant. The rank-3 **split** tables also pass every structural SQL
@@ -170,10 +175,8 @@ unattributed residual, and records collection completeness explicitly.
 ## Highest-Value Remaining Evidence
 
 1. Generate paper tables only from checked SQL plus current retained outputs.
-2. Decide whether real split-report compactness is a publication requirement;
-   exact evidence parity already holds, but current tree-shape parity does not.
-3. Rerun old case-study artifacts individually only when the result can change
+2. Rerun old case-study artifacts individually only when the result can change
    paper scope; capability-incomplete artifacts are still useful negative
    evidence and need not be forced into exact promotion.
-4. Import the CUDA workspace's real Graph evidence only after its own audit
+3. Import the CUDA workspace's real Graph evidence only after its own audit
    contract passes; do not infer cross-platform validity from adapter code.

@@ -68,7 +68,9 @@ msprof_output/traceloom/device0_loop_tree_v2.md
 
 TraceLoom prefers a nonempty monolithic `TASK` table. If none is usable, it
 prints a split-fallback warning and normalizes the base timeline from
-`AscendTask`, `TaskInfo`, `HostTask`, and `ApiData`.
+`AscendTask`, `TaskInfo`, `HostTask`, and `ApiData`. Available HCCL operation
+and task tables recover collective anchors while retaining device-task detail
+as auxiliary evidence.
 
 For a self-contained smoke test, run:
 

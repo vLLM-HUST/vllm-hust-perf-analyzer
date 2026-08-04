@@ -143,17 +143,27 @@ void create_split_golden_profiles(const std::filesystem::path& root,
            "CREATE TABLE STRING_IDS(id INTEGER PRIMARY KEY, value TEXT);"
            "INSERT INTO STRING_IDS VALUES "
            "(10, 'AI_CORE'), (11, 'EVENT_WAIT'), (20, 'linear'), "
-           "(21, 'MatMul'), (22, 'MIX_AIC');"
+           "(21, 'MatMul'), (22, 'MIX_AIC'), (30, 'hcom_allReduce_'), "
+           "(31, 'hcom_allReduce__golden_0'), (32, 'SDMA');"
            "CREATE TABLE TASK(startNs INTEGER, endNs INTEGER, "
            "deviceId INTEGER, connectionId INTEGER, globalTaskId INTEGER, "
            "globalPid INTEGER, taskType INTEGER, contextId INTEGER, "
            "streamId INTEGER, taskId INTEGER, modelId INTEGER);"
            "INSERT INTO TASK VALUES "
            "(100, 160, 0, 700, 0, 1, 10, 0, 3, 99, 2), "
-           "(170, 210, 0, 701, 1, 1, 11, 0, 3, 100, 2);"
+           "(170, 210, 0, 701, 1, 1, 11, 0, 3, 100, 2), "
+           "(220, 260, 0, 702, 2, 1, 32, 0, 4, 101, 2);"
            "CREATE TABLE COMPUTE_TASK_INFO(globalTaskId INTEGER, "
            "name INTEGER, opType INTEGER, taskType INTEGER);"
-           "INSERT INTO COMPUTE_TASK_INFO VALUES (0, 20, 21, 22);");
+           "INSERT INTO COMPUTE_TASK_INFO VALUES (0, 20, 21, 22);"
+           "CREATE TABLE COMMUNICATION_TASK_INFO(globalTaskId INTEGER, "
+           "name INTEGER, taskType INTEGER);"
+           "INSERT INTO COMMUNICATION_TASK_INFO VALUES (2, 31, 30);"
+           "CREATE TABLE COMMUNICATION_OP(opName INTEGER, opType INTEGER, "
+           "startNs INTEGER, endNs INTEGER, connectionId INTEGER, "
+           "groupName INTEGER, opId INTEGER, deviceId INTEGER);"
+           "INSERT INTO COMMUNICATION_OP VALUES "
+           "(30, 30, 220, 260, 702, NULL, 55, 0);");
   sqlite3_close(db);
 
   rc = sqlite3_open_v2(
@@ -168,9 +178,45 @@ void create_split_golden_profiles(const std::filesystem::path& root,
            "connection_id INTEGER);"
            "INSERT INTO AscendTask VALUES "
            "(2, -1, 3, 99, 0, 0, 100, 60, 'AI_CORE', 'AI_CORE', 700), "
-           "(2, -1, 3, 100, 0, 0, 170, 40, 'EVENT_WAIT', 'UNKNOWN', 701);"
+           "(2, -1, 3, 100, 0, 0, 170, 40, 'EVENT_WAIT', 'UNKNOWN', 701), "
+           "(2, -1, 4, 101, 0, 0, 220, 40, 'FFTS_PLUS', 'SDMA', 702);"
            "INSERT INTO AscendTask VALUES "
            "(2, -1, 3, 101, 0, 0, -1, -1, 'AI_CORE', 'UNKNOWN', 702);");
+  sqlite3_close(db);
+
+  rc = sqlite3_open_v2(
+      (root / "device_0" / "sqlite" / "hccl_single_device.db")
+          .string()
+          .c_str(),
+      &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
+  require(rc == SQLITE_OK, "failed to create split golden HCCL task DB");
+  exec_sql(db,
+           "CREATE TABLE HCCLTaskSingleDevice(stream_id INTEGER, "
+           "task_id INTEGER, context_id INTEGER, op_name TEXT, "
+           "hccl_name TEXT);"
+           "INSERT INTO HCCLTaskSingleDevice VALUES "
+           "(4, 101, 0, 'hcom_allReduce__golden_0', "
+           "'hcom_allReduce_');"
+           "CREATE TABLE HCCLOpSingleDevice(op_name TEXT, op_type TEXT, "
+           "timestamp NUMERIC, connection_id INTEGER);"
+           "INSERT INTO HCCLOpSingleDevice VALUES "
+           "('hcom_allReduce_', 'hcom_allReduce_', 9000, 702);");
+  sqlite3_close(db);
+
+  rc = sqlite3_open_v2(
+      (root / "host" / "sqlite" / "hccl.db").string().c_str(), &db,
+      SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
+  require(rc == SQLITE_OK, "failed to create split golden HCCL op DB");
+  exec_sql(db,
+           "CREATE TABLE HCCLOP(device_id INTEGER, index_id INTEGER, "
+           "op_name TEXT, op_type TEXT, begin REAL, end REAL, "
+           "connection_id INTEGER);"
+           // Deliberately use another clock domain. The operation row is
+           // identity evidence; linked AscendTask rows define its device
+           // geometry.
+           "INSERT INTO HCCLOP VALUES "
+           "(0, 55, 'hcom_allReduce_', 'hcom_allReduce_', 9000, 9001, "
+           "702);");
   sqlite3_close(db);
 
   rc = sqlite3_open_v2(
@@ -1518,7 +1564,7 @@ int main() {
   bool saw_split_tasks = false;
   for (const auto& table : split_inventory) {
     if (table.table_name == "AscendTask") {
-      saw_split_tasks = table.row_count == 3 && !table.create_sql.empty();
+      saw_split_tasks = table.row_count == 4 && !table.create_sql.empty();
     }
   }
   require(saw_split_tasks,
@@ -1557,6 +1603,9 @@ int main() {
           "split TASK normalization changed task count");
   require(split_ir.trace_events.size() == golden_ir.trace_events.size(),
           "split TASK normalization changed timeline row count");
+  require(golden_ir.communication_ops.size() == 1 &&
+              split_ir.communication_ops.size() == 1,
+          "split HCCLOP did not normalize to one communication operation");
   for (std::size_t index = 0; index < golden_ir.tasks.size(); ++index) {
     const TaskRow& golden_task = golden_ir.tasks.row(TaskId(index));
     const TaskRow& split_task = split_ir.tasks.row(TaskId(index));
@@ -1581,9 +1630,29 @@ int main() {
   require(split_ir.symbols.value(split_ir.tasks.row(TaskId(0)).op_type_symbol_id) ==
               "MatMul",
           "split TaskInfo op type was not normalized");
+  const CommunicationOpRow& split_comm =
+      split_ir.communication_ops.row(CommunicationOpId(0));
+  const TraceEventRow& split_comm_event =
+      split_ir.trace_events.row(split_comm.trace_event_id);
+  require(split_ir.source_refs.row(split_comm.source_ref_id).table_name ==
+                  "HCCLOP" &&
+              split_comm.raw_connection_id == 702 &&
+              split_comm.raw_op_id == 55 &&
+              split_comm.linked_task_count == 1 &&
+              split_comm.linked_stream_count == 1 &&
+              split_comm_event.start_ns == 220 &&
+              split_comm_event.end_ns == 260 &&
+              split_ir.symbols.value(split_comm.op_name_symbol_id) ==
+                  "hcom_allReduce_" &&
+              split_ir.symbols.value(
+                  split_comm.linked_task_name_symbol_id) ==
+                  "hcom_allReduce__golden_0",
+          "split HCCLOP identity/task envelope normalization mismatch");
 
   NativePipelineOptions golden_pipeline_options;
   golden_pipeline_options.thread_count = 1;
+  golden_pipeline_options.anchor_config
+      .skip_tasks_covered_by_communication_ops = true;
   const NativePipelineResult golden_pipeline =
       run_native_pipeline(golden_ir, golden_pipeline_options);
   const NativePipelineResult split_pipeline =
@@ -1728,11 +1797,16 @@ int main() {
                       golden_event.source_row_id == split_event.source_row_id,
                   "E3: stable lineage equal (row id + kind + rule, not "
                   "internal ids)");
-          // The physical source table legitimately differs between layouts
-          // (monolithic TASK vs split AscendTask); each layout must carry
-          // its own table, and the row identity must match across layouts.
-          require(golden_source.table_name == "TASK" &&
-                      split_source.table_name == "AscendTask",
+          // Physical source tables legitimately differ between layouts. Both
+          // task rows and collective-operation rows must retain their own
+          // stable source identity.
+          const bool task_source_pair = golden_source.table_name == "TASK" &&
+                                        split_source.table_name ==
+                                            "AscendTask";
+          const bool communication_source_pair =
+              golden_source.table_name == "COMMUNICATION_OP" &&
+              split_source.table_name == "HCCLOP";
+          require(task_source_pair || communication_source_pair,
                   "E3: each layout carries its own source table");
         }
       }
@@ -1744,6 +1818,18 @@ int main() {
   }
   require(golden_streams.diagnostics == split_streams.diagnostics,
           "E3: run diagnostics equal");
+
+  require(std::filesystem::remove(split_dir / "host" / "sqlite" / "hccl.db"),
+          "failed to remove split HCCLOP fixture DB");
+  const NativeIr split_device_op_ir =
+      AscendSQLiteAdapter(split_dir.string(), "golden_split_device_op").load();
+  require(split_device_op_ir.communication_ops.size() == 1 &&
+              split_device_op_ir.source_refs
+                      .row(split_device_op_ir.communication_ops
+                               .row(CommunicationOpId(0))
+                               .source_ref_id)
+                      .table_name == "HCCLOpSingleDevice",
+          "device-side HCCLOpSingleDevice fallback was not normalized");
 
   const std::filesystem::path incomplete_dir = temp_prof_dir("_incomplete");
   std::filesystem::create_directories(incomplete_dir / "host" / "sqlite");

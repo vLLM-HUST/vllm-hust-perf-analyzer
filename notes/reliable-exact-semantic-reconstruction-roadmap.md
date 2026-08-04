@@ -192,6 +192,16 @@ not invoke the legacy capture-cardinality projector: without an exact H/L/T
 candidate, they retain launch/body evidence rather than manufacture coarse
 ReplayUnits.
 
+The retained TP2 ranks also exposed a report-granularity mismatch: split input
+initially promoted all `3,655` HCCL device tasks as primary anchors because it
+did not materialize the `398` observed collective-operation envelopes. The
+adapter now joins `HCCLOP`/`HCCLOpSingleDevice` identity to the
+`HCCLTaskSingleDevice`-identified task groups, uses the linked task envelope as
+device geometry, and keeps every task as trace/auxiliary evidence. Both ranks
+now match their monolithic event and anchor cardinality and their complete
+structural report-node rows. The evidence and validation protocol are recorded
+in `notes/split-fallback-communication-parity.md`.
+
 A separate adapter-level missing-row golden removes both normalized body lanes
 from one otherwise complete decode composition. The candidate and surrounding
 units survive, the affected region becomes

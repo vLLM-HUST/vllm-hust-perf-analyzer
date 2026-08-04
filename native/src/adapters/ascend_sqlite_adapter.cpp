@@ -3744,6 +3744,29 @@ struct SplitRawTask {
   SplitCommunicationInfo communication;
 };
 
+struct SplitCommunicationEnvelope {
+  std::int64_t start_ns = std::numeric_limits<std::int64_t>::max();
+  std::int64_t end_ns = std::numeric_limits<std::int64_t>::min();
+  std::uint32_t linked_task_count = 0;
+  std::map<std::uint64_t, std::uint64_t> duration_by_stream;
+  SymbolId linked_task_name_symbol_id;
+  SymbolId linked_task_type_symbol_id;
+  bool task_name_consistent = true;
+};
+
+using SplitCommunicationEnvelopeIndex =
+    std::unordered_map<std::uint64_t, SplitCommunicationEnvelope>;
+
+struct SplitCommunicationOpEvidence {
+  SourceRefId source_ref;
+  std::uint64_t source_row_id = 0;
+  std::uint32_t device_id = 0;
+  std::int64_t connection_id = -1;
+  std::int64_t raw_op_id = -1;
+  SymbolId op_name_symbol_id;
+  SymbolId op_type_symbol_id;
+};
+
 std::uint32_t split_device_id_from_path(const std::string& db_path) {
   const std::string directory = std::filesystem::path(db_path)
                                     .parent_path()
@@ -3759,6 +3782,180 @@ std::uint32_t split_device_id_from_path(const std::string& db_path) {
         std::stoul(directory.substr(prefix.size())));
   } catch (const std::exception&) {
     return 0;
+  }
+}
+
+SplitCommunicationEnvelopeIndex build_split_communication_envelopes(
+    const std::vector<SplitRawTask>& raw_tasks) {
+  SplitCommunicationEnvelopeIndex out;
+  for (const SplitRawTask& raw : raw_tasks) {
+    if (raw.row.raw_connection_id < 0 ||
+        !raw.communication.comm_name_symbol_id.valid()) {
+      continue;
+    }
+    SplitCommunicationEnvelope& envelope =
+        out[connection_key(raw.row.device_id, raw.row.raw_connection_id)];
+    envelope.start_ns = std::min(envelope.start_ns, raw.row.start_ns);
+    envelope.end_ns = std::max(envelope.end_ns, raw.row.end_ns);
+    ++envelope.linked_task_count;
+    envelope.duration_by_stream[raw.row.raw_stream_id] +=
+        static_cast<std::uint64_t>(
+            std::max<std::int64_t>(0, raw.row.end_ns - raw.row.start_ns));
+    if (!envelope.linked_task_name_symbol_id.valid()) {
+      envelope.linked_task_name_symbol_id =
+          raw.communication.comm_name_symbol_id;
+    } else if (envelope.linked_task_name_symbol_id !=
+               raw.communication.comm_name_symbol_id) {
+      envelope.task_name_consistent = false;
+    }
+    if (!envelope.linked_task_type_symbol_id.valid()) {
+      envelope.linked_task_type_symbol_id =
+          raw.communication.task_type_symbol_id;
+    }
+  }
+  return out;
+}
+
+std::vector<SplitCommunicationOpEvidence> load_split_communication_op_evidence(
+    const std::vector<const AscendSplitSQLiteTableInfo*>& tables,
+    const std::unordered_map<std::string, SourceRefId>& table_refs,
+    NativeIr& ir,
+    bool device_id_from_path) {
+  std::vector<SplitCommunicationOpEvidence> out;
+  for (const AscendSplitSQLiteTableInfo* table : tables) {
+    SqliteDb db(table->db_path);
+    const bool has_index_id =
+        table_has_column(db, table->table_name, "index_id");
+    const std::string sql =
+        device_id_from_path
+            ? "SELECT rowid, " +
+                  std::string(has_index_id ? "index_id" : "-1") +
+                  ", op_name, op_type, connection_id FROM " +
+                  quote_identifier(table->table_name) + " ORDER BY rowid"
+            : "SELECT rowid, " +
+                  std::string(has_index_id ? "index_id" : "-1") +
+                  ", op_name, op_type, connection_id, device_id FROM " +
+                  quote_identifier(table->table_name) + " ORDER BY rowid";
+    SqliteStmt stmt(db.get(), sql.c_str());
+    while (true) {
+      const int rc = sqlite3_step(stmt.get());
+      if (rc == SQLITE_DONE) {
+        break;
+      }
+      if (rc != SQLITE_ROW) {
+        throw std::runtime_error("failed to load split " +
+                                 table->table_name + ": " +
+                                 sqlite3_errmsg(stmt.db()));
+      }
+      const std::uint64_t row_id = sqlite_u64(stmt.get(), 0);
+      const std::int64_t index_id = sqlite_i64(stmt.get(), 1, -1);
+      out.push_back(SplitCommunicationOpEvidence{
+          table_refs.at(table->db_path + "\n" + table->table_name), row_id,
+          device_id_from_path ? split_device_id_from_path(table->db_path)
+                              : sqlite_u32(stmt.get(), 5),
+          sqlite_i64(stmt.get(), 4, -1),
+          index_id >= 0 ? index_id : static_cast<std::int64_t>(row_id),
+          ir.symbols.intern(sqlite_text(stmt.get(), 2)),
+          ir.symbols.intern(sqlite_text(stmt.get(), 3))});
+    }
+  }
+  return out;
+}
+
+void materialize_split_communication_ops(
+    const std::vector<AscendSplitSQLiteTableInfo>& inventory,
+    const std::unordered_map<std::string, SourceRefId>& table_refs,
+    const SplitCommunicationEnvelopeIndex& envelopes,
+    NativeIr& ir,
+    StreamIndex& streams) {
+  // Split HCCLOP begin/end values may use a host-side clock domain that is not
+  // directly comparable with AscendTask. Treat the op row as identity
+  // evidence and derive observable device geometry only from its linked task
+  // group, matching the monolithic COMMUNICATION_OP materialization.
+  std::vector<const AscendSplitSQLiteTableInfo*> op_tables =
+      usable_split_tables(find_split_tables(inventory, "HCCLOP"),
+                          {"device_id", "op_name", "op_type",
+                           "connection_id"});
+  op_tables.erase(
+      std::remove_if(op_tables.begin(), op_tables.end(),
+                     [](const AscendSplitSQLiteTableInfo* table) {
+                       return table->row_count == 0;
+                     }),
+      op_tables.end());
+  bool device_id_from_path = false;
+  if (op_tables.empty()) {
+    op_tables = usable_split_tables(
+        find_split_tables(inventory, "HCCLOpSingleDevice"),
+        {"op_name", "op_type", "connection_id"});
+    device_id_from_path = true;
+  }
+  std::vector<SplitCommunicationOpEvidence> evidence =
+      load_split_communication_op_evidence(op_tables, table_refs, ir,
+                                           device_id_from_path);
+  std::unordered_map<std::uint64_t, std::uint32_t> evidence_count_by_key;
+  for (const SplitCommunicationOpEvidence& row : evidence) {
+    ++evidence_count_by_key[connection_key(row.device_id, row.connection_id)];
+  }
+  std::sort(evidence.begin(), evidence.end(), [&](const auto& lhs,
+                                                  const auto& rhs) {
+    const auto lhs_envelope =
+        envelopes.find(connection_key(lhs.device_id, lhs.connection_id));
+    const auto rhs_envelope =
+        envelopes.find(connection_key(rhs.device_id, rhs.connection_id));
+    const std::int64_t lhs_start =
+        lhs_envelope == envelopes.end()
+            ? std::numeric_limits<std::int64_t>::max()
+            : lhs_envelope->second.start_ns;
+    const std::int64_t rhs_start =
+        rhs_envelope == envelopes.end()
+            ? std::numeric_limits<std::int64_t>::max()
+            : rhs_envelope->second.start_ns;
+    if (lhs.device_id != rhs.device_id) {
+      return lhs.device_id < rhs.device_id;
+    }
+    if (lhs_start != rhs_start) {
+      return lhs_start < rhs_start;
+    }
+    return lhs.source_row_id < rhs.source_row_id;
+  });
+
+  for (const SplitCommunicationOpEvidence& row : evidence) {
+    const std::uint64_t key = connection_key(row.device_id, row.connection_id);
+    const auto envelope_found = envelopes.find(key);
+    if (row.connection_id < 0 || envelope_found == envelopes.end() ||
+        evidence_count_by_key[key] != 1) {
+      continue;
+    }
+    const SplitCommunicationEnvelope& envelope = envelope_found->second;
+    if (envelope.linked_task_count == 0 ||
+        !envelope.task_name_consistent ||
+        envelope.start_ns == std::numeric_limits<std::int64_t>::max() ||
+        envelope.end_ns <= envelope.start_ns) {
+      continue;
+    }
+    std::uint64_t primary_stream_id =
+        std::numeric_limits<std::uint32_t>::max();
+    std::uint64_t primary_duration = 0;
+    bool has_primary_stream = false;
+    for (const auto& item : envelope.duration_by_stream) {
+      if (!has_primary_stream || item.second > primary_duration) {
+        primary_stream_id = item.first;
+        primary_duration = item.second;
+        has_primary_stream = true;
+      }
+    }
+    (void)find_or_append_stream(streams, ir, row.source_ref, row.device_id,
+                                primary_stream_id);
+    const TraceEventId event = ir.trace_events.append(
+        row.source_ref, row.source_row_id, row.device_id, primary_stream_id,
+        envelope.start_ns, envelope.end_ns, row.op_name_symbol_id);
+    ir.communication_ops.append(
+        row.source_ref, event, row.connection_id, row.raw_op_id,
+        envelope.linked_task_count,
+        static_cast<std::uint32_t>(envelope.duration_by_stream.size()),
+        row.op_name_symbol_id, row.op_type_symbol_id,
+        envelope.linked_task_name_symbol_id,
+        envelope.linked_task_type_symbol_id);
   }
 }
 
@@ -3911,6 +4108,8 @@ NativeIr load_split_profile(const AscendSQLiteAdapterOptions& options) {
             [](const SplitRawTask& lhs, const SplitRawTask& rhs) {
               return raw_task_row_less(lhs.row, rhs.row);
             });
+  const SplitCommunicationEnvelopeIndex communication_envelopes =
+      build_split_communication_envelopes(raw_tasks);
 
   StreamIndex streams;
   for (const SplitRawTask& raw : raw_tasks) {
@@ -3929,6 +4128,8 @@ NativeIr load_split_profile(const AscendSQLiteAdapterOptions& options) {
                     raw.row.raw_model_id,
                     raw.communication.task_type_symbol_id);
   }
+  materialize_split_communication_ops(inventory, table_refs,
+                                      communication_envelopes, ir, streams);
 
   const AscendSplitSQLiteTableInfo* raw_api_table =
       find_split_table(inventory, "ApiData");
