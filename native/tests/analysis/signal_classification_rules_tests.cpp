@@ -19,6 +19,15 @@ int main() {
           SignalRole::kAnchor);
   require(defaults.classify({"task", "EVENT_WAIT", "event_wait"}) ==
           SignalRole::kIgnore);
+  require(defaults.classify(
+              {"task", "NOTIFY_RECORD_SQE", "notify_record_sqe"}) ==
+          SignalRole::kIgnore);
+  require(defaults.classify(
+              {"task", "PLACE_HOLDER_SQE", "place_holder_sqe"}) ==
+          SignalRole::kIgnore);
+  require(defaults.classify({"task", "MEM_WAIT_VALUE", "mem_wait_value"}) ==
+          SignalRole::kIgnore);
+  require(defaults.classify({"task", "NOP", "nop"}) == SignalRole::kIgnore);
   require(!defaults.classify({"task", "UNKNOWN", "unknown"}).has_value());
 
   const std::filesystem::path fixture =

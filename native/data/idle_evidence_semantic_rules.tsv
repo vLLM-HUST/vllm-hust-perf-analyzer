@@ -9,11 +9,13 @@
 # structural anchor ruleset where the kernel-name evidence is trustworthy.
 rule_id	priority	source_domain	field	match	pattern	role	note
 wait.event_wait	200	task	task_type	exact	EVENT_WAIT	visible_wait	Device event wait
+wait.mem_wait_value	200	task	task_type	exact	MEM_WAIT_VALUE	visible_wait	Device memory-value wait
 wait.notify_wait	200	task	task_type	exact	NOTIFY_WAIT	visible_wait	Device notify wait
 capture.capture_wait	200	task	task_type	exact	CAPTURE_WAIT	capture_control	Graph capture wait
 capture.capture_record	200	task	task_type	exact	CAPTURE_RECORD	capture_control	Graph capture record
 record.event_record	190	task	task_type	exact	EVENT_RECORD	record	Event record task
 record.notify_record	190	task	task_type	exact	NOTIFY_RECORD	record	Notify record task
+record.notify_record_sqe	190	task	task_type	exact	NOTIFY_RECORD_SQE	record	CANN 9 notify record SQE
 data.memcpy	180	task	task_type	exact	MEMCPY	productive_data_move	Visible memory copy
 data.memcpy_async	180	task	task_type	exact	MEMCPY_ASYNC	productive_data_move	Async memory copy
 data.sdma	180	task	task_type	exact	SDMA	productive_data_move	SDMA transfer
@@ -22,6 +24,8 @@ runtime.write_value	170	task	task_type	exact	WRITE_VALUE	runtime_control	Runtime
 runtime.mem_write_value	170	task	task_type	exact	MEM_WRITE_VALUE	runtime_control	Runtime memory control write
 runtime.model_execute	170	task	task_type	exact	MODEL_EXECUTE	runtime_control	Runtime model execution control
 runtime.model_maintaince	170	task	task_type	exact	MODEL_MAINTAINCE	runtime_control	Runtime model maintenance control
+runtime.nop	170	task	task_type	exact	NOP	runtime_control	Runtime no-op task
+runtime.place_holder_sqe	170	task	task_type	exact	PLACE_HOLDER_SQE	runtime_control	Scheduler placeholder SQE
 runtime.task_timeout_set	170	task	task_type	exact	TASK_TIMEOUT_SET	runtime_control	Runtime timeout control task
 runtime.profiling_enable	170	task	task_type	exact	PROFILING_ENABLE	runtime_control	Profiling control task
 runtime.profiling_disable	170	task	task_type	exact	PROFILING_DISABLE	runtime_control	Profiling control task
