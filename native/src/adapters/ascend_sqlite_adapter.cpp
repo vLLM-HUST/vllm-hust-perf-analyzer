@@ -1789,6 +1789,8 @@ AclGraphCaptureInfo load_aclgraph_capture_info(
       table_has_column(db, "CaptureStreamInfo", "original_stream_id");
   const bool has_timestamp =
       table_has_column(db, "CaptureStreamInfo", "timestamp");
+  const bool has_capture_status =
+      table_has_column(db, "CaptureStreamInfo", "capture_status");
   const std::string quoted_model_stream_column =
       quote_identifier(model_stream_column);
   const std::string sql =
@@ -1796,7 +1798,8 @@ AclGraphCaptureInfo load_aclgraph_capture_info(
       std::string(has_model_id ? "model_id, " : "-1, ") +
       std::string(has_original_stream_id ? "original_stream_id, " : "-1, ") +
       quoted_model_stream_column + ", " +
-      std::string(has_timestamp ? "timestamp " : "-1 ") +
+      std::string(has_timestamp ? "timestamp, " : "-1, ") +
+      std::string(has_capture_status ? "capture_status " : "0 ") +
       "FROM CaptureStreamInfo ORDER BY device_id, " +
       std::string(has_timestamp ? "timestamp, " : "") +
       std::string(has_model_id ? "model_id, " : "") +
@@ -1816,6 +1819,12 @@ AclGraphCaptureInfo load_aclgraph_capture_info(
       const std::int64_t original_stream_id = sqlite_i64(stmt.get(), 3, -1);
       const std::uint64_t model_stream_id = sqlite_u64(stmt.get(), 4);
       const std::int64_t timestamp = sqlite_i64(stmt.get(), 5, -1);
+      const std::int64_t capture_status = sqlite_i64(stmt.get(), 6, 0);
+      // CANN 9 emits capture_status=1 lifecycle/destroy rows with sentinel
+      // stream ids. They are not members of the captured model stream set.
+      if (capture_status != 0) {
+        continue;
+      }
       out.model_streams_by_device[device_id].insert(model_stream_id);
       if (model_id >= 0) {
         model_ids.insert(static_cast<std::uint64_t>(model_id));

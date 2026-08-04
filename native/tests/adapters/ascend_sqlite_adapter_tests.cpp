@@ -792,7 +792,8 @@ void create_aclgraph_single_graph_profile(const std::string& path) {
            "batch_id INTEGER, capture_status INTEGER, timestamp NUMERIC);"
            "INSERT INTO CaptureStreamInfo VALUES "
            "(0, 7, 3, 36, 0, 0, 1), "
-           "(0, 7, 3, 36, 1, 0, 2);");
+           "(0, 7, 3, 36, 1, 0, 2), "
+           "(0, 7, 65535, 65535, 2, 1, 3);");
   sqlite3_close(db);
 }
 

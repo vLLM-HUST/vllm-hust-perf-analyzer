@@ -82,7 +82,8 @@ contract rather than changing the preregistered expectation:
 - `NOTIFY_RECORD_SQE` is accepted as notification-completion evidence and is
   linked through its model stream to the captured graph instance;
 - repeated capture-batch rows remain provenance rows but no longer inflate
-  unique model-stream cardinality;
+  unique model-stream cardinality, while `capture_status=1` destroy rows with
+  sentinel stream IDs are excluded from active stream membership;
 - a completion-backed, captured-instance-backed period-one composition may be
   exact without a raw graph connection ID; and
 - CANN scheduler/control vocabulary (`PLACE_HOLDER_SQE`, `NOP`, and
@@ -95,6 +96,11 @@ units per rank. Two ranks have no unknown region; four retain one final
 ordered launch member and a complete, stable body template. All six idle
 pipelines now report `analysis_status=ok`; collection completeness remains
 honestly `unknown`.
+
+The body evidence also falsifies the preregistered within-rank topology clause:
+five artifacts share the same two-stream, nine-task graph body, while capture
+3 rank 1 consistently exposes a different two-stream, 411-task graph body.
+TraceLoom preserves that difference rather than normalizing it away.
 
 This is a compatibility success but not a rescue of the preregistered
 stability claim: exact counts still vary, and one artifact contains 29 observed
