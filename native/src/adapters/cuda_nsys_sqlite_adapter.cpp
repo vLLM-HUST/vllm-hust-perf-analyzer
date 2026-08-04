@@ -740,9 +740,21 @@ void load_kernel_rows(
     const std::int64_t raw_global_task_id =
         correlation_id < 0 ? static_cast<std::int64_t>(source_row_id)
                            : correlation_id;
+    const SymbolId compute_task_type_symbol =
+        collective ? SymbolId::invalid() : task_type_symbol;
+    const SymbolId comm_name_symbol =
+        collective ? raw_symbol : SymbolId::invalid();
+    const SymbolId communication_task_type_symbol =
+        collective ? task_type_symbol : SymbolId::invalid();
     ir.tasks.append(source_ref, event, raw_task_id, raw_global_task_id,
                     normalized_correlation_id, task_type_symbol, raw_symbol,
-                    op_type_symbol, task_type_symbol, SymbolId::invalid());
+                    op_type_symbol, compute_task_type_symbol, comm_name_symbol,
+                    -1, communication_task_type_symbol);
+    if (collective) {
+      ir.communication_ops.append(
+          source_ref, event, normalized_correlation_id, raw_source_row_id, 1, 1,
+          raw_symbol, op_type_symbol, raw_symbol, task_type_symbol);
+    }
   }
 }
 

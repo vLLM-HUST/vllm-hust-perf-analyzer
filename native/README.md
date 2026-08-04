@@ -112,6 +112,12 @@ available to the compatibility sidecar as child evidence. Missing optional
 tables are valid, while malformed present tables fail with an explicit schema
 error.
 
+NCCL and explicitly named collective kernels materialize as communication
+evidence rather than compute anchors. Recognized operation names are normalized
+to `AllReduce`, `ReduceScatter`, `AllGather`, `Broadcast`, or `AllToAll`, while
+the raw Nsight kernel label and source-row provenance remain available in the
+native IR.
+
 Nsight versions that export `CUPTI_ACTIVITY_KIND_CUDA_EVENT` as an
 identity-only lookup table without `start` or `timestamp` keep that table as
 inventory evidence and skip timeline materialization; they do not block timed
