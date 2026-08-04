@@ -237,7 +237,9 @@ void create_aclgraph_profile(const std::filesystem::path& dir) {
            "(200, 210, 0, 1002, 3, 1, 13, 0, 36, 3, 7), "
            "(220, 230, 0, 1003, 4, 1, 13, 0, 36, 4, 7), "
            "(100, 101, 0, 2000, 5, 1, 11, 0, 3, 5, 7), "
-           "(200, 201, 0, 2001, 6, 1, 11, 0, 3, 6, 7);"
+           "(120, 121, 0, 2001, 6, 1, 11, 0, 3, 6, 7), "
+           "(200, 201, 0, 2002, 7, 1, 11, 0, 3, 7, 7), "
+           "(220, 221, 0, 2003, 8, 1, 11, 0, 3, 8, 7);"
            "CREATE TABLE COMPUTE_TASK_INFO("
            "globalTaskId INTEGER, name INTEGER, opType INTEGER, "
            "taskType INTEGER);"
@@ -407,6 +409,17 @@ int main() {
           "ACLGraph replay units were not reconstructed");
   require(graph_ir.graph_templates.size() == 1,
           "ACLGraph equivalent units should share one template");
+  require(graph_ir.graph_templates.row(GraphTemplateId(0)).slot_count == 2,
+          "ACLGraph template should retain its capture group size");
+  require(graph_ir.trace_events
+                  .row(graph_ir.replay_units.row(ReplayUnitId(0))
+                           .launch_trace_event_id)
+                  .start_ns == 100 &&
+              graph_ir.trace_events
+                      .row(graph_ir.replay_units.row(ReplayUnitId(0))
+                               .launch_trace_event_id)
+                      .end_ns == 130,
+          "ACLGraph replay window should not absorb the inter-wave gap");
 
   FlatAnchorBuildConfig anchor_config;
   anchor_config.filter_auxiliary_task_anchors = true;
@@ -427,6 +440,56 @@ int main() {
           "outside communication anchor should remain");
   require(graph_ir.protected_intervals.empty(),
           "single-token GraphReplayUnit anchors should remain grammar-compressible");
+
+  sqlite3* current_stream_db = nullptr;
+  const std::string current_stream_db_path =
+      (graph_dir / "host" / "sqlite" / "stream_info.db").string();
+  const int current_stream_rc = sqlite3_open_v2(
+      current_stream_db_path.c_str(), &current_stream_db,
+      SQLITE_OPEN_READWRITE, nullptr);
+  require(current_stream_rc == SQLITE_OK,
+          "failed to reopen ACLGraph stream_info DB");
+  exec_sql(current_stream_db,
+           "ALTER TABLE CaptureStreamInfo RENAME COLUMN model_stream_id "
+           "TO stream_id;"
+           "ALTER TABLE CaptureStreamInfo ADD COLUMN batch_id INTEGER;"
+           "ALTER TABLE CaptureStreamInfo ADD COLUMN capture_status INTEGER;"
+           "ALTER TABLE CaptureStreamInfo ADD COLUMN timestamp NUMERIC;");
+  sqlite3_close(current_stream_db);
+
+  const AscendSQLiteAdapter current_graph_adapter(
+      AscendSQLiteAdapterOptions{(graph_dir / "msprof.db").string(),
+                                 "ascend_graph_current_schema_smoke"});
+  const NativeIr current_graph_ir = current_graph_adapter.load();
+  require(current_graph_ir.replay_units.size() == 2,
+          "ACLGraph replay reconstruction missed current stream_id schema");
+  require(current_graph_ir.graph_templates.size() == 1,
+          "current ACLGraph stream_id schema changed graph identity");
+
+  current_stream_db = nullptr;
+  const int single_slot_stream_rc = sqlite3_open_v2(
+      current_stream_db_path.c_str(), &current_stream_db,
+      SQLITE_OPEN_READWRITE, nullptr);
+  require(single_slot_stream_rc == SQLITE_OK,
+          "failed to reopen current ACLGraph stream_info DB");
+  exec_sql(current_stream_db,
+           "DELETE FROM CaptureStreamInfo WHERE model_id = 8;");
+  sqlite3_close(current_stream_db);
+  const AscendSQLiteAdapter single_slot_graph_adapter(
+      AscendSQLiteAdapterOptions{(graph_dir / "msprof.db").string(),
+                                 "ascend_graph_single_slot_smoke"});
+  const NativeIr single_slot_graph_ir = single_slot_graph_adapter.load();
+  require(single_slot_graph_ir.replay_units.size() == 4,
+          "single-slot ACLGraph launches should reconstruct one unit each");
+  require(single_slot_graph_ir.graph_templates.row(GraphTemplateId(0))
+              .slot_count == 1,
+          "single-slot ACLGraph template should retain slot count one");
+  const TraceEventRow& single_slot_second = single_slot_graph_ir.trace_events.row(
+      single_slot_graph_ir.replay_units.row(ReplayUnitId(1))
+          .launch_trace_event_id);
+  require(single_slot_second.start_ns == 120 &&
+              single_slot_second.end_ns == 130,
+          "single-slot replay window should use launch/body evidence only");
 
   const std::filesystem::path split_dir = temp_prof_dir("_split");
   const std::string golden_path = temp_db_path("_split_golden");

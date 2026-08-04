@@ -10,6 +10,7 @@
 #include "traceloom/compat/anchor_sequence_rows.h"
 #include "traceloom/compat/aux_attribution_rows.h"
 #include "traceloom/compat/collective_tag_rows.h"
+#include "traceloom/compat/native_graph_replay_rows.h"
 #include "traceloom/compat/report_tree_rows.h"
 #include "traceloom/compat/sidecar_writer.h"
 #include "traceloom/compat/timeline_rows.h"
@@ -151,6 +152,8 @@ void write_basic_native_compatibility_sidecar(
       {"source_path", options.source_path},
       {"trace_event_count", std::to_string(ir.trace_events.size())},
       {"anchor_count", std::to_string(ir.anchors.size())},
+      {"graph_template_count", std::to_string(ir.graph_templates.size())},
+      {"replay_unit_count", std::to_string(ir.replay_units.size())},
   };
 
   replace_metadata_rows(sqlite_path, metadata);
@@ -159,6 +162,9 @@ void write_basic_native_compatibility_sidecar(
                         split_timeline_event_sql_rows(event_rows));
   replace_event_source_rows(sqlite_path,
                             split_source_lineage_sql_rows(event_rows));
+  replace_graph_replay_evidence_rows(
+      sqlite_path,
+      build_native_graph_replay_evidence_sql_rows(ir, options.db_idx));
   const std::vector<AnchorSqlRow> anchor_rows =
       build_anchor_sequence_sql_rows(ir, options.db_idx);
   replace_anchor_rows(sqlite_path, anchor_rows);
