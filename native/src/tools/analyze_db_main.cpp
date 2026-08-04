@@ -1,5 +1,6 @@
 #include <chrono>
 #include <algorithm>
+#include <cctype>
 #include <cstddef>
 #include <cstdlib>
 #include <exception>
@@ -283,8 +284,22 @@ bool looks_like_msprof_db(const fs::path& path) {
 }
 
 bool looks_like_torch_npu_profiler_db(const fs::path& path) {
-  return fs::is_regular_file(path) &&
-         path.filename() == "ascend_pytorch_profiler.db";
+  if (!fs::is_regular_file(path) || path.extension() != ".db") {
+    return false;
+  }
+  const std::string stem = path.stem().string();
+  static constexpr const char* kBase = "ascend_pytorch_profiler";
+  if (stem == kBase) {
+    return true;
+  }
+  const std::string prefix = std::string(kBase) + "_";
+  if (stem.rfind(prefix, 0) != 0 || stem.size() == prefix.size()) {
+    return false;
+  }
+  return std::all_of(stem.begin() + static_cast<std::ptrdiff_t>(prefix.size()),
+                     stem.end(), [](unsigned char character) {
+                       return std::isdigit(character) != 0;
+                     });
 }
 
 bool has_sqlite_profile_extension(const fs::path& path) {
