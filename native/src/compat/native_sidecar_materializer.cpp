@@ -1,5 +1,6 @@
 #include "traceloom/compat/native_sidecar_materializer.h"
 
+#include <algorithm>
 #include <chrono>
 #include <exception>
 #include <iostream>
@@ -154,6 +155,16 @@ void write_basic_native_compatibility_sidecar(
       {"anchor_count", std::to_string(ir.anchors.size())},
       {"graph_template_count", std::to_string(ir.graph_templates.size())},
       {"replay_unit_count", std::to_string(ir.replay_units.size())},
+      {"replay_composition_region_count",
+       std::to_string(ir.replay_composition_regions.size())},
+      {"unrecognized_replay_composition_region_count",
+       std::to_string(std::count_if(
+           ir.replay_composition_regions.rows().begin(),
+           ir.replay_composition_regions.rows().end(),
+           [](const ReplayCompositionRegionRow& region) {
+             return region.status != ReplayCompositionRegionStatus::
+                                         kRecognizedCompletePattern;
+           }))},
   };
 
   replace_metadata_rows(sqlite_path, metadata);

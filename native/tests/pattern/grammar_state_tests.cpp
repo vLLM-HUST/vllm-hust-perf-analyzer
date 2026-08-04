@@ -1,9 +1,14 @@
 #include "traceloom/adapters/fixture_adapter.h"
+#include "traceloom/pattern/grammar_engine.h"
 #include "traceloom/pattern/grammar_state.h"
+#include "traceloom/report/report_tree_builder.h"
 #include "traceloom/testing/test_util.h"
 
+#include <algorithm>
 #include <stdexcept>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace {
 
@@ -23,6 +28,135 @@ traceloom::NativeIr make_ir() {
                                BoundaryPolicy::kNoCross, 1, 3},
   };
   return FixtureAdapter(input).load();
+}
+
+traceloom::NativeIr make_exact_replay_ir() {
+  using namespace traceloom;
+
+  NativeIr ir;
+  const SourceRefId source =
+      ir.source_refs.append("fixture", "exact_replay", "TASK", 0);
+  const SymbolId h = ir.symbols.intern("ACLH");
+  const SymbolId l = ir.symbols.intern("ACLL");
+  const SymbolId t = ir.symbols.intern("ACLT");
+  const SymbolId eager = ir.symbols.intern("Eager");
+  const GraphTemplateId graph_template =
+      ir.graph_templates.append(source, 77, 3);
+  const GraphLaunchOccurrenceId launch =
+      ir.graph_launch_occurrences.append(
+          source, source, 0, 1, 1, 1, -1, StreamId::invalid(),
+          StreamId::invalid(), CapturedGraphInstanceId::invalid(),
+          TaskId::invalid(), TaskId::invalid(), TaskId::invalid(), 0, 30, 0,
+          GraphLaunchMatchPolicy::kNotifyCompletionAdjacent);
+  const ReplayCompositionCandidateId candidate =
+      ir.replay_composition_candidates.append(
+          source, 0, launch, launch, 12, 0, 3, 4, 0, 88,
+          ReplayCompositionIdentityPolicy::kGraphConnection,
+          ReplayCompositionOrderPolicy::kHostSubmissionOrder,
+          ReplayCompositionShapePolicy::kHeadRepeatedLayerTail,
+          ReplayCompositionBoundaryPolicy::kExactPeriodicSuffix);
+  const ReplayCompositionRegionId region0 =
+      ir.replay_composition_regions.append(
+          candidate, 0, launch, launch, 0, 30, 3, 3,
+          ReplayCompositionRegionStatus::kRecognizedCompletePattern);
+  const ReplayCompositionRegionId region1 =
+      ir.replay_composition_regions.append(
+          candidate, 1, launch, launch, 40, 70, 3, 3,
+          ReplayCompositionRegionStatus::kRecognizedCompletePattern);
+  const ReplayCompositionRegionId region2 =
+      ir.replay_composition_regions.append(
+          candidate, 2, launch, launch, 80, 110, 3, 3,
+          ReplayCompositionRegionStatus::kRecognizedCompletePattern);
+  const ReplayCompositionRegionId region3 =
+      ir.replay_composition_regions.append(
+          candidate, 3, launch, launch, 120, 150, 3, 3,
+          ReplayCompositionRegionStatus::kRecognizedCompletePattern);
+  const ReplayUnitId unit0 = ir.replay_units.append(
+      graph_template, source, AnchorId::invalid(), AnchorId::invalid(),
+      TraceEventId::invalid(), region0);
+  const ReplayUnitId unit1 = ir.replay_units.append(
+      graph_template, source, AnchorId::invalid(), AnchorId::invalid(),
+      TraceEventId::invalid(), region1);
+  const ReplayUnitId unit2 = ir.replay_units.append(
+      graph_template, source, AnchorId::invalid(), AnchorId::invalid(),
+      TraceEventId::invalid(), region2);
+  const ReplayUnitId unit3 = ir.replay_units.append(
+      graph_template, source, AnchorId::invalid(), AnchorId::invalid(),
+      TraceEventId::invalid(), region3);
+
+  const auto append_token = [&](SymbolId symbol, AnchorKind kind,
+                                ReplayUnitId unit, std::int64_t start_ns) {
+    const AnchorId anchor = ir.anchors.append(
+        source, TraceEventId::invalid(), unit, kind, symbol, 0, 0, start_ns,
+        start_ns + 5);
+    ir.tokens.append(anchor, symbol, 0,
+                     static_cast<std::uint32_t>(ir.tokens.size()), start_ns,
+                     start_ns + 5);
+    return anchor;
+  };
+  const AnchorId h0 = append_token(h, AnchorKind::kGraphH, unit0, 0);
+  append_token(l, AnchorKind::kGraphL, unit0, 10);
+  const AnchorId t0 = append_token(t, AnchorKind::kGraphT, unit0, 20);
+  append_token(eager, AnchorKind::kDeviceEvent, ReplayUnitId::invalid(), 30);
+  const AnchorId h1 = append_token(h, AnchorKind::kGraphH, unit1, 40);
+  append_token(l, AnchorKind::kGraphL, unit1, 50);
+  const AnchorId t1 = append_token(t, AnchorKind::kGraphT, unit1, 60);
+  append_token(eager, AnchorKind::kDeviceEvent, ReplayUnitId::invalid(), 70);
+  const AnchorId h2 = append_token(h, AnchorKind::kGraphH, unit2, 80);
+  append_token(l, AnchorKind::kGraphL, unit2, 90);
+  const AnchorId t2 = append_token(t, AnchorKind::kGraphT, unit2, 100);
+  append_token(eager, AnchorKind::kDeviceEvent, ReplayUnitId::invalid(), 110);
+  const AnchorId h3 = append_token(h, AnchorKind::kGraphH, unit3, 120);
+  append_token(l, AnchorKind::kGraphL, unit3, 130);
+  const AnchorId t3 = append_token(t, AnchorKind::kGraphT, unit3, 140);
+  append_token(eager, AnchorKind::kDeviceEvent, ReplayUnitId::invalid(), 150);
+  ir.replay_units.set_anchor_bounds(unit0, h0, t0);
+  ir.replay_units.set_anchor_bounds(unit1, h1, t1);
+  ir.replay_units.set_anchor_bounds(unit2, h2, t2);
+  ir.replay_units.set_anchor_bounds(unit3, h3, t3);
+  ir.protected_intervals.append(
+      ProtectedIntervalKind::kGraphReplayUnit, BoundaryPolicy::kNoCross,
+      TokenId(0), TokenId(2), h0, t0, source);
+  ir.protected_intervals.append(
+      ProtectedIntervalKind::kGraphReplayUnit, BoundaryPolicy::kNoCross,
+      TokenId(4), TokenId(6), h1, t1, source);
+  ir.protected_intervals.append(
+      ProtectedIntervalKind::kGraphReplayUnit, BoundaryPolicy::kNoCross,
+      TokenId(8), TokenId(10), h2, t2, source);
+  ir.protected_intervals.append(
+      ProtectedIntervalKind::kGraphReplayUnit, BoundaryPolicy::kNoCross,
+      TokenId(12), TokenId(14), h3, t3, source);
+  return ir;
+}
+
+std::vector<traceloom::ReportToken> report_tokens_for_ir(
+    const traceloom::NativeIr& ir) {
+  using namespace traceloom;
+  std::vector<ReportToken> out;
+  for (const TokenRow& token : ir.tokens.rows()) {
+    const AnchorRow& anchor = ir.anchors.row(token.anchor_id);
+    ReportAnchorKind kind = ReportAnchorKind::kExec;
+    if (anchor.kind == AnchorKind::kGraphH) {
+      kind = ReportAnchorKind::kGraphH;
+    } else if (anchor.kind == AnchorKind::kGraphL) {
+      kind = ReportAnchorKind::kGraphL;
+    } else if (anchor.kind == AnchorKind::kGraphT) {
+      kind = ReportAnchorKind::kGraphT;
+    }
+    ReportToken report;
+    report.ordinal = token.sequence_index;
+    report.device_id = token.device_id;
+    report.symbol_id = token.symbol_id;
+    report.display_op = ir.symbols.value(token.symbol_id);
+    report.display_category =
+        kind == ReportAnchorKind::kExec ? "exec" : "graph";
+    report.anchor_kind = kind;
+    report.anchor_id = token.anchor_id;
+    report.start_ns = token.start_ns;
+    report.end_ns = token.end_ns;
+    out.push_back(std::move(report));
+  }
+  return out;
 }
 
 bool has_value(const std::vector<std::string>& values,
@@ -165,6 +299,58 @@ int main() {
     caught_bad_worker = true;
   }
   require(caught_bad_worker);
+
+  NativeIr exact_ir = make_exact_replay_ir();
+  GlobalGrammarState exact_state =
+      build_initial_grammar_state(exact_ir, config);
+  require(exact_state.nodes.size() == 8, "semantic seed node count");
+  require(exact_state.live_node_count == 8, "semantic seed live count");
+  require(exact_state.protected_intervals.empty(),
+          "semantic seed consumed intervals");
+  require(exact_state.macro_defs.size() == 1,
+          "semantic seed macro count");
+  require(exact_state.macro_defs[0].level == MacroLevel::kSemantic,
+          "semantic seed macro level");
+  require(exact_state.macro_defs[0].display_label == "ReplayUnit T1",
+          "semantic seed label");
+  require(exact_state.macro_defs[0].rhs_symbols.size() == 3,
+          "semantic seed rhs size");
+  require(exact_state.macro_defs[0].replace_count == 4,
+          "semantic seed replace count");
+  require(exact_state.nodes[0].source_begin_token_index == 0 &&
+              exact_state.nodes[0].source_end_token_index_exclusive == 3 &&
+              exact_state.nodes[2].source_begin_token_index == 4 &&
+              exact_state.nodes[2].source_end_token_index_exclusive == 7,
+          "semantic replay seed lost exact token spans");
+
+  const GrammarEngineResult exact_result =
+      run_grammar_state_machine(exact_state);
+  require(exact_result.ok(), "semantic grammar engine result");
+  require(exact_state.stage == GrammarStage::kDone,
+          "semantic grammar engine stage");
+  require(exact_state.live_node_count == 1,
+          "semantic grammar outer repeat compression");
+  const ReportTree exact_tree = build_report_tree_from_grammar_state(
+      report_tokens_for_ir(exact_ir), exact_state);
+  const auto semantic_def = std::find_if(
+      exact_tree.node_defs.begin(), exact_tree.node_defs.end(),
+      [](const ReportNodeDef& def) {
+        return def.display_op == "ReplayUnit T1";
+      });
+  require(semantic_def != exact_tree.node_defs.end(),
+          "semantic report unit def");
+  require(semantic_def->kind == ReportNodeKind::kSeq,
+          "semantic report unit kind");
+  require(semantic_def->display_category == "graph_unit",
+          "semantic report unit category");
+  require(occurrence_count_for_def(exact_tree, semantic_def->id) == 4,
+          "semantic report unit occurrences");
+  require(std::any_of(exact_tree.node_defs.begin(), exact_tree.node_defs.end(),
+                      [](const ReportNodeDef& def) {
+                        return def.kind == ReportNodeKind::kRepeat &&
+                               def.repeat_count == 4;
+                      }),
+          "semantic report outer repeat");
 
   return 0;
 }

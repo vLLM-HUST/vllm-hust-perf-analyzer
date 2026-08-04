@@ -13,6 +13,7 @@ option(
 set(TRACELOOM_NATIVE_ASCEND_SQLITE_AVAILABLE OFF)
 
 add_library(traceloom_native_core
+  src/analysis/exact_periodic_suffix.cpp
   src/analysis/flat_anchor_builder.cpp
   src/analysis/idle_evidence_semantic_rules.cpp
   src/analysis/productive_timeline.cpp
@@ -26,9 +27,15 @@ add_library(traceloom_native_core
   src/cost/cost_summary_lite.cpp
   src/ir/anchor_table.cpp
   src/ir/capture_slot_table.cpp
+  src/ir/captured_graph_instance_table.cpp
   src/ir/communication_op_table.cpp
+  src/ir/graph_launch_occurrence_table.cpp
+  src/ir/graph_launch_activity_table.cpp
+  src/ir/graph_launch_body_table.cpp
+  src/ir/graph_slot_template_table.cpp
   src/ir/graph_template_table.cpp
   src/ir/protected_interval_table.cpp
+  src/ir/replay_composition_candidate_table.cpp
   src/ir/replay_unit_table.cpp
   src/ir/source_ref_table.cpp
   src/ir/stream_table.cpp

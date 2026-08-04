@@ -20,6 +20,8 @@ struct TaskRow {
   SymbolId op_type_symbol_id;
   SymbolId compute_task_type_symbol_id;
   SymbolId comm_name_symbol_id;
+  std::int64_t raw_model_id = -1;
+  SymbolId communication_task_type_symbol_id;
 };
 
 class TaskTable {
@@ -33,7 +35,10 @@ class TaskTable {
                 SymbolId op_name_symbol_id,
                 SymbolId op_type_symbol_id,
                 SymbolId compute_task_type_symbol_id,
-                SymbolId comm_name_symbol_id);
+                SymbolId comm_name_symbol_id,
+                std::int64_t raw_model_id = -1,
+                SymbolId communication_task_type_symbol_id =
+                    SymbolId::invalid());
 
   std::size_t size() const noexcept { return rows_.size(); }
   bool empty() const noexcept { return rows_.empty(); }

@@ -1,3 +1,4 @@
+#include "traceloom/analysis/exact_periodic_suffix.h"
 #include "traceloom/analysis/native_pipeline.h"
 #include "traceloom/testing/test_util.h"
 
@@ -116,6 +117,22 @@ int main() {
           four_threads.stats.candidate_occurrence_count);
   require(one_thread.stats.candidate_diagnostic_count ==
           four_threads.stats.candidate_diagnostic_count);
+
+  const ExactPeriodicSuffixCandidate ambiguous = find_exact_periodic_suffix(
+      {0, 1, 0, 0, 0, 1, 1, 0, 0, 1});
+  require(!ambiguous.valid());
+
+  const ExactPeriodicSuffixCandidate repeated = find_exact_periodic_suffix(
+      {8, 9, 10, 11, 12, 13, 10, 11, 12, 13, 10, 11, 12, 13, 10, 11});
+  require(repeated.valid());
+  require(repeated.start == 2);
+  require(repeated.period == 4);
+  require(repeated.full_repeats == 3);
+  require(repeated.trailing == 2);
+
+  const ExactPeriodicSuffixCandidate too_short =
+      find_exact_periodic_suffix({1, 2, 1, 2});
+  require(!too_short.valid());
 
   return 0;
 }

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <map>
 #include <stdexcept>
 
 #include "traceloom/sequence/protected_sequence.h"
@@ -49,6 +50,93 @@ BoundarySummary summarize_chunk(const std::vector<GrammarNode>& nodes,
   return summary;
 }
 
+struct SemanticReplayInterval {
+  ProtectedIntervalId protected_interval_id;
+  ReplayUnitId replay_unit_id;
+  GraphTemplateId graph_template_id;
+  std::size_t first_token_index = 0;
+  std::size_t last_token_index = 0;
+};
+
+std::vector<SemanticReplayInterval> semantic_replay_intervals(
+    const NativeIr& ir,
+    const ProtectedSequence& sequence,
+    const BoundaryIndex& boundary_index) {
+  std::vector<SemanticReplayInterval> out;
+  for (const ProtectedIntervalSpan& span : boundary_index.intervals()) {
+    const ProtectedIntervalRow& interval =
+        ir.protected_intervals.row(span.id);
+    if (interval.kind != ProtectedIntervalKind::kGraphReplayUnit) {
+      continue;
+    }
+    const AnchorId first_anchor_id =
+        sequence.token_at(span.first_token_index).anchor_id;
+    const AnchorId last_anchor_id =
+        sequence.token_at(span.last_token_index).anchor_id;
+    if (!first_anchor_id.valid() || !last_anchor_id.valid()) {
+      continue;
+    }
+    const AnchorRow& first_anchor = ir.anchors.row(first_anchor_id);
+    const AnchorRow& last_anchor = ir.anchors.row(last_anchor_id);
+    if (!first_anchor.replay_unit_id.valid() ||
+        first_anchor.replay_unit_id != last_anchor.replay_unit_id) {
+      continue;
+    }
+    const ReplayUnitRow& replay =
+        ir.replay_units.row(first_anchor.replay_unit_id);
+    if (!replay.replay_composition_region_id.valid()) {
+      continue;
+    }
+    if (replay.replay_composition_region_id.value() >=
+            ir.replay_composition_regions.size() ||
+        !replay.graph_template_id.valid() ||
+        replay.graph_template_id.value() >= ir.graph_templates.size()) {
+      throw std::invalid_argument(
+          "exact replay interval references invalid semantic evidence");
+    }
+    const ReplayCompositionRegionRow& region =
+        ir.replay_composition_regions.row(
+            replay.replay_composition_region_id);
+    if (region.status !=
+            ReplayCompositionRegionStatus::kRecognizedCompletePattern ||
+        region.observed_launch_count == 0 ||
+        region.observed_launch_count != region.expected_launch_count ||
+        !region.replay_composition_candidate_id.valid() ||
+        region.replay_composition_candidate_id.value() >=
+            ir.replay_composition_candidates.size() ||
+        replay.first_anchor_id != first_anchor_id ||
+        replay.last_anchor_id != last_anchor_id) {
+      throw std::invalid_argument(
+          "exact replay interval is not a complete composition");
+    }
+    const ReplayCompositionCandidateRow& candidate =
+        ir.replay_composition_candidates.row(
+            region.replay_composition_candidate_id);
+    if (candidate.shape_policy !=
+        ReplayCompositionShapePolicy::kHeadRepeatedLayerTail) {
+      throw std::invalid_argument(
+          "exact replay interval has unsupported composition shape");
+    }
+    for (std::size_t token_index = span.first_token_index;
+         token_index <= span.last_token_index; ++token_index) {
+      const AnchorId anchor_id = sequence.token_at(token_index).anchor_id;
+      if (!anchor_id.valid() ||
+          ir.anchors.row(anchor_id).replay_unit_id != replay.id) {
+        throw std::invalid_argument(
+            "exact replay interval mixes replay-unit membership");
+      }
+    }
+    if (!out.empty() &&
+        span.first_token_index <= out.back().last_token_index) {
+      throw std::invalid_argument("exact replay intervals overlap");
+    }
+    out.push_back(SemanticReplayInterval{
+        span.id, replay.id, replay.graph_template_id,
+        span.first_token_index, span.last_token_index});
+  }
+  return out;
+}
+
 }  // namespace
 
 GlobalGrammarState build_initial_grammar_state(
@@ -74,18 +162,94 @@ GlobalGrammarState build_initial_grammar_state(
   state.metadata.full_discovery_cap = config.full_discovery_cap;
   state.stage = GrammarStage::kRunFold;
   state.generation = 0;
-  state.live_node_count = sequence.size();
-  state.protected_intervals = boundary_index.intervals();
   state.target_nodes_per_chunk = config.target_nodes_per_chunk;
   state.worker_count = config.worker_count;
 
   SymbolId::value_type max_symbol_value = 0;
-  state.nodes.reserve(sequence.size());
   for (std::size_t index = 0; index < sequence.size(); ++index) {
     const ProtectedSequenceToken& token = sequence.token_at(index);
     if (token.symbol_id.valid()) {
       max_symbol_value = std::max(max_symbol_value, token.symbol_id.value());
     }
+  }
+  if (max_symbol_value == std::numeric_limits<SymbolId::value_type>::max()) {
+    throw std::overflow_error("symbol id space exhausted");
+  }
+  SymbolId next_symbol(max_symbol_value + 1);
+
+  const std::vector<SemanticReplayInterval> semantic_intervals =
+      semantic_replay_intervals(ir, sequence, boundary_index);
+  std::map<GraphTemplateId::value_type, MacroDefId>
+      semantic_macro_by_template;
+  state.nodes.reserve(sequence.size());
+  std::size_t semantic_interval_index = 0;
+  for (std::size_t index = 0; index < sequence.size();) {
+    if (semantic_interval_index < semantic_intervals.size() &&
+        semantic_intervals[semantic_interval_index].first_token_index ==
+            index) {
+      const SemanticReplayInterval& interval =
+          semantic_intervals[semantic_interval_index];
+      std::vector<SymbolId> rhs_symbols;
+      rhs_symbols.reserve(interval.last_token_index -
+                          interval.first_token_index + 1);
+      for (std::size_t token_index = interval.first_token_index;
+           token_index <= interval.last_token_index; ++token_index) {
+        rhs_symbols.push_back(sequence.token_at(token_index).symbol_id);
+      }
+
+      MacroDefId macro_def_id;
+      SymbolId macro_symbol_id;
+      const auto existing = semantic_macro_by_template.find(
+          interval.graph_template_id.value());
+      if (existing == semantic_macro_by_template.end()) {
+        macro_def_id = checked_next_id<MacroDefId>(state.macro_defs.size());
+        macro_symbol_id = next_symbol;
+        if (macro_symbol_id.value() ==
+            std::numeric_limits<SymbolId::value_type>::max()) {
+          throw std::overflow_error("symbol id space exhausted");
+        }
+        next_symbol = SymbolId(macro_symbol_id.value() + 1);
+        state.macro_defs.push_back(MacroDefRow{
+            macro_def_id,
+            macro_symbol_id,
+            MacroLevel::kSemantic,
+            rhs_symbols,
+            rhs_symbols.size(),
+            1,
+            static_cast<std::ptrdiff_t>(rhs_symbols.size() - 1),
+            interval.first_token_index,
+            "ReplayUnit T" +
+                std::to_string(interval.graph_template_id.value() + 1)});
+        semantic_macro_by_template.emplace(
+            interval.graph_template_id.value(), macro_def_id);
+      } else {
+        macro_def_id = existing->second;
+        MacroDefRow& macro = state.macro_defs[macro_def_id.value()];
+        if (macro.rhs_symbols != rhs_symbols) {
+          throw std::invalid_argument(
+              "graph template has inconsistent semantic token bodies");
+        }
+        macro_symbol_id = macro.symbol_id;
+        ++macro.replace_count;
+        macro.gain += static_cast<std::ptrdiff_t>(rhs_symbols.size() - 1);
+      }
+
+      const ProtectedSequenceToken& first =
+          sequence.token_at(interval.first_token_index);
+      const ProtectedSequenceToken& last =
+          sequence.token_at(interval.last_token_index);
+      const auto node_id = checked_next_id<GrammarNodeId>(state.nodes.size());
+      state.nodes.push_back(GrammarNode{
+          node_id, macro_symbol_id, macro_def_id,
+          interval.first_token_index, interval.last_token_index + 1,
+          first.start_ns, last.end_ns, GrammarChunkId::invalid(),
+          GrammarNodeId::invalid(), GrammarNodeId::invalid(), true});
+      index = interval.last_token_index + 1;
+      ++semantic_interval_index;
+      continue;
+    }
+
+    const ProtectedSequenceToken& token = sequence.token_at(index);
     const auto node_id = checked_next_id<GrammarNodeId>(state.nodes.size());
     state.nodes.push_back(GrammarNode{
         node_id,
@@ -99,16 +263,26 @@ GlobalGrammarState build_initial_grammar_state(
         GrammarNodeId::invalid(),
         GrammarNodeId::invalid(),
         true});
+    ++index;
   }
-  if (max_symbol_value == std::numeric_limits<SymbolId::value_type>::max()) {
-    throw std::overflow_error("symbol id space exhausted");
-  }
-  state.next_macro_symbol_id = SymbolId(max_symbol_value + 1);
+  state.live_node_count = state.nodes.size();
+  state.next_macro_symbol_id = next_symbol;
 
-  for (std::size_t begin = 0; begin < sequence.size();
+  for (const ProtectedIntervalSpan& span : boundary_index.intervals()) {
+    const bool consumed = std::any_of(
+        semantic_intervals.begin(), semantic_intervals.end(),
+        [&](const SemanticReplayInterval& interval) {
+          return interval.protected_interval_id == span.id;
+        });
+    if (!consumed) {
+      state.protected_intervals.push_back(span);
+    }
+  }
+
+  for (std::size_t begin = 0; begin < state.nodes.size();
        begin += config.target_nodes_per_chunk) {
     const std::size_t end =
-        std::min(sequence.size(), begin + config.target_nodes_per_chunk);
+        std::min(state.nodes.size(), begin + config.target_nodes_per_chunk);
     const auto chunk_id = checked_next_id<GrammarChunkId>(state.chunks.size());
     const std::size_t owner_worker_id =
         state.chunks.size() % config.worker_count;

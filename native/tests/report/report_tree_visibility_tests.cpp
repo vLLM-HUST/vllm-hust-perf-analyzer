@@ -81,7 +81,7 @@ int main() {
       GrammarChunkId(0), 0, 0, GrammarNodeId(0), GrammarNodeId(2), 3, 0}};
   grammar_state_run.macro_defs = {
       MacroDefRow{MacroDefId(0), SymbolId(100), MacroLevel::kRP, {a, b}, 2, 3,
-                  2, 0}};
+                  2, 0, ""}};
   grammar_state_run.live_node_count = 3;
 
   const ReportTree grammar_state_tree =
@@ -128,6 +128,38 @@ int main() {
   require(inline_tree.diagnostics[0].code ==
           "macro_inlined_single_visible_reference");
   validate_report_tree_or_throw(inline_tree, inline_tokens.size());
+
+  const SymbolId h(4);
+  const SymbolId l(5);
+  const SymbolId t(6);
+  const std::vector<ReportToken> semantic_tokens{
+      token(0, h, "ACLH"), token(1, l, "ACLL"),
+      token(2, l, "ACLL"), token(3, t, "ACLT")};
+  GlobalGrammarState semantic_state;
+  semantic_state.stage = GrammarStage::kDone;
+  semantic_state.nodes = {GrammarNode{
+      GrammarNodeId(0), SymbolId(101), MacroDefId(0), 0, 4, 0, 40,
+      GrammarChunkId(0), GrammarNodeId::invalid(), GrammarNodeId::invalid(),
+      true}};
+  semantic_state.chunks = {GrammarChunk{
+      GrammarChunkId(0), 0, 0, GrammarNodeId(0), GrammarNodeId(0), 1, 0}};
+  semantic_state.macro_defs = {MacroDefRow{
+      MacroDefId(0), SymbolId(101), MacroLevel::kSemantic, {h, l, l, t}, 4,
+      1, 3, 0, "ReplayUnit T1"}};
+  semantic_state.live_node_count = 1;
+  const ReportTree semantic_tree = build_report_tree_from_grammar_state(
+      semantic_tokens, semantic_state);
+  require(semantic_tree.node_defs.size() == 6);
+  require(semantic_tree.node_defs[1].kind == ReportNodeKind::kSeq);
+  require(semantic_tree.node_defs[1].display_op == "ReplayUnit T1");
+  require(semantic_tree.node_defs[1].display_category == "graph_unit");
+  require(semantic_tree.node_defs[3].kind == ReportNodeKind::kRepeat);
+  require(semantic_tree.node_defs[3].display_op == "Rep x2");
+  require(semantic_tree.node_defs[3].repeat_count == 2);
+  require(semantic_tree.node_defs[4].display_op == "ACLL");
+  require(occurrence_count_for_def(semantic_tree,
+                                   semantic_tree.node_defs[4].id) == 2);
+  validate_report_tree_or_throw(semantic_tree, semantic_tokens.size());
 
   bool caught_mismatch = false;
   try {

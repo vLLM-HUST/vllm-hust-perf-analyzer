@@ -118,6 +118,100 @@ NativeIr build_graph_replay_ir() {
   return ir;
 }
 
+NativeIr build_exact_graph_replay_ir() {
+  NativeIr ir;
+  const SourceRefId source = ir.source_refs.append(
+      "fixture", "exact-graph", "ACLGRAPH_REPLAY_UNIT", 0);
+  const SymbolId graph = ir.symbols.intern("GraphReplayUnit ExactT1");
+  const TraceEventId launch =
+      ir.trace_events.append(source, 1, 0, 7, 1000, 2000, graph);
+  const GraphLaunchOccurrenceId occurrence =
+      ir.graph_launch_occurrences.append(
+          source, source, 0, 1, 100, 9001, -1, StreamId::invalid(),
+          StreamId::invalid(), CapturedGraphInstanceId::invalid(),
+          TaskId::invalid(), TaskId::invalid(), TaskId::invalid(), 1000,
+          2000, 0, GraphLaunchMatchPolicy::kNotifyCompletionAdjacent);
+  const GraphLaunchOccurrenceId incomplete_occurrence =
+      ir.graph_launch_occurrences.append(
+          source, source, 0, 1, 101, 9001, -1, StreamId::invalid(),
+          StreamId::invalid(), CapturedGraphInstanceId::invalid(),
+          TaskId::invalid(), TaskId::invalid(), TaskId::invalid(), 2000,
+          2500, 1, GraphLaunchMatchPolicy::kNotifyCompletionAdjacent);
+  const GraphLaunchOccurrenceId mismatch_occurrence =
+      ir.graph_launch_occurrences.append(
+          source, source, 0, 1, 102, 9001, -1, StreamId::invalid(),
+          StreamId::invalid(), CapturedGraphInstanceId::invalid(),
+          TaskId::invalid(), TaskId::invalid(), TaskId::invalid(), 2500,
+          3000, 2, GraphLaunchMatchPolicy::kNotifyCompletionAdjacent);
+  const GraphLaunchOccurrenceId leading_occurrence =
+      ir.graph_launch_occurrences.append(
+          source, source, 0, 1, 103, 9001, -1, StreamId::invalid(),
+          StreamId::invalid(), CapturedGraphInstanceId::invalid(),
+          TaskId::invalid(), TaskId::invalid(), TaskId::invalid(), 3000,
+          3500, 3, GraphLaunchMatchPolicy::kNotifyCompletionAdjacent);
+  const GraphLaunchOccurrenceId missing_body_occurrence =
+      ir.graph_launch_occurrences.append(
+          source, source, 0, 1, 104, 9001, -1, StreamId::invalid(),
+          StreamId::invalid(), CapturedGraphInstanceId::invalid(),
+          TaskId::invalid(), TaskId::invalid(), TaskId::invalid(), 3500,
+          4000, 4, GraphLaunchMatchPolicy::kNotifyCompletionAdjacent);
+  const ReplayBodyTemplateId body = ir.replay_body_templates.append(
+      source, 11, ir.symbols.intern("HeadOp"), 1, 0, 1,
+      ReplayBodyTopologyPolicy::kSingleModelStream);
+  const ReplayCompositionCandidateId composition =
+      ir.replay_composition_candidates.append(
+          source, 0, occurrence, occurrence, 5, 0, 1, 1, 4, 22,
+          ReplayCompositionIdentityPolicy::kGraphConnection,
+          ReplayCompositionOrderPolicy::kHostSubmissionOrder,
+          ReplayCompositionShapePolicy::kHeadRepeatedLayerTail,
+          ReplayCompositionBoundaryPolicy::kExactPeriodicSuffix);
+  const ReplayCompositionSlotId slot =
+      ir.replay_composition_slots.append(
+          composition, 0, CapturedGraphInstanceId::invalid(),
+          GraphSlotTemplateId::invalid(), body,
+          ReplayCompositionSlotRole::kHead, 9001);
+  const ReplayCompositionRegionId region =
+      ir.replay_composition_regions.append(
+          composition, 0, occurrence, occurrence, 1000, 2000, 1, 1,
+          ReplayCompositionRegionStatus::kRecognizedCompletePattern);
+  ir.replay_composition_region_members.append(region, 0, occurrence, 0);
+  const ReplayCompositionRegionId incomplete_region =
+      ir.replay_composition_regions.append(
+          composition, 1, incomplete_occurrence, incomplete_occurrence, 2000,
+          2500, 1, 2,
+          ReplayCompositionRegionStatus::kUnrecognizedIncompleteTail);
+  ir.replay_composition_region_members.append(
+      incomplete_region, 0, incomplete_occurrence, 0);
+  const ReplayCompositionRegionId mismatch_region =
+      ir.replay_composition_regions.append(
+          composition, 2, mismatch_occurrence, mismatch_occurrence, 2500,
+          3000, 1, 1,
+          ReplayCompositionRegionStatus::kUnrecognizedBodyMismatch);
+  ir.replay_composition_region_members.append(
+      mismatch_region, 0, mismatch_occurrence, 0);
+  const ReplayCompositionRegionId leading_region =
+      ir.replay_composition_regions.append(
+          composition, 3, leading_occurrence, leading_occurrence, 3000, 3500,
+          1, 0,
+          ReplayCompositionRegionStatus::kUnrecognizedLeadingContext);
+  ir.replay_composition_region_members.append(
+      leading_region, 0, leading_occurrence, -1);
+  const ReplayCompositionRegionId missing_body_region =
+      ir.replay_composition_regions.append(
+          composition, 4, missing_body_occurrence, missing_body_occurrence,
+          3500, 4000, 1, 1,
+          ReplayCompositionRegionStatus::kUnrecognizedMissingBodyEvidence);
+  ir.replay_composition_region_members.append(
+      missing_body_region, 0, missing_body_occurrence, 0);
+  const GraphTemplateId graph_template =
+      ir.graph_templates.append(source, 33, 1);
+  const ReplayUnitId unit = ir.replay_units.append(
+      graph_template, source, AnchorId::invalid(), AnchorId::invalid(),
+      launch, region);
+  ir.replay_unit_launch_members.append(unit, 0, occurrence, slot);
+  return ir;
+}
+
 }  // namespace
 
 int main() {
@@ -148,7 +242,7 @@ int main() {
   compat::write_basic_native_compatibility_sidecar(db_path, ir, options);
 
   require(run_scalar_int(db_path,
-                         "SELECT COUNT(*) FROM traceloom_metadata") == 8);
+                         "SELECT COUNT(*) FROM traceloom_metadata") == 10);
   require(run_scalar_text(db_path,
                           "SELECT value FROM traceloom_metadata "
                           "WHERE key = 'native_compatibility_materializer'") ==
@@ -251,6 +345,65 @@ int main() {
                           "SELECT value FROM traceloom_metadata "
                           "WHERE key = 'replay_unit_count'") == "1");
   std::remove(graph_db_path.c_str());
+
+  const std::string exact_graph_db_path = temp_db_path();
+  compat::write_basic_native_compatibility_sidecar(
+      exact_graph_db_path, build_exact_graph_replay_ir(), graph_options);
+  require(run_scalar_text(exact_graph_db_path,
+                          "SELECT json_extract(raw_json, "
+                          "'$.reconstruction') FROM "
+                          "traceloom_cuda_graph_replay") ==
+          "exact_replay_composition");
+  require(run_scalar_int(exact_graph_db_path,
+                         "SELECT json_extract(raw_json, "
+                         "'$.replay_composition_region_id') FROM "
+                         "traceloom_cuda_graph_replay") == 0);
+  require(run_scalar_int(exact_graph_db_path,
+                         "SELECT json_extract(raw_json, "
+                         "'$.launch_member_count') FROM "
+                         "traceloom_cuda_graph_replay") == 1);
+  require(run_scalar_int(
+              exact_graph_db_path,
+              "SELECT COUNT(*) FROM "
+              "traceloom_aclgraph_reconstruction_region") == 5);
+  require(run_scalar_int(
+              exact_graph_db_path,
+              "SELECT COUNT(*) FROM "
+              "traceloom_aclgraph_reconstruction_region "
+              "WHERE status LIKE 'unrecognized_%'") == 4);
+  require(run_scalar_text(
+              exact_graph_db_path,
+              "SELECT status FROM "
+              "traceloom_aclgraph_reconstruction_region "
+              "WHERE region_order = 1") ==
+          "unrecognized_incomplete_tail");
+  require(run_scalar_int(
+              exact_graph_db_path,
+              "SELECT expected_launch_count FROM "
+              "traceloom_aclgraph_reconstruction_region "
+              "WHERE region_order = 1") == 2);
+  require(run_scalar_text(
+              exact_graph_db_path,
+              "SELECT boundary_policy FROM "
+              "traceloom_aclgraph_reconstruction_region LIMIT 1") ==
+          "exact_periodic_suffix");
+  require(run_scalar_int(
+              exact_graph_db_path,
+              "SELECT COUNT(DISTINCT status) FROM "
+              "traceloom_aclgraph_reconstruction_region") == 5);
+  require(run_scalar_int(
+              exact_graph_db_path,
+              "SELECT COUNT(*) FROM traceloom_cuda_graph_replay") == 1);
+  require(run_scalar_text(
+              exact_graph_db_path,
+              "SELECT value FROM traceloom_metadata "
+              "WHERE key = 'replay_composition_region_count'") == "5");
+  require(run_scalar_text(
+              exact_graph_db_path,
+              "SELECT value FROM traceloom_metadata "
+              "WHERE key = 'unrecognized_replay_composition_region_count'") ==
+          "4");
+  std::remove(exact_graph_db_path.c_str());
 
   const std::string collective_db_path = temp_db_path();
   compat::NativeCompatibilitySidecarOptions collective_options;

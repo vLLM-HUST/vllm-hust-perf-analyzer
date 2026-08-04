@@ -8,6 +8,7 @@
 
 #include <sqlite3.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -15,6 +16,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -301,6 +303,388 @@ void create_aclgraph_profile(const std::filesystem::path& dir) {
   sqlite3_close(stream_db);
 }
 
+void create_aclgraph_launch_identity_profile(const std::string& path) {
+  sqlite3* db = nullptr;
+  const int rc = sqlite3_open_v2(
+      path.c_str(), &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
+  require(rc == SQLITE_OK, "failed to create graph launch identity DB");
+  exec_sql(db,
+           "CREATE TABLE STRING_IDS(id INTEGER PRIMARY KEY, value TEXT);"
+           "INSERT INTO STRING_IDS VALUES "
+           "(10, 'MODEL_EXECUTE'), (11, 'NOTIFY_WAIT'), "
+           "(12, 'NOTIFY_RECORD'), (20, 'aclmdlRIExecuteAsync'), "
+           "(21, 'aclmdlRICaptureBegin'), (22, 'aclmdlRICaptureEnd'), "
+           "(23, 'aclnnMuls'), (24, 'aclnnAdds'), (25, 'aclnnSubs'), "
+           "(26, 'aclrtSynchronizeStreamWithTimeout'), "
+           "(30, 'KERNEL_AIVEC'), (31, 'Add'), (32, 'Sub'), "
+           "(33, 'hcom_allReduce__fixture'), (34, 'Reduce_Inline');"
+           "CREATE TABLE TASK(startNs INTEGER, endNs INTEGER, "
+           "deviceId INTEGER, connectionId INTEGER, globalTaskId INTEGER, "
+           "globalPid INTEGER, taskType INTEGER, contextId INTEGER, "
+           "streamId INTEGER, taskId INTEGER, modelId INTEGER);"
+           "INSERT INTO TASK VALUES "
+           "(100, 110, 0, 100, 1, 1, 10, 0, 3, 1, 7), "
+           "(115, 120, 0, 100, 2, 1, 11, 0, 3, 2, 7), "
+           "(118, 120, 0, 9001, 3, 1, 12, 0, 36, 3, 7), "
+           "(200, 210, 0, 101, 4, 1, 10, 0, 3, 4, 8), "
+           "(215, 220, 0, 101, 5, 1, 11, 0, 3, 5, 8), "
+           "(218, 220, 0, 9002, 6, 1, 12, 0, 37, 6, 8), "
+           "(300, 310, 0, 102, 7, 1, 10, 0, 3, 7, 7), "
+           "(315, 320, 0, 102, 8, 1, 11, 0, 3, 8, 7), "
+           "(699990, 700000, 0, 9001, 9, 1, 12, 0, 36, 9, 7), "
+           "(800000, 800010, 0, 103, 10, 1, 10, 0, 3, 10, 7), "
+           "(116, 117, 0, 300, 100, 1, 30, 0, 36, 11, 7), "
+           "(216, 217, 0, 301, 101, 1, 30, 0, 37, 12, 8), "
+           "(316, 317, 0, 302, 100, 1, 30, 0, 36, 13, 7), "
+           "(116, 117, 0, 303, 102, 1, 30, 0, 38, 14, 7), "
+           "(316, 317, 0, 304, 102, 1, 30, 0, 38, 15, 7);"
+           "CREATE TABLE COMPUTE_TASK_INFO(globalTaskId INTEGER, "
+           "name INTEGER, opType INTEGER, taskType INTEGER);"
+           "INSERT INTO COMPUTE_TASK_INFO VALUES "
+           "(100, 31, 31, 30), (101, 32, 32, 30);"
+           "CREATE TABLE COMMUNICATION_TASK_INFO(globalTaskId INTEGER, "
+           "name INTEGER, taskType INTEGER);"
+           "INSERT INTO COMMUNICATION_TASK_INFO VALUES (102, 33, 34);"
+           "CREATE TABLE CANN_API(startNs INTEGER, endNs INTEGER, "
+           "type INTEGER, globalTid INTEGER, connectionId INTEGER, "
+           "name INTEGER);"
+           "INSERT INTO CANN_API VALUES "
+           "(10, 11, 0, 1, 10, 21), "
+           "(12, 13, 0, 1, 11, 23), "
+           "(14, 15, 0, 1, 12, 24), "
+           "(16, 17, 0, 1, 13, 22), "
+           "(20, 21, 0, 1, 20, 21), "
+           "(22, 23, 0, 1, 21, 23), "
+           "(24, 25, 0, 1, 22, 25), "
+           "(26, 27, 0, 1, 23, 22), "
+           "(90, 95, 0, 1, 100, 20), "
+           "(190, 195, 0, 1, 101, 20), "
+           "(290, 295, 0, 1, 102, 20), "
+           "(799990, 799995, 0, 1, 103, 20), "
+           "(250, 260, 0, 1, 200, 26), "
+           "(800020, 800030, 0, 1, 201, 26);");
+  sqlite3_close(db);
+
+  const std::filesystem::path stream_info_path =
+      std::filesystem::path(path).parent_path() / "host" / "sqlite" /
+      "stream_info.db";
+  std::filesystem::create_directories(stream_info_path.parent_path());
+  db = nullptr;
+  const int stream_rc = sqlite3_open_v2(
+      stream_info_path.string().c_str(), &db,
+      SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
+  require(stream_rc == SQLITE_OK,
+          "failed to create graph launch stream_info DB");
+  exec_sql(db,
+           "CREATE TABLE CaptureStreamInfo(device_id INTEGER, "
+           "model_id INTEGER, original_stream_id INTEGER, stream_id INTEGER, "
+           "timestamp NUMERIC);"
+           "INSERT INTO CaptureStreamInfo VALUES "
+           "(0, 7, 3, 36, 100), (0, 7, 4, 38, 100), "
+           "(0, 8, 3, 37, 200);");
+  sqlite3_close(db);
+}
+
+void create_split_aclgraph_profile_from_monolithic(
+    const std::filesystem::path& root,
+    const std::string& monolithic_path,
+    const std::string& stream_info_path) {
+  std::filesystem::create_directories(root / "host" / "sqlite");
+  std::filesystem::create_directories(root / "device_0" / "sqlite");
+  const std::string attach_monolithic =
+      "ATTACH DATABASE '" + monolithic_path + "' AS source;";
+
+  sqlite3* db = nullptr;
+  int rc = sqlite3_open_v2(
+      (root / "device_0" / "sqlite" / "ascend_task.db").string().c_str(),
+      &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
+  require(rc == SQLITE_OK, "failed to create split graph AscendTask DB");
+  exec_sql(db, attach_monolithic.c_str());
+  exec_sql(
+      db,
+      "CREATE TABLE AscendTask AS "
+      "SELECT modelId AS model_id, -1 AS index_id, streamId AS stream_id, "
+      "taskId AS task_id, contextId AS context_id, 0 AS batch_id, "
+      "startNs AS start_time, endNs - startNs AS duration, "
+      "(SELECT value FROM source.STRING_IDS WHERE id = t.taskType) AS "
+      "host_task_type, "
+      "(SELECT value FROM source.STRING_IDS WHERE id = t.taskType) AS "
+      "device_task_type, connectionId AS connection_id "
+      "FROM source.TASK t");
+  sqlite3_close(db);
+
+  db = nullptr;
+  rc = sqlite3_open_v2(
+      (root / "host" / "sqlite" / "ge_info.db").string().c_str(), &db,
+      SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
+  require(rc == SQLITE_OK, "failed to create split graph TaskInfo DB");
+  exec_sql(db, attach_monolithic.c_str());
+  exec_sql(
+      db,
+      "CREATE TABLE TaskInfo AS "
+      "SELECT t.modelId AS model_id, names.value AS op_name, "
+      "t.streamId AS stream_id, t.taskId AS task_id, types.value AS "
+      "task_type, ops.value AS op_type, -1 AS index_id, "
+      "t.deviceId AS device_id, t.contextId AS context_id "
+      "FROM source.TASK t "
+      "JOIN source.COMPUTE_TASK_INFO c ON c.globalTaskId = t.globalTaskId "
+      "LEFT JOIN source.STRING_IDS names ON names.id = c.name "
+      "LEFT JOIN source.STRING_IDS types ON types.id = c.taskType "
+      "LEFT JOIN source.STRING_IDS ops ON ops.id = c.opType");
+  sqlite3_close(db);
+
+  db = nullptr;
+  rc = sqlite3_open_v2(
+      (root / "host" / "sqlite" / "api_event.db").string().c_str(), &db,
+      SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
+  require(rc == SQLITE_OK, "failed to create split graph ApiData DB");
+  exec_sql(db, attach_monolithic.c_str());
+  exec_sql(
+      db,
+      "CREATE TABLE ApiData AS "
+      "SELECT 'api' AS struct_type, names.value AS id, 'node' AS level, "
+      "globalTid AS thread_id, CAST(api.rowid AS TEXT) AS item_id, "
+      "startNs AS start, endNs AS end, connectionId AS connection_id "
+      "FROM source.CANN_API api "
+      "LEFT JOIN source.STRING_IDS names ON names.id = api.name");
+  sqlite3_close(db);
+
+  db = nullptr;
+  rc = sqlite3_open_v2(
+      (root / "host" / "sqlite" / "stream_info.db").string().c_str(), &db,
+      SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
+  require(rc == SQLITE_OK,
+          "failed to create split graph CaptureStreamInfo DB");
+  const std::string attach_stream_info =
+      "ATTACH DATABASE '" + stream_info_path + "' AS source;";
+  exec_sql(db, attach_stream_info.c_str());
+  exec_sql(db,
+           "CREATE TABLE CaptureStreamInfo AS "
+           "SELECT device_id, model_id, original_stream_id, "
+           "stream_id, 0 AS batch_id, 0 AS capture_status, timestamp "
+           "FROM source.CaptureStreamInfo");
+  sqlite3_close(db);
+
+  db = nullptr;
+  rc = sqlite3_open_v2(
+      (root / "device_0" / "sqlite" / "hccl_single_device.db")
+          .string()
+          .c_str(),
+      &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
+  require(rc == SQLITE_OK,
+          "failed to create split graph HCCLTaskSingleDevice DB");
+  exec_sql(db, attach_monolithic.c_str());
+  exec_sql(
+      db,
+      "CREATE TABLE HCCLTaskSingleDevice AS "
+      "SELECT t.streamId AS stream_id, t.taskId AS task_id, "
+      "t.contextId AS context_id, names.value AS op_name, "
+      "types.value AS hccl_name "
+      "FROM source.TASK t "
+      "JOIN source.COMMUNICATION_TASK_INFO c "
+      "ON c.globalTaskId = t.globalTaskId "
+      "LEFT JOIN source.STRING_IDS names ON names.id = c.name "
+      "LEFT JOIN source.STRING_IDS types ON types.id = c.taskType");
+  sqlite3_close(db);
+}
+
+void create_aclgraph_body_mismatch_profile(const std::string& path) {
+  sqlite3* db = nullptr;
+  const int rc = sqlite3_open_v2(
+      path.c_str(), &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
+  require(rc == SQLITE_OK, "failed to create graph body mismatch DB");
+  exec_sql(db,
+           "CREATE TABLE STRING_IDS(id INTEGER PRIMARY KEY, value TEXT);"
+           "INSERT INTO STRING_IDS VALUES "
+           "(10, 'MODEL_EXECUTE'), (11, 'NOTIFY_WAIT'), "
+           "(12, 'NOTIFY_RECORD'), (20, 'aclmdlRIExecuteAsync'), "
+           "(30, 'KERNEL_AIVEC'), (31, 'Add'), (32, 'Sub');"
+           "CREATE TABLE TASK(startNs INTEGER, endNs INTEGER, "
+           "deviceId INTEGER, connectionId INTEGER, globalTaskId INTEGER, "
+           "globalPid INTEGER, taskType INTEGER, contextId INTEGER, "
+           "streamId INTEGER, taskId INTEGER, modelId INTEGER);"
+           "CREATE TABLE COMPUTE_TASK_INFO(globalTaskId INTEGER, "
+           "name INTEGER, opType INTEGER, taskType INTEGER);"
+           "INSERT INTO COMPUTE_TASK_INFO VALUES "
+           "(100, 31, 31, 30), (101, 32, 32, 30);"
+           "CREATE TABLE CANN_API(startNs INTEGER, endNs INTEGER, "
+           "type INTEGER, globalTid INTEGER, connectionId INTEGER, "
+           "name INTEGER);");
+  for (std::int64_t index = 0; index < 7; ++index) {
+    const std::int64_t base = 100 + index * 100;
+    const std::int64_t connection = 1000 + index;
+    const std::int64_t first_task_id = index * 4 + 1;
+    const std::int64_t compute_global_task_id = index == 3 ? 101 : 100;
+    const std::string task_sql =
+        "INSERT INTO TASK VALUES "
+        "(" + std::to_string(base) + ", " + std::to_string(base + 10) +
+        ", 0, " + std::to_string(connection) + ", " +
+        std::to_string(200 + index) + ", 1, 10, 0, 3, " +
+        std::to_string(first_task_id) + ", 7), "
+        "(" + std::to_string(base + 15) + ", " +
+        std::to_string(base + 20) + ", 0, " +
+        std::to_string(connection) + ", " + std::to_string(300 + index) +
+        ", 1, 11, 0, 3, " + std::to_string(first_task_id + 1) +
+        ", 7), "
+        "(" + std::to_string(base + 16) + ", " +
+        std::to_string(base + 17) + ", 0, " +
+        std::to_string(400 + index) + ", " +
+        std::to_string(compute_global_task_id) + ", 1, 30, 0, 36, " +
+        std::to_string(first_task_id + 2) + ", 7), "
+        "(" + std::to_string(base + 18) + ", " +
+        std::to_string(base + 20) + ", 0, 9001, " +
+        std::to_string(500 + index) + ", 1, 12, 0, 36, " +
+        std::to_string(first_task_id + 3) + ", 7);";
+    exec_sql(db, task_sql.c_str());
+    const std::string api_sql =
+        "INSERT INTO CANN_API VALUES (" + std::to_string(base - 10) +
+        ", " + std::to_string(base - 5) + ", 0, 1, " +
+        std::to_string(connection) + ", 20);";
+    exec_sql(db, api_sql.c_str());
+  }
+  sqlite3_close(db);
+
+  const std::filesystem::path stream_info_path =
+      std::filesystem::path(path).parent_path() / "host" / "sqlite" /
+      "stream_info.db";
+  std::filesystem::create_directories(stream_info_path.parent_path());
+  db = nullptr;
+  const int stream_rc = sqlite3_open_v2(
+      stream_info_path.string().c_str(), &db,
+      SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
+  require(stream_rc == SQLITE_OK,
+          "failed to create graph body mismatch stream_info DB");
+  exec_sql(db,
+           "CREATE TABLE CaptureStreamInfo(device_id INTEGER, "
+           "model_id INTEGER, original_stream_id INTEGER, stream_id INTEGER, "
+           "timestamp NUMERIC);"
+           "INSERT INTO CaptureStreamInfo VALUES (0, 7, 3, 36, 1);");
+  sqlite3_close(db);
+}
+
+void create_aclgraph_exact_hlt_profile(
+    const std::string& path,
+    std::int64_t missing_body_launch_index = -1) {
+  sqlite3* db = nullptr;
+  const int rc = sqlite3_open_v2(
+      path.c_str(), &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
+  require(rc == SQLITE_OK, "failed to create exact HLT graph DB");
+  exec_sql(db,
+           "CREATE TABLE STRING_IDS(id INTEGER PRIMARY KEY, value TEXT);"
+           "INSERT INTO STRING_IDS VALUES "
+           "(10, 'MODEL_EXECUTE'), (11, 'NOTIFY_WAIT'), "
+           "(12, 'NOTIFY_RECORD'), (20, 'aclmdlRIExecuteAsync'), "
+           "(21, 'aclrtSynchronizeStreamWithTimeout'), "
+           "(30, 'KERNEL_AIVEC'), (31, 'HeadOp'), (32, 'LayerOp'), "
+           "(33, 'TailOp'), (34, 'PrefillHeadOp'), "
+           "(35, 'PrefillLayerOp'), (36, 'PrefillTailOp'), "
+           "(37, 'AuxGraphOp');"
+           "CREATE TABLE TASK(startNs INTEGER, endNs INTEGER, "
+           "deviceId INTEGER, connectionId INTEGER, globalTaskId INTEGER, "
+           "globalPid INTEGER, taskType INTEGER, contextId INTEGER, "
+           "streamId INTEGER, taskId INTEGER, modelId INTEGER);"
+           "CREATE TABLE COMPUTE_TASK_INFO(globalTaskId INTEGER, "
+           "name INTEGER, opType INTEGER, taskType INTEGER);"
+           "INSERT INTO COMPUTE_TASK_INFO VALUES "
+           "(100, 31, 31, 30), (101, 32, 32, 30), "
+           "(102, 33, 33, 30), (103, 34, 34, 30), "
+           "(104, 35, 35, 30), (105, 36, 36, 30), "
+           "(106, 37, 37, 30);"
+           "CREATE TABLE COMMUNICATION_TASK_INFO(globalTaskId INTEGER, "
+           "name INTEGER, taskType INTEGER);"
+           "CREATE TABLE CANN_API(startNs INTEGER, endNs INTEGER, "
+           "type INTEGER, globalTid INTEGER, connectionId INTEGER, "
+           "name INTEGER);");
+
+  // One exact one-shot prefill H/L/T, three periodic decode H/L/T
+  // compositions, then a valid decode H/L prefix.  The final prefix must
+  // remain explicit unrecognized evidence rather than becoming a partial
+  // replay unit.
+  for (std::int64_t index = 0; index < 14; ++index) {
+    const std::int64_t base = 100 + index * 100;
+    const std::int64_t launch_connection = 1000 + index;
+    const bool is_prefill = index < 3;
+    const std::int64_t slot = is_prefill ? index : (index - 3) % 3;
+    const std::int64_t graph_connection =
+        (is_prefill ? 9101 : 9001) + slot;
+    const bool missing_body = index == missing_body_launch_index;
+    const std::int64_t body_global_task_id =
+        missing_body ? 107 : (is_prefill ? 103 : 100) + slot;
+    const std::int64_t aux_global_task_id = missing_body ? 108 : 106;
+    const std::int64_t model_id = (is_prefill ? 10 : 7) + slot;
+    const std::int64_t main_stream = 36 + (model_id - 7) * 2;
+    const std::int64_t aux_stream = main_stream + 1;
+    const std::int64_t first_task_id = index * 5 + 1;
+    const std::string task_sql =
+        "INSERT INTO TASK VALUES "
+        "(" + std::to_string(base) + ", " + std::to_string(base + 10) +
+        ", 0, " + std::to_string(launch_connection) + ", " +
+        std::to_string(200 + index) + ", 1, 10, 0, 3, " +
+        std::to_string(first_task_id) + ", " +
+        std::to_string(model_id) + "), "
+        "(" + std::to_string(base + 15) + ", " +
+        std::to_string(base + 20) + ", 0, " +
+        std::to_string(launch_connection) + ", " +
+        std::to_string(300 + index) + ", 1, 11, 0, 3, " +
+        std::to_string(first_task_id + 1) + ", " +
+        std::to_string(model_id) + "), "
+        "(" + std::to_string(base + 16) + ", " +
+        std::to_string(base + 17) + ", 0, " +
+        std::to_string(400 + index) + ", " +
+        std::to_string(body_global_task_id) + ", 1, 30, 0, " +
+        std::to_string(main_stream) + ", " +
+        std::to_string(first_task_id + 2) + ", " +
+        std::to_string(model_id) + "), "
+        "(" + std::to_string(base + 16) + ", " +
+        std::to_string(base + 17) + ", 0, " +
+        std::to_string(450 + index) + ", " +
+        std::to_string(aux_global_task_id) + ", 1, 30, 0, " +
+        std::to_string(aux_stream) + ", " +
+        std::to_string(first_task_id + 3) + ", " +
+        std::to_string(model_id) + "), "
+        "(" + std::to_string(base + 18) + ", " +
+        std::to_string(base + 20) + ", 0, " +
+        std::to_string(graph_connection) + ", " +
+        std::to_string(500 + index) + ", 1, 12, 0, " +
+        std::to_string(main_stream) + ", " +
+        std::to_string(first_task_id + 4) + ", " +
+        std::to_string(model_id) + ");";
+    exec_sql(db, task_sql.c_str());
+    const std::string api_sql =
+        "INSERT INTO CANN_API VALUES (" + std::to_string(base - 10) +
+        ", " + std::to_string(base - 5) + ", 0, 1, " +
+        std::to_string(launch_connection) + ", 20);";
+    exec_sql(db, api_sql.c_str());
+  }
+  exec_sql(db,
+           "INSERT INTO CANN_API VALUES "
+           "(1490, 1500, 0, 1, 9999, 21);");
+  sqlite3_close(db);
+
+  const std::filesystem::path stream_info_path =
+      std::filesystem::path(path).parent_path() / "host" / "sqlite" /
+      "stream_info.db";
+  std::filesystem::create_directories(stream_info_path.parent_path());
+  db = nullptr;
+  const int stream_rc = sqlite3_open_v2(
+      stream_info_path.string().c_str(), &db,
+      SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
+  require(stream_rc == SQLITE_OK,
+          "failed to create exact HLT stream_info DB");
+  exec_sql(db,
+           "CREATE TABLE CaptureStreamInfo(device_id INTEGER, "
+           "model_id INTEGER, original_stream_id INTEGER, stream_id INTEGER, "
+           "timestamp NUMERIC);"
+           "INSERT INTO CaptureStreamInfo VALUES "
+           "(0, 7, 3, 36, 1), (0, 7, 4, 37, 1), "
+           "(0, 8, 3, 38, 2), (0, 8, 4, 39, 2), "
+           "(0, 9, 3, 40, 3), (0, 9, 4, 41, 3), "
+           "(0, 10, 3, 42, 4), (0, 10, 4, 43, 4), "
+           "(0, 11, 3, 44, 5), (0, 11, 4, 45, 5), "
+           "(0, 12, 3, 46, 6), (0, 12, 4, 47, 6);");
+  sqlite3_close(db);
+}
+
 }  // namespace
 
 int main() {
@@ -354,6 +738,8 @@ int main() {
           "first TASK global task id mismatch");
   require(ir.tasks.row(TaskId(0)).raw_connection_id == 700,
           "first TASK connection id mismatch");
+  require(ir.tasks.row(TaskId(0)).raw_model_id == 2,
+          "first TASK model id mismatch");
   require(ir.symbols.value(ir.tasks.row(TaskId(0)).op_name_symbol_id) ==
               "model.layers.0.mlp.gate_up_proj",
           "first TASK op name decode mismatch");
@@ -495,6 +881,415 @@ int main() {
               single_slot_second.end_ns == 130,
           "single-slot replay window should use launch/body evidence only");
 
+  const std::filesystem::path launch_identity_dir =
+      temp_prof_dir("_launch_identity");
+  std::filesystem::create_directories(launch_identity_dir);
+  const std::string launch_identity_path =
+      (launch_identity_dir / "msprof.db").string();
+  create_aclgraph_launch_identity_profile(launch_identity_path);
+  const NativeIr launch_identity_ir =
+      AscendSQLiteAdapter(launch_identity_path, "graph_launch_identity").load();
+  require(launch_identity_ir.graph_launch_occurrences.size() == 4,
+          "graph launch occurrence count mismatch");
+  const GraphLaunchOccurrenceRow& launch0 =
+      launch_identity_ir.graph_launch_occurrences.row(
+          GraphLaunchOccurrenceId(0));
+  const GraphLaunchOccurrenceRow& launch1 =
+      launch_identity_ir.graph_launch_occurrences.row(
+          GraphLaunchOccurrenceId(1));
+  const GraphLaunchOccurrenceRow& launch2 =
+      launch_identity_ir.graph_launch_occurrences.row(
+          GraphLaunchOccurrenceId(2));
+  const GraphLaunchOccurrenceRow& launch3 =
+      launch_identity_ir.graph_launch_occurrences.row(
+          GraphLaunchOccurrenceId(3));
+  require(launch0.match_policy ==
+                  GraphLaunchMatchPolicy::kNotifyCompletionAdjacent &&
+              launch1.match_policy ==
+                  GraphLaunchMatchPolicy::kNotifyCompletionAdjacent,
+          "completion-adjacent launch match policy mismatch");
+  require(launch2.match_policy ==
+              GraphLaunchMatchPolicy::kNotifyOrderedFallback,
+          "ordered fallback launch match policy mismatch");
+  require(launch3.match_policy == GraphLaunchMatchPolicy::kUnmatched,
+          "incomplete launch should remain unmatched");
+  require(launch0.raw_launch_connection_id == 100 &&
+              launch0.raw_graph_connection_id == 9001 &&
+              launch0.raw_model_id == 7,
+          "first graph launch identity mismatch");
+  require(launch1.raw_graph_connection_id == 9002 &&
+              launch1.raw_model_id == 8,
+          "second graph launch identity mismatch");
+  require(launch2.raw_graph_connection_id == 9001 &&
+              launch2.raw_model_id == 7,
+          "fallback graph launch identity mismatch");
+  require(launch3.raw_graph_connection_id == -1 &&
+              launch3.raw_model_id == -1 &&
+              !launch3.notify_wait_task_id.valid() &&
+              !launch3.notify_record_task_id.valid(),
+          "unmatched graph launch should not invent identity evidence");
+  require(launch0.raw_host_api_row_id == 9 &&
+              launch1.raw_host_api_row_id == 10 &&
+              launch2.raw_host_api_row_id == 11 &&
+              launch3.raw_host_api_row_id == 12,
+          "host graph execute provenance mismatch");
+  require(launch_identity_ir.source_refs
+                  .row(launch0.host_api_source_ref_id)
+                  .table_name == "CANN_API",
+          "host graph execute source table mismatch");
+  require(launch0.wait_record_end_delta_ns == 0 &&
+              launch2.wait_record_end_delta_ns == -699680,
+          "wait-record completion delta mismatch");
+  require(launch0.execute_stream_id.valid() &&
+              launch0.model_stream_id.valid() &&
+              launch0.execute_stream_id != launch0.model_stream_id,
+          "graph launch stream identities were not normalized");
+  require(launch_identity_ir.captured_graph_instances.size() == 2 &&
+              launch_identity_ir.captured_graph_streams.size() == 3,
+          "capture model groups were not preserved");
+  require(launch_identity_ir.graph_slot_templates.size() == 2,
+          "distinct capture signatures should form two slot templates");
+  require(launch_identity_ir.replay_body_templates.size() == 2,
+          "distinct replay compute bodies should form two body templates");
+  require(launch_identity_ir.graph_launch_bodies.size() == 3,
+          "matched launches with compute work should materialize bodies");
+  const GraphLaunchBodyRow& body0 =
+      launch_identity_ir.graph_launch_bodies.row(GraphLaunchBodyId(0));
+  const GraphLaunchBodyRow& body1 =
+      launch_identity_ir.graph_launch_bodies.row(GraphLaunchBodyId(1));
+  const GraphLaunchBodyRow& body2 =
+      launch_identity_ir.graph_launch_bodies.row(GraphLaunchBodyId(2));
+  require(body0.graph_launch_occurrence_id == GraphLaunchOccurrenceId(0) &&
+              body1.graph_launch_occurrence_id == GraphLaunchOccurrenceId(1) &&
+              body2.graph_launch_occurrence_id == GraphLaunchOccurrenceId(2),
+          "graph launch bodies lost launch occurrence order");
+  require(body0.replay_body_template_id == body2.replay_body_template_id &&
+              body0.replay_body_template_id != body1.replay_body_template_id,
+          "repeated replay compute bodies lost exact template identity");
+  require(body0.compute_task_count == 1 &&
+              body0.communication_task_count == 1 &&
+              body1.compute_task_count == 1 &&
+              body1.communication_task_count == 0 &&
+              body2.compute_task_count == 1 &&
+              body2.communication_task_count == 1 &&
+              body0.stream_count == 2 && body1.stream_count == 1 &&
+              body2.stream_count == 2,
+          "graph launch body compute task counts mismatch");
+  require(launch_identity_ir.replay_body_templates
+                  .row(body0.replay_body_template_id)
+                  .topology_policy ==
+              ReplayBodyTopologyPolicy::kCapturedStreamSetUnordered &&
+              launch_identity_ir.replay_body_templates
+                      .row(body0.replay_body_template_id)
+                      .stream_count == 2,
+          "multi-stream graph body lost its captured stream topology");
+  require(launch_identity_ir.symbols
+                  .value(launch_identity_ir.replay_body_templates
+                             .row(body0.replay_body_template_id)
+                             .op_sequence_symbol_id)
+                  .find("comm:hcom_allReduce/Reduce_Inline") !=
+              std::string::npos,
+          "multi-stream graph body lost normalized communication topology");
+  require(launch0.captured_graph_instance_id.valid() &&
+              launch1.captured_graph_instance_id.valid() &&
+              launch2.captured_graph_instance_id ==
+                  launch0.captured_graph_instance_id &&
+              !launch3.captured_graph_instance_id.valid(),
+          "launches did not link to captured graph instances by model id");
+  require(launch_identity_ir.captured_graph_instances
+                  .row(launch0.captured_graph_instance_id)
+                  .slot_template_id !=
+              launch_identity_ir.captured_graph_instances
+                  .row(launch1.captured_graph_instance_id)
+                  .slot_template_id,
+          "same-profile graph instances lost their slot-template identity");
+  require(launch_identity_ir.graph_launch_activities.size() == 2 &&
+              launch_identity_ir.graph_launch_activity_members.size() == 4,
+          "host blocking sync boundaries did not preserve launch activities");
+  const GraphLaunchActivityRow& activity0 =
+      launch_identity_ir.graph_launch_activities.row(GraphLaunchActivityId(0));
+  const GraphLaunchActivityRow& activity1 =
+      launch_identity_ir.graph_launch_activities.row(GraphLaunchActivityId(1));
+  require(activity0.host_execute_count == 2 &&
+              activity0.matched_launch_count == 2 &&
+              activity0.boundary_host_api_row_id == 13 &&
+              activity1.host_execute_count == 2 &&
+              activity1.matched_launch_count == 2 &&
+              activity1.boundary_host_api_row_id == 14,
+          "graph launch activity cardinality/provenance mismatch");
+  require(activity0.boundary_policy ==
+                  GraphLaunchActivityBoundaryPolicy::kHostBlockingSync &&
+              activity1.boundary_policy ==
+                  GraphLaunchActivityBoundaryPolicy::kHostBlockingSync,
+          "graph launch activity boundary policy mismatch");
+
+  const std::filesystem::path split_graph_dir =
+      launch_identity_dir / "split_profile";
+  create_split_aclgraph_profile_from_monolithic(
+      split_graph_dir, launch_identity_path,
+      (launch_identity_dir / "host" / "sqlite" / "stream_info.db").string());
+  const NativeIr split_graph_ir =
+      AscendSQLiteAdapter(split_graph_dir.string(),
+                          "graph_launch_identity_split")
+          .load();
+  require(split_graph_ir.graph_launch_occurrences.size() ==
+                  launch_identity_ir.graph_launch_occurrences.size() &&
+              split_graph_ir.captured_graph_instances.size() ==
+                  launch_identity_ir.captured_graph_instances.size() &&
+              split_graph_ir.captured_graph_streams.size() ==
+                  launch_identity_ir.captured_graph_streams.size() &&
+              split_graph_ir.graph_launch_bodies.size() ==
+                  launch_identity_ir.graph_launch_bodies.size() &&
+              split_graph_ir.graph_launch_activities.size() ==
+                  launch_identity_ir.graph_launch_activities.size() &&
+              split_graph_ir.graph_launch_activity_members.size() ==
+                  launch_identity_ir.graph_launch_activity_members.size(),
+          "split ACLGraph evidence cardinality differs from monolithic");
+  for (std::uint32_t index = 0;
+       index < split_graph_ir.graph_launch_occurrences.size(); ++index) {
+    const GraphLaunchOccurrenceRow& monolithic =
+        launch_identity_ir.graph_launch_occurrences.row(
+            GraphLaunchOccurrenceId(index));
+    const GraphLaunchOccurrenceRow& split =
+        split_graph_ir.graph_launch_occurrences.row(
+            GraphLaunchOccurrenceId(index));
+    require(split.raw_host_api_row_id == monolithic.raw_host_api_row_id &&
+                split.raw_launch_connection_id ==
+                    monolithic.raw_launch_connection_id &&
+                split.raw_graph_connection_id ==
+                    monolithic.raw_graph_connection_id &&
+                split.raw_model_id == monolithic.raw_model_id &&
+                split.match_policy == monolithic.match_policy,
+            "split ACLGraph launch identity differs from monolithic");
+    require(split_graph_ir.source_refs.row(split.source_ref_id).table_name ==
+                "AscendTask",
+            "split graph launch provenance did not retain AscendTask");
+  }
+  std::vector<std::uint64_t> monolithic_body_hashes;
+  std::vector<std::uint64_t> split_body_hashes;
+  for (const ReplayBodyTemplateRow& body :
+       launch_identity_ir.replay_body_templates.rows()) {
+    monolithic_body_hashes.push_back(body.exact_sequence_hash);
+  }
+  for (const ReplayBodyTemplateRow& body :
+       split_graph_ir.replay_body_templates.rows()) {
+    split_body_hashes.push_back(body.exact_sequence_hash);
+  }
+  std::sort(monolithic_body_hashes.begin(), monolithic_body_hashes.end());
+  std::sort(split_body_hashes.begin(), split_body_hashes.end());
+  require(split_body_hashes == monolithic_body_hashes,
+          "split ACLGraph body templates differ from monolithic");
+  require(split_graph_ir.graph_launch_bodies.row(GraphLaunchBodyId(0))
+                  .communication_task_count == 1 &&
+              split_graph_ir.symbols
+                      .value(split_graph_ir.replay_body_templates
+                                 .row(split_graph_ir.graph_launch_bodies
+                                          .row(GraphLaunchBodyId(0))
+                                          .replay_body_template_id)
+                                 .op_sequence_symbol_id)
+                      .find("comm:hcom_allReduce/Reduce_Inline") !=
+                  std::string::npos,
+          "split ACLGraph body lost HCCL task identity");
+
+  const std::filesystem::path body_mismatch_dir =
+      temp_prof_dir("_body_mismatch");
+  std::filesystem::create_directories(body_mismatch_dir);
+  const std::string body_mismatch_path =
+      (body_mismatch_dir / "msprof.db").string();
+  create_aclgraph_body_mismatch_profile(body_mismatch_path);
+  const NativeIr body_mismatch_ir =
+      AscendSQLiteAdapter(body_mismatch_path, "graph_body_mismatch").load();
+  require(body_mismatch_ir.replay_composition_candidates.size() == 1 &&
+              body_mismatch_ir.replay_composition_regions.size() == 7 &&
+              body_mismatch_ir.replay_composition_region_members.size() == 7,
+          "body mismatch profile lost exact composition membership");
+  std::size_t recognized_regions = 0;
+  std::size_t mismatched_regions = 0;
+  for (const ReplayCompositionRegionRow& region :
+       body_mismatch_ir.replay_composition_regions.rows()) {
+    if (region.status ==
+        ReplayCompositionRegionStatus::kRecognizedCompletePattern) {
+      ++recognized_regions;
+    } else if (region.status ==
+               ReplayCompositionRegionStatus::kUnrecognizedBodyMismatch) {
+      ++mismatched_regions;
+    }
+  }
+  require(recognized_regions == 6 && mismatched_regions == 1 &&
+              body_mismatch_ir.replay_composition_regions.row(
+                  ReplayCompositionRegionId(3))
+                      .status == ReplayCompositionRegionStatus::
+                                     kUnrecognizedBodyMismatch,
+          "repeated graph identity silently accepted a changed compute body");
+
+  const std::filesystem::path exact_hlt_dir =
+      temp_prof_dir("_exact_hlt");
+  std::filesystem::create_directories(exact_hlt_dir);
+  const std::string exact_hlt_path =
+      (exact_hlt_dir / "msprof.db").string();
+  create_aclgraph_exact_hlt_profile(exact_hlt_path);
+  NativeIr exact_hlt_ir =
+      AscendSQLiteAdapter(exact_hlt_path, "graph_exact_hlt").load();
+  require(exact_hlt_ir.replay_composition_candidates.size() == 2 &&
+              exact_hlt_ir.replay_composition_slots.size() == 6,
+          "exact HLT profile did not preserve prefill/decode compositions");
+  require(exact_hlt_ir.replay_composition_candidates
+                      .row(ReplayCompositionCandidateId(0))
+                      .boundary_policy ==
+                  ReplayCompositionBoundaryPolicy::
+                      kExactOneShotLeadingComposition &&
+              exact_hlt_ir.replay_composition_candidates
+                      .row(ReplayCompositionCandidateId(1))
+                      .boundary_policy ==
+                  ReplayCompositionBoundaryPolicy::kExactPeriodicSuffix,
+          "exact HLT prefill/decode boundary policies mismatch");
+  require(exact_hlt_ir.replay_composition_regions.size() == 5 &&
+              exact_hlt_ir.replay_composition_region_members.size() == 14,
+          "exact HLT profile lost prefill/decode/tail membership");
+  require(exact_hlt_ir.replay_units.size() == 4 &&
+              exact_hlt_ir.graph_templates.size() == 2 &&
+              exact_hlt_ir.replay_unit_launch_members.size() == 12,
+          "exact HLT prefill/decode regions did not cut over to units");
+  require(exact_hlt_ir.replay_composition_regions
+                  .row(ReplayCompositionRegionId(4))
+                  .status == ReplayCompositionRegionStatus::
+                                 kUnrecognizedIncompleteTail,
+          "exact HLT prefix tail should remain explicitly unrecognized");
+  for (const ReplayUnitRow& unit : exact_hlt_ir.replay_units.rows()) {
+    require(unit.replay_composition_region_id.valid(),
+            "exact HLT replay unit lost its composition region link");
+  }
+  require(exact_hlt_ir.captured_graph_instances.size() == 6 &&
+              exact_hlt_ir.captured_graph_streams.size() == 12 &&
+              exact_hlt_ir.graph_launch_bodies.size() == 14,
+          "exact HLT fixture lost its multi-stream body evidence");
+  for (const GraphLaunchBodyRow& body :
+       exact_hlt_ir.graph_launch_bodies.rows()) {
+    const ReplayBodyTemplateRow& body_template =
+        exact_hlt_ir.replay_body_templates.row(body.replay_body_template_id);
+    require(body.compute_task_count == 2 &&
+                body.communication_task_count == 0 &&
+                body.stream_count == 2 &&
+                body_template.stream_count == 2 &&
+                body_template.topology_policy ==
+                    ReplayBodyTopologyPolicy::kCapturedStreamSetUnordered,
+            "exact HLT projection did not retain both graph body lanes");
+  }
+  for (std::size_t index = 0;
+       index < exact_hlt_ir.replay_unit_launch_members.size(); ++index) {
+    const ReplayUnitLaunchMemberRow& member =
+        exact_hlt_ir.replay_unit_launch_members.row(
+            ReplayUnitLaunchMemberId(index));
+    require(member.member_order == index % 3,
+            "exact HLT replay membership order is not unit-local");
+  }
+
+  const std::filesystem::path split_exact_hlt_dir =
+      exact_hlt_dir / "split_profile";
+  create_split_aclgraph_profile_from_monolithic(
+      split_exact_hlt_dir, exact_hlt_path,
+      (exact_hlt_dir / "host" / "sqlite" / "stream_info.db").string());
+  const NativeIr split_exact_hlt_ir =
+      AscendSQLiteAdapter(split_exact_hlt_dir.string(),
+                          "graph_exact_hlt_split")
+          .load();
+  require(split_exact_hlt_ir.replay_composition_candidates.size() == 2 &&
+              split_exact_hlt_ir.replay_composition_slots.size() == 6 &&
+              split_exact_hlt_ir.replay_composition_regions.size() == 5 &&
+              split_exact_hlt_ir.replay_composition_region_members.size() ==
+                  14 &&
+              split_exact_hlt_ir.replay_units.size() == 4 &&
+              split_exact_hlt_ir.replay_unit_launch_members.size() == 12,
+          "split exact HLT reconstruction differs from monolithic");
+  require(split_exact_hlt_ir.replay_composition_regions
+                  .row(ReplayCompositionRegionId(4))
+                  .status == ReplayCompositionRegionStatus::
+                                 kUnrecognizedIncompleteTail,
+          "split exact HLT tail did not remain unrecognized");
+  std::vector<std::uint64_t> exact_hlt_body_hashes;
+  std::vector<std::uint64_t> split_exact_hlt_body_hashes;
+  for (const ReplayBodyTemplateRow& body :
+       exact_hlt_ir.replay_body_templates.rows()) {
+    exact_hlt_body_hashes.push_back(body.exact_sequence_hash);
+  }
+  for (const ReplayBodyTemplateRow& body :
+       split_exact_hlt_ir.replay_body_templates.rows()) {
+    split_exact_hlt_body_hashes.push_back(body.exact_sequence_hash);
+  }
+  std::sort(exact_hlt_body_hashes.begin(), exact_hlt_body_hashes.end());
+  std::sort(split_exact_hlt_body_hashes.begin(),
+            split_exact_hlt_body_hashes.end());
+  require(split_exact_hlt_body_hashes == exact_hlt_body_hashes,
+          "split exact HLT body identities differ from monolithic");
+
+  FlatAnchorBuildConfig exact_anchor_config;
+  exact_anchor_config.filter_auxiliary_task_anchors = true;
+  exact_anchor_config.skip_events_covered_by_replay_units = true;
+  const FlatAnchorBuildStats exact_anchor_stats =
+      build_flat_anchors(exact_hlt_ir, exact_anchor_config);
+  require(exact_anchor_stats.device_event_anchors == 12 &&
+              exact_anchor_stats.communication_anchors == 0 &&
+              exact_hlt_ir.protected_intervals.size() == 4,
+          "exact HLT projection did not preserve its complete units");
+  std::size_t head_anchors = 0;
+  std::size_t layer_anchors = 0;
+  std::size_t tail_anchors = 0;
+  std::size_t raw_anchors = 0;
+  for (const AnchorRow& anchor : exact_hlt_ir.anchors.rows()) {
+    switch (anchor.kind) {
+      case AnchorKind::kGraphH:
+        ++head_anchors;
+        break;
+      case AnchorKind::kGraphL:
+        ++layer_anchors;
+        break;
+      case AnchorKind::kGraphT:
+        ++tail_anchors;
+        break;
+      case AnchorKind::kDeviceEvent:
+        ++raw_anchors;
+        break;
+      default:
+        break;
+    }
+  }
+  require(head_anchors == 4 && layer_anchors == 4 && tail_anchors == 4 &&
+              raw_anchors == 0,
+          "exact HLT anchor roles mismatch");
+  for (std::size_t index = 0;
+       index < exact_hlt_ir.protected_intervals.size(); ++index) {
+    const ProtectedIntervalRow& interval =
+        exact_hlt_ir.protected_intervals.row(ProtectedIntervalId(index));
+    require(interval.first_token_id.value() == index * 3 &&
+                interval.last_token_id.value() == index * 3 + 2 &&
+                interval.boundary_policy == BoundaryPolicy::kNoCross,
+            "exact HLT protected interval is not one full H/L/T unit");
+  }
+
+  const std::filesystem::path missing_body_dir =
+      temp_prof_dir("_missing_body");
+  std::filesystem::create_directories(missing_body_dir);
+  const std::string missing_body_path =
+      (missing_body_dir / "msprof.db").string();
+  create_aclgraph_exact_hlt_profile(missing_body_path, 6);
+  const NativeIr missing_body_ir =
+      AscendSQLiteAdapter(missing_body_path, "graph_missing_body").load();
+  std::size_t missing_body_regions = 0;
+  for (const ReplayCompositionRegionRow& region :
+       missing_body_ir.replay_composition_regions.rows()) {
+    if (region.status == ReplayCompositionRegionStatus::
+                             kUnrecognizedMissingBodyEvidence) {
+      ++missing_body_regions;
+    }
+  }
+  require(missing_body_ir.replay_composition_candidates.size() == 2 &&
+              missing_body_ir.replay_composition_regions.size() == 5 &&
+              missing_body_regions == 1 &&
+              missing_body_ir.graph_launch_bodies.size() == 13 &&
+              missing_body_ir.replay_units.size() == 3 &&
+              missing_body_ir.replay_unit_launch_members.size() == 9,
+          "missing graph body evidence did not stay typed and unpromoted");
+
   const std::filesystem::path split_dir = temp_prof_dir("_split");
   const std::string golden_path = temp_db_path("_split_golden");
   create_split_golden_profiles(split_dir, golden_path);
@@ -548,6 +1343,8 @@ int main() {
     require(split_ir.symbols.value(split_task.task_type_symbol_id) ==
                 golden_ir.symbols.value(golden_task.task_type_symbol_id),
             "split task type does not match monolithic golden");
+    require(split_task.raw_model_id == golden_task.raw_model_id,
+            "split task model id does not match monolithic golden");
   }
   require(split_ir.symbols.value(split_ir.tasks.row(TaskId(0)).op_name_symbol_id) ==
               "linear",
@@ -743,6 +1540,10 @@ int main() {
 
   std::remove(db_path.c_str());
   std::remove(golden_path.c_str());
+  std::filesystem::remove_all(launch_identity_dir);
+  std::filesystem::remove_all(body_mismatch_dir);
+  std::filesystem::remove_all(exact_hlt_dir);
+  std::filesystem::remove_all(missing_body_dir);
   std::filesystem::remove_all(graph_dir);
   std::filesystem::remove_all(split_dir);
   std::filesystem::remove_all(incomplete_dir);

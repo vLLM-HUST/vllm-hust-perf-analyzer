@@ -282,6 +282,7 @@ int main() {
   std::sort(expected_tables.begin(), expected_tables.end());
   require(expected_tables ==
           std::vector<std::string>({
+              "traceloom_aclgraph_reconstruction_region",
               "traceloom_anchor",
               "traceloom_anchor_aux_slot",
               "traceloom_anchor_cost_breakdown",
@@ -506,6 +507,24 @@ int main() {
   graph_envelope.end_offset_us = 0.1;
   graph_envelope.child_dur_us = 0.3;
   graph_rows.graph_envelopes.push_back(graph_envelope);
+  traceloom::compat::GraphReconstructionRegionSqlRow region;
+  region.region_id = "aclgraph-reconstruction-region-1";
+  region.device_id = 2;
+  region.candidate_id = "aclgraph-composition-candidate-1";
+  region.region_order = 1;
+  region.status = "unrecognized_incomplete_tail";
+  region.boundary_policy = "exact_periodic_suffix";
+  region.order_policy = "host_submission_order";
+  region.identity_policy = "graph_connection";
+  region.shape_policy = "head_repeated_layer_tail";
+  region.first_launch_occurrence_id = 20;
+  region.last_launch_occurrence_id = 21;
+  region.observed_launch_count = 2;
+  region.expected_launch_count = 25;
+  region.start_ns = 2000;
+  region.end_ns = 2500;
+  region.dur_us = 0.5;
+  graph_rows.reconstruction_regions.push_back(region);
   traceloom::compat::replace_graph_replay_evidence_rows(db_path, graph_rows);
   require(run_scalar_int(db_path,
                          "SELECT COUNT(*) FROM "
@@ -513,6 +532,15 @@ int main() {
   require(run_scalar_int(db_path,
                          "SELECT COUNT(*) FROM "
                          "traceloom_cuda_graph_envelope") == 1);
+  require(run_scalar_int(
+              db_path,
+              "SELECT COUNT(*) FROM "
+              "traceloom_aclgraph_reconstruction_region") == 1);
+  require(run_scalar_text(
+              db_path,
+              "SELECT status FROM "
+              "traceloom_aclgraph_reconstruction_region") ==
+          "unrecognized_incomplete_tail");
   traceloom::compat::replace_graph_replay_evidence_rows(
       db_path, traceloom::compat::GraphReplayEvidenceSqlRows{});
   require(run_scalar_int(db_path,
@@ -521,6 +549,10 @@ int main() {
   require(run_scalar_int(db_path,
                          "SELECT COUNT(*) FROM "
                          "traceloom_cuda_graph_envelope") == 0);
+  require(run_scalar_int(
+              db_path,
+              "SELECT COUNT(*) FROM "
+              "traceloom_aclgraph_reconstruction_region") == 0);
 
   traceloom::compat::LoopTreeSqlRows loop_tree_rows;
   traceloom::compat::VizNodeSqlRow parent_node;
@@ -843,6 +875,7 @@ int main() {
   require(!has_column(tree_view_columns, "avg_self_us"));
   require(load_sqlite_master_names(db_path, "index") ==
           std::vector<std::string>({
+              "idx_traceloom_aclgraph_region_status",
               "idx_traceloom_anchor_device_idx",
               "idx_traceloom_anchor_key",
               "idx_traceloom_aux_anchor",

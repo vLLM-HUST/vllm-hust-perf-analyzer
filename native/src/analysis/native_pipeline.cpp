@@ -63,8 +63,79 @@ NativePipelineStats collect_stats(
   stats.trace_event_count = ir.trace_events.size();
   stats.task_count = ir.tasks.size();
   stats.communication_op_count = ir.communication_ops.size();
+  stats.graph_slot_template_count = ir.graph_slot_templates.size();
+  stats.captured_graph_instance_count = ir.captured_graph_instances.size();
+  stats.captured_graph_stream_count = ir.captured_graph_streams.size();
+  stats.graph_launch_occurrence_count = ir.graph_launch_occurrences.size();
+  for (const GraphLaunchOccurrenceRow& launch :
+       ir.graph_launch_occurrences.rows()) {
+    if (launch.captured_graph_instance_id.valid()) {
+      ++stats.graph_launch_instance_linked_count;
+    }
+    switch (launch.match_policy) {
+      case GraphLaunchMatchPolicy::kNotifyCompletionAdjacent:
+        ++stats.graph_launch_completion_adjacent_count;
+        break;
+      case GraphLaunchMatchPolicy::kNotifyOrderedFallback:
+        ++stats.graph_launch_ordered_fallback_count;
+        break;
+      case GraphLaunchMatchPolicy::kUnmatched:
+        ++stats.graph_launch_unmatched_count;
+        break;
+    }
+  }
+  stats.replay_body_template_count = ir.replay_body_templates.size();
+  stats.graph_launch_body_count = ir.graph_launch_bodies.size();
+  stats.graph_launch_activity_count = ir.graph_launch_activities.size();
+  stats.graph_launch_activity_member_count =
+      ir.graph_launch_activity_members.size();
+  for (const GraphLaunchActivityRow& activity :
+       ir.graph_launch_activities.rows()) {
+    switch (activity.boundary_policy) {
+      case GraphLaunchActivityBoundaryPolicy::kHostBlockingSync:
+        ++stats.graph_launch_activity_host_sync_count;
+        break;
+      case GraphLaunchActivityBoundaryPolicy::kHostThreadTail:
+        ++stats.graph_launch_activity_thread_tail_count;
+        break;
+    }
+    if (activity.host_execute_count > activity.matched_launch_count) {
+      stats.graph_launch_activity_unmatched_host_execute_count +=
+          activity.host_execute_count - activity.matched_launch_count;
+    }
+  }
+  stats.replay_composition_candidate_count =
+      ir.replay_composition_candidates.size();
+  for (const ReplayCompositionCandidateRow& candidate :
+       ir.replay_composition_candidates.rows()) {
+    if (candidate.shape_policy ==
+        ReplayCompositionShapePolicy::kHeadRepeatedLayerTail) {
+      ++stats.replay_composition_body_confirmed_count;
+    }
+  }
+  stats.replay_composition_slot_count = ir.replay_composition_slots.size();
+  stats.replay_composition_region_count =
+      ir.replay_composition_regions.size();
+  stats.replay_composition_region_member_count =
+      ir.replay_composition_region_members.size();
+  for (const ReplayCompositionRegionRow& region :
+       ir.replay_composition_regions.rows()) {
+    if (region.status ==
+        ReplayCompositionRegionStatus::kRecognizedCompletePattern) {
+      ++stats.replay_composition_recognized_region_count;
+    } else {
+      ++stats.replay_composition_unrecognized_region_count;
+    }
+  }
   stats.graph_template_count = ir.graph_templates.size();
   stats.replay_unit_count = ir.replay_units.size();
+  for (const ReplayUnitRow& replay_unit : ir.replay_units.rows()) {
+    if (replay_unit.replay_composition_region_id.valid()) {
+      ++stats.exact_replay_unit_count;
+    }
+  }
+  stats.replay_unit_launch_member_count =
+      ir.replay_unit_launch_members.size();
   stats.anchor_count = ir.anchors.size();
   stats.token_count = ir.tokens.size();
   stats.protected_interval_count = ir.protected_intervals.size();

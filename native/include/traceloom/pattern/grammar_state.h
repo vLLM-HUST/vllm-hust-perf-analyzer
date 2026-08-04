@@ -23,6 +23,7 @@ enum class GrammarStage {
 enum class MacroLevel {
   kRP,
   kLP,
+  kSemantic,
 };
 
 struct GrammarStateConfig {
@@ -55,6 +56,7 @@ struct MacroDefRow {
   std::size_t replace_count = 0;
   std::ptrdiff_t gain = 0;
   std::size_t first_pos = 0;
+  std::string display_label;
 };
 
 struct GrammarChunk {

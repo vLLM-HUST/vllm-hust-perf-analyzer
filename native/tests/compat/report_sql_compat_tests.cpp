@@ -265,6 +265,7 @@ void write_graph_replay_fixture_via_asset_writers(
   traceloom::compat::GraphReplayEvidenceSqlRows evidence_rows;
   evidence_rows.graph_replays = rows.graph_replays;
   evidence_rows.graph_envelopes = rows.graph_envelopes;
+  evidence_rows.reconstruction_regions = rows.reconstruction_regions;
   traceloom::compat::replace_graph_replay_evidence_rows(db_path,
                                                         evidence_rows);
 }

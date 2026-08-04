@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdint>
 #include <map>
 #include <set>
@@ -561,6 +562,74 @@ std::vector<NodeAccum> accumulate_nodes(
   return out;
 }
 
+void validate_root_wall_clock_conservation(
+    const ReportTree& tree,
+    const std::vector<ReportToken>& tokens,
+    const std::vector<NodeAccum>& accum) {
+  const bool all_normalized =
+      std::all_of(tokens.begin(), tokens.end(), [](const ReportToken& token) {
+        return token.has_prelude_cost;
+      });
+  if (!all_normalized) {
+    return;
+  }
+
+  const auto root_found = std::find_if(
+      tree.occurrences.begin(), tree.occurrences.end(),
+      [](const ReportNodeOccurrence& occurrence) {
+        return !occurrence.parent_occurrence_id.valid();
+      });
+  if (root_found == tree.occurrences.end()) {
+    throw std::invalid_argument(
+        "report cost conservation requires a root occurrence");
+  }
+  const ReportNodeDefId root_def_id = root_found->node_def_id;
+  const std::size_t root_def_occurrences = static_cast<std::size_t>(
+      std::count_if(tree.occurrences.begin(), tree.occurrences.end(),
+                    [root_def_id](const ReportNodeOccurrence& occurrence) {
+                      return occurrence.node_def_id == root_def_id;
+                    }));
+  if (root_def_occurrences != 1) {
+    throw std::invalid_argument(
+        "report cost conservation requires a unique root definition");
+  }
+  const NodeAccum& root_accum = accum[root_def_id.value()];
+  if (root_accum.token_ordinals.size() != tokens.size()) {
+    throw std::invalid_argument(
+        "report root cost does not cover every token exactly once");
+  }
+
+  struct DeviceBounds {
+    bool initialized = false;
+    std::int64_t start_ns = 0;
+    std::int64_t end_ns = 0;
+  };
+  std::map<std::uint32_t, DeviceBounds> bounds_by_device;
+  for (const ReportToken& token : tokens) {
+    DeviceBounds& bounds = bounds_by_device[token.device_id];
+    if (!bounds.initialized) {
+      bounds.initialized = true;
+      bounds.start_ns = token.start_ns;
+      bounds.end_ns = token.end_ns;
+      continue;
+    }
+    bounds.start_ns = std::min(bounds.start_ns, token.start_ns);
+    bounds.end_ns = std::max(bounds.end_ns, token.end_ns);
+  }
+  double expected_us = 0.0;
+  for (const auto& item : bounds_by_device) {
+    expected_us += ns_to_us(item.second.end_ns - item.second.start_ns);
+  }
+  const double actual_us =
+      root_accum.compute_us + root_accum.comm_us + root_accum.idle_us;
+  const double tolerance_us =
+      std::max(1e-9, std::abs(expected_us) * 1e-9);
+  if (std::abs(actual_us - expected_us) > tolerance_us) {
+    throw std::invalid_argument(
+        "report root wall-clock cost is not conserved");
+  }
+}
+
 std::map<ReportNodeDefId::value_type, ReportNodeOccurrenceId>
 first_occurrence_by_def(const ReportTree& tree) {
   std::map<ReportNodeDefId::value_type, ReportNodeOccurrenceId> out;
@@ -713,6 +782,7 @@ NodeCoverageSqlRows build_report_tree_node_coverage_sql_rows(
   const AuxAttributionIndex aux_index = build_aux_attribution_index(aux_rows);
   const std::vector<NodeAccum> accum =
       accumulate_nodes(tree, tokens, aux_index);
+  validate_root_wall_clock_conservation(tree, tokens, accum);
   const auto first_occurrences = first_occurrence_by_def(tree);
 
   rows.nodes.reserve(tree.node_defs.size());
@@ -915,6 +985,7 @@ SemanticTreeSqlRows build_report_tree_semantic_sql_rows(
   const AuxAttributionIndex aux_index = build_aux_attribution_index(aux_rows);
   const std::vector<NodeAccum> accum =
       accumulate_nodes(tree, tokens, aux_index);
+  validate_root_wall_clock_conservation(tree, tokens, accum);
   const auto first_occurrences = first_occurrence_by_def(tree);
 
   SemanticTreeHeaderSqlRow header;

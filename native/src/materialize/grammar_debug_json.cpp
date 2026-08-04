@@ -98,6 +98,8 @@ const char* macro_level_name(MacroLevel level) {
       return "RP";
     case MacroLevel::kLP:
       return "LP";
+    case MacroLevel::kSemantic:
+      return "semantic";
   }
   return "unknown";
 }

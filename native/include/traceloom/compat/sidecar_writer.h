@@ -276,17 +276,41 @@ struct GraphEnvelopeSqlRow {
   std::string raw_json;
 };
 
+struct GraphReconstructionRegionSqlRow {
+  std::string region_id;
+  std::uint32_t db_idx = 0;
+  std::uint32_t device_id = 0;
+  std::string graph_provider = "aclgraph";
+  std::string candidate_id;
+  std::uint32_t region_order = 0;
+  std::string status;
+  std::string boundary_policy;
+  std::string order_policy;
+  std::string identity_policy;
+  std::string shape_policy;
+  std::uint32_t first_launch_occurrence_id = 0;
+  std::uint32_t last_launch_occurrence_id = 0;
+  std::uint32_t observed_launch_count = 0;
+  std::uint32_t expected_launch_count = 0;
+  std::int64_t start_ns = 0;
+  std::int64_t end_ns = 0;
+  double dur_us = 0.0;
+  std::string raw_json;
+};
+
 struct GraphReplaySqlRows {
   std::vector<EventSqlRow> events;
   std::vector<EventSourceSqlRow> event_sources;
   std::vector<AnchorSqlRow> anchors;
   std::vector<GraphReplaySqlRow> graph_replays;
   std::vector<GraphEnvelopeSqlRow> graph_envelopes;
+  std::vector<GraphReconstructionRegionSqlRow> reconstruction_regions;
 };
 
 struct GraphReplayEvidenceSqlRows {
   std::vector<GraphReplaySqlRow> graph_replays;
   std::vector<GraphEnvelopeSqlRow> graph_envelopes;
+  std::vector<GraphReconstructionRegionSqlRow> reconstruction_regions;
 };
 
 struct CollectiveGlobalLinkSqlRow {
