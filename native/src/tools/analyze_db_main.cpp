@@ -223,8 +223,9 @@ CliOptions parse_args(int argc, char** argv) {
 
   if (options.source_input.empty()) {
     throw std::invalid_argument(
-        "input path is required: pass an msprof_*.db, Hygon hipprof DB, "
-        "CUDA/Nsight SQLite export, or profile directory");
+        "input path is required: pass an msprof_*.db, "
+        "ascend_pytorch_profiler.db, Hygon hipprof DB, CUDA/Nsight SQLite "
+        "export, or profile directory");
   }
   if (options.source_kind != "auto" &&
       options.source_kind != "ascend_sqlite_hot_path" &&
@@ -237,7 +238,7 @@ CliOptions parse_args(int argc, char** argv) {
   options.source_dbs =
       discover_profile_dbs(options.source_input, options.source_kind);
   if (options.source_dbs.empty()) {
-    throw std::invalid_argument("no supported msprof, Hygon, or CUDA/Nsight "
+    throw std::invalid_argument("no supported Ascend, Hygon, or CUDA/Nsight "
                                 "profile DB found under input path: " +
                                 options.source_input);
   }
@@ -302,6 +303,11 @@ bool looks_like_msprof_db(const fs::path& path) {
   return name.rfind("msprof_", 0) == 0 && path.extension() == ".db";
 }
 
+bool looks_like_torch_npu_profiler_db(const fs::path& path) {
+  return fs::is_regular_file(path) &&
+         path.filename() == "ascend_pytorch_profiler.db";
+}
+
 bool has_sqlite_profile_extension(const fs::path& path) {
   const std::string extension = path.extension().string();
   return extension == ".db" || extension == ".sqlite" ||
@@ -320,7 +326,9 @@ bool looks_like_supported_profile_db(const fs::path& path,
     return traceloom::looks_like_hygon_sqlite_profile(path.string());
   }
   if (source_kind == "ascend_sqlite_hot_path") {
-    return looks_like_msprof_db(path);
+    return (looks_like_msprof_db(path) ||
+            looks_like_torch_npu_profiler_db(path)) &&
+           traceloom::ascend_sqlite_has_usable_task_table(path.string());
   }
   if (source_kind == "ascend_sqlite_split") {
     return false;
@@ -328,7 +336,7 @@ bool looks_like_supported_profile_db(const fs::path& path,
   if (traceloom::looks_like_cuda_nsys_sqlite_profile(path.string())) {
     return true;
   }
-  if (looks_like_msprof_db(path)) {
+  if (looks_like_msprof_db(path) || looks_like_torch_npu_profiler_db(path)) {
     return traceloom::ascend_sqlite_has_usable_task_table(path.string());
   }
   return traceloom::looks_like_hygon_sqlite_profile(path.string());
@@ -376,7 +384,7 @@ std::vector<std::string> discover_profile_dbs(const std::string& input,
     throw std::invalid_argument("input path does not exist: " + input);
   } else {
     throw std::invalid_argument(
-        "input is not a supported msprof/Hygon/CUDA profile DB or directory: " +
+        "input is not a supported Ascend/Hygon/CUDA profile DB or directory: " +
         input);
   }
   std::sort(dbs.begin(), dbs.end());

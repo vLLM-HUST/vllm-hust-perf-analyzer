@@ -4,7 +4,8 @@ TraceLoom analyzes profiler output produced outside the tool.
 
 ## Ascend/CANN
 
-The native analyzer accepts one CANN `msprof_*.db` or a directory containing
+The native analyzer accepts one CANN `msprof_*.db`, one
+`torch_npu.profiler` `ascend_pytorch_profiler.db`, or a directory containing
 monolithic or split SQLite output:
 
 ```text
@@ -12,7 +13,12 @@ monolithic or split SQLite output:
 <raw_dir>/PROF_*/msprof_*.db
 <raw_dir>/PROF_*/host/sqlite/*.db
 <raw_dir>/PROF_*/device_*/sqlite/*.db
+<torch_profiler_dir>/*_ascend_pt/ASCEND_PROFILER_OUTPUT/ascend_pytorch_profiler.db
 ```
+
+The `torch_npu.profiler` database must contain the same usable `TASK` schema as
+the monolithic CANN export. TraceLoom reads it directly; renaming or copying it
+to an `msprof_*.db` name is unnecessary.
 
 For each `PROF_*` directory, the native analyzer prefers a monolithic DB with a
 nonempty `TASK` table. If it is absent or unusable, TraceLoom reports a warning
