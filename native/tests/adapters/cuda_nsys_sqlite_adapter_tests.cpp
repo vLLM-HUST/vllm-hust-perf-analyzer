@@ -253,11 +253,42 @@ int main(int argc, char** argv) {
     (void)CudaNsightSQLiteAdapter(malformed_aux_path).load();
   });
 
+  const std::string partial_cuda_event_path =
+      temp_db_path("_partial_cuda_event");
+  create_db(partial_cuda_event_path,
+            "CREATE TABLE CUPTI_ACTIVITY_KIND_KERNEL("
+            "start INTEGER, end INTEGER, deviceId INTEGER, streamId INTEGER);"
+            "INSERT INTO CUPTI_ACTIVITY_KIND_KERNEL VALUES (10, 20, 0, 1);"
+            "CREATE TABLE CUPTI_ACTIVITY_KIND_CUDA_EVENT("
+            "end INTEGER, deviceId INTEGER, contextId INTEGER, "
+            "streamId INTEGER, eventId INTEGER);"
+            "INSERT INTO CUPTI_ACTIVITY_KIND_CUDA_EVENT VALUES "
+            "(30, 0, 1, 7, 3);");
+  require_throws_with("end without start or timestamp", [&]() {
+    (void)CudaNsightSQLiteAdapter(partial_cuda_event_path).load();
+  });
+
+  const std::string malformed_cuda_event_path =
+      temp_db_path("_malformed_cuda_event");
+  create_db(malformed_cuda_event_path,
+            "CREATE TABLE CUPTI_ACTIVITY_KIND_KERNEL("
+            "start INTEGER, end INTEGER, deviceId INTEGER, streamId INTEGER);"
+            "INSERT INTO CUPTI_ACTIVITY_KIND_KERNEL VALUES (10, 20, 0, 1);"
+            "CREATE TABLE CUPTI_ACTIVITY_KIND_CUDA_EVENT("
+            "deviceId INTEGER, eventId INTEGER);"
+            "INSERT INTO CUPTI_ACTIVITY_KIND_CUDA_EVENT VALUES (0, 3);");
+  require_throws_with(
+      "missing identity column(s): contextId, streamId", [&]() {
+        (void)CudaNsightSQLiteAdapter(malformed_cuda_event_path).load();
+      });
+
   if (!keep_fixture) {
     std::remove(db_path.c_str());
   }
   std::remove(fallback_path.c_str());
   std::remove(malformed_path.c_str());
   std::remove(malformed_aux_path.c_str());
+  std::remove(partial_cuda_event_path.c_str());
+  std::remove(malformed_cuda_event_path.c_str());
   return 0;
 }
