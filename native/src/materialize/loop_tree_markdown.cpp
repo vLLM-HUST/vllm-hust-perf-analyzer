@@ -294,6 +294,28 @@ void write_loop_tree_markdown(std::ostream& out,
   out << "- trace_event_count: `" << options.trace_event_count << "`\n";
   out << "- anchor_count: `" << options.anchor_count << "`\n";
 
+  if (options.replay_composition_region_count != 0) {
+    out << "\n## ACLGraph Reconstruction\n\n";
+    out << "- regions: `" << options.replay_composition_region_count
+        << "` (`" << options.recognized_replay_composition_region_count
+        << "` recognized, `"
+        << options.unrecognized_replay_composition_region_count
+        << "` unrecognized)\n";
+    out << "- replay_units: `" << options.replay_unit_count << "` (`"
+        << options.exact_replay_unit_count << "` exact, `"
+        << (options.replay_unit_count >= options.exact_replay_unit_count
+                ? options.replay_unit_count - options.exact_replay_unit_count
+                : 0)
+        << "` legacy)\n\n";
+    out << "| Status | Regions |\n";
+    out << "| --- | ---: |\n";
+    for (const ReconstructionStatusCount& status_count :
+         options.reconstruction_status_counts) {
+      out << "| `" << status_count.status << "` | "
+          << status_count.region_count << " |\n";
+    }
+  }
+
   constexpr std::size_t kTreeColumnWidth = 48;
   constexpr std::size_t kCategoryColumnWidth = 14;
 

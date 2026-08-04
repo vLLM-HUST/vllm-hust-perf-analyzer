@@ -580,6 +580,18 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     COMMAND traceloom_native_result_json_tests
   )
 
+  add_executable(traceloom_native_loop_tree_markdown_tests
+    tests/materialize/loop_tree_markdown_tests.cpp
+  )
+  target_link_libraries(
+    traceloom_native_loop_tree_markdown_tests PRIVATE
+    traceloom_native_materialize
+  )
+  add_test(
+    NAME traceloom_native_loop_tree_markdown_tests
+    COMMAND traceloom_native_loop_tree_markdown_tests
+  )
+
   add_executable(traceloom_native_anchor_cost_breakdown_rows_tests
     tests/compat/anchor_cost_breakdown_rows_tests.cpp
   )

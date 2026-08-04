@@ -7,6 +7,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <map>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -601,6 +602,31 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
       markdown_options.device_id = cli.loop_tree_device_id;
       markdown_options.trace_event_count = ir.trace_events.size();
       markdown_options.anchor_count = ir.anchors.size();
+      markdown_options.replay_composition_region_count =
+          ir.replay_composition_regions.size();
+      markdown_options.replay_unit_count = ir.replay_units.size();
+      std::map<std::string, std::uint64_t> reconstruction_status_counts;
+      for (const traceloom::ReplayCompositionRegionRow& region :
+           ir.replay_composition_regions.rows()) {
+        const std::string status =
+            traceloom::replay_composition_region_status_name(region.status);
+        ++reconstruction_status_counts[status];
+        if (region.status == traceloom::ReplayCompositionRegionStatus::
+                                 kRecognizedCompletePattern) {
+          ++markdown_options.recognized_replay_composition_region_count;
+        } else {
+          ++markdown_options.unrecognized_replay_composition_region_count;
+        }
+      }
+      for (const traceloom::ReplayUnitRow& unit : ir.replay_units.rows()) {
+        if (unit.replay_composition_region_id.valid()) {
+          ++markdown_options.exact_replay_unit_count;
+        }
+      }
+      for (const auto& item : reconstruction_status_counts) {
+        markdown_options.reconstruction_status_counts.push_back(
+            traceloom::ReconstructionStatusCount{item.first, item.second});
+      }
       const Stopwatch loop_tree_render_watch;
       std::ostringstream markdown;
       traceloom::write_loop_tree_markdown(markdown, loop_tree_rows,

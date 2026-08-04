@@ -929,3 +929,20 @@ compatibility sidecars contain 30 `exact_replay_composition` rows and 30
 This establishes real capability-complete TP2 LLM decode promotion; the
 one-shot prefill rule remains covered synthetically because this workload's
 prefill is outside its 30 graph replay compositions.
+
+## Loop Tree Reconstruction Summary
+
+The readable Loop Tree previously showed promoted ReplayUnits but gave no
+adjacent indication that unpromoted ACLGraph structure existed. This made an
+honest unknown easy to misread as “no graph evidence.” The report header now
+adds an `ACLGraph Reconstruction` section whenever reconstruction regions
+exist. It reports recognized and unrecognized region counts, exact and legacy
+ReplayUnit counts, and the stable typed status histogram.
+
+This is summary-only: unknown regions do not become tree nodes, anchors,
+events, or costs. On the older kickstart rank the section reports 11 unknown
+regions (`10` missing body capability and `1` missing completion) and zero
+ReplayUnits. On a capability-complete TP2 rank it reports 30 recognized
+regions, 30 exact ReplayUnits, and zero unknown or legacy units. A renderer
+golden covers both the status table and omission of the section when no
+reconstruction evidence exists.

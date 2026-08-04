@@ -3,10 +3,16 @@
 #include <cstdint>
 #include <iosfwd>
 #include <string>
+#include <vector>
 
 #include "traceloom/compat/sidecar_writer.h"
 
 namespace traceloom {
+
+struct ReconstructionStatusCount {
+  std::string status;
+  std::uint64_t region_count = 0;
+};
 
 struct LoopTreeMarkdownOptions {
   std::string db_label;
@@ -17,6 +23,12 @@ struct LoopTreeMarkdownOptions {
   std::uint32_t device_id = 0;
   std::uint64_t trace_event_count = 0;
   std::uint64_t anchor_count = 0;
+  std::uint64_t replay_composition_region_count = 0;
+  std::uint64_t recognized_replay_composition_region_count = 0;
+  std::uint64_t unrecognized_replay_composition_region_count = 0;
+  std::uint64_t replay_unit_count = 0;
+  std::uint64_t exact_replay_unit_count = 0;
+  std::vector<ReconstructionStatusCount> reconstruction_status_counts;
 };
 
 void write_loop_tree_markdown(

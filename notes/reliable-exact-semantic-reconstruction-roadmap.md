@@ -63,13 +63,21 @@ missing bodies, and body mismatches remain typed unrecognized regions.
 
 ## Active Front
 
-1. Carry the exact/unknown distinction into higher-level report summaries
-   only where it improves a concrete diagnostic, without fabricating events.
+1. Keep exact ACLGraph reconstruction contract- and performance-stable on
+   large profiles while the next analyzer fronts move to main-pipeline idle
+   explanation and provider-neutral lowered-op semantics.
 2. Capture a current-runtime prefill graph only if the runtime actually graphs
    prefill and a concrete consumer needs that additional real promotion case.
    Exact periodic decode promotion is now established on real TP2 LLM data;
    the one-shot prefill rule remains synthetic because this retained workload
    executes prefill outside the 30 decode graph replays.
+
+The Loop Tree now carries the concrete summary that was previously missing:
+total/recognized/unrecognized reconstruction regions, exact/legacy ReplayUnit
+counts, and a typed status histogram. Unknown regions remain absent from the
+tree itself, but are no longer invisible beside it; a kickstart report shows
+`0 exact / 11 unrecognized`, while each capability-complete TP2 rank shows
+`30 exact / 0 unrecognized`.
 
 Cross-stream reconstruction is intentionally **not** an active front. The
 stable TraceLoom boundary is a coarse, permutation-invariant projection of
