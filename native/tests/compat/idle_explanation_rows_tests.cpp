@@ -140,5 +140,39 @@ int main() {
               node_duration(rows, "atom", "capture_control_present") == 0,
           "atom node receives only its own anchor prelude");
 
+  // A point event still carries ordering evidence and owns the prelude ending
+  // at its timestamp. Real CANN profiles contain such zero-duration anchors.
+  const std::vector<ReportToken> point_tokens = {
+      token(0, 0, 10, 20), token(1, 1, 40, 40), token(2, 2, 50, 60)};
+  IdleExplanationRunResult point_explanations;
+  IdleExplanationDeviceResult point_device;
+  point_device.device_id = 0;
+  point_device.explanations = {
+      explanation(20, 40, IdleExplanationCategory::kRuntimeControlPresent,
+                  IdleEvidenceLevel::kDirect),
+      explanation(40, 50,
+                  IdleExplanationCategory::kUnattributedVisibleIdle,
+                  IdleEvidenceLevel::kNone),
+  };
+  point_explanations.devices.push_back(std::move(point_device));
+  NodeCoverageSqlRows point_coverage;
+  point_coverage.node_anchors = {
+      coverage("point-root", "anchor-0"),
+      coverage("point-root", "anchor-1"),
+      coverage("point-root", "anchor-2"),
+  };
+  const IdleExplanationAttributionRows point_rows =
+      build_idle_explanation_attribution_rows(
+          point_tokens, point_explanations, point_coverage);
+  require(point_rows.visible_productive_idle_ns == 30 &&
+              point_rows.anchor_prelude_attributed_ns == 30 &&
+              point_rows.device_only_unassigned_ns == 0,
+          "zero-duration token retains deterministic prelude ownership");
+  require(node_duration(point_rows, "point-root",
+                        "runtime_control_present") == 20 &&
+              node_duration(point_rows, "point-root",
+                            "unattributed_visible_idle") == 10,
+          "point-event prelude attribution conserves category duration");
+
   return 0;
 }

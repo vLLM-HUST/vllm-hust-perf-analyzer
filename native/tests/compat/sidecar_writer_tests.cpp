@@ -892,11 +892,15 @@ int main() {
               "idx_traceloom_cuda_graph_envelope_child",
               "idx_traceloom_cuda_graph_envelope_graph",
               "idx_traceloom_cuda_graph_replay_exec",
+              "idx_traceloom_device_interval_id",
               "idx_traceloom_device_interval_time",
               "idx_traceloom_event_device_step",
+              "idx_traceloom_event_id",
               "idx_traceloom_event_source_lookup",
               "idx_traceloom_evidence_owner",
               "idx_traceloom_idle_explanation_category",
+              "idx_traceloom_idle_explanation_gap",
+              "idx_traceloom_idle_explanation_id",
               "idx_traceloom_node_anchor_anchor",
               "idx_traceloom_node_anchor_node",
               "idx_traceloom_node_anchor_occurrence",
@@ -904,7 +908,9 @@ int main() {
               "idx_traceloom_semantic_edge_tree",
               "idx_traceloom_semantic_node_parent",
               "idx_traceloom_semantic_node_tree_order",
+              "idx_traceloom_stream_state_id",
               "idx_traceloom_stream_state_time",
+              "idx_traceloom_viz_node_id",
           }));
 
   std::vector<traceloom::compat::AnchorCostBreakdownSqlRow> rows(2);

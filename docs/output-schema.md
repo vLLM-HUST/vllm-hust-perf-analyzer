@@ -55,6 +55,19 @@ Use `traceloom --help-advanced` for non-default outputs:
 Only one output may target stdout at a time, and explicit output paths require
 a single input database.
 
+The checked-in SQL audit surfaces are:
+
+- `docs/report-sql/reconstruction-capability-matrix.sql` for exact, typed
+  unknown, and legacy ACLGraph capability outcomes;
+- `docs/report-sql/idle-evidence-summary.sql` for paper-ready E4 category
+  totals and shares; and
+- `docs/report-sql/idle-evidence-audit.sql` for exact partition, lineage, and
+  anchor/root conservation checks.
+
+These queries are executable goldens: the native SQL compatibility test checks
+their columns and known-good outputs, and deliberately corrupts one idle
+interval to prove the audit changes from `PASS` to `FAIL`.
+
 ## Provenance Contract
 
 Native events and sidecar rows retain source kind, source path, source table,

@@ -104,6 +104,20 @@ int run_scalar_int(const std::string& db_path, const std::string& sql) {
   return value;
 }
 
+void execute_sql(const std::string& db_path, const std::string& sql) {
+  sqlite3* db = nullptr;
+  int rc = sqlite3_open_v2(db_path.c_str(), &db, SQLITE_OPEN_READWRITE,
+                           nullptr);
+  traceloom::testing::require(rc == SQLITE_OK);
+  char* error = nullptr;
+  rc = sqlite3_exec(db, sql.c_str(), nullptr, nullptr, &error);
+  if (error != nullptr) {
+    sqlite3_free(error);
+  }
+  traceloom::testing::require(rc == SQLITE_OK);
+  sqlite3_close(db);
+}
+
 void require_event_source_invariants(const std::string& db_path) {
   traceloom::testing::require(run_scalar_int(
                                   db_path,
@@ -669,6 +683,249 @@ void seed_graph_replay_fixture(const std::string& db_path) {
   write_graph_replay_fixture_via_asset_writers(db_path, rows);
 }
 
+void seed_reconstruction_capability_fixture(const std::string& db_path) {
+  using namespace traceloom::compat;
+  replace_metadata_rows(
+      db_path,
+      {{"source_kind", "ascend_sqlite_hot_path"},
+       {"source_path", "capability-golden.db"}});
+
+  GraphReplayEvidenceSqlRows rows;
+  const auto add_region = [&](std::uint32_t order,
+                              const std::string& status,
+                              const std::string& order_policy) {
+    GraphReconstructionRegionSqlRow row;
+    row.region_id = "region-" + std::to_string(order);
+    row.candidate_id = "candidate-1";
+    row.region_order = order;
+    row.status = status;
+    row.boundary_policy = "exact_periodic_suffix";
+    row.order_policy = order_policy;
+    row.identity_policy = "graph_connection";
+    row.shape_policy = "head_repeated_layer_tail";
+    row.first_launch_occurrence_id = order * 10;
+    row.last_launch_occurrence_id = order * 10 + 1;
+    row.observed_launch_count = 2;
+    row.expected_launch_count = 2;
+    row.start_ns = static_cast<std::int64_t>(order) * 100;
+    row.end_ns = row.start_ns + 100;
+    row.dur_us = 0.1;
+    rows.reconstruction_regions.push_back(std::move(row));
+  };
+  add_region(0, "recognized_complete_pattern", "host_submission_order");
+  add_region(1, "recognized_complete_pattern", "host_submission_order");
+  add_region(2, "unrecognized_missing_body_capability",
+             "host_submission_order");
+  add_region(3, "unrecognized_missing_completion_evidence",
+             "device_execution_order");
+  add_region(4, "unrecognized_incomplete_tail", "device_execution_order");
+
+  GraphReplaySqlRow exact;
+  exact.graph_event_id = "event-exact-replay";
+  exact.graph_provider = "aclgraph";
+  exact.graph_kind = "aclgraph_graph_replay";
+  exact.graph_event_idx = 0;
+  exact.event_id = exact.graph_event_id;
+  exact.raw_json =
+      "{\"reconstruction\":\"exact_replay_composition\"}";
+  rows.graph_replays.push_back(std::move(exact));
+  replace_graph_replay_evidence_rows(db_path, rows);
+}
+
+void seed_idle_evidence_fixture(const std::string& db_path) {
+  using namespace traceloom::compat;
+  EventSqlRows events;
+  EventSqlRow wait_event;
+  wait_event.event_id = "event-wait-1";
+  wait_event.source_table = "TASK";
+  wait_event.source_key = "17";
+  wait_event.stream_id = 7;
+  wait_event.start_ns = 100;
+  wait_event.end_ns = 150;
+  wait_event.dur_us = 0.05;
+  wait_event.category = "wait";
+  wait_event.role = "aux";
+  wait_event.semantic_role = "visible_wait";
+  wait_event.symbol = "EVENT_WAIT";
+  events.events.push_back(wait_event);
+  EventSourceSqlRow wait_source;
+  wait_source.event_id = wait_event.event_id;
+  wait_source.source_table = wait_event.source_table;
+  wait_source.source_key = wait_event.source_key;
+  wait_source.source_role = "primary";
+  events.event_sources.push_back(wait_source);
+  EventSqlRow compute_event;
+  compute_event.event_id = "event-compute-1";
+  compute_event.source_table = "TASK";
+  compute_event.source_key = "18";
+  compute_event.stream_id = 5;
+  compute_event.start_ns = 300;
+  compute_event.end_ns = 400;
+  compute_event.dur_us = 0.1;
+  compute_event.category = "compute";
+  compute_event.role = "compute";
+  compute_event.semantic_role = "productive_compute";
+  compute_event.symbol = "MatMul";
+  events.events.push_back(compute_event);
+  EventSourceSqlRow compute_source;
+  compute_source.event_id = compute_event.event_id;
+  compute_source.source_table = compute_event.source_table;
+  compute_source.source_key = compute_event.source_key;
+  compute_source.source_role = "primary";
+  events.event_sources.push_back(compute_source);
+  replace_event_rows(db_path, events);
+
+  AnchorSqlRow anchor;
+  anchor.anchor_id = "anchor-1";
+  anchor.anchor_idx = 1;
+  anchor.event_id = compute_event.event_id;
+  anchor.symbol = "MatMul";
+  anchor.start_ns = 300;
+  anchor.end_ns = 400;
+  replace_anchor_rows(db_path, {anchor});
+
+  LoopTreeSqlRows tree;
+  VizNodeSqlRow root;
+  root.node_id = "node-root";
+  root.local_node_id = "N001";
+  root.path = "N001";
+  root.node_type = "Seq";
+  root.kind = "seq";
+  root.label = "Seq";
+  root.anchor_count = 1;
+  tree.nodes.push_back(root);
+  replace_loop_tree_rows(db_path, tree);
+
+  IdleEvidenceSqlRows idle;
+  RunMetadataSqlRow metadata;
+  metadata.run_id = "golden-run";
+  metadata.analysis_status = "ok";
+  metadata.has_span = true;
+  metadata.span_start_ns = 0;
+  metadata.span_end_ns = 400;
+  metadata.contract_version = "idle-evidence-contract-v4.3";
+  metadata.semantic_rules_version = "idle-evidence-semantic-v1";
+  metadata.semantic_rules_sha256 = "golden-semantic-sha";
+  metadata.attribution_rule_version = "device_projection_v1";
+  metadata.host_api_rules_version = "not_loaded";
+  metadata.collection_status = "unknown";
+  metadata.source_kind = "fixture";
+  metadata.source_path = "idle-evidence-golden";
+  metadata.metadata_json = "{}";
+  idle.run_metadata.push_back(metadata);
+
+  const auto add_interval = [&](const std::string& id,
+                                std::uint32_t order,
+                                std::int64_t start_ns,
+                                std::int64_t end_ns,
+                                const std::string& kind) {
+    DeviceIntervalSqlRow row;
+    row.interval_id = id;
+    row.run_id = metadata.run_id;
+    row.interval_order = order;
+    row.start_ns = start_ns;
+    row.end_ns = end_ns;
+    row.duration_ns = static_cast<std::uint64_t>(end_ns - start_ns);
+    row.duration_us = static_cast<double>(row.duration_ns) / 1000.0;
+    row.interval_kind = kind;
+    row.clock_domain = "device";
+    row.contract_version = metadata.contract_version;
+    row.semantic_rules_version = metadata.semantic_rules_version;
+    row.attribution_rule_version = metadata.attribution_rule_version;
+    idle.device_intervals.push_back(std::move(row));
+  };
+  add_interval("interval-active-0", 0, 0, 100, "productive_active");
+  add_interval("interval-gap-1", 1, 100, 300,
+               "visible_productive_idle");
+  add_interval("interval-active-2", 2, 300, 400, "productive_active");
+
+  const auto add_explanation = [&](const std::string& id,
+                                   std::uint32_t order,
+                                   std::int64_t start_ns,
+                                   std::int64_t end_ns,
+                                   const std::string& category,
+                                   const std::string& level,
+                                   const std::string& relation) {
+    IdleExplanationSqlRow row;
+    row.idle_explanation_id = id;
+    row.run_id = metadata.run_id;
+    row.gap_interval_id = "interval-gap-1";
+    row.explanation_order = order;
+    row.start_ns = start_ns;
+    row.end_ns = end_ns;
+    row.duration_ns = static_cast<std::uint64_t>(end_ns - start_ns);
+    row.duration_us = static_cast<double>(row.duration_ns) / 1000.0;
+    row.category = category;
+    row.evidence_level = level;
+    row.evidence_relation = relation;
+    row.alignment_status = "not_required";
+    row.collection_status = "unknown";
+    row.clock_domain = "device";
+    row.contract_version = metadata.contract_version;
+    row.semantic_rules_version = metadata.semantic_rules_version;
+    row.attribution_rule_version = metadata.attribution_rule_version;
+    idle.idle_explanations.push_back(std::move(row));
+  };
+  add_explanation("explanation-wait", 0, 100, 150,
+                  "blocked_by_visible_wait", "direct",
+                  "device_event_coverage");
+  add_explanation("explanation-unattributed", 1, 150, 300,
+                  "unattributed_visible_idle", "none", "none");
+
+  EvidenceLinkSqlRow evidence;
+  evidence.owner_kind = "explanation";
+  evidence.owner_id = "explanation-wait";
+  evidence.source_kind = "fixture";
+  evidence.source_table = "TASK";
+  evidence.source_key = "17";
+  evidence.relation = "device_event_coverage";
+  evidence.evidence_level = "direct";
+  evidence.has_overlap = true;
+  evidence.overlap_start_ns = 100;
+  evidence.overlap_end_ns = 150;
+  evidence.has_stream_id = true;
+  evidence.stream_id = 7;
+  evidence.state = "running_wait";
+  evidence.trace_event_id = wait_event.event_id;
+  evidence.matched_rule_id = "wait.event_wait";
+  idle.evidence_links.push_back(std::move(evidence));
+
+  const auto add_anchor_idle = [&](const std::string& category,
+                                   const std::string& level,
+                                   std::uint64_t duration_ns) {
+    AnchorIdleExplanationSqlRow row;
+    row.anchor_id = anchor.anchor_id;
+    row.run_id = metadata.run_id;
+    row.anchor_idx = anchor.anchor_idx;
+    row.category = category;
+    row.evidence_level = level;
+    row.slice_count = 1;
+    row.duration_ns = duration_ns;
+    row.duration_us = static_cast<double>(duration_ns) / 1000.0;
+    idle.anchor_attribution.push_back(std::move(row));
+  };
+  add_anchor_idle("blocked_by_visible_wait", "direct", 50);
+  add_anchor_idle("unattributed_visible_idle", "none", 150);
+
+  const auto add_node_idle = [&](const std::string& category,
+                                 const std::string& level,
+                                 std::uint64_t duration_ns) {
+    NodeIdleExplanationSqlRow row;
+    row.node_id = root.node_id;
+    row.run_id = metadata.run_id;
+    row.view_name = root.view_name;
+    row.category = category;
+    row.evidence_level = level;
+    row.slice_count = 1;
+    row.duration_ns = duration_ns;
+    row.duration_us = static_cast<double>(duration_ns) / 1000.0;
+    idle.node_attribution.push_back(std::move(row));
+  };
+  add_node_idle("blocked_by_visible_wait", "direct", 50);
+  add_node_idle("unattributed_visible_idle", "none", 150);
+  replace_idle_evidence_rows(db_path, idle);
+}
+
 void seed_semantic_tree_fixture(const std::string& db_path) {
   traceloom::compat::SemanticTreeSqlRows rows;
 
@@ -777,6 +1034,50 @@ std::vector<QueryCase> active_query_cases() {
           1,
       },
       QueryCase{
+          "idle-evidence-audit.sql",
+          {
+              "run_id",
+              "analysis_status",
+              "collection_status",
+              "device_interval_count",
+              "productive_active_ns",
+              "visible_productive_idle_ns",
+              "explanation_slice_count",
+              "explanation_ns",
+              "partition_delta_ns",
+              "gap_link_errors",
+              "gap_partition_errors",
+              "explanation_overlap_errors",
+              "stream_partition_errors",
+              "evidence_source_errors",
+              "evidence_extent_errors",
+              "evidence_owner_errors",
+              "anchor_orphan_errors",
+              "node_orphan_errors",
+              "anchor_attributed_ns",
+              "root_attributed_ns",
+              "device_only_residual_ns",
+              "audit_status",
+          },
+          1,
+      },
+      QueryCase{
+          "idle-evidence-summary.sql",
+          {
+              "run_id",
+              "analysis_status",
+              "collection_status",
+              "category",
+              "evidence_level",
+              "evidence_relation",
+              "slice_count",
+              "duration_ns",
+              "duration_us",
+              "gap_share_pct",
+          },
+          1,
+      },
+      QueryCase{
           "node-events.sql",
           {
               "node",
@@ -829,6 +1130,29 @@ std::vector<QueryCase> active_query_cases() {
               "avg_total_us",
               "anchor_us",
               "aux_us",
+          },
+          1,
+      },
+      QueryCase{
+          "reconstruction-capability-matrix.sql",
+          {
+              "source_kind",
+              "source_path",
+              "capability_state",
+              "body_capability",
+              "completion_capability",
+              "ordering_mode",
+              "region_count",
+              "recognized_region_count",
+              "unrecognized_region_count",
+              "missing_body_capability_count",
+              "missing_body_evidence_count",
+              "missing_completion_evidence_count",
+              "incomplete_tail_count",
+              "body_mismatch_count",
+              "leading_context_count",
+              "exact_replay_unit_count",
+              "legacy_replay_unit_count",
           },
           1,
       },
@@ -952,6 +1276,12 @@ int main() {
     } else if (query_case.filename == "cuda-graph-envelope.sql") {
       seed_graph_replay_fixture(db_path);
       require_graph_replay_invariants(db_path);
+    } else if (query_case.filename == "idle-evidence-audit.sql" ||
+               query_case.filename == "idle-evidence-summary.sql") {
+      seed_idle_evidence_fixture(db_path);
+    } else if (query_case.filename ==
+               "reconstruction-capability-matrix.sql") {
+      seed_reconstruction_capability_fixture(db_path);
     } else if (query_case.filename == "node-events.sql" ||
                query_case.filename == "node-occurrences.sql" ||
                query_case.filename == "repeat-overview.sql" ||
@@ -996,6 +1326,72 @@ int main() {
       require(result.first_row[8] == "2");
       require(result.first_row[12] == "21");
       require(result.first_row[13] == "22");
+    } else if (query_case.filename == "idle-evidence-audit.sql") {
+      require(result.row_count == 1);
+      require(result.first_row[0] == "golden-run");
+      require(result.first_row[1] == "ok");
+      require(result.first_row[2] == "unknown");
+      require(result.first_row[3] == "3");
+      require(result.first_row[4] == "200");
+      require(result.first_row[5] == "200");
+      require(result.first_row[6] == "2");
+      require(result.first_row[7] == "200");
+      for (std::size_t index = 8; index <= 17; ++index) {
+        require(result.first_row[index] == "0");
+      }
+      require(result.first_row[18] == "200");
+      require(result.first_row[19] == "200");
+      require(result.first_row[20] == "0");
+      require(result.first_row[21] == "PASS");
+
+      execute_sql(db_path,
+                  "UPDATE traceloom_idle_explanation "
+                  "SET duration_ns = duration_ns + 1 "
+                  "WHERE idle_explanation_id = 'explanation-wait'");
+      const QueryResult corrupted = run_query(db_path, query_case);
+      require(corrupted.row_count == 1);
+      require(corrupted.first_row[21] == "FAIL");
+
+      execute_sql(db_path,
+                  "UPDATE traceloom_idle_explanation "
+                  "SET duration_ns = duration_ns - 1 "
+                  "WHERE idle_explanation_id = 'explanation-wait'; "
+                  "UPDATE traceloom_evidence_link "
+                  "SET overlap_end_ns = overlap_end_ns + 1 "
+                  "WHERE owner_id = 'explanation-wait'");
+      const QueryResult escaped_extent = run_query(db_path, query_case);
+      require(escaped_extent.row_count == 1);
+      require(escaped_extent.first_row[14] == "1");
+      require(escaped_extent.first_row[21] == "FAIL");
+    } else if (query_case.filename == "idle-evidence-summary.sql") {
+      require(result.row_count == 2);
+      require(result.first_row[0] == "golden-run");
+      require(result.first_row[3] == "blocked_by_visible_wait");
+      require(result.first_row[4] == "direct");
+      require(result.first_row[5] == "device_event_coverage");
+      require(result.first_row[6] == "1");
+      require(result.first_row[7] == "50");
+      require(result.first_row[8] == "0.05");
+      require(result.first_row[9] == "25.0" ||
+              result.first_row[9] == "25");
+    } else if (query_case.filename ==
+               "reconstruction-capability-matrix.sql") {
+      require(result.row_count == 1);
+      require(result.first_row[0] == "ascend_sqlite_hot_path");
+      require(result.first_row[1] == "capability-golden.db");
+      require(result.first_row[2] == "capability_incomplete");
+      require(result.first_row[3] == "unavailable");
+      require(result.first_row[4] == "incomplete");
+      require(result.first_row[5] == "mixed");
+      require(result.first_row[6] == "5");
+      require(result.first_row[7] == "2");
+      require(result.first_row[8] == "3");
+      require(result.first_row[9] == "1");
+      require(result.first_row[10] == "0");
+      require(result.first_row[11] == "1");
+      require(result.first_row[12] == "1");
+      require(result.first_row[15] == "1");
+      require(result.first_row[16] == "0");
     } else if (query_case.filename == "node-events.sql") {
       require(result.row_count == 1);
       require(result.first_row[0] == "N027");

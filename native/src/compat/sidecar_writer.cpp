@@ -1284,6 +1284,9 @@ void materialize_report_compatibility_indexes(SqliteDb& db) {
       "CREATE INDEX IF NOT EXISTS idx_traceloom_event_device_step "
       "ON traceloom_event(db_idx, device_id, step_idx)");
   db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_event_id "
+      "ON traceloom_event(event_id)");
+  db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_event_source_lookup "
       "ON traceloom_event_source(source_table, source_key)");
   db.exec(
@@ -1312,6 +1315,9 @@ void materialize_report_compatibility_indexes(SqliteDb& db) {
       "CREATE INDEX IF NOT EXISTS idx_traceloom_node_anchor_node "
       "ON traceloom_viz_node_anchor(node_id)");
   db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_viz_node_id "
+      "ON traceloom_viz_node(node_id)");
+  db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_node_anchor_occurrence "
       "ON traceloom_viz_node_anchor(node_id, db_idx, device_id, view_name, "
       "occurrence_idx)");
@@ -1338,13 +1344,26 @@ void materialize_report_compatibility_indexes(SqliteDb& db) {
       "CREATE INDEX IF NOT EXISTS idx_traceloom_device_interval_time "
       "ON traceloom_device_interval(run_id, device_id, start_ns, end_ns)");
   db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_device_interval_id "
+      "ON traceloom_device_interval(interval_id)");
+  db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_stream_state_time "
       "ON traceloom_stream_state(run_id, device_id, stream_id, start_ns, "
       "end_ns)");
   db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_stream_state_id "
+      "ON traceloom_stream_state(state_id)");
+  db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_idle_explanation_category "
       "ON traceloom_idle_explanation(run_id, device_id, category, start_ns, "
       "end_ns)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_idle_explanation_id "
+      "ON traceloom_idle_explanation(idle_explanation_id)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_idle_explanation_gap "
+      "ON traceloom_idle_explanation(run_id, gap_interval_id, "
+      "explanation_order)");
   db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_evidence_owner "
       "ON traceloom_evidence_link(owner_kind, owner_id, evidence_ordinal)");
@@ -2711,13 +2730,26 @@ void replace_idle_evidence_rows(const std::string& sqlite_path,
         "CREATE INDEX IF NOT EXISTS idx_traceloom_device_interval_time "
         "ON traceloom_device_interval(run_id, device_id, start_ns, end_ns)");
     db.exec(
+        "CREATE INDEX IF NOT EXISTS idx_traceloom_device_interval_id "
+        "ON traceloom_device_interval(interval_id)");
+    db.exec(
         "CREATE INDEX IF NOT EXISTS idx_traceloom_stream_state_time "
         "ON traceloom_stream_state(run_id, device_id, stream_id, start_ns, "
         "end_ns)");
     db.exec(
+        "CREATE INDEX IF NOT EXISTS idx_traceloom_stream_state_id "
+        "ON traceloom_stream_state(state_id)");
+    db.exec(
         "CREATE INDEX IF NOT EXISTS idx_traceloom_idle_explanation_category "
         "ON traceloom_idle_explanation(run_id, device_id, category, start_ns, "
         "end_ns)");
+    db.exec(
+        "CREATE INDEX IF NOT EXISTS idx_traceloom_idle_explanation_id "
+        "ON traceloom_idle_explanation(idle_explanation_id)");
+    db.exec(
+        "CREATE INDEX IF NOT EXISTS idx_traceloom_idle_explanation_gap "
+        "ON traceloom_idle_explanation(run_id, gap_interval_id, "
+        "explanation_order)");
     db.exec(
         "CREATE INDEX IF NOT EXISTS idx_traceloom_evidence_owner "
         "ON traceloom_evidence_link(owner_kind, owner_id, evidence_ordinal)");

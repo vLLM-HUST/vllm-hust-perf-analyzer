@@ -64,8 +64,8 @@ missing bodies, and body mismatches remain typed unrecognized regions.
 ## Active Front
 
 1. Keep exact ACLGraph reconstruction contract- and performance-stable on
-   large profiles while the next analyzer fronts move to main-pipeline idle
-   explanation and provider-neutral lowered-op semantics.
+   large profiles while the next analyzer fronts move to provider-neutral
+   lowered-op semantics and paper evaluation.
 2. Capture a current-runtime prefill graph only if the runtime actually graphs
    prefill and a concrete consumer needs that additional real promotion case.
    Exact periodic decode promotion is now established on real TP2 LLM data;
@@ -134,8 +134,8 @@ matches that value, all explanation-to-gap links resolve, and all 143,355
 materialized source links resolve to compatibility timeline events. The next
 idle-evidence front is therefore optional host/device correlation (only after
 real clock calibration and host allowlist import), not more device-only
-heuristics. Nearer-term analyzer work should use the new raw tables to harden
-goldens, capability matrices, and paper evaluation queries.
+heuristics. The raw tables now have checked-in capability, summary, and audit
+queries suitable for regression and paper evaluation.
 
 Cross-stream reconstruction is intentionally **not** an active front. The
 stable TraceLoom boundary is a coarse, permutation-invariant projection of
@@ -235,6 +235,39 @@ four retain all 14 launch
 members as five typed unknown regions and promote no ReplayUnits; the last
 still promotes four exact units using device execution order.
 
+## 2026-08-04 Golden SQL Audit Contract
+
+Three checked-in, executable SQL reports freeze the paper-facing evidence
+surface. `reconstruction-capability-matrix.sql` reduces the typed region ledger
+and replay rows into capability, body, completion, ordering, recognition, and
+legacy outcomes. `idle-evidence-summary.sql` emits exact category totals and
+visible-gap shares. `idle-evidence-audit.sql` checks interval arithmetic,
+per-gap partition and non-overlap, stream adjacency, source/owner lineage,
+evidence extents, anchor/node references, and root conservation before
+returning `PASS` or `FAIL`.
+
+The SQL compatibility golden fixes the column contracts and known-good values,
+then corrupts one explanation duration and requires the audit to change from
+`PASS` to `FAIL`. Supporting identity indexes keep lineage checks bounded on
+large sidecars.
+
+The matrix separates the two important real outcomes without interpretation:
+the older kickstart artifact reports `capability_incomplete`, unavailable body
+capability, incomplete completion evidence, 11 typed unknown regions, and zero
+promoted units; a capability-complete TP2 split rank reports available body and
+completion evidence, device-execution ordering, 30 recognized regions, 30
+exact ReplayUnits, and zero unknown or legacy units. The TP2 idle sidecar also
+passes every audit invariant over 40,055 device intervals, 37,160 explanation
+slices, and 221,377 evidence links. Its 47,986,216,440 ns visible gap is
+conserved exactly; 47,191,604,280 ns maps to anchor/root preludes and
+794,612,160 ns remains explicit device-only residual.
+
+That real split profile also contains zero-duration CANN anchor events. They
+are retained as ordering observations that may own the immediately preceding
+prelude but contribute no productive duration; only inverted intervals are
+rejected. This prevents valid point events from aborting sidecar materialization
+without weakening duration conservation.
+
 ## 2026-08-04 Hierarchical Projection And Cost Gate
 
 Exact replay units are now seeded as atomic semantic grammar symbols keyed by
@@ -249,8 +282,8 @@ Before the schema capability gate, the two kickstart ranks exposed the decode
 body as `[MatMul, AllReduce, BroadcastTo, ReplayUnit T2] x8/x6`. That result
 remains useful structural evidence, but it is no longer emitted as exact
 because those artifacts cannot prove the captured stream set. The hierarchical
-ReplayUnit path remains covered by capability-complete synthetic fixtures
-until a fresh LLM trace supplies the missing real evidence.
+ReplayUnit path is covered by capability-complete synthetic fixtures and by
+the retained TP2 LLM ranks, which independently promote 30 exact units.
 
 The report-tree validator now checks that every structural node's children
 exactly tile its span, atoms own one token, every occurrence has one matching
@@ -287,12 +320,15 @@ metadata cannot establish a complete lane set.
 
 ## Following Fronts
 
-- capability-complete real LLM H/L/T capture and promotion;
-- main-pipeline idle explanation and Loop Tree aggregation;
-- provider-neutral lowered-op and graph semantics;
-- portable S1-S6, ambiguity, truncation, and cost-conservation
-  golden fixtures;
-- versioned JSON/SQLite/report contracts and large-profile performance gates.
+- provider-neutral lowered-op and graph semantics, beginning with the CUDA
+  workspace handoff while keeping the Ascend evidence contract authoritative;
+- paper claim/evaluation tables built only from checked SQL and retained
+  artifacts;
+- portable ambiguity, truncation, lineage, and cost-conservation regression
+  fixtures as new provider/schema variants appear;
+- versioned JSON/SQLite/report contracts and large-profile performance gates;
+- optional host/device correlation only after real clock calibration and a
+  provider-validated host allowlist exist.
 
 ## Promotion Gate
 

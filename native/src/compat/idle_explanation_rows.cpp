@@ -40,9 +40,12 @@ std::map<std::uint32_t, std::vector<PreludeWindow>> build_prelude_windows(
       throw std::invalid_argument(
           "idle attribution requires every ReportToken to own an anchor");
     }
-    if (token.end_ns <= token.start_ns) {
+    // Zero-duration profiler events are valid ordering observations.  They do
+    // not add productive time, but may still own the idle prelude immediately
+    // before their timestamp.  Only an inverted interval is malformed.
+    if (token.end_ns < token.start_ns) {
       throw std::invalid_argument(
-          "idle attribution received a non-positive ReportToken interval");
+          "idle attribution received an inverted ReportToken interval");
     }
     by_device[token.device_id].push_back(&token);
   }
