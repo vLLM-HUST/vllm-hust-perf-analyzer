@@ -188,5 +188,11 @@ An explicit ruleset override that fails to load exits non-zero; it never
 silently falls back. `TRACELOOM_IDLE_EVIDENCE_RULES` selects the default
 ruleset path. The E2 productive-timeline library
 (`build_productive_timelines`) consumes these roles to build per-device
-productive timelines and visible gaps; main CLI / SQL materialization
-remains deferred to a later milestone.
+productive timelines and visible gaps. E3
+(`build_stream_state_timelines`) builds the observed per-stream partition,
+and E4 (`build_idle_gap_explanations`) slices each visible gap into the frozen,
+mutually exclusive explanation categories. Correlated host intervals are
+accepted only after an upstream stage has passed the contract's calibration
+and robustness gates; absence attribution additionally requires explicit
+collection-completeness attestation. Main CLI / SQL materialization remains
+deferred to a later milestone.

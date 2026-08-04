@@ -15,6 +15,7 @@ set(TRACELOOM_NATIVE_ASCEND_SQLITE_AVAILABLE OFF)
 add_library(traceloom_native_core
   src/analysis/exact_periodic_suffix.cpp
   src/analysis/flat_anchor_builder.cpp
+  src/analysis/idle_gap_explanation.cpp
   src/analysis/idle_evidence_semantic_rules.cpp
   src/analysis/productive_timeline.cpp
   src/analysis/semantic_task_classifier.cpp
@@ -474,6 +475,17 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
   add_test(
     NAME traceloom_native_stream_state_timeline_tests
     COMMAND traceloom_native_stream_state_timeline_tests
+  )
+
+  add_executable(traceloom_native_idle_gap_explanation_tests
+    tests/analysis/idle_gap_explanation_tests.cpp
+  )
+  target_link_libraries(
+    traceloom_native_idle_gap_explanation_tests PRIVATE traceloom_native_core
+  )
+  add_test(
+    NAME traceloom_native_idle_gap_explanation_tests
+    COMMAND traceloom_native_idle_gap_explanation_tests
   )
 
   add_executable(traceloom_native_pipeline_tests

@@ -75,6 +75,11 @@ struct StreamStateSourceLink {
   SourceRefId source_ref_id;
   // Classification rule id for task links; absent for communication ops.
   std::optional<std::string> matched_rule_id;
+  // State contributed by this canonical source. This is redundant for a
+  // non-overlapping interval, but is required by E4 to recover the semantic
+  // components of an ambiguous_overlap interval without re-running E1 or
+  // re-reading the IR.
+  StreamState observed_state = StreamState::kUnknown;
 
   friend bool operator==(const StreamStateSourceLink& lhs,
                          const StreamStateSourceLink& rhs) {
@@ -83,7 +88,8 @@ struct StreamStateSourceLink {
            lhs.task_id == rhs.task_id &&
            lhs.communication_op_id == rhs.communication_op_id &&
            lhs.source_ref_id == rhs.source_ref_id &&
-           lhs.matched_rule_id == rhs.matched_rule_id;
+           lhs.matched_rule_id == rhs.matched_rule_id &&
+           lhs.observed_state == rhs.observed_state;
   }
 };
 
