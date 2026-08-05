@@ -181,6 +181,20 @@ traceloom examples/kickstart_smoke/msprof_raw
 112 个结构节点，并在两张设备上恢复出相同的 `Repeat x36 -> Repeat x24`
 transformer 嵌套结构。
 
+## 小型论文 Artifact
+
+仓库还在
+[`examples/paper_artifacts/ascend_interleaved`](examples/paper_artifacts/ascend_interleaved)
+内置了一对总计 3.55 MiB 的 Ascend profiler 缩减数据库，便于快速审阅精确重建
+能力。它保留了四个精确 graph unit，以及穿插其间的一大两小完整 productive
+sequence，同时保留原始行 provenance 和相对完整 profile 的等价性清单。验证器会
+重新分析两份输入，检查结构审计与隐私边界，并把生成报告留在 Git 之外：
+
+```bash
+examples/paper_artifacts/tools/verify_ascend_interleaved.py \
+  --traceloom build/native-tests/native/traceloom
+```
+
 ## 开发检查
 
 ```bash

@@ -857,6 +857,21 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
   )
 
   if(TRACELOOM_NATIVE_ASCEND_SQLITE_AVAILABLE)
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+
+    if(Python3_Interpreter_FOUND)
+      add_test(
+        NAME traceloom_native_ascend_interleaved_artifact
+        COMMAND ${Python3_EXECUTABLE}
+          ${CMAKE_CURRENT_SOURCE_DIR}/../examples/paper_artifacts/tools/verify_ascend_interleaved.py
+          --traceloom $<TARGET_FILE:traceloom>
+      )
+      set_tests_properties(
+        traceloom_native_ascend_interleaved_artifact
+        PROPERTIES LABELS "artifact" TIMEOUT 60
+      )
+    endif()
+
     add_executable(traceloom_native_ascend_sqlite_adapter_tests
       tests/adapters/ascend_sqlite_adapter_tests.cpp
     )

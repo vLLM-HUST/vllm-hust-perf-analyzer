@@ -211,6 +211,21 @@ The capture contains more than 1.18 million selected profiler rows. TraceLoom
 compresses them into 112 structural nodes and recovers the same nested
 `Repeat x36 -> Repeat x24` transformer pattern on both devices.
 
+## Small Paper Artifact
+
+For a fast, reviewable exact-reconstruction example, the repository also
+includes a 3.55 MiB pair of reduced Ascend profiler databases under
+[`examples/paper_artifacts/ascend_interleaved`](examples/paper_artifacts/ascend_interleaved).
+It preserves four exact graph units plus the complete large/small productive
+sequences interleaved between them, with source-row provenance and a
+full-profile equivalence manifest. The verifier analyzes both inputs, checks
+the structural audit and privacy boundary, and leaves reports outside Git:
+
+```bash
+examples/paper_artifacts/tools/verify_ascend_interleaved.py \
+  --traceloom build/native-tests/native/traceloom
+```
+
 ## Development
 
 ```bash
