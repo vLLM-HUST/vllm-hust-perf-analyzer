@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include <utility>
 
+#include "traceloom/pattern/candidate_reduce.h"
 #include "traceloom/runtime/thread_pool.h"
 
 namespace traceloom {
@@ -59,6 +60,37 @@ void remove_ambiguous_key_occurrences(CandidateScanResult& result) {
                      }),
       result.occurrences.end());
 }
+
+std::vector<CandidateKey> ambiguous_keys(
+    const std::vector<CandidateDiagnostic>& diagnostics) {
+  std::vector<CandidateKey> blocked_keys;
+  for (const CandidateDiagnostic& diagnostic : diagnostics) {
+    if (diagnostic.code ==
+        CandidateDiagnosticCode::kAmbiguousIntervalBlocksCandidate) {
+      blocked_keys.push_back(diagnostic.key);
+    }
+  }
+  std::sort(blocked_keys.begin(), blocked_keys.end());
+  blocked_keys.erase(std::unique(blocked_keys.begin(), blocked_keys.end()),
+                     blocked_keys.end());
+  return blocked_keys;
+}
+
+bool summary_less(const CandidateSummaryRow& lhs,
+                  const CandidateSummaryRow& rhs) {
+  if (lhs.key < rhs.key) {
+    return true;
+  }
+  if (rhs.key < lhs.key) {
+    return false;
+  }
+  return lhs.first_begin < rhs.first_begin;
+}
+
+struct LocalCandidateAggregate {
+  std::vector<CandidateSummaryRow> summaries;
+  std::vector<CandidateDiagnostic> diagnostics;
+};
 
 }  // namespace
 
@@ -143,6 +175,65 @@ CandidateScanResult scan_candidate_partitions_with_diagnostics(
         std::make_move_iterator(local.diagnostics.end()));
   }
   remove_ambiguous_key_occurrences(result);
+  return result;
+}
+
+CandidateAggregateResult scan_and_reduce_candidate_partitions(
+    const ProtectedSequence& sequence,
+    const BoundaryIndex& boundaries,
+    const PartitionPlan& plan,
+    CandidateScanConfig config,
+    std::size_t thread_count) {
+  std::vector<LocalCandidateAggregate> local_results(plan.size());
+  ThreadPool pool(thread_count);
+  pool.parallel_for(plan.size(), [&](std::size_t partition_index) {
+    CandidateScanResult scan = scan_candidates_with_diagnostics(
+        sequence, boundaries, plan.partition_at(partition_index), config);
+    local_results[partition_index].summaries =
+        reduce_candidates(std::move(scan.occurrences));
+    local_results[partition_index].diagnostics = std::move(scan.diagnostics);
+  });
+
+  std::size_t summary_count = 0;
+  std::size_t diagnostic_count = 0;
+  for (const LocalCandidateAggregate& local : local_results) {
+    summary_count += local.summaries.size();
+    diagnostic_count += local.diagnostics.size();
+  }
+
+  CandidateAggregateResult result;
+  result.diagnostics.reserve(diagnostic_count);
+  std::vector<CandidateSummaryRow> mapped_summaries;
+  mapped_summaries.reserve(summary_count);
+  for (LocalCandidateAggregate& local : local_results) {
+    mapped_summaries.insert(
+        mapped_summaries.end(),
+        std::make_move_iterator(local.summaries.begin()),
+        std::make_move_iterator(local.summaries.end()));
+    result.diagnostics.insert(
+        result.diagnostics.end(),
+        std::make_move_iterator(local.diagnostics.begin()),
+        std::make_move_iterator(local.diagnostics.end()));
+  }
+
+  const std::vector<CandidateKey> blocked_keys =
+      ambiguous_keys(result.diagnostics);
+  std::sort(mapped_summaries.begin(), mapped_summaries.end(), summary_less);
+  result.summaries.reserve(mapped_summaries.size());
+  for (CandidateSummaryRow& row : mapped_summaries) {
+    if (std::binary_search(blocked_keys.begin(), blocked_keys.end(), row.key)) {
+      continue;
+    }
+    result.occurrence_count += row.occurrence_count;
+    if (result.summaries.empty() ||
+        !(result.summaries.back().key == row.key)) {
+      result.summaries.push_back(std::move(row));
+      continue;
+    }
+    CandidateSummaryRow& existing = result.summaries.back();
+    existing.occurrence_count += row.occurrence_count;
+    existing.first_begin = std::min(existing.first_begin, row.first_begin);
+  }
   return result;
 }
 

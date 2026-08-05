@@ -54,28 +54,6 @@ bool summaries_equal(const traceloom::PatternCandidateSummaryTable& lhs,
   return true;
 }
 
-bool candidate_tables_equal(const traceloom::PatternCandidateTable& lhs,
-                            const traceloom::PatternCandidateTable& rhs) {
-  if (lhs.rows.size() != rhs.rows.size()) {
-    return false;
-  }
-  for (std::size_t index = 0; index < lhs.rows.size(); ++index) {
-    if (!(lhs.rows[index].key == rhs.rows[index].key)) {
-      return false;
-    }
-    if (lhs.rows[index].begin != rhs.rows[index].begin) {
-      return false;
-    }
-    if (lhs.rows[index].end != rhs.rows[index].end) {
-      return false;
-    }
-    if (lhs.rows[index].partition_id != rhs.rows[index].partition_id) {
-      return false;
-    }
-  }
-  return true;
-}
-
 }  // namespace
 
 int main() {
@@ -100,17 +78,15 @@ int main() {
   require(one_thread.stats.candidate_occurrence_count > 0);
   require(one_thread.stats.candidate_distinct_count ==
           one_thread.pattern_candidate_summary.rows.size());
-  require(one_thread.stats.candidate_occurrence_count ==
-          one_thread.pattern_candidate_table.rows.size());
+  require(one_thread.pattern_candidate_table.rows.empty());
   require(one_thread.pattern_mining_diagnostics.rows.size() ==
           one_thread.stats.candidate_diagnostic_count);
   require(one_thread.cost_summary_lite.anchor_count == 5);
   require(one_thread.memory.trace_event_bytes > 0);
   require(one_thread.memory.anchor_bytes > 0);
-  require(one_thread.memory.candidate_occurrence_bytes > 0);
+  require(one_thread.memory.candidate_occurrence_bytes == 0);
+  require(one_thread.memory.pattern_candidate_summary_bytes > 0);
 
-  require(candidate_tables_equal(one_thread.pattern_candidate_table,
-                                 four_threads.pattern_candidate_table));
   require(summaries_equal(one_thread.pattern_candidate_summary,
                           four_threads.pattern_candidate_summary));
   require(one_thread.stats.candidate_occurrence_count ==

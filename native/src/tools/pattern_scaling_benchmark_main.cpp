@@ -24,6 +24,7 @@ namespace {
 using Clock = std::chrono::steady_clock;
 
 struct Options {
+  std::string mode = "baseline";
   std::size_t tokens = 0;
   std::size_t threads = 0;
   std::size_t partition_tokens = 4096;
@@ -56,7 +57,9 @@ Options parse_options(int argc, char** argv) {
       throw std::invalid_argument("missing value for " + argument);
     }
     const char* value = argv[++index];
-    if (argument == "--tokens") {
+    if (argument == "--mode") {
+      options.mode = value;
+    } else if (argument == "--tokens") {
       options.tokens = parse_size(value, "--tokens");
     } else if (argument == "--threads") {
       options.threads = parse_size(value, "--threads");
@@ -73,6 +76,9 @@ Options parse_options(int argc, char** argv) {
   }
   if (options.tokens < 16 || options.threads == 0) {
     throw std::invalid_argument("--tokens >= 16 and --threads are required");
+  }
+  if (options.mode != "baseline" && options.mode != "local-reduce") {
+    throw std::invalid_argument("--mode must be baseline or local-reduce");
   }
   if (options.tokens >= std::numeric_limits<std::uint32_t>::max()) {
     throw std::invalid_argument("--tokens exceeds the dense typed-id range");
@@ -191,6 +197,44 @@ int main(int argc, char** argv) {
     const traceloom::PartitionPlan plan = traceloom::PartitionPlan::build(
         sequence.size(), traceloom::PartitionPlanConfig{
                              options.partition_tokens, options.halo_tokens});
+
+    if (options.mode == "local-reduce") {
+      const Clock::time_point aggregate_begin = Clock::now();
+      const traceloom::CandidateAggregateResult aggregate =
+          traceloom::scan_and_reduce_candidate_partitions(
+              sequence, boundaries, plan,
+              traceloom::CandidateScanConfig{2, 3}, options.threads);
+      const Clock::time_point aggregate_end = Clock::now();
+      const std::string diagnostics_sha256 =
+          diagnostic_digest(aggregate.diagnostics);
+      const std::string reduced_sha256 = summary_digest(aggregate.summaries);
+      std::cout
+          << "{\n"
+          << "  \"schema_version\": "
+             "\"traceloom-pattern-aggregate-sample-v1\",\n"
+          << "  \"mode\": \"local-reduce\",\n"
+          << "  \"tokens\": " << options.tokens << ",\n"
+          << "  \"threads\": " << options.threads << ",\n"
+          << "  \"partition_tokens\": " << options.partition_tokens
+          << ",\n"
+          << "  \"halo_tokens\": " << options.halo_tokens << ",\n"
+          << "  \"partitions\": " << plan.size() << ",\n"
+          << "  \"protected_intervals\": "
+          << options.protected_intervals << ",\n"
+          << "  \"candidate_occurrences\": "
+          << aggregate.occurrence_count << ",\n"
+          << "  \"candidate_diagnostics\": "
+          << aggregate.diagnostics.size() << ",\n"
+          << "  \"reduced_candidates\": " << aggregate.summaries.size()
+          << ",\n"
+          << "  \"map_reduce_ms\": "
+          << elapsed_ms(aggregate_begin, aggregate_end) << ",\n"
+          << "  \"diagnostics_sha256\": \"" << diagnostics_sha256
+          << "\",\n"
+          << "  \"reduced_sha256\": \"" << reduced_sha256 << "\"\n"
+          << "}\n";
+      return EXIT_SUCCESS;
+    }
 
     const Clock::time_point scan_begin = Clock::now();
     traceloom::CandidateScanResult scan =
