@@ -23,6 +23,7 @@ one fixture:
 | --- | ---: | --- |
 | `ascend_interleaved` | 1.69-1.86 MiB each | exact graph/interleaved-unit fidelity |
 | `ascend_tp2_exact` | 15.60/23.55 MiB | exact TP2 composition, raw provenance, and communication localization |
+| `ascend_mapped_gather` | 7.12 MiB/124 KiB | correctness-gated 512x target-operation perturbation |
 | `../kickstart_smoke` | 36.42-38.52 MiB each | realistic ingestion and nested folding |
 
 The medium pair is close to the requested 50 MB-per-profile review scale while
@@ -43,6 +44,15 @@ The same verifier localizes the asymmetric rank cost to eight repeated
 pre-graph `AllReduce` positions: replay envelopes differ by only 1.038x, while
 the selected communication positions differ by 9.864x. All 280 selected
 anchors per rank resolve to distinct bundled `COMMUNICATION_OP` source rows.
+
+## Active perturbation contract: mapped gather
+
+The `ascend_mapped_gather` pair packages the fixed 16 MiB transfer
+microbenchmark and its correctness receipts. A shared artifact-scoped positive
+selection rule exposes `Rep x35840 -> MEMCPY_ASYNC` and
+`Rep x70 -> KvCacheBlockGather`, while direct source queries resolve all
+35,840/70 target task rows and matching API rows. The 512x multiplicity change
+is a local mechanism result, not a serving-speed claim.
 
 The pair is a deterministic full-time-range reduction: it preserves every
 primary event row, dependent semantic row, referenced string, table schema,

@@ -1,0 +1,81 @@
+{
+  "schema_version": "traceloom-mapped-gather-perturbation/v1",
+  "variant": "span",
+  "created_at": "2026-08-04T23:19:47+0000",
+  "correctness": "pass",
+  "device_name": "Ascend910B2",
+  "cann": "9.0.0",
+  "torch": "2.10.0+cpu",
+  "torch_npu": "2.10.0",
+  "case": {
+    "block_bytes": 16384,
+    "dtype": "float16",
+    "logical_bytes_per_iteration": 16777216,
+    "logical_ops_per_iteration": 1024,
+    "measured_iterations": 30,
+    "parts": 2,
+    "profiled_iterations": 35,
+    "profiled_logical_ops": 35840,
+    "requested_span_len": 1,
+    "selected_blocks": 512,
+    "span_count": 512,
+    "warmup_iterations": 5
+  },
+  "measured_wall_ms": [
+    46.68490192852914,
+    46.513957902789116,
+    45.886426931247115,
+    45.99266895093024,
+    46.381005784496665,
+    45.92295689508319,
+    45.88961601257324,
+    46.159622026607394,
+    45.691963052377105,
+    45.977307949215174,
+    52.98624304123223,
+    46.23935394920409,
+    46.31460481323302,
+    46.16068210452795,
+    46.62851104512811,
+    46.27517401240766,
+    46.163951978087425,
+    46.131390845403075,
+    46.04838998056948,
+    46.05439002625644,
+    46.423206804320216,
+    45.985999051481485,
+    46.08006007038057,
+    46.093231067061424,
+    45.695393113419414,
+    46.29112407565117,
+    52.108724834397435,
+    46.49694915860891,
+    46.25663300976157,
+    46.40989704057574
+  ],
+  "repositories": {
+    "vllm_ascend": {
+      "commit": "3b029f6d54694175e834488bed2f01c2c063a7ce",
+      "tree": "ebdf2c042b344c9c3479978400b9d8a348dce802",
+      "dirty": false
+    }
+  },
+  "artifacts": {
+    "benchmark_script": {
+      "bytes": 23373,
+      "sha256": "160aa8409695f7d4ec4b8daea9f7fb5cf122a17c85ebfc7795e8c40e116fa6b5"
+    },
+    "capture_script": {
+      "bytes": 6748,
+      "sha256": "c8415065f290689cfeae7a75f8ccdc667391e08764356c66ba67568653dff4c7"
+    },
+    "opapi_library": {
+      "bytes": 68240,
+      "sha256": "f7fb69cad8dd80bca4525b67d3bd16979fc660e064dae265b200fe2c2b808470"
+    },
+    "torch_extension": {
+      "bytes": 866280,
+      "sha256": "f3a7d532da657a23996bf45d6542c89857bebb7e3bd200894e52728651ac38fb"
+    }
+  }
+}

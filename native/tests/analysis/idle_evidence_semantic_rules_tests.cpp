@@ -98,6 +98,15 @@ int main() {
               fused_moe.matched_field == SignalMatchField::kOperator &&
               fused_moe.matched_kind == SignalMatchKind::kExact,
           "fused MoE kernel uses its dedicated semantic rule");
+  const SemanticTaskMatch mapped_gather =
+      classify("AI_CORE", "KvCacheBlockGather");
+  require(mapped_gather.role == SemanticTaskRole::kProductiveCompute &&
+              mapped_gather.matched_rule_id.has_value() &&
+              *mapped_gather.matched_rule_id ==
+                  "compute.kv_cache_block_gather" &&
+              mapped_gather.matched_field == SignalMatchField::kOperator &&
+              mapped_gather.matched_kind == SignalMatchKind::kExact,
+          "mapped gather kernel uses its dedicated semantic rule");
   require(classify("AI_CORE", "allreduce").role ==
               SemanticTaskRole::kProductiveComm,
           "allreduce blob -> productive_comm");

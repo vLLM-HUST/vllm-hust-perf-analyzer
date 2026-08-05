@@ -1,0 +1,2 @@
+priority	source_domain	field	match	pattern	role	note
+200	task	task_type	exact	MEMCPY_ASYNC	anchor	Promote the preregistered 16 KiB span-copy target for this bounded artifact

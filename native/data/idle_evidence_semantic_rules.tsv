@@ -33,6 +33,7 @@ runtime.profiling_enable	170	task	task_type	exact	PROFILING_ENABLE	runtime_contr
 runtime.profiling_disable	170	task	task_type	exact	PROFILING_DISABLE	runtime_control	Profiling control task
 runtime.hccl_aiv_sync	170	task	blob	contains	hccl_aiv_sync	runtime_control	HCCL internal sync helper
 compute.dispatch_ffn_combine	160	task	operator	exact	DispatchFFNCombineBF16	productive_compute	Fused MoE dispatch, FFN, and combine kernel
+compute.kv_cache_block_gather	160	task	operator	exact	KvCacheBlockGather	productive_compute	Mapped-host KV-cache gather kernel
 comm.allreduce	150	task	blob	contains	allreduce	productive_comm	AllReduce collective
 comm.all_reduce	150	task	blob	contains	all_reduce	productive_comm	AllReduce collective
 comm.allgather	150	task	blob	contains	allgather	productive_comm	AllGather collective

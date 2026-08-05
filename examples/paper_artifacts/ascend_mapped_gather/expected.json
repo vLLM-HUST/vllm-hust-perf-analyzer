@@ -1,0 +1,96 @@
+{
+  "schema_version": "traceloom-ascend-mapped-gather-expected-v1",
+  "target_signal_rules_sha256": "5dc7d6fc5eab4fc3aaecdb25a1d559996e4345d82260dae4a400cbb7dc993c00",
+  "capture_contract": {
+    "device_name": "Ascend910B2",
+    "cann": "9.0.0",
+    "dtype": "float16",
+    "parts": 2,
+    "block_bytes": 16384,
+    "selected_blocks": 512,
+    "span_count": 512,
+    "warmup_iterations": 5,
+    "measured_iterations": 30,
+    "vllm_ascend_commit": "3b029f6d54694175e834488bed2f01c2c063a7ce",
+    "vllm_ascend_tree": "ebdf2c042b344c9c3479978400b9d8a348dce802",
+    "benchmark_sha256": "160aa8409695f7d4ec4b8daea9f7fb5cf122a17c85ebfc7795e8c40e116fa6b5",
+    "capture_script_sha256": "c8415065f290689cfeae7a75f8ccdc667391e08764356c66ba67568653dff4c7",
+    "torch_extension_sha256": "f3a7d532da657a23996bf45d6542c89857bebb7e3bd200894e52728651ac38fb",
+    "opapi_library_sha256": "f7fb69cad8dd80bca4525b67d3bd16979fc660e064dae265b200fe2c2b808470"
+  },
+  "profiles": {
+    "span": {
+      "database": "span/PROF_REDUCED/msprof_span.db",
+      "manifest": "span/reduction-manifest.json",
+      "capture_receipt": "span/capture-receipt.json",
+      "capture_receipt_sha256": "0c2edf070576e2a24dc608bc35dc1805a76eb47318d01fb318b4a83d9cbf002f",
+      "database_bytes": 7467008,
+      "database_sha256": "daa27d69035748ca84dc4749c686557b41920bf68e5770d68efb2c3d8ef059fe",
+      "source_database_sha256": "5000a8062ef74dec79a86b2a9b1b5abf88bfc2157550aaa50ca068bdc8b3118e",
+      "stats": {
+        "trace_event_count": 35845,
+        "task_count": 35845,
+        "anchor_count": 35841,
+        "token_count": 35841,
+        "graph_launch_occurrence_count": 0,
+        "replay_unit_count": 0,
+        "exact_replay_unit_count": 0
+      },
+      "anchor_projection": {
+        "device_event_anchors": 35841,
+        "communication_anchors": 0,
+        "skipped_task_events": 4,
+        "preserved_unclassified_task_events": 1
+      },
+      "target_task_rows": 35840,
+      "target_api_rows": 35840,
+      "target_min_api_rowid": 35920,
+      "target_max_api_rowid": 143608,
+      "target_min_task_rowid": 4,
+      "target_max_task_rowid": 35843,
+      "target_submitted_bytes": 587202560,
+      "repeat_count": 35840,
+      "repeat_symbol": "MEMCPY_ASYNC",
+      "root_node_count": 4,
+      "root_tree_sha256": "ae65d47d13305ec5fce7f29fb9976ac7bfae98ad86b27803d0d6c95689f4094a",
+      "mean_wall_ms": "46.598145",
+      "median_wall_ms": "46.162317"
+    },
+    "mapped": {
+      "database": "mapped/PROF_REDUCED/msprof_mapped.db",
+      "manifest": "mapped/reduction-manifest.json",
+      "capture_receipt": "mapped/capture-receipt.json",
+      "capture_receipt_sha256": "f7d8f8545d9c9d4c11b436ed2fdb9da04007b800d98601bd7341cc393c83e059",
+      "database_bytes": 126976,
+      "database_sha256": "3543c996d48c23e450ba10e5419bd6888fd84846a77ed3e12d3fb885693367d1",
+      "source_database_sha256": "d90817a7df9db8f7230760cc08bfe46d55fea4fd5a588fbb26c80642298fc918",
+      "stats": {
+        "trace_event_count": 74,
+        "task_count": 74,
+        "anchor_count": 71,
+        "token_count": 71,
+        "graph_launch_occurrence_count": 0,
+        "replay_unit_count": 0,
+        "exact_replay_unit_count": 0
+      },
+      "anchor_projection": {
+        "device_event_anchors": 71,
+        "communication_anchors": 0,
+        "skipped_task_events": 3,
+        "preserved_unclassified_task_events": 1
+      },
+      "target_task_rows": 70,
+      "target_api_rows": 70,
+      "target_min_api_rowid": 229,
+      "target_max_api_rowid": 1021,
+      "target_min_task_rowid": 4,
+      "target_max_task_rowid": 73,
+      "repeat_count": 70,
+      "repeat_symbol": "KvCacheBlockGather",
+      "root_node_count": 4,
+      "root_tree_sha256": "03ef52a6aac4080fd4d1f70efc3c8b158d9b76b77147933baad564074a8230b7",
+      "mean_wall_ms": "0.861854",
+      "median_wall_ms": "0.859311"
+    }
+  }
+}

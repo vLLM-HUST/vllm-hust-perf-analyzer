@@ -12,6 +12,7 @@ priority	source_domain	field	match	pattern	role	note
 90	task	blob	contains	aiv_sync	ignore	Device synchronization helper
 90	task	blob	contains	aic_sync	ignore	Device synchronization helper
 85	task	operator	exact	DispatchFFNCombineBF16	anchor	Fused MoE dispatch, FFN, and combine kernel
+85	task	operator	exact	KvCacheBlockGather	anchor	Mapped-host KV-cache gather kernel
 80	task	blob	contains	nccl	anchor	NCCL collective
 80	task	blob	contains	allreduce	anchor	AllReduce collective
 80	task	blob	contains	all_reduce	anchor	AllReduce collective

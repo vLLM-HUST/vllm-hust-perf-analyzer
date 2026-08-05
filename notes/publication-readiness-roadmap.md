@@ -61,7 +61,7 @@ but must not displace a failing P0 gate.
 | R1 | P0 | Neutral interleaved structural units | implemented, real-profile reproduced, and checkout golden verified | analyzer output, goldens, wide composition table |
 | R2 | P0 | Fair workflow comparison | implemented, checkout-verified, and CTest-gated | one fixed question set answered by top-k, timeline/SQL, repeat-only, and TraceLoom |
 | R3 | P0 | Patch/cost-shift case | bounded current case integrated; positive follow-up preregistered | correctness, structural delta, cost localization, bounded mechanism wording |
-| R4 | P0 | Raw-row provenance for every central result | core Ascend rows checkout-green; bounded CUDA external | one command verifies every central row from immutable input |
+| R4 | P0 | Raw-row provenance for every central result | packaged Ascend exact/communication/perturbation rows green; fresh TP2 and CUDA external | one command verifies every central row from immutable input |
 | R5 | P0 | Offline reviewer artifact | two-tier CPU-only ledger implemented and CTest-gated | clean CPU-only checkout reproduces exact and folding contracts |
 | R6 | P1 | Million-row analysis-cost point | five-run Release receipt complete | time, peak RSS, input/output size, compression reported |
 | R7 | P1 | Real-model CUDA Graph external validity | real model and graph evidence are separate | correctness-gated single-GPU model graph, exact visible-body report |
@@ -203,6 +203,14 @@ communication contrast. Optional reference mode proves full/reduced exact
 observation equality; split-layout parity remains external to avoid another
 large duplicate input bundle.
 
+The 7.24 MiB mapped-gather pair packages the controlled positive mechanism
+case. Sanitized receipts preserve both correctness oracles and capture/build
+identity. A shared positive-selection rule materializes
+`Rep x35840 -> MEMCPY_ASYNC` versus `Rep x70 -> KvCacheBlockGather`, and the
+verifier resolves every target task/API row directly from the bundled inputs.
+The exact gather registration keeps the new operator out of the unknown audit;
+the result remains bounded to local multiplicity rather than serving speed.
+
 **Tier B: curated medium examples.** A 10--50 MiB input may be checked in when
 it is uniquely useful as a user-facing example and cannot be represented by a
 smaller faithful artifact. Review the history cost explicitly. The existing
@@ -331,7 +339,7 @@ external interpretation, not in TraceLoom's emitted schema.
 
 1. ~~Implement and golden-test R1.~~ Complete.
 2. ~~Freeze the minimum Ascend Tier A/Tier B artifact set.~~ Complete.
-3. ~~Run the implemented R4-R5 ledger once in a fresh clone and retain the receipt.~~ Complete at `dd979a40fe52`; the expanded current ledger now checks 4/4 claims, including exact TP2 provenance and communication localization.
+3. ~~Run the implemented R4-R5 ledger once in a fresh clone and retain the receipt.~~ Complete at `dd979a40fe52`; the expanded current ledger now checks 5/5 claims, including exact TP2 provenance, communication localization, and mapped-gather perturbation.
 4. ~~Run R2 over the frozen inputs and materialize the comparison table.~~ Complete.
 5. ~~Close R3 with the strongest wording supported by the available ablation.~~ Complete; retain the strengthened-operator capture as optional positive evidence.
 6. ~~Measure R6 on the already checked-in kickstart profile.~~ Complete.

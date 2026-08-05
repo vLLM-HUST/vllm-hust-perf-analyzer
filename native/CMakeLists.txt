@@ -883,6 +883,17 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
       )
 
       add_test(
+        NAME traceloom_native_ascend_mapped_gather_artifact
+        COMMAND ${Python3_EXECUTABLE}
+          ${CMAKE_CURRENT_SOURCE_DIR}/../examples/paper_artifacts/tools/verify_ascend_mapped_gather.py
+          --traceloom $<TARGET_FILE:traceloom>
+      )
+      set_tests_properties(
+        traceloom_native_ascend_mapped_gather_artifact
+        PROPERTIES LABELS "artifact" TIMEOUT 60
+      )
+
+      add_test(
         NAME traceloom_native_kickstart_folding_artifact
         COMMAND ${Python3_EXECUTABLE}
           ${CMAKE_CURRENT_SOURCE_DIR}/../examples/paper_artifacts/tools/verify_kickstart_folding.py

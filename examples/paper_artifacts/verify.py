@@ -21,6 +21,7 @@ def main() -> int:
     checks = (
         ("exact-interleaved", tools / "verify_ascend_interleaved.py"),
         ("exact-tp2-composition", tools / "verify_ascend_tp2_exact.py"),
+        ("mapped-gather-perturbation", tools / "verify_ascend_mapped_gather.py"),
         ("medium-folding", tools / "verify_kickstart_folding.py"),
         ("workflow-comparison", tools / "verify_workflow_comparison.py"),
     )

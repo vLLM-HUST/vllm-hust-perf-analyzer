@@ -20,6 +20,9 @@ int main() {
   require(defaults.classify({"task", "AI_CORE", "DispatchFFNCombineBF16",
                              "DispatchFFNCombineBF16"}) ==
           SignalRole::kAnchor);
+  require(defaults.classify({"task", "AI_CORE", "KvCacheBlockGather",
+                             "KvCacheBlockGather"}) ==
+          SignalRole::kAnchor);
   require(defaults.classify({"task", "EVENT_WAIT", "event_wait"}) ==
           SignalRole::kIgnore);
   require(defaults.classify(
