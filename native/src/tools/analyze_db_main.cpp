@@ -9,6 +9,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <iterator>
 #include <map>
 #include <optional>
 #include <set>
@@ -27,9 +28,12 @@
 #include "traceloom/analysis/idle_evidence_pipeline.h"
 #include "traceloom/analysis/idle_evidence_semantic_rules.h"
 #include "traceloom/analysis/native_pipeline.h"
+#include "traceloom/compat/anchor_sequence_rows.h"
+#include "traceloom/compat/collective_tag_rows.h"
 #include "traceloom/compat/idle_explanation_rows.h"
 #include "traceloom/compat/native_sidecar_materializer.h"
 #include "traceloom/compat/report_tree_rows.h"
+#include "traceloom/compat/timeline_rows.h"
 #include "traceloom/ir/native_ir.h"
 #include "traceloom/materialize/grammar_debug_json.h"
 #include "traceloom/materialize/loop_tree_markdown.h"
@@ -1091,6 +1095,51 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
         markdown_options.reconstruction_status_counts.push_back(
             traceloom::ReconstructionStatusCount{item.first, item.second});
       }
+      std::set<std::uint32_t> report_device_ids;
+      for (const traceloom::compat::VizNodeSqlRow& node :
+           rendered_loop_tree_rows.nodes) {
+        if (node.view_name == "native_report_tree" &&
+            node.db_idx == sidecar_options.db_idx) {
+          report_device_ids.insert(node.device_id);
+        }
+      }
+      if (report_device_ids.size() > 1) {
+        const traceloom::compat::EventSqlRows event_rows =
+            traceloom::compat::build_timeline_sql_rows(
+                ir, sidecar_options.db_idx);
+        traceloom::compat::CollectiveTagMemberInput member;
+        member.db_name = fs::path(source_db).filename().string();
+        member.db_idx = sidecar_options.db_idx;
+        member.events =
+            traceloom::compat::split_timeline_event_sql_rows(event_rows);
+        member.anchors = traceloom::compat::build_anchor_sequence_sql_rows(
+            ir, sidecar_options.db_idx);
+        member.loop_tree = traceloom::compat::split_loop_tree_sql_rows(
+            rendered_loop_tree_rows);
+        member.node_anchor_coverage =
+            traceloom::compat::split_node_anchor_coverage_sql_rows(
+                rendered_loop_tree_rows);
+
+        traceloom::compat::CollectiveTagOptions collective_options;
+        collective_options.run_name = member.db_name;
+        collective_options.expected_world_size =
+            static_cast<std::uint32_t>(report_device_ids.size());
+        traceloom::compat::CollectiveTagSqlRows loop_collectives =
+            traceloom::compat::build_collective_tag_sql_rows(
+                {member}, collective_options);
+        traceloom::compat::CollectiveTagSqlRows graph_collectives =
+            traceloom::compat::build_graph_body_collective_tag_sql_rows(
+                ir, member.db_name, sidecar_options.db_idx,
+                collective_options);
+        markdown_options.collective_correspondences =
+            std::move(loop_collectives.global_rows.summaries);
+        markdown_options.collective_correspondences.insert(
+            markdown_options.collective_correspondences.end(),
+            std::make_move_iterator(
+                graph_collectives.global_rows.summaries.begin()),
+            std::make_move_iterator(
+                graph_collectives.global_rows.summaries.end()));
+      }
       // The current production taxonomy is validated for Ascend/CANN. Keep
       // CUDA and Hygon reports free of Ascend-specific conclusions until each
       // provider supplies and validates its own semantic ruleset.
@@ -1154,14 +1203,6 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
           std::uint64_t duration_ns = 0;
         };
         std::map<std::string, IdleSummary> idle_summary;
-        std::set<std::uint32_t> report_device_ids;
-        for (const traceloom::compat::VizNodeSqlRow& node :
-             rendered_loop_tree_rows.nodes) {
-          if (node.view_name == "native_report_tree" &&
-              node.db_idx == sidecar_options.db_idx) {
-            report_device_ids.insert(node.device_id);
-          }
-        }
         const bool filter_idle_device =
             cli.has_loop_tree_device_id || report_device_ids.size() == 1;
         const std::uint32_t idle_device_id =

@@ -352,10 +352,12 @@ template, and complete raw-row provenance. The graph-level companion retains
 five replay boundaries but zero exact bodies. A deterministic checkout
 reduction plus optional full-reference mode makes this row CPU-only and green.
 
-The TP2+NCCL diagnostic remains a named follow-up boundary: profiler evidence
-and numerical correctness are present, but the shared report path rejects a
-unit spanning two device sequences. This does not weaken the completed
-single-GPU external-validity claim and is not silently counted as TP success.
+The frozen TP2+NCCL diagnostic originally exposed a shared-report boundary.
+The generic follow-up now reconstructs each device sequence independently and
+reports three paired graph-body AllReduce correspondence groups with raw-row
+provenance. It deliberately does not identify TP, a model layer, or a global
+causal order. Paper promotion remains conditional on the final claim audit;
+the completed single-GPU external-validity row does not depend on it.
 
 ## R8: Paper Integration And Visuals
 

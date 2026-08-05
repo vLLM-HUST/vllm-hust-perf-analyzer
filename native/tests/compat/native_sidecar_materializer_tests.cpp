@@ -93,6 +93,31 @@ NativeIr build_collective_repeat_ir() {
   return ir;
 }
 
+NativeIr build_multi_device_graph_sequence_ir() {
+  NativeIr ir;
+  const SourceRefId source =
+      ir.source_refs.append("fixture", "multi-device", "GRAPH", 0);
+  const SymbolId graph = ir.symbols.intern("CUDAGraph");
+  std::uint32_t sequence_index = 0;
+  for (std::uint32_t occurrence = 0; occurrence < 3; ++occurrence) {
+    for (std::uint32_t device_id = 0; device_id < 2; ++device_id) {
+      const std::int64_t start_ns =
+          1000 + static_cast<std::int64_t>(occurrence) * 1000 +
+          static_cast<std::int64_t>(device_id) * 100;
+      const TraceEventId event = ir.trace_events.append(
+          source, sequence_index + 1, device_id, 7, start_ns,
+          start_ns + 500, graph);
+      const AnchorId anchor = ir.anchors.append(
+          source, event, ReplayUnitId::invalid(),
+          AnchorKind::kGraphReplayUnit, graph, device_id, 7, start_ns,
+          start_ns + 500);
+      ir.tokens.append(anchor, graph, device_id, sequence_index++, start_ns,
+                       start_ns + 500);
+    }
+  }
+  return ir;
+}
+
 NativeIr build_idle_evidence_ir() {
   NativeIr ir;
   const SourceRefId source =
@@ -560,6 +585,32 @@ int main() {
               "traceloom_aclgraph_reconstruction_region") ==
           "cuda_graph_node_set");
   std::remove(exact_cuda_graph_db_path.c_str());
+
+  const std::string multi_device_db_path = temp_db_path();
+  compat::NativeCompatibilitySidecarOptions multi_device_options;
+  multi_device_options.db_idx = 6;
+  multi_device_options.source_kind = "cuda_nsys_sqlite";
+  multi_device_options.source_path = "multi-device-graph";
+  multi_device_options.materialize_collective_tags = false;
+  compat::write_basic_native_compatibility_sidecar(
+      multi_device_db_path, build_multi_device_graph_sequence_ir(),
+      multi_device_options);
+  require(run_scalar_int(
+              multi_device_db_path,
+              "SELECT COUNT(DISTINCT device_id) FROM traceloom_viz_node") ==
+          2);
+  require(run_scalar_int(
+              multi_device_db_path,
+              "SELECT COUNT(DISTINCT node_id) = COUNT(*) "
+              "FROM traceloom_viz_node") == 1);
+  require(run_scalar_int(
+              multi_device_db_path,
+              "SELECT COUNT(*) FROM traceloom_semantic_tree") == 2);
+  require(run_scalar_int(
+              multi_device_db_path,
+              "SELECT COUNT(DISTINCT tree_id) FROM traceloom_semantic_tree") ==
+          2);
+  std::remove(multi_device_db_path.c_str());
 
   const std::string collective_db_path = temp_db_path();
   compat::NativeCompatibilitySidecarOptions collective_options;

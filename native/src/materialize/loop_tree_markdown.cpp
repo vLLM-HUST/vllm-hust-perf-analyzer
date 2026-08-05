@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <iomanip>
 #include <limits>
+#include <map>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -271,6 +272,7 @@ void write_loop_tree_markdown(std::ostream& out,
       options.has_device_id
           ? options.device_id
           : (device_ids.empty() ? 0 : *device_ids.begin());
+  const bool multiple_devices = !filter_device && device_ids.size() > 1;
 
   std::vector<const compat::VizNodeSqlRow*> selected;
   selected.reserve(rows.nodes.size());
@@ -310,7 +312,20 @@ void write_loop_tree_markdown(std::ostream& out,
   out << "- db: `" << db_label << "`\n";
   out << "- source_db: `" << options.source_path << "`\n";
   out << "- device_id: `"
-      << (filter_device ? std::to_string(device_id) : std::string()) << "`\n";
+      << (filter_device ? std::to_string(device_id)
+                        : (multiple_devices ? "multiple" : std::string()))
+      << "`\n";
+  if (multiple_devices) {
+    out << "- device_sequences: `";
+    std::size_t index = 0;
+    for (std::uint32_t observed_device_id : device_ids) {
+      if (index++ != 0) {
+        out << ',';
+      }
+      out << observed_device_id;
+    }
+    out << "`\n";
+  }
   out << "- stream_scope: `device_compute_sequence`\n";
   out << "- db_idx: `" << options.db_idx << "`\n";
   out << "- global_rank: `native`\n";
@@ -349,18 +364,93 @@ void write_loop_tree_markdown(std::ostream& out,
            "sequence, not a workload phase; open trace boundaries remain "
            "typed `unrecognized`. Expansion links are abbreviated here; the "
            "sidecar retains the complete list and exact anchor membership.\n\n";
-    out << "| Order | Unit | Kind | Run | Family | Fingerprint | Anchors | "
+    out << "| ";
+    if (multiple_devices) {
+      out << "Device | ";
+    }
+    out << "Order | Unit | Kind | Run | Family | Fingerprint | Anchors | "
            "Shape | Span (us) | Total (us) | Evidence | Expansion |\n";
-    out << "| ---: | --- | --- | ---: | --- | --- | ---: | --- | ---: | "
+    out << "| ";
+    if (multiple_devices) {
+      out << "---: | ";
+    }
+    out << "---: | --- | --- | ---: | --- | --- | ---: | --- | ---: | "
            "---: | --- | --- |\n";
     for (const compat::StructuralUnitSqlRow& row : rows.structural_units) {
-      out << "| " << row.unit_order << " | `" << row.unit_id << "` | `"
+      if (filter_device && row.device_id != device_id) {
+        continue;
+      }
+      out << "| ";
+      if (multiple_devices) {
+        out << row.device_id << " | ";
+      }
+      out << row.unit_order << " | `" << row.unit_id << "` | `"
           << row.kind << "` | " << row.run_count << " | `" << row.family_id
           << "` | `" << row.body_fingerprint << "` | " << row.anchor_count
           << " | `" << row.shape_signature << "` | " << fmt(row.span_us)
           << " | " << fmt(row.total_us) << " | `" << row.evidence_status
           << "` | `" << summarize_expansion_nodes(row.expansion_nodes)
           << "` |\n";
+    }
+  }
+
+  if (!options.collective_correspondences.empty()) {
+    std::vector<compat::GlobalCollectiveSummarySqlRow> correspondences =
+        options.collective_correspondences;
+    std::stable_sort(
+        correspondences.begin(), correspondences.end(),
+        [](const compat::GlobalCollectiveSummarySqlRow& lhs,
+           const compat::GlobalCollectiveSummarySqlRow& rhs) {
+          const bool lhs_complete = lhs.validation_status == "complete";
+          const bool rhs_complete = rhs.validation_status == "complete";
+          if (lhs_complete != rhs_complete) {
+            return lhs_complete;
+          }
+          if (lhs.member_count != rhs.member_count) {
+            return lhs.member_count > rhs.member_count;
+          }
+          return lhs.candidate_collective_key < rhs.candidate_collective_key;
+        });
+    std::map<std::string, std::uint32_t> status_counts;
+    for (const compat::GlobalCollectiveSummarySqlRow& row : correspondences) {
+      ++status_counts[row.validation_status];
+    }
+
+    out << "\n## Collective Correspondence\n\n";
+    out << "These are observation-backed cross-sequence candidates, not "
+           "workload-phase labels or proof of a hidden global order. "
+           "`graph_body` rows use exact visible-body template and member "
+           "positions; `loop_structure` rows use matching recovered-loop "
+           "positions.\n\n";
+    out << "- candidate_groups: `" << correspondences.size() << "`\n";
+    for (const auto& status : status_counts) {
+      out << "- " << status.first << ": `" << status.second << "`\n";
+    }
+    out << "\n| Context | Occurrence | Collective | Members | Expected | Start "
+           "skew (us) | Duration skew (us) | Evidence | Missing |\n";
+    out << "| --- | ---: | --- | ---: | ---: | ---: | ---: | --- | --- "
+           "|\n";
+    constexpr std::size_t kCorrespondenceLimit = 20;
+    const std::size_t visible_count =
+        std::min(correspondences.size(), kCorrespondenceLimit);
+    for (std::size_t index = 0; index < visible_count; ++index) {
+      const compat::GlobalCollectiveSummarySqlRow& row =
+          correspondences[index];
+      const std::string context =
+          row.pair_id.rfind("GB_", 0) == 0 ? "graph_body"
+                                            : "loop_structure";
+      out << "| `" << context << "` | " << row.occurrence_idx << " | `"
+          << row.op_type << "` | " << row.member_count << " | "
+          << row.expected_world_size << " | " << fmt(row.start_skew_us)
+          << " | " << fmt(row.duration_skew_us) << " | `"
+          << row.validation_status << "` | `"
+          << (row.missing_members.empty() ? "(none)" : row.missing_members)
+          << "` |\n";
+    }
+    if (correspondences.size() > visible_count) {
+      out << "\nOnly the first " << visible_count
+          << " candidates are shown; the sidecar retains all "
+          << "correspondences and raw-row links.\n";
     }
   }
 
@@ -509,7 +599,11 @@ void write_loop_tree_markdown(std::ostream& out,
     const compat::VizNodeSqlRow* row = render_rows[row_index].row;
     const std::string indent(render_rows[row_index].depth * 2, ' ');
     const std::string tree_label =
-        indent + row->local_node_id +
+        indent +
+        (multiple_devices && render_rows[row_index].depth == 0
+             ? "[device " + std::to_string(row->device_id) + "] "
+             : std::string()) +
+        row->local_node_id +
         (row->label.empty() ? std::string() : " " + row->label);
     const double average_divisor = cost_average_divisor(*row);
     const double avg_aux_us = row->aux_us / average_divisor;

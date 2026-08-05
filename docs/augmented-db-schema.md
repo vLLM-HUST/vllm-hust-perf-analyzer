@@ -339,8 +339,9 @@ statistics relation. Use `traceloom_viz_node_anchor` for node cost queries.
 ### `traceloom_collective_global_link`
 
 Optional cross-device collective tags. The native analyzer reserves this table
-for external correlation tooling; the installed `traceloom` command does not
-run a separate collective-tagging workflow.
+for conservative structural correlation. On a multi-device profile, the
+installed `traceloom` command also summarizes these candidates in the Loop
+Tree report; it does not attach workload or parallelism labels.
 
 This table is local to each sidecar DB. It maps a local collective anchor to a
 candidate run-level collective key. The key is structural evidence, not a final
@@ -351,16 +352,24 @@ Important columns:
 - `candidate_collective_key`: run-level candidate key built from loop pair,
   occurrence, collective type, and order inside that occurrence.
 - `pair_id`: structural loop-pair identifier shared by matching repeat nodes
-  across devices.
+  across devices. `GB_H...` identifies an exact visible graph-body template;
+  `LP_M...` identifies a recovered-loop structural candidate.
 - `local_node_id`, `occurrence_idx`, `idx_in_occurrence`: local structural
   position used to build the key.
 - `op_type`: normalized collective type such as `allReduce` or `allGather`.
 - `anchor_id`, `event_id`, `source_table`, `source_key`: evidence links back to
-  TraceLoom and raw profiler rows.
+  TraceLoom and raw profiler rows. A collective inside a protected exact graph
+  body has an empty `anchor_id` by design: it remains an internal member rather
+  than becoming a top-level anchor, while `event_id` and raw-row lineage stay
+  exact.
 - `connection_id`, `op_id`: best-effort `COMMUNICATION_OP` identifiers when
   they can be recovered from the raw sidecar DB.
 - `validation_status`, `confidence`: candidate quality copied from the global
-  summary.
+  summary. `complete` means that the candidate covers the expected observed
+  members; it is not proof of one hidden hardware operation.
+
+Time proximity is never a correspondence key. Start and duration skew are
+reported only after structural matching.
 
 ## Convenience Views
 

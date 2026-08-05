@@ -50,6 +50,8 @@ struct LoopTreeMarkdownOptions {
   std::uint64_t replay_unit_count = 0;
   std::uint64_t exact_replay_unit_count = 0;
   std::vector<ReconstructionStatusCount> reconstruction_status_counts;
+  std::vector<compat::GlobalCollectiveSummarySqlRow>
+      collective_correspondences;
   bool has_semantic_operator_coverage = false;
   std::string semantic_rules_version;
   std::uint64_t unknown_task_count = 0;

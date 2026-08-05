@@ -2,9 +2,14 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <exception>
 #include <iostream>
+#include <iterator>
+#include <map>
 #include <string>
+#include <tuple>
+#include <utility>
 #include <vector>
 
 #include "traceloom/compat/anchor_cost_breakdown_rows.h"
@@ -106,6 +111,210 @@ ReportTree build_sidecar_report_tree(
   }
 }
 
+struct NativeReportLane {
+  std::uint32_t device_id = 0;
+  std::vector<ReportToken> tokens;
+  ReportTree tree;
+};
+
+NativeIr build_token_only_lane_ir(const std::vector<ReportToken>& tokens) {
+  NativeIr ir;
+  for (std::size_t index = 0; index < tokens.size(); ++index) {
+    const ReportToken& token = tokens[index];
+    ir.tokens.append(token.anchor_id, token.symbol_id, token.device_id,
+                     static_cast<std::uint32_t>(index), token.start_ns,
+                     token.end_ns);
+  }
+  return ir;
+}
+
+void mark_exact_graph_unit_tokens(const NativeIr& ir,
+                                  std::vector<ReportToken>& tokens) {
+  for (ReportToken& token : tokens) {
+    if (token.anchor_kind != ReportAnchorKind::kGraphTemplate ||
+        !token.anchor_id.valid() ||
+        token.anchor_id.value() >= ir.anchors.size()) {
+      continue;
+    }
+    const AnchorRow& anchor = ir.anchors.row(token.anchor_id);
+    if (!anchor.replay_unit_id.valid() ||
+        anchor.replay_unit_id.value() >= ir.replay_units.size()) {
+      continue;
+    }
+    const ReplayUnitRow& replay = ir.replay_units.row(anchor.replay_unit_id);
+    if (replay.replay_composition_region_id.valid()) {
+      token.display_category = "graph_unit";
+    }
+  }
+}
+
+std::vector<NativeReportLane> build_sidecar_report_lanes(
+    const NativeIr& ir,
+    const NativeCompatibilitySidecarOptions& options,
+    const std::vector<ReportToken>& report_tokens) {
+  std::map<std::uint32_t, std::vector<ReportToken>> tokens_by_device;
+  for (const ReportToken& token : report_tokens) {
+    std::vector<ReportToken>& lane = tokens_by_device[token.device_id];
+    lane.push_back(token);
+    lane.back().ordinal = static_cast<std::uint32_t>(lane.size() - 1);
+  }
+
+  std::vector<NativeReportLane> lanes;
+  lanes.reserve(tokens_by_device.size());
+  const bool multiple_devices = tokens_by_device.size() > 1;
+  for (auto& item : tokens_by_device) {
+    NativeReportLane lane;
+    lane.device_id = item.first;
+    lane.tokens = std::move(item.second);
+    if (multiple_devices) {
+      // Grammar discovery is intentionally lane-local.  A time-interleaved
+      // multi-device projection is not one execution sequence, and treating
+      // it as one can invent patterns that exist on neither device.  The
+      // token-only IR preserves the observed symbols and order without
+      // importing workload- or parallelism-specific semantics.
+      mark_exact_graph_unit_tokens(ir, lane.tokens);
+      const NativeIr lane_ir = build_token_only_lane_ir(lane.tokens);
+      lane.tree = build_sidecar_report_tree(lane_ir, options, lane.tokens);
+    } else {
+      // Preserve the exact single-device semantic ReplayUnit lowering.
+      lane.tree = build_sidecar_report_tree(ir, options, lane.tokens);
+    }
+    lanes.push_back(std::move(lane));
+  }
+  return lanes;
+}
+
+std::string device_node_prefix(std::uint32_t device_id) {
+  return "device" + std::to_string(device_id) + "-";
+}
+
+void namespace_node_coverage_rows(NodeCoverageSqlRows& rows,
+                                  std::uint32_t device_id) {
+  const std::string prefix = device_node_prefix(device_id);
+  for (VizNodeSqlRow& row : rows.nodes) {
+    row.node_id = prefix + row.node_id;
+  }
+  for (VizEdgeSqlRow& row : rows.edges) {
+    row.parent_node_id = prefix + row.parent_node_id;
+    row.child_node_id = prefix + row.child_node_id;
+  }
+  for (LoopNodeSqlRow& row : rows.loop_nodes) {
+    row.node_id = prefix + row.node_id;
+  }
+  for (VizNodeAnchorSqlRow& row : rows.node_anchors) {
+    row.node_id = prefix + row.node_id;
+  }
+  for (AnchorPrimaryNodeSqlRow& row : rows.anchor_primary_nodes) {
+    row.node_id = prefix + row.node_id;
+  }
+
+  const std::string unit_prefix = "D" + std::to_string(device_id) + "-";
+  for (StructuralUnitSqlRow& row : rows.structural_units) {
+    row.unit_id = unit_prefix + row.unit_id;
+    row.family_id = unit_prefix + row.family_id;
+    std::size_t cursor = 0;
+    while ((cursor = row.expansion_nodes.find("node-", cursor)) !=
+           std::string::npos) {
+      row.expansion_nodes.insert(cursor, prefix);
+      cursor += prefix.size() + 5;
+    }
+  }
+  for (StructuralUnitAnchorSqlRow& row : rows.structural_unit_anchors) {
+    row.unit_id = unit_prefix + row.unit_id;
+  }
+}
+
+void append_node_coverage_rows(NodeCoverageSqlRows& out,
+                               NodeCoverageSqlRows rows) {
+  out.nodes.insert(out.nodes.end(),
+                   std::make_move_iterator(rows.nodes.begin()),
+                   std::make_move_iterator(rows.nodes.end()));
+  out.edges.insert(out.edges.end(),
+                   std::make_move_iterator(rows.edges.begin()),
+                   std::make_move_iterator(rows.edges.end()));
+  out.node_anchors.insert(out.node_anchors.end(),
+                          std::make_move_iterator(rows.node_anchors.begin()),
+                          std::make_move_iterator(rows.node_anchors.end()));
+  out.anchor_primary_nodes.insert(
+      out.anchor_primary_nodes.end(),
+      std::make_move_iterator(rows.anchor_primary_nodes.begin()),
+      std::make_move_iterator(rows.anchor_primary_nodes.end()));
+  out.loop_nodes.insert(out.loop_nodes.end(),
+                        std::make_move_iterator(rows.loop_nodes.begin()),
+                        std::make_move_iterator(rows.loop_nodes.end()));
+  out.structural_units.insert(
+      out.structural_units.end(),
+      std::make_move_iterator(rows.structural_units.begin()),
+      std::make_move_iterator(rows.structural_units.end()));
+  out.structural_unit_anchors.insert(
+      out.structural_unit_anchors.end(),
+      std::make_move_iterator(rows.structural_unit_anchors.begin()),
+      std::make_move_iterator(rows.structural_unit_anchors.end()));
+}
+
+NodeCoverageSqlRows build_lane_node_coverage_rows(
+    const std::vector<NativeReportLane>& lanes,
+    const AuxAttributionSqlRows& aux_rows,
+    std::uint32_t db_idx) {
+  NodeCoverageSqlRows out;
+  const bool multiple_devices = lanes.size() > 1;
+  for (const NativeReportLane& lane : lanes) {
+    NodeCoverageSqlRows rows = build_report_tree_node_coverage_sql_rows(
+        lane.tree, lane.tokens, aux_rows, db_idx);
+    if (multiple_devices) {
+      namespace_node_coverage_rows(rows, lane.device_id);
+    }
+    append_node_coverage_rows(out, std::move(rows));
+  }
+  return out;
+}
+
+void namespace_semantic_rows(SemanticTreeSqlRows& rows,
+                             std::uint32_t device_id) {
+  const std::string prefix = device_node_prefix(device_id);
+  for (SemanticTreeHeaderSqlRow& row : rows.trees) {
+    row.tree_id += "-device" + std::to_string(device_id);
+    row.root_node_id = prefix + row.root_node_id;
+  }
+  for (SemanticNodeSqlRow& row : rows.nodes) {
+    row.tree_id += "-device" + std::to_string(device_id);
+    row.node_id = prefix + row.node_id;
+    if (!row.parent_node_id.empty()) {
+      row.parent_node_id = prefix + row.parent_node_id;
+    }
+  }
+  for (SemanticEdgeSqlRow& row : rows.edges) {
+    row.tree_id += "-device" + std::to_string(device_id);
+    row.parent_node_id = prefix + row.parent_node_id;
+    row.child_node_id = prefix + row.child_node_id;
+  }
+}
+
+SemanticTreeSqlRows build_lane_semantic_rows(
+    const std::vector<NativeReportLane>& lanes,
+    const AuxAttributionSqlRows& aux_rows,
+    std::uint32_t db_idx) {
+  SemanticTreeSqlRows out;
+  const bool multiple_devices = lanes.size() > 1;
+  for (const NativeReportLane& lane : lanes) {
+    SemanticTreeSqlRows rows = build_report_tree_semantic_sql_rows(
+        lane.tree, lane.tokens, aux_rows, db_idx, "tree-1", "anchor_tree");
+    if (multiple_devices) {
+      namespace_semantic_rows(rows, lane.device_id);
+    }
+    out.trees.insert(out.trees.end(),
+                     std::make_move_iterator(rows.trees.begin()),
+                     std::make_move_iterator(rows.trees.end()));
+    out.nodes.insert(out.nodes.end(),
+                     std::make_move_iterator(rows.nodes.begin()),
+                     std::make_move_iterator(rows.nodes.end()));
+    out.edges.insert(out.edges.end(),
+                     std::make_move_iterator(rows.edges.begin()),
+                     std::make_move_iterator(rows.edges.end()));
+  }
+  return out;
+}
+
 }  // namespace
 
 NodeCoverageSqlRows build_native_loop_tree_node_coverage_rows(
@@ -128,15 +337,15 @@ NodeCoverageSqlRows build_native_loop_tree_node_coverage_rows(
               << "\n";
   }
   const Stopwatch tree_watch;
-  const ReportTree report_tree =
-      build_sidecar_report_tree(ir, options, report_tokens);
+  const std::vector<NativeReportLane> report_lanes =
+      build_sidecar_report_lanes(ir, options, report_tokens);
   if (options.timing_diagnostics) {
     std::cerr << "timing loop_tree_report_tree_ms="
               << tree_watch.elapsed_ms() << "\n";
   }
   const Stopwatch coverage_watch;
-  NodeCoverageSqlRows rows = build_report_tree_node_coverage_sql_rows(
-      report_tree, report_tokens, aux_rows, options.db_idx);
+  NodeCoverageSqlRows rows =
+      build_lane_node_coverage_rows(report_lanes, aux_rows, options.db_idx);
   if (options.timing_diagnostics) {
     std::cerr << "timing loop_tree_coverage_rows_ms="
               << coverage_watch.elapsed_ms() << "\n";
@@ -192,11 +401,10 @@ void write_basic_native_compatibility_sidecar(
       sqlite_path, build_native_anchor_cost_breakdown_sql_rows(ir, aux_rows));
   const std::vector<ReportToken> report_tokens =
       build_report_tokens_from_native_ir(ir);
-  const ReportTree report_tree =
-      build_sidecar_report_tree(ir, options, report_tokens);
+  const std::vector<NativeReportLane> report_lanes =
+      build_sidecar_report_lanes(ir, options, report_tokens);
   const NodeCoverageSqlRows node_rows =
-      build_report_tree_node_coverage_sql_rows(report_tree, report_tokens,
-                                               aux_rows, options.db_idx);
+      build_lane_node_coverage_rows(report_lanes, aux_rows, options.db_idx);
   replace_loop_tree_rows(sqlite_path, split_loop_tree_sql_rows(node_rows));
   const NodeAnchorCoverageSqlRows coverage_rows =
       split_node_anchor_coverage_sql_rows(node_rows);
@@ -236,14 +444,32 @@ void write_basic_native_compatibility_sidecar(
             ? basename_or_default(options.source_path, "traceloom_run")
             : options.collective_run_name;
     tag_options.expected_world_size = options.collective_expected_world_size;
-    const CollectiveTagSqlRows collective_rows =
+    CollectiveTagSqlRows collective_rows =
         build_collective_tag_sql_rows({member}, tag_options);
+    CollectiveTagSqlRows graph_body_collective_rows =
+        build_graph_body_collective_tag_sql_rows(
+            ir, member.db_name, options.db_idx, tag_options);
+    collective_rows.local_links.insert(
+        collective_rows.local_links.end(),
+        std::make_move_iterator(
+            graph_body_collective_rows.local_links.begin()),
+        std::make_move_iterator(
+            graph_body_collective_rows.local_links.end()));
+    std::stable_sort(
+        collective_rows.local_links.begin(), collective_rows.local_links.end(),
+        [](const CollectiveGlobalLinkSqlRow& lhs,
+           const CollectiveGlobalLinkSqlRow& rhs) {
+          return std::make_tuple(lhs.candidate_collective_key, lhs.device_id,
+                                 lhs.start_ns, lhs.event_id) <
+                 std::make_tuple(rhs.candidate_collective_key, rhs.device_id,
+                                 rhs.start_ns, rhs.event_id);
+        });
     replace_collective_global_link_rows(sqlite_path,
                                         collective_rows.local_links);
   }
 
-  const SemanticTreeSqlRows semantic_rows = build_report_tree_semantic_sql_rows(
-      report_tree, report_tokens, aux_rows, options.db_idx);
+  const SemanticTreeSqlRows semantic_rows =
+      build_lane_semantic_rows(report_lanes, aux_rows, options.db_idx);
   replace_semantic_tree_catalog_rows(
       sqlite_path, split_semantic_tree_catalog_sql_rows(semantic_rows));
   replace_semantic_graph_rows(sqlite_path,

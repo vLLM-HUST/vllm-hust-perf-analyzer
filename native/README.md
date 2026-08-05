@@ -151,6 +151,14 @@ remain available in the native IR. Bare operation-like labels and NCCL
 point-to-point kernels remain ordinary task evidence rather than being promoted
 from names alone.
 
+For a multi-device SQLite export, TraceLoom reconstructs one device-local Loop
+Tree and structural partition per observed device sequence. It does not merge
+devices into a synthetic total order. Matching collective positions are
+reported as conservative correspondence candidates. Exact graph-body members
+use visible-body template and member positions; top-level collective anchors
+use recovered-loop positions. Neither path infers tensor parallelism, model
+layers, or another workload-specific phase.
+
 Nsight versions that export `CUPTI_ACTIVITY_KIND_CUDA_EVENT` as an
 identity-only lookup table without `start` or `timestamp` keep that table as
 inventory evidence and skip timeline materialization; they do not block timed

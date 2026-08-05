@@ -31,6 +31,17 @@ When graph evidence is available, the provider-neutral `Graph Replay
 Reconstruction` section summarizes recognized and typed unrecognized regions
 plus exact and legacy ReplayUnit counts for ACLGraph or CUDA Graph inputs.
 
+For one SQLite containing multiple devices, the report contains one
+device-local Loop Tree and structural partition per observed device sequence.
+Node and unit handles are namespaced in the shared sidecar; sequence order is
+never synthesized across devices. A `Collective Correspondence` section
+summarizes conservative cross-sequence candidates. `graph_body` candidates use
+exact visible-body template/member positions, while `loop_structure`
+candidates use recovered-loop positions. `complete` means candidate membership
+coverage, not proof of a hidden hardware operation, workload phase, or global
+causal order. Unequal graph-body occurrence counts fail closed to per-device
+singletons.
+
 Ascend reports also contain a `Visible Productive Idle Evidence` section. It
 is the device-level E1→E4 explanation partition: profiler-visible wait,
 capture/control, runtime-control, and explicit unattributed residual. The

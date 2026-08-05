@@ -189,5 +189,28 @@ int main() {
   require(ambiguous_scan.diagnostics.size() ==
           ambiguous_aggregate.diagnostics.size());
 
+  TokenTable multi_device_tokens;
+  multi_device_tokens.append(AnchorId(0), SymbolId(1), 0, 0, 0, 10);
+  multi_device_tokens.append(AnchorId(1), SymbolId(2), 0, 1, 10, 20);
+  multi_device_tokens.append(AnchorId(2), SymbolId(3), 1, 2, 0, 10);
+  multi_device_tokens.append(AnchorId(3), SymbolId(4), 1, 3, 10, 20);
+  const ProtectedSequence multi_device_sequence =
+      ProtectedSequence::from_token_table(multi_device_tokens);
+  const ProtectedIntervalTable no_intervals;
+  const BoundaryIndex multi_device_boundaries =
+      BoundaryIndex::build(multi_device_sequence, no_intervals);
+  const PartitionPlan multi_device_plan = PartitionPlan::build(
+      multi_device_sequence.size(), PartitionPlanConfig{4, 1});
+  const std::vector<CandidateSummaryRow> multi_device_summary =
+      reduce_candidates(scan_candidate_partitions(
+          multi_device_sequence, multi_device_boundaries, multi_device_plan,
+          CandidateScanConfig{2, 2}, 2));
+  require(has_key_count(multi_device_summary,
+                        {SymbolId(1), SymbolId(2)}, 1));
+  require(has_key_count(multi_device_summary,
+                        {SymbolId(3), SymbolId(4)}, 1));
+  require(!has_key_count(multi_device_summary,
+                         {SymbolId(2), SymbolId(3)}, 1));
+
   return 0;
 }

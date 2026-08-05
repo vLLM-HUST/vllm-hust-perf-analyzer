@@ -1,6 +1,7 @@
 #include "traceloom/pattern/candidate_scan.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <stdexcept>
 #include <utility>
 
@@ -34,6 +35,18 @@ CandidateKey build_candidate_key(const ProtectedSequence& sequence,
     key.symbols.push_back(sequence.token_at(index).symbol_id);
   }
   return key;
+}
+
+bool stays_in_one_device_sequence(const ProtectedSequence& sequence,
+                                  std::size_t begin,
+                                  std::size_t end) {
+  const std::uint32_t device_id = sequence.token_at(begin).device_id;
+  for (std::size_t index = begin + 1; index < end; ++index) {
+    if (sequence.token_at(index).device_id != device_id) {
+      return false;
+    }
+  }
+  return true;
 }
 
 void remove_ambiguous_key_occurrences(CandidateScanResult& result) {
@@ -115,6 +128,12 @@ CandidateScanResult scan_candidates_with_diagnostics(
     const std::size_t max_end =
         std::min(partition.read_end, begin + config.max_length);
     for (std::size_t end = begin + config.min_length; end <= max_end; ++end) {
+      // Tokens from different devices are independent execution sequences.
+      // Never create a pattern merely from their adjacency in the flattened
+      // storage order.
+      if (!stays_in_one_device_sequence(sequence, begin, end)) {
+        continue;
+      }
       CandidateKey key = build_candidate_key(sequence, begin, end);
       const BoundaryViolation violation = boundaries.first_violation(begin, end);
       if (violation.valid()) {

@@ -131,6 +131,13 @@ device-task decomposition as auxiliary evidence. Graph replay uses the same
 exact reconstruction contract in both layouts; PMU attribution remains
 incremental.
 
+When one profiler SQLite contains multiple devices, TraceLoom keeps one
+device-local execution sequence per device instead of inventing a global
+order. The report overlays conservative collective correspondence candidates
+from exact graph-body positions or recovered-loop positions. It never labels
+those relations as tensor parallelism, a model layer, or another workload
+phase; that interpretation belongs to downstream agents and humans.
+
 ### 3. Read The Loop Tree
 
 Start at the outer `Repeat xN` nodes, then compare their children. The most

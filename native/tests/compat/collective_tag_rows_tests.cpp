@@ -209,5 +209,134 @@ int main() {
   require(rows.local_links[0].local_node_id == "N101");
   require(rows.global_rows.summaries[0].validation_status == "complete");
 
+  // Exact graph bodies keep collectives inside the protected ReplayUnit.  The
+  // correspondence surface links their raw member events without promoting
+  // them to top-level anchors or attaching workload/parallelism semantics.
+  traceloom::NativeIr graph_ir;
+  const traceloom::SourceRefId graph_source =
+      graph_ir.source_refs.append("fixture", "graph", "KERNEL", 0);
+  const traceloom::SymbolId nccl = graph_ir.symbols.intern(
+      "ncclDevKernel_AllReduce_Sum_f32_RING_LL");
+  const traceloom::SymbolId collective_task =
+      graph_ir.symbols.intern("CUDA_COLLECTIVE_KERNEL");
+  const traceloom::ReplayBodyTemplateId body_template =
+      graph_ir.replay_body_templates.append(
+          graph_source, 0x1234, nccl, 0, 1, 1,
+          traceloom::ReplayBodyTopologyPolicy::kSingleModelStream);
+  for (std::uint32_t occurrence = 0; occurrence < 2; ++occurrence) {
+    for (std::uint32_t device_id = 0; device_id < 2; ++device_id) {
+      const std::int64_t start_ns =
+          10000 + static_cast<std::int64_t>(occurrence) * 1000 +
+          static_cast<std::int64_t>(device_id) * 100;
+      const traceloom::TraceEventId event = graph_ir.trace_events.append(
+          graph_source, 100 + occurrence * 2 + device_id, device_id, 7,
+          start_ns, start_ns + 500, nccl);
+      const traceloom::TaskId task = graph_ir.tasks.append(
+          graph_source, event, 100 + occurrence * 2 + device_id,
+          100 + occurrence * 2 + device_id, -1, collective_task, nccl, nccl,
+          traceloom::SymbolId::invalid(), nccl);
+      const traceloom::GraphLaunchOccurrenceId launch =
+          graph_ir.graph_launch_occurrences.append(
+              graph_source, graph_source, device_id,
+              200 + occurrence * 2 + device_id,
+              300 + occurrence * 2 + device_id, -1, -1,
+              traceloom::StreamId::invalid(), traceloom::StreamId::invalid(),
+              traceloom::CapturedGraphInstanceId::invalid(),
+              traceloom::TaskId::invalid(), traceloom::TaskId::invalid(),
+              traceloom::TaskId::invalid(), start_ns, start_ns + 500, -1,
+              traceloom::GraphLaunchMatchPolicy::kCudaRuntimeCorrelation,
+              traceloom::GraphLaunchInstanceAssociationPolicy::
+                  kCudaGraphNodeSet);
+      const traceloom::GraphLaunchBodyId body =
+          graph_ir.graph_launch_bodies.append(launch, body_template, task,
+                                              task, 0, 1, 1);
+      graph_ir.graph_launch_body_members.append(
+          body, task, 0, 0,
+          traceloom::GraphLaunchBodyMemberRow::Kind::kCommunication);
+    }
+  }
+
+  rows = traceloom::compat::build_graph_body_collective_tag_sql_rows(
+      graph_ir, "graph.db", 4, CollectiveTagOptions{"graph run", 2});
+  require(rows.local_links.size() == 4);
+  require(rows.global_rows.summaries.size() == 2);
+  require(rows.local_links[0].pair_id == "GB_H0000000000001234");
+  require(rows.local_links[0].candidate_collective_key.find(
+              "graph_run:GB_H0000000000001234:occ_000001:allReduce:") == 0);
+  require(rows.local_links[0].anchor_id.empty());
+  require(!rows.local_links[0].event_id.empty());
+  require(rows.local_links[0].source_table == "KERNEL");
+  for (const auto& summary : rows.global_rows.summaries) {
+    require(summary.member_count == 2);
+    require(summary.validation_status == "complete");
+    require(summary.missing_members.empty());
+  }
+
+  const traceloom::TraceEventId extra_event = graph_ir.trace_events.append(
+      graph_source, 999, 0, 7, 13000, 13500, nccl);
+  const traceloom::TaskId extra_task = graph_ir.tasks.append(
+      graph_source, extra_event, 999, 999, -1, collective_task, nccl, nccl,
+      traceloom::SymbolId::invalid(), nccl);
+  const traceloom::GraphLaunchOccurrenceId extra_launch =
+      graph_ir.graph_launch_occurrences.append(
+          graph_source, graph_source, 0, 999, 999, -1, -1,
+          traceloom::StreamId::invalid(), traceloom::StreamId::invalid(),
+          traceloom::CapturedGraphInstanceId::invalid(),
+          traceloom::TaskId::invalid(), traceloom::TaskId::invalid(),
+          traceloom::TaskId::invalid(), 13000, 13500, -1,
+          traceloom::GraphLaunchMatchPolicy::kCudaRuntimeCorrelation,
+          traceloom::GraphLaunchInstanceAssociationPolicy::kCudaGraphNodeSet);
+  const traceloom::GraphLaunchBodyId extra_body =
+      graph_ir.graph_launch_bodies.append(extra_launch, body_template,
+                                          extra_task, extra_task, 0, 1, 1);
+  graph_ir.graph_launch_body_members.append(
+      extra_body, extra_task, 0, 0,
+      traceloom::GraphLaunchBodyMemberRow::Kind::kCommunication);
+  rows = traceloom::compat::build_graph_body_collective_tag_sql_rows(
+      graph_ir, "graph.db", 4, CollectiveTagOptions{"graph run", 2});
+  require(rows.global_rows.summaries.size() == 5);
+  for (const auto& summary : rows.global_rows.summaries) {
+    require(summary.member_count == 1);
+    require(summary.validation_status == "singleton");
+    require(summary.pair_id.find("_D") != std::string::npos);
+  }
+
+  traceloom::NativeIr single_device_graph_ir;
+  const traceloom::SourceRefId single_source =
+      single_device_graph_ir.source_refs.append(
+          "fixture", "single-graph", "KERNEL", 0);
+  const traceloom::SymbolId single_nccl =
+      single_device_graph_ir.symbols.intern("ncclKernel_AllReduce");
+  const traceloom::ReplayBodyTemplateId single_template =
+      single_device_graph_ir.replay_body_templates.append(
+          single_source, 0x42, single_nccl, 0, 1, 1,
+          traceloom::ReplayBodyTopologyPolicy::kSingleModelStream);
+  const traceloom::TraceEventId single_event =
+      single_device_graph_ir.trace_events.append(
+          single_source, 1, 0, 7, 100, 200, single_nccl);
+  const traceloom::TaskId single_task = single_device_graph_ir.tasks.append(
+      single_source, single_event, 1, 1, -1, collective_task, single_nccl,
+      single_nccl, traceloom::SymbolId::invalid(), single_nccl);
+  const traceloom::GraphLaunchOccurrenceId single_launch =
+      single_device_graph_ir.graph_launch_occurrences.append(
+          single_source, single_source, 0, 1, 1, -1, -1,
+          traceloom::StreamId::invalid(), traceloom::StreamId::invalid(),
+          traceloom::CapturedGraphInstanceId::invalid(),
+          traceloom::TaskId::invalid(), traceloom::TaskId::invalid(),
+          traceloom::TaskId::invalid(), 100, 200, -1,
+          traceloom::GraphLaunchMatchPolicy::kCudaRuntimeCorrelation,
+          traceloom::GraphLaunchInstanceAssociationPolicy::kCudaGraphNodeSet);
+  const traceloom::GraphLaunchBodyId single_body =
+      single_device_graph_ir.graph_launch_bodies.append(
+          single_launch, single_template, single_task, single_task, 0, 1, 1);
+  single_device_graph_ir.graph_launch_body_members.append(
+      single_body, single_task, 0, 0,
+      traceloom::GraphLaunchBodyMemberRow::Kind::kCommunication);
+  rows = traceloom::compat::build_graph_body_collective_tag_sql_rows(
+      single_device_graph_ir, "single.db", 0,
+      CollectiveTagOptions{"single run", 0});
+  require(rows.local_links.empty());
+  require(rows.global_rows.summaries.empty());
+
   return 0;
 }

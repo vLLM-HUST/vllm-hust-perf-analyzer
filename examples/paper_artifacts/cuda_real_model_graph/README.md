@@ -74,6 +74,8 @@ examples/paper_artifacts/tools/verify_cuda_real_model_graph.py \
 
 The separately retained TP2+NCCL trace is not part of this checkout artifact.
 Its six raw launches each expose GEMM, 4 MiB D2D memcpy, and NCCL AllReduce
-nodes, but the current shared report path rejects a structural unit spanning
-two device sequences. That is a named analyzer limitation, not positive exact
-TP reconstruction and not missing raw profiler evidence.
+nodes. At the immutable evidence checkpoint, the shared report path rejected a
+structural unit spanning two device sequences. The later generic collective-
+correspondence work analyzes device sequences independently and exposes the
+three paired graph-body AllReduce positions without naming TP or changing this
+checkout artifact's frozen claim ledger.

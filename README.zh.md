@@ -114,6 +114,12 @@ TraceLoom 会给出 warning，并从 split `AscendTask`、`TaskInfo`、`HostTask
 `ApiData` 构建基础时间线。split 的细粒度通信、Graph Replay 和 PMU 归因仍按
 增量阶段继续完善。
 
+当一张 profiler SQLite 同时包含多个设备时，TraceLoom 会为每个设备保留独立
+的本地执行序列，而不会虚构跨设备全序。报告可以基于 exact graph body 位置或
+恢复出的 loop 位置，叠加保守的 collective correspondence candidate；但不会把
+这些关系命名为 tensor parallel、模型层或 workload phase。语义解释仍交给下游
+agent 或人类。
+
 ### 3. 阅读 Loop Tree
 
 先从最外层的 `Repeat xN` 开始，再比较它的子节点。最常用的列是：

@@ -17,6 +17,8 @@
 #include <utility>
 #include <vector>
 
+#include "traceloom/compat/timeline_rows.h"
+
 namespace traceloom::compat {
 namespace {
 
@@ -927,6 +929,239 @@ CollectiveTagSqlRows build_collective_tag_sql_rows(
                      rhs.candidate_collective_key;
             });
 
+  for (const CollectiveGlobalLinkSqlRow& link : out.local_links) {
+    out.global_rows.members.push_back(member_from_link(link));
+  }
+  return out;
+}
+
+CollectiveTagSqlRows build_graph_body_collective_tag_sql_rows(
+    const NativeIr& ir,
+    const std::string& db_name,
+    std::uint32_t db_idx,
+    const CollectiveTagOptions& options) {
+  if (db_name.empty()) {
+    throw std::invalid_argument(
+        "graph-body collective tags require a db_name");
+  }
+
+  struct BodyEvidence {
+    const GraphLaunchBodyRow* body = nullptr;
+    const GraphLaunchOccurrenceRow* launch = nullptr;
+    const ReplayBodyTemplateRow* body_template = nullptr;
+  };
+
+  std::vector<BodyEvidence> bodies;
+  bodies.reserve(ir.graph_launch_bodies.size());
+  for (const GraphLaunchBodyRow& body : ir.graph_launch_bodies.rows()) {
+    if (!body.graph_launch_occurrence_id.valid() ||
+        body.graph_launch_occurrence_id.value() >=
+            ir.graph_launch_occurrences.size() ||
+        !body.replay_body_template_id.valid() ||
+        body.replay_body_template_id.value() >=
+            ir.replay_body_templates.size()) {
+      throw std::invalid_argument(
+          "graph launch body has invalid occurrence or template evidence");
+    }
+    bodies.push_back(
+        BodyEvidence{&body,
+                     &ir.graph_launch_occurrences.row(
+                         body.graph_launch_occurrence_id),
+                     &ir.replay_body_templates.row(
+                         body.replay_body_template_id)});
+  }
+  std::stable_sort(
+      bodies.begin(), bodies.end(), [](const BodyEvidence& lhs,
+                                       const BodyEvidence& rhs) {
+        return std::make_tuple(lhs.launch->device_id,
+                               lhs.body_template->exact_sequence_hash,
+                               lhs.launch->start_ns, lhs.launch->end_ns,
+                               lhs.body->id) <
+               std::make_tuple(rhs.launch->device_id,
+                               rhs.body_template->exact_sequence_hash,
+                               rhs.launch->start_ns, rhs.launch->end_ns,
+                               rhs.body->id);
+      });
+
+  std::set<std::uint32_t> body_devices;
+  std::map<std::uint64_t, std::map<std::uint32_t, std::uint32_t>>
+      body_count_by_template_and_device;
+  for (const BodyEvidence& evidence : bodies) {
+    body_devices.insert(evidence.launch->device_id);
+    ++body_count_by_template_and_device
+          [evidence.body_template->exact_sequence_hash]
+          [evidence.launch->device_id];
+  }
+  if (body_devices.size() < 2) {
+    return CollectiveTagSqlRows{};
+  }
+  std::map<std::uint64_t, bool> ordinal_alignment_stable;
+  for (const auto& template_entry : body_count_by_template_and_device) {
+    std::set<std::uint32_t> counts;
+    for (std::uint32_t device_id : body_devices) {
+      const auto found = template_entry.second.find(device_id);
+      counts.insert(found == template_entry.second.end() ? 0
+                                                          : found->second);
+    }
+    ordinal_alignment_stable[template_entry.first] =
+        counts.size() == 1 && !counts.empty() && *counts.begin() != 0;
+  }
+
+  std::map<GraphLaunchBodyId::value_type,
+           std::vector<const GraphLaunchBodyMemberRow*>>
+      members_by_body;
+  for (const GraphLaunchBodyMemberRow& member :
+       ir.graph_launch_body_members.rows()) {
+    if (!member.graph_launch_body_id.valid() ||
+        member.graph_launch_body_id.value() >= ir.graph_launch_bodies.size() ||
+        !member.task_id.valid() || member.task_id.value() >= ir.tasks.size()) {
+      throw std::invalid_argument(
+          "graph launch body member has invalid body or task evidence");
+    }
+    members_by_body[member.graph_launch_body_id.value()].push_back(&member);
+  }
+  for (auto& item : members_by_body) {
+    std::stable_sort(
+        item.second.begin(), item.second.end(),
+        [](const GraphLaunchBodyMemberRow* lhs,
+           const GraphLaunchBodyMemberRow* rhs) {
+          return std::tie(lhs->lane_ordinal, lhs->task_ordinal, lhs->id) <
+                 std::tie(rhs->lane_ordinal, rhs->task_ordinal, rhs->id);
+        });
+  }
+
+  std::map<TraceEventId::value_type, const CommunicationOpRow*> comm_by_event;
+  for (const CommunicationOpRow& comm : ir.communication_ops.rows()) {
+    if (comm.trace_event_id.valid()) {
+      comm_by_event.emplace(comm.trace_event_id.value(), &comm);
+    }
+  }
+
+  const std::string run_name = sanitize_run_name(options.run_name);
+  std::map<std::pair<std::uint32_t, std::uint64_t>, std::uint32_t>
+      next_occurrence_by_device_and_template;
+  std::set<std::string> expected_members;
+  for (std::uint32_t device_id : body_devices) {
+    expected_members.insert(member_id(db_name, db_idx, device_id));
+  }
+  CollectiveTagSqlRows out;
+
+  for (const BodyEvidence& evidence : bodies) {
+    const std::uint32_t device_id = evidence.launch->device_id;
+    const std::uint64_t template_hash =
+        evidence.body_template->exact_sequence_hash;
+    const std::uint32_t occurrence =
+        ++next_occurrence_by_device_and_template[
+            std::make_pair(device_id, template_hash)];
+
+    std::ostringstream hash_text;
+    hash_text << std::hex << std::setw(16) << std::setfill('0')
+              << template_hash;
+    std::string pair = "GB_H" + hash_text.str();
+    if (!ordinal_alignment_stable.at(template_hash)) {
+      // Unequal per-device occurrence counts make ordinal alignment
+      // ambiguous.  Keep the members as typed singletons rather than shifting
+      // later occurrences into plausible-looking cross-device pairs.
+      pair += "_D" + std::to_string(device_id);
+    }
+
+    std::map<std::string, std::uint32_t> next_index_by_op;
+    const auto body_members = members_by_body.find(evidence.body->id.value());
+    if (body_members == members_by_body.end()) {
+      continue;
+    }
+    for (const GraphLaunchBodyMemberRow* member : body_members->second) {
+      if (member->kind !=
+          GraphLaunchBodyMemberRow::Kind::kCommunication) {
+        continue;
+      }
+      const TaskRow& task = ir.tasks.row(member->task_id);
+      if (!task.trace_event_id.valid() ||
+          task.trace_event_id.value() >= ir.trace_events.size()) {
+        throw std::invalid_argument(
+            "graph-body collective task has invalid trace event evidence");
+      }
+      const TraceEventRow& event = ir.trace_events.row(task.trace_event_id);
+      const SourceRefRow& source = ir.source_refs.row(event.source_ref_id);
+
+      std::string label;
+      for (SymbolId symbol : {task.comm_name_symbol_id,
+                              task.op_type_symbol_id,
+                              task.op_name_symbol_id,
+                              event.raw_name_symbol_id}) {
+        if (symbol.valid()) {
+          label = ir.symbols.value(symbol);
+          if (!label.empty()) {
+            break;
+          }
+        }
+      }
+      const std::string op_type = normalize_op_type("collective", label);
+      const std::uint32_t index = ++next_index_by_op[op_type];
+
+      CollectiveGlobalLinkSqlRow row;
+      row.candidate_collective_key = candidate_collective_key(
+          run_name, pair, occurrence, op_type, index);
+      row.db_name = db_name;
+      row.db_idx = db_idx;
+      row.device_id = device_id;
+      row.member_id = member_id(db_name, db_idx, device_id);
+      row.pair_id = pair;
+      row.local_node_id =
+          "graph-body-" + std::to_string(evidence.body->id.value());
+      row.occurrence_idx = occurrence;
+      row.idx_in_occurrence = index;
+      row.op_type = op_type;
+      // A graph-body member is deliberately not promoted to a top-level
+      // report anchor.  event_id and raw-row lineage remain exact.
+      row.anchor_id.clear();
+      row.event_id = trace_event_compat_id(task.trace_event_id);
+      row.source_table = source.table_name;
+      row.source_key = std::to_string(event.source_row_id);
+      const auto comm = comm_by_event.find(task.trace_event_id.value());
+      if (comm != comm_by_event.end()) {
+        if (comm->second->raw_connection_id >= 0) {
+          row.connection_id =
+              std::to_string(comm->second->raw_connection_id);
+        }
+        if (comm->second->raw_op_id >= 0) {
+          row.op_id = std::to_string(comm->second->raw_op_id);
+        }
+      }
+      row.start_ns = event.start_ns;
+      row.end_ns = event.end_ns;
+      row.dur_us = static_cast<double>(event.end_ns - event.start_ns) / 1000.0;
+      row.validation_status = "candidate";
+      row.confidence = 0.5;
+      out.local_links.push_back(std::move(row));
+    }
+  }
+
+  std::sort(out.local_links.begin(), out.local_links.end(),
+            [](const CollectiveGlobalLinkSqlRow& lhs,
+               const CollectiveGlobalLinkSqlRow& rhs) {
+              return std::make_tuple(lhs.candidate_collective_key,
+                                     lhs.device_id, lhs.start_ns,
+                                     lhs.event_id) <
+                     std::make_tuple(rhs.candidate_collective_key,
+                                     rhs.device_id, rhs.start_ns,
+                                     rhs.event_id);
+            });
+
+  const std::uint32_t expected_world_size =
+      options.expected_world_size == 0
+          ? std::max<std::uint32_t>(
+                1, static_cast<std::uint32_t>(expected_members.size()))
+          : options.expected_world_size;
+  out.global_rows.summaries =
+      summarize_links(out.local_links, expected_members, expected_world_size);
+  std::sort(out.global_rows.summaries.begin(),
+            out.global_rows.summaries.end(),
+            [](const GlobalCollectiveSummarySqlRow& lhs,
+               const GlobalCollectiveSummarySqlRow& rhs) {
+              return lhs.candidate_collective_key <
+                     rhs.candidate_collective_key;
+            });
   for (const CollectiveGlobalLinkSqlRow& link : out.local_links) {
     out.global_rows.members.push_back(member_from_link(link));
   }

@@ -52,6 +52,18 @@ int main() {
       {"recognized_complete_pattern", 1},
       {"unrecognized_missing_body_capability", 2},
   };
+  compat::GlobalCollectiveSummarySqlRow correspondence;
+  correspondence.candidate_collective_key = "run:GB_H123:occ_1:allReduce";
+  correspondence.pair_id = "GB_H123";
+  correspondence.occurrence_idx = 1;
+  correspondence.op_type = "allReduce";
+  correspondence.member_count = 2;
+  correspondence.expected_world_size = 2;
+  correspondence.start_skew_us = 3.5;
+  correspondence.duration_skew_us = 1.25;
+  correspondence.validation_status = "complete";
+  correspondence.confidence = 0.85;
+  options.collective_correspondences = {correspondence};
   options.has_semantic_operator_coverage = true;
   options.semantic_rules_version = "semantic-v1";
   options.unknown_task_count = 7;
@@ -99,6 +111,12 @@ int main() {
               "| 0 | `U1` | `structural_unit` | 1 | `UF1` | `H1234` | 42 | `unavailable` | 208410 | 207000 | `complete` | `node-N001#1,node-N002#1,node-N003#1,node-N004#1,node-N005#1,node-N006#1,...(+1)` |") !=
           std::string::npos);
   require(markdown.find("not a workload phase") != std::string::npos);
+  require(markdown.find("## Collective Correspondence") !=
+          std::string::npos);
+  require(markdown.find("not workload-phase labels") != std::string::npos);
+  require(markdown.find(
+              "| `graph_body` | 1 | `allReduce` | 2 | 2 | 3.5 | 1.25 | `complete` | `(none)` |") !=
+          std::string::npos);
   require(markdown.find("## Unregistered Operator Audit") !=
           std::string::npos);
   require(markdown.find("- unique_unregistered_operators: `1`") !=

@@ -94,9 +94,11 @@ input; its optional reference mode proves canonical semantic equality with the
 full immutable bundle.
 
 The TP2+NCCL follow-up supplies correct graph replays and direct raw node
-evidence for GEMM, D2D memcpy, and NCCL AllReduce on both devices. It is not an
-exact TraceLoom result: the current shared report path rejects structural units
-that span more than one device sequence. The evidence therefore supports
-single-GPU real-model visible-body recovery, not CUDA Graph TP reconstruction.
-Collection and artifact details remain in
-`notes/cuda-real-model-graph-handoff.md`.
+evidence for GEMM, D2D memcpy, and NCCL AllReduce on both devices. At the frozen
+artifact checkpoint the shared report path rejected a structural unit spanning
+two device sequences. The subsequent workload-agnostic correspondence path
+keeps the device sequences independent and exposes three two-member graph-body
+AllReduce candidates with raw-row provenance. This is collective structural
+correspondence, not a TP-aware conclusion. Collection and artifact details
+remain in `notes/cuda-real-model-graph-handoff.md`; the new contract is in
+`notes/collective-structural-correspondence.md`.

@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "traceloom/compat/sidecar_writer.h"
+#include "traceloom/ir/native_ir.h"
 
 namespace traceloom::compat {
 
@@ -31,6 +32,17 @@ struct CollectiveTagSqlRows {
 
 CollectiveTagSqlRows build_collective_tag_sql_rows(
     const std::vector<CollectiveTagMemberInput>& members,
+    const CollectiveTagOptions& options = {});
+
+// Builds workload-agnostic correspondence candidates for collective members
+// that are directly observed inside exact graph-launch bodies.  Matching uses
+// stable body-template identity, per-device occurrence order, normalized
+// collective type, and member order.  It does not infer a parallelism mode or
+// a cross-device causal/total order.
+CollectiveTagSqlRows build_graph_body_collective_tag_sql_rows(
+    const NativeIr& ir,
+    const std::string& db_name,
+    std::uint32_t db_idx = 0,
     const CollectiveTagOptions& options = {});
 
 }  // namespace traceloom::compat
