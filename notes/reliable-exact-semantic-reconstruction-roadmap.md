@@ -395,6 +395,26 @@ explicit `inconclusive` result. Until that gate passes, the retained macro and
 microbench positives are external validation, not something TraceLoom may
 retroactively manufacture from mixed local evidence.
 
+The first native comparison gate is now implemented as `traceloom compare`.
+It accepts one profile per rank on each side, preserves unequal sample counts
+between variants, forms the ordinal rank-critical maximum within a variant,
+and uses a deterministic circular moving-block bootstrap. It requires an
+explicit same-workload attestation plus matching observable rank/device,
+stream, and period-one unit shape. Unsupported selectors, insufficient data,
+or confidence crossing the minimum-effect band produce a typed
+`inconclusive` result rather than an exception or guessed pairing. A confident
+envelope direction is also downgraded if task sum or busy union confidently
+contradicts it.
+
+Both retained fused-MoE pairs pass the structural and workload-attestation
+gates while retaining their unequal `15` versus `17/18` rank-critical sample
+counts. Pair 1's envelope point estimate is `-0.775%` candidate improvement
+with a 95% block-bootstrap interval of `[-27.499%, 18.543%]`; pair 2 is
+`+0.434%` with `[-8.678%, 19.083%]`. Both correctly return `inconclusive`.
+This closes the invalid equal-cardinality gate and makes the refusal native;
+it does not yet supply the positive stable capture needed to validate a
+`faster` production verdict end to end.
+
 ## Promotion Gate
 
 The exact path may replace legacy output only when every promoted replay unit

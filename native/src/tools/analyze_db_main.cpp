@@ -1,6 +1,7 @@
 #include <chrono>
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstddef>
 #include <cstdlib>
 #include <exception>
@@ -21,6 +22,7 @@
 #include "traceloom/adapters/cuda_nsys_sqlite_adapter.h"
 #include "traceloom/adapters/hygon_sqlite_adapter.h"
 #include "traceloom/analysis/flat_anchor_builder.h"
+#include "traceloom/analysis/graph_body_performance_comparison.h"
 #include "traceloom/analysis/idle_explanation.h"
 #include "traceloom/analysis/idle_evidence_pipeline.h"
 #include "traceloom/analysis/idle_evidence_semantic_rules.h"
@@ -85,6 +87,21 @@ struct CliOptions {
   std::string idle_evidence_rules_path;
 };
 
+struct CompareCliOptions {
+  std::string executable_path;
+  std::string baseline_input;
+  std::string candidate_input;
+  std::string source_kind = "auto";
+  std::string out_path = "-";
+  bool same_workload_attested = false;
+  bool timings = false;
+  std::size_t threads = 0;
+  std::size_t minimum_sample_count = 8;
+  std::size_t bootstrap_iterations = 20000;
+  double confidence_level = 0.95;
+  double minimum_effect_pct = 1.0;
+};
+
 std::vector<std::string> discover_profile_dbs(const std::string& input,
                                                const std::string& source_kind);
 
@@ -108,7 +125,24 @@ void print_usage(const char* argv0) {
                "hierarchy, cost, replay, and evidence relations.\n"
             << "Use --loop-tree-out only when a Markdown projection is "
                "needed for a human reader.\n"
+            << "Compare matched profiles with: " << argv0
+            << " compare BASELINE CANDIDATE --same-workload\n"
             << "Use --help-advanced for compatibility and debug options.\n";
+}
+
+void print_compare_usage(const char* argv0) {
+  std::cerr
+      << "usage: " << argv0
+      << " compare BASELINE CANDIDATE [--same-workload] [--out PATH|-]"
+         " [--source-kind auto|ascend_sqlite_hot_path|ascend_sqlite_split|"
+         "hygon_sqlite|cuda_nsys_sqlite] [--threads N]"
+         " [--minimum-samples N] [--bootstrap-iterations N]"
+         " [--confidence FLOAT] [--minimum-effect-pct FLOAT] [--timings]\n\n"
+      << "BASELINE and CANDIDATE may each contain one profile per rank. "
+         "Unequal sample counts across variants are supported; equal counts "
+         "within a multi-rank variant are required for ordinal rank-critical "
+         "aggregation. Without --same-workload, the result is explicitly "
+         "inconclusive.\n";
 }
 
 void print_advanced_usage(const char* argv0) {
@@ -139,6 +173,16 @@ std::size_t parse_size(const std::string& text, const std::string& flag) {
     throw std::invalid_argument("invalid integer for " + flag + ": " + text);
   }
   return static_cast<std::size_t>(value);
+}
+
+double parse_double(const std::string& text, const std::string& flag) {
+  std::size_t consumed = 0;
+  const double value = std::stod(text, &consumed);
+  if (consumed != text.size() || !std::isfinite(value)) {
+    throw std::invalid_argument("invalid floating-point value for " + flag +
+                                ": " + text);
+  }
+  return value;
 }
 
 CliOptions parse_args(int argc, char** argv) {
@@ -425,6 +469,79 @@ std::vector<std::string> discover_profile_dbs(const std::string& input,
   return result;
 }
 
+CompareCliOptions parse_compare_args(int argc, char** argv) {
+  CompareCliOptions options;
+  options.executable_path = argc > 0 ? argv[0] : "traceloom";
+  std::vector<std::string> positional;
+  for (int index = 2; index < argc; ++index) {
+    const std::string arg = argv[index];
+    auto require_value = [&](const std::string& flag) -> std::string {
+      if (index + 1 >= argc) {
+        throw std::invalid_argument("missing value for " + flag);
+      }
+      ++index;
+      return argv[index];
+    };
+    if (arg == "--same-workload") {
+      options.same_workload_attested = true;
+    } else if (arg == "--source-kind") {
+      options.source_kind = require_value(arg);
+    } else if (arg == "--out") {
+      options.out_path = require_value(arg);
+    } else if (arg == "--threads") {
+      options.threads = parse_size(require_value(arg), arg);
+    } else if (arg == "--minimum-samples") {
+      options.minimum_sample_count = parse_size(require_value(arg), arg);
+    } else if (arg == "--bootstrap-iterations") {
+      options.bootstrap_iterations = parse_size(require_value(arg), arg);
+    } else if (arg == "--confidence") {
+      options.confidence_level = parse_double(require_value(arg), arg);
+    } else if (arg == "--minimum-effect-pct") {
+      options.minimum_effect_pct = parse_double(require_value(arg), arg);
+    } else if (arg == "--timings") {
+      options.timings = true;
+    } else if (arg == "--help" || arg == "-h") {
+      print_compare_usage(options.executable_path.c_str());
+      std::exit(0);
+    } else if (!arg.empty() && arg[0] != '-') {
+      positional.push_back(arg);
+    } else {
+      throw std::invalid_argument("unknown comparison argument: " + arg);
+    }
+  }
+  if (positional.size() != 2) {
+    throw std::invalid_argument(
+        "compare requires exactly one baseline and one candidate path");
+  }
+  options.baseline_input = positional[0];
+  options.candidate_input = positional[1];
+  if (options.source_kind != "auto" &&
+      options.source_kind != "ascend_sqlite_hot_path" &&
+      options.source_kind != "ascend_sqlite_split" &&
+      options.source_kind != "hygon_sqlite" &&
+      options.source_kind != "cuda_nsys_sqlite") {
+    throw std::invalid_argument("unsupported --source-kind: " +
+                                options.source_kind);
+  }
+  if (options.threads == 0) {
+    options.threads = default_thread_count();
+  }
+  if (options.minimum_sample_count == 0 ||
+      options.bootstrap_iterations == 0) {
+    throw std::invalid_argument(
+        "--minimum-samples and --bootstrap-iterations must be positive");
+  }
+  if (!(options.confidence_level > 0.0 &&
+        options.confidence_level < 1.0)) {
+    throw std::invalid_argument("--confidence must be between zero and one");
+  }
+  if (options.minimum_effect_pct < 0.0) {
+    throw std::invalid_argument(
+        "--minimum-effect-pct must be nonnegative");
+  }
+  return options;
+}
+
 fs::path default_output_root(const std::string& input) {
   const fs::path root(input);
   if (fs::is_regular_file(root)) {
@@ -532,6 +649,273 @@ void write_text_output(const std::string& path, const std::string& contents) {
     throw std::runtime_error("failed to open output path: " + path);
   }
   out << contents;
+}
+
+struct LoadedComparisonProfile {
+  traceloom::NativeIr ir;
+  std::string source_kind;
+};
+
+LoadedComparisonProfile load_comparison_profile(
+    const std::string& source_db,
+    const CompareCliOptions& cli) {
+  const bool is_cuda =
+      cli.source_kind == "cuda_nsys_sqlite" ||
+      (cli.source_kind == "auto" &&
+       traceloom::looks_like_cuda_nsys_sqlite_profile(source_db));
+  const bool is_hygon =
+      cli.source_kind == "hygon_sqlite" ||
+      (cli.source_kind == "auto" && !is_cuda &&
+       traceloom::looks_like_hygon_sqlite_profile(source_db));
+  const bool is_split =
+      !is_cuda && !is_hygon && fs::is_directory(source_db);
+  LoadedComparisonProfile loaded;
+  loaded.source_kind =
+      is_cuda ? "cuda_nsys_sqlite"
+              : (is_hygon ? "hygon_sqlite"
+                          : (is_split ? "ascend_sqlite_split"
+                                      : "ascend_sqlite_hot_path"));
+  const Stopwatch watch;
+  if (is_cuda) {
+    traceloom::CudaNsightSQLiteAdapterOptions options;
+    options.db_path = source_db;
+    options.thread_count = cli.threads;
+    options.timing_diagnostics = cli.timings;
+    loaded.ir =
+        traceloom::CudaNsightSQLiteAdapter(std::move(options)).load();
+  } else if (is_hygon) {
+    traceloom::HygonSQLiteAdapterOptions options;
+    options.db_path = source_db;
+    options.thread_count = cli.threads;
+    options.timing_diagnostics = cli.timings;
+    loaded.ir = traceloom::HygonSQLiteAdapter(std::move(options)).load();
+  } else {
+    traceloom::AscendSQLiteAdapterOptions options;
+    options.db_path = source_db;
+    options.source_kind = loaded.source_kind;
+    options.thread_count = cli.threads;
+    options.timing_diagnostics = cli.timings;
+    loaded.ir = traceloom::AscendSQLiteAdapter(std::move(options)).load();
+  }
+  if (cli.timings) {
+    std::cerr << "timing comparison_load_ms=" << watch.elapsed_ms()
+              << " source=" << source_db << "\n";
+  }
+  return loaded;
+}
+
+void write_json_string(std::ostream& out, const std::string& value) {
+  out << '"';
+  for (const unsigned char character : value) {
+    switch (character) {
+      case '"':
+        out << "\\\"";
+        break;
+      case '\\':
+        out << "\\\\";
+        break;
+      case '\b':
+        out << "\\b";
+        break;
+      case '\f':
+        out << "\\f";
+        break;
+      case '\n':
+        out << "\\n";
+        break;
+      case '\r':
+        out << "\\r";
+        break;
+      case '\t':
+        out << "\\t";
+        break;
+      default:
+        if (character < 0x20) {
+          out << "\\u00" << std::hex << std::setw(2)
+              << std::setfill('0') << static_cast<unsigned int>(character)
+              << std::dec << std::setfill(' ');
+        } else {
+          out << static_cast<char>(character);
+        }
+    }
+  }
+  out << '"';
+}
+
+void write_comparison_variant(
+    std::ostream& out,
+    const traceloom::GraphBodyVariantSummary& variant) {
+  out << "{\"profile_count\":" << variant.profile_count
+      << ",\"rank_critical_sample_count\":"
+      << variant.rank_critical_sample_count
+      << ",\"stream_count\":" << variant.stream_count
+      << ",\"compute_task_count\":" << variant.compute_task_count
+      << ",\"communication_task_count\":"
+      << variant.communication_task_count
+      << ",\"data_move_task_count\":" << variant.data_move_task_count
+      << ",\"replay_unit_launch_count\":"
+      << variant.replay_unit_launch_count << ",\"device_ids\":[";
+  for (std::size_t index = 0; index < variant.device_ids.size(); ++index) {
+    if (index != 0) {
+      out << ',';
+    }
+    out << variant.device_ids[index];
+  }
+  out << "]}";
+}
+
+void write_comparison_profiles(
+    std::ostream& out,
+    const std::vector<traceloom::GraphBodyProfileSample>& profiles) {
+  out << '[';
+  for (std::size_t index = 0; index < profiles.size(); ++index) {
+    if (index != 0) {
+      out << ',';
+    }
+    const traceloom::GraphBodyProfileSample& profile = profiles[index];
+    out << "{\"source_path\":";
+    write_json_string(out, profile.source_path);
+    out << ",\"device_id\":" << profile.device_id
+        << ",\"replay_body_template_id\":"
+        << profile.replay_body_template_id.value()
+        << ",\"exact_sample_count\":" << profile.envelope_ns.size()
+        << ",\"stream_count\":" << profile.stream_count
+        << ",\"compute_task_count\":" << profile.compute_task_count
+        << ",\"communication_task_count\":"
+        << profile.communication_task_count
+        << ",\"data_move_task_count\":" << profile.data_move_task_count
+        << ",\"replay_unit_launch_count\":"
+        << profile.replay_unit_launch_count << '}';
+  }
+  out << ']';
+}
+
+std::string render_graph_body_comparison_json(
+    const traceloom::GraphBodyPerformanceComparison& comparison,
+    const CompareCliOptions& cli,
+    const std::vector<traceloom::GraphBodyProfileSample>& baseline_profiles,
+    const std::vector<traceloom::GraphBodyProfileSample>& candidate_profiles) {
+  std::ostringstream out;
+  out << std::setprecision(10);
+  out << "{\n  \"schema_version\":\"graph-body-comparison-v1\",\n"
+      << "  \"verdict\":";
+  write_json_string(
+      out, std::string(traceloom::graph_body_performance_verdict_name(
+               comparison.verdict)));
+  out << ",\n  \"same_workload_attested\":"
+      << (comparison.same_workload_attested ? "true" : "false")
+      << ",\n  \"aggregation_policy\":";
+  write_json_string(out, comparison.aggregation_policy);
+  out << ",\n  \"confidence_level\":" << cli.confidence_level
+      << ",\n  \"minimum_effect_pct\":" << cli.minimum_effect_pct
+      << ",\n  \"bootstrap_iterations\":" << cli.bootstrap_iterations
+      << ",\n  \"reason_codes\":[";
+  for (std::size_t index = 0; index < comparison.reason_codes.size();
+       ++index) {
+    if (index != 0) {
+      out << ',';
+    }
+    write_json_string(out, comparison.reason_codes[index]);
+  }
+  out << "],\n  \"baseline\":";
+  write_comparison_variant(out, comparison.baseline);
+  out << ",\n  \"candidate\":";
+  write_comparison_variant(out, comparison.candidate);
+  out << ",\n  \"baseline_profiles\":";
+  write_comparison_profiles(out, baseline_profiles);
+  out << ",\n  \"candidate_profiles\":";
+  write_comparison_profiles(out, candidate_profiles);
+  out << ",\n  \"metrics\":[";
+  for (std::size_t index = 0; index < comparison.metrics.size(); ++index) {
+    if (index != 0) {
+      out << ',';
+    }
+    const traceloom::GraphBodyMetricComparison& metric =
+        comparison.metrics[index];
+    out << "{\"metric\":";
+    write_json_string(out, metric.metric);
+    out << ",\"baseline_count\":" << metric.baseline_count
+        << ",\"candidate_count\":" << metric.candidate_count
+        << ",\"baseline_median_ns\":" << metric.baseline_median_ns
+        << ",\"candidate_median_ns\":" << metric.candidate_median_ns
+        << ",\"improvement_pct\":" << metric.improvement_pct
+        << ",\"confidence_low_pct\":" << metric.confidence_low_pct
+        << ",\"confidence_high_pct\":" << metric.confidence_high_pct
+        << ",\"verdict\":";
+    write_json_string(
+        out, std::string(traceloom::graph_body_performance_verdict_name(
+                 metric.verdict)));
+    out << '}';
+  }
+  out << "]\n}\n";
+  return out.str();
+}
+
+int compare_profiles(const CompareCliOptions& cli) {
+  const std::vector<std::string> baseline_dbs =
+      discover_profile_dbs(cli.baseline_input, cli.source_kind);
+  const std::vector<std::string> candidate_dbs =
+      discover_profile_dbs(cli.candidate_input, cli.source_kind);
+  if (baseline_dbs.empty() || candidate_dbs.empty()) {
+    throw std::invalid_argument(
+        "both comparison paths must contain at least one supported profile");
+  }
+  std::vector<traceloom::GraphBodyProfileSample> baseline_samples;
+  std::vector<traceloom::GraphBodyProfileSample> candidate_samples;
+  std::vector<std::string> extraction_reasons;
+  std::set<std::string> baseline_source_kinds;
+  std::set<std::string> candidate_source_kinds;
+  const auto load_samples = [&](const std::vector<std::string>& paths,
+                                const std::string& prefix,
+                                std::set<std::string>& source_kinds,
+                                std::vector<traceloom::GraphBodyProfileSample>&
+                                    samples) {
+    for (const std::string& path : paths) {
+      LoadedComparisonProfile loaded = load_comparison_profile(path, cli);
+      source_kinds.insert(loaded.source_kind);
+      traceloom::GraphBodyProfileSampleResult sample =
+          traceloom::extract_graph_body_profile_sample(loaded.ir, path);
+      if (sample.supported) {
+        samples.push_back(std::move(sample.sample));
+      } else {
+        extraction_reasons.push_back(prefix + ":" + sample.reason_code);
+      }
+    }
+  };
+  load_samples(baseline_dbs, "baseline", baseline_source_kinds,
+               baseline_samples);
+  load_samples(candidate_dbs, "candidate", candidate_source_kinds,
+               candidate_samples);
+
+  traceloom::GraphBodyPerformanceComparisonConfig config;
+  config.same_workload_attested = cli.same_workload_attested;
+  config.minimum_sample_count = cli.minimum_sample_count;
+  config.bootstrap_iterations = cli.bootstrap_iterations;
+  config.confidence_level = cli.confidence_level;
+  config.minimum_effect_pct = cli.minimum_effect_pct;
+  traceloom::GraphBodyPerformanceComparison comparison =
+      traceloom::compare_graph_body_performance(baseline_samples,
+                                                candidate_samples, config);
+  comparison.reason_codes.insert(comparison.reason_codes.begin(),
+                                 extraction_reasons.begin(),
+                                 extraction_reasons.end());
+  if (baseline_source_kinds.size() != 1 ||
+      candidate_source_kinds.size() != 1 ||
+      baseline_source_kinds != candidate_source_kinds) {
+    comparison.verdict =
+        traceloom::GraphBodyPerformanceVerdict::kInconclusive;
+    comparison.reason_codes.push_back("provider_kind_mismatch");
+  }
+  std::sort(comparison.reason_codes.begin(), comparison.reason_codes.end());
+  comparison.reason_codes.erase(
+      std::unique(comparison.reason_codes.begin(),
+                  comparison.reason_codes.end()),
+      comparison.reason_codes.end());
+  write_text_output(
+      cli.out_path,
+      render_graph_body_comparison_json(comparison, cli, baseline_samples,
+                                        candidate_samples));
+  return 0;
 }
 
 int analyze_one_db(const CliOptions& cli, const std::string& source_db,
@@ -1025,13 +1409,20 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
 
 int main(int argc, char** argv) {
   try {
+    if (argc > 1 && std::string(argv[1]) == "compare") {
+      return compare_profiles(parse_compare_args(argc, argv));
+    }
     const CliOptions cli = parse_args(argc, argv);
     for (std::size_t index = 0; index < cli.source_dbs.size(); ++index) {
       analyze_one_db(cli, cli.source_dbs[index], index);
     }
   } catch (const std::exception& ex) {
     std::cerr << "error: " << ex.what() << "\n";
-    print_usage(argc > 0 ? argv[0] : "traceloom");
+    if (argc > 1 && std::string(argv[1]) == "compare") {
+      print_compare_usage(argc > 0 ? argv[0] : "traceloom");
+    } else {
+      print_usage(argc > 0 ? argv[0] : "traceloom");
+    }
     return 1;
   }
 
