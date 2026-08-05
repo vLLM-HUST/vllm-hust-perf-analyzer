@@ -1,0 +1,63 @@
+{
+  "schema_version": "traceloom-ascend-tp2-exact-expected-v1",
+  "profiles": {
+    "device2": {
+      "device_id": 2,
+      "database": "device2/PROF_REDUCED/msprof_device2.db",
+      "manifest": "device2/reduction-manifest.json",
+      "database_bytes": 16359424,
+      "database_sha256": "e14d9dcc1885944d86967733a80362b5b24fc8fe375c956f8980e55d1770115a",
+      "stream_info_sha256": "987757d29b8c517525d9f7341c9a8e20b85a85c3d34eaf2bc5456ae290ea13b0",
+      "stats": {
+        "trace_event_count": 133292,
+        "anchor_count": 5669,
+        "graph_launch_occurrence_count": 1110,
+        "replay_composition_region_count": 30,
+        "replay_composition_recognized_region_count": 30,
+        "replay_composition_unrecognized_region_count": 0,
+        "exact_replay_unit_count": 30,
+        "replay_unit_launch_member_count": 1110
+      },
+      "anchor_projection": {
+        "device_event_anchors": 5271,
+        "communication_anchors": 398,
+        "preserved_unclassified_task_events": 2550
+      },
+      "graph_launch_body_member_count": 10170,
+      "resolved_host_source_rows": 1110,
+      "resolved_task_source_rows": 13500,
+      "root_node_count": 543,
+      "root_tree_sha256": "03aa897e80dd6d7e32c94a5bb5d568b8a79bb77855bdd67744c75d201dbf2175",
+      "exact_evidence_sha256": "bbb34d101f987806c2d3b50f00b7038c83dd8d003573f840edffa493110a55f9"
+    },
+    "device3": {
+      "device_id": 3,
+      "database": "device3/PROF_REDUCED/msprof_device3.db",
+      "manifest": "device3/reduction-manifest.json",
+      "database_bytes": 24690688,
+      "database_sha256": "7e3cdb65528aec70ae3e92cb13804155accca7e61724721dc7a27284d3ab7be4",
+      "stream_info_sha256": "17a94531ee329871d07fab8d649945d1be1806516973ff5a68ef198f5173f9d9",
+      "stats": {
+        "trace_event_count": 236946,
+        "anchor_count": 5645,
+        "graph_launch_occurrence_count": 1110,
+        "replay_composition_region_count": 30,
+        "replay_composition_recognized_region_count": 30,
+        "replay_composition_unrecognized_region_count": 0,
+        "exact_replay_unit_count": 30,
+        "replay_unit_launch_member_count": 1110
+      },
+      "anchor_projection": {
+        "device_event_anchors": 5247,
+        "communication_anchors": 398,
+        "preserved_unclassified_task_events": 2530
+      },
+      "graph_launch_body_member_count": 10170,
+      "resolved_host_source_rows": 1110,
+      "resolved_task_source_rows": 13500,
+      "root_node_count": 519,
+      "root_tree_sha256": "9f5b5b8acbaafdafe0908b3e2bf9f2d19909ddd6b2ba587b1a342829246aa91f",
+      "exact_evidence_sha256": "f0b23e15d25b04fec15a65507e36ca6a19810fdb5a4230e2da3d15870ca62c58"
+    }
+  }
+}

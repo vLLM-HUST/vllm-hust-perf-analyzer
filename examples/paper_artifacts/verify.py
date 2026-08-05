@@ -20,6 +20,7 @@ def main() -> int:
     tools = Path(__file__).resolve().parent / "tools"
     checks = (
         ("exact-interleaved", tools / "verify_ascend_interleaved.py"),
+        ("exact-tp2-composition", tools / "verify_ascend_tp2_exact.py"),
         ("medium-folding", tools / "verify_kickstart_folding.py"),
         ("workflow-comparison", tools / "verify_workflow_comparison.py"),
     )

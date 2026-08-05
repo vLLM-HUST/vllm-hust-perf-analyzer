@@ -61,7 +61,7 @@ but must not displace a failing P0 gate.
 | R1 | P0 | Neutral interleaved structural units | implemented, real-profile reproduced, and checkout golden verified | analyzer output, goldens, wide composition table |
 | R2 | P0 | Fair workflow comparison | implemented, checkout-verified, and CTest-gated | one fixed question set answered by top-k, timeline/SQL, repeat-only, and TraceLoom |
 | R3 | P0 | Patch/cost-shift case | bounded current case integrated; positive follow-up preregistered | correctness, structural delta, cost localization, bounded mechanism wording |
-| R4 | P0 | Raw-row provenance for every central result | mixed checkout/external | one command verifies every central row from immutable input |
+| R4 | P0 | Raw-row provenance for every central result | strongest exact TP2 result checkout-green; external secondary rows remain | one command verifies every central row from immutable input |
 | R5 | P0 | Offline reviewer artifact | two-tier CPU-only ledger implemented and CTest-gated | clean CPU-only checkout reproduces exact and folding contracts |
 | R6 | P1 | Million-row analysis-cost point | five-run Release receipt complete | time, peak RSS, input/output size, compression reported |
 | R7 | P1 | Real-model CUDA Graph external validity | real model and graph evidence are separate | correctness-gated single-GPU model graph, exact visible-body report |
@@ -191,6 +191,14 @@ The 3.55 MiB Ascend interleaved pair is now checked in with source manifests,
 full-versus-reduced stable-field oracles, provenance checks, and an exact graph
 verifier. The approximately 0.7 MiB Nsight node-level CUDA Graph SQLite remains
 a candidate for the same tier.
+
+The 39.15 MiB two-rank TP2 pair is also checked in as a Tier B exactness
+artifact. It preserves all primary event rows while removing host identity and
+PMU bulk. A CPU-only verifier checks 30 exact `H + L×35 + T` units, all 1,110
+launch members, 1,110 host rows and 13,500 distinct supporting task rows per
+rank, and the current unknown-first Loop Tree. Optional reference mode proves
+full/reduced equality; split-layout parity remains external to avoid another
+large duplicate input bundle.
 
 **Tier B: curated medium examples.** A 10--50 MiB input may be checked in when
 it is uniquely useful as a user-facing example and cannot be represented by a

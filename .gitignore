@@ -15,6 +15,10 @@ reproduce/decode_a2a_buffer_reuse/local*.env
 !examples/paper_artifacts/ascend_interleaved/stock/PROF_REDUCED/host/sqlite/stream_info.db
 !examples/paper_artifacts/ascend_interleaved/fused/PROF_REDUCED/msprof_fused.db
 !examples/paper_artifacts/ascend_interleaved/fused/PROF_REDUCED/host/sqlite/stream_info.db
+!examples/paper_artifacts/ascend_tp2_exact/device2/PROF_REDUCED/msprof_device2.db
+!examples/paper_artifacts/ascend_tp2_exact/device2/PROF_REDUCED/host/sqlite/stream_info.db
+!examples/paper_artifacts/ascend_tp2_exact/device3/PROF_REDUCED/msprof_device3.db
+!examples/paper_artifacts/ascend_tp2_exact/device3/PROF_REDUCED/host/sqlite/stream_info.db
 examples/kickstart_smoke/msprof_raw/traceloom/README.md
 examples/kickstart_smoke/msprof_raw/traceloom/meta.json
 **/traceloom/collective_summary.md

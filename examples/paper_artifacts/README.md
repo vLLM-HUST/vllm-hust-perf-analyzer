@@ -16,18 +16,36 @@ examples/paper_artifacts/verify.py \
   --traceloom build/native-tests/native/traceloom
 ```
 
-The repository deliberately uses two complementary scales rather than padding
+The repository deliberately uses complementary contracts rather than padding
 one fixture:
 
 | Artifact | Main DB size | Contract |
 | --- | ---: | --- |
 | `ascend_interleaved` | 1.69-1.86 MiB each | exact graph/interleaved-unit fidelity |
+| `ascend_tp2_exact` | 15.60/23.55 MiB | 30-unit multi-stream exact composition and raw provenance |
 | `../kickstart_smoke` | 36.42-38.52 MiB each | realistic ingestion and nested folding |
 
 The medium pair is close to the requested 50 MB-per-profile review scale while
 remaining natural data. Keeping the contracts separate prevents irrelevant
 rows from making the exactness fixture look more representative without adding
 evidence.
+
+## Active exact-composition contract: Ascend TP2
+
+The two-rank `ascend_tp2_exact` artifact turns the paper's strongest Ascend
+exact-reconstruction result into a checkout-green claim. Each rank recovers 30
+exact `H + L×35 + T` units covering 1,110 capture-instance-linked launches.
+The verifier resolves all 1,110 host launch rows and 13,500 distinct task rows
+per rank directly against the reduced source database and freezes the current
+unknown-first Loop Tree.
+
+The pair is a deterministic full-time-range reduction: it preserves every
+primary event row, dependent semantic row, referenced string, table schema,
+and source rowid while omitting only host identity and PMU bulk. An optional
+reference mode verifies complete observation equality against the retained
+full monolithic profiles. Split-layout parity remains a separately verified
+external result rather than duplicating another approximately 100 MiB of input
+into Git.
 
 ## Active reduction contract: Ascend interleaved structure
 
