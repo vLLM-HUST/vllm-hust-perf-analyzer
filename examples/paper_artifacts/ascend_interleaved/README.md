@@ -6,6 +6,10 @@ is a small analyzer artifact, not a benchmark result: the labels `stock` and
 `fused` identify the paired runs, but TraceLoom does not infer workload phases
 or performance causality from them.
 
+The captures were produced by the project maintainers and are redistributed as
+repository test data under the repository license. They contain profiler
+records, not model weights or prompt payloads.
+
 Each profile preserves:
 
 - four `recognized_complete_pattern` ACLGraph regions materialized as exact

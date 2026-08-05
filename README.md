@@ -207,11 +207,18 @@ The repository includes a real two-device vLLM-Ascend profile under
 traceloom examples/kickstart_smoke/msprof_raw
 ```
 
-The capture contains more than 1.18 million selected profiler rows. TraceLoom
-compresses them into 112 structural nodes and recovers the same nested
-`Repeat x36 -> Repeat x24` transformer pattern on both devices.
+The sanitized pair contains 78,585,856 bytes of profiler data. Current
+TraceLoom maps 145,927 normalized events to 44,733 semantic anchors and folds
+them into 990 rendered tree nodes. Both devices recover the same nested
+`Repeat x29 -> Repeat x74` and `Repeat x29 -> Repeat x24` structures. Verify
+the current contract without committing generated reports:
 
-## Small Paper Artifact
+```bash
+examples/paper_artifacts/tools/verify_kickstart_folding.py \
+  --traceloom build/native-tests/native/traceloom
+```
+
+## Exact Paper Artifact
 
 For a fast, reviewable exact-reconstruction example, the repository also
 includes a 3.55 MiB pair of reduced Ascend profiler databases under

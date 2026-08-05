@@ -3,8 +3,9 @@
 
 The output preserves original SQLite rowids for source tables, retains every
 original table schema, and follows task/string dependencies needed by
-TraceLoom's monolithic Ascend adapter. Host identity and TASK_PMU_INFO rows are
-intentionally omitted for privacy and size; their table schemas remain.
+TraceLoom's monolithic Ascend adapter. Host identity is always omitted;
+TASK_PMU_INFO is omitted by default for size but may be retained when the
+artifact is specifically meant to exercise realistic input scale.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from pathlib import Path
 
 TIME_TABLES = {"TASK", "CANN_API", "COMMUNICATION_OP"}
 DEPENDENT_TABLES = {"COMPUTE_TASK_INFO", "COMMUNICATION_TASK_INFO"}
-EMPTY_TABLES = {"HOST_INFO", "TASK_PMU_INFO"}
+ALWAYS_EMPTY_TABLES = {"HOST_INFO"}
 STRING_COLUMNS = {
     "CANN_API": ("name",),
     "TASK": ("taskType",),
@@ -118,6 +119,11 @@ def parse_args() -> argparse.Namespace:
             "table is copied to the sibling path required by the Ascend adapter"
         ),
     )
+    parser.add_argument(
+        "--keep-task-pmu",
+        action="store_true",
+        help="retain TASK_PMU_INFO for a scale/folding artifact",
+    )
     parser.add_argument("--manifest-out", type=Path)
     args = parser.parse_args()
     if args.start_ns >= args.end_ns:
@@ -188,6 +194,9 @@ def main() -> int:
     if output.exists():
         raise FileExistsError(output)
     output.parent.mkdir(parents=True, exist_ok=True)
+    empty_tables = set(ALWAYS_EMPTY_TABLES)
+    if not args.keep_task_pmu:
+        empty_tables.add("TASK_PMU_INFO")
 
     db = sqlite3.connect(output)
     try:
@@ -206,7 +215,7 @@ def main() -> int:
 
         copied: dict[str, int] = {}
         for table in tables:
-            if table in EMPTY_TABLES or table == "STRING_IDS" or table in DEPENDENT_TABLES:
+            if table in empty_tables or table == "STRING_IDS" or table in DEPENDENT_TABLES:
                 copied[table] = 0
             elif table in TIME_TABLES:
                 copied[table] = copy_rows(
@@ -290,7 +299,7 @@ def main() -> int:
         "output_bytes": output.stat().st_size,
         "window": {"start_ns": args.start_ns, "end_ns": args.end_ns},
         "copied_rows": dict(sorted(copied.items())),
-        "omitted_row_content": sorted(EMPTY_TABLES),
+        "omitted_row_content": sorted(empty_tables),
         "source_rowid_policy": "preserved",
     }
     if stream_info is not None:

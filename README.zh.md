@@ -177,11 +177,18 @@ agent 负责提出并验证解释，同时使解释与 TraceLoom 的结构观测
 traceloom examples/kickstart_smoke/msprof_raw
 ```
 
-这份 capture 包含超过 118 万行选定 profiler 记录。TraceLoom 将它们压缩成
-112 个结构节点，并在两张设备上恢复出相同的 `Repeat x36 -> Repeat x24`
-transformer 嵌套结构。
+这对经过隐私清理的 profile 包含 78,585,856 bytes 的 profiler 数据。当前
+TraceLoom 将 145,927 个 normalized events 投影为 44,733 个 semantic anchors，
+再折叠成 990 个可读 tree nodes；两张设备都恢复出相同的
+`Repeat x29 -> Repeat x74` 和 `Repeat x29 -> Repeat x24` 嵌套结构。可以在不向
+Git 提交生成报告的前提下验证当前 contract：
 
-## 小型论文 Artifact
+```bash
+examples/paper_artifacts/tools/verify_kickstart_folding.py \
+  --traceloom build/native-tests/native/traceloom
+```
+
+## 精确重建论文 Artifact
 
 仓库还在
 [`examples/paper_artifacts/ascend_interleaved`](examples/paper_artifacts/ascend_interleaved)

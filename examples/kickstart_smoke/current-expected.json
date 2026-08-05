@@ -1,0 +1,57 @@
+{
+  "schema_version": "traceloom-kickstart-folding-expected-v1",
+  "profiles": [
+    {
+      "path": "msprof_raw/PROF_000001_20260609064648517_AJJGNKPPJMEGGLFA/msprof_20260609064817.db",
+      "manifest": "manifests/device0-reduction.json",
+      "sha256": "affb0e234463188bbd8998669271048e2ecef18271e93277e119b4826cb34903",
+      "bytes": 40394752,
+      "device_id": 0,
+      "root_node_rows": 507,
+      "stats": {
+        "trace_event_count": 86701,
+        "task_count": 84928,
+        "communication_op_count": 1773,
+        "anchor_count": 22830,
+        "token_count": 22830,
+        "candidate_distinct_count": 299
+      },
+      "anchor_projection": {
+        "device_event_anchors": 21057,
+        "communication_anchors": 1773,
+        "skipped_task_events": 63871,
+        "preserved_unclassified_task_events": 11793
+      },
+      "unrecognized_graph_regions": 11
+    },
+    {
+      "path": "msprof_raw/PROF_000001_20260609064648547_OEJLKCHMOPRFGKIB/msprof_20260609064834.db",
+      "manifest": "manifests/device1-reduction.json",
+      "sha256": "b05c9543a44fa6e0c0497903b1136c839d3492fc853c0cae989c0ba7ea6fe5f4",
+      "bytes": 38191104,
+      "device_id": 1,
+      "root_node_rows": 483,
+      "stats": {
+        "trace_event_count": 59226,
+        "task_count": 57455,
+        "communication_op_count": 1771,
+        "anchor_count": 21903,
+        "token_count": 21903,
+        "candidate_distinct_count": 268
+      },
+      "anchor_projection": {
+        "device_event_anchors": 20132,
+        "communication_anchors": 1771,
+        "skipped_task_events": 37323,
+        "preserved_unclassified_task_events": 11370
+      },
+      "unrecognized_graph_regions": 9
+    }
+  ],
+  "required_nested_repeats": [
+    [29, 74],
+    [29, 24]
+  ],
+  "minimum_anchor_to_node_ratio": 40,
+  "minimum_event_to_node_ratio": 100
+}

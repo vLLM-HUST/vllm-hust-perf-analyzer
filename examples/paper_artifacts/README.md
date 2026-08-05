@@ -9,6 +9,26 @@ fields, and full-versus-reduced equivalence check are recorded.
 Generated TraceLoom reports and sidecars do not belong in Git. The target
 reviewer workflow writes them beneath an explicit temporary output directory.
 
+After building TraceLoom, run the complete CPU-only checkout ledger with:
+
+```bash
+examples/paper_artifacts/verify.py \
+  --traceloom build/native-tests/native/traceloom
+```
+
+The repository deliberately uses two complementary scales rather than padding
+one fixture:
+
+| Artifact | Main DB size | Contract |
+| --- | ---: | --- |
+| `ascend_interleaved` | 1.69-1.86 MiB each | exact graph/interleaved-unit fidelity |
+| `../kickstart_smoke` | 36.42-38.52 MiB each | realistic ingestion and nested folding |
+
+The medium pair is close to the requested 50 MB-per-profile review scale while
+remaining natural data. Keeping the contracts separate prevents irrelevant
+rows from making the exactness fixture look more representative without adding
+evidence.
+
 ## Active reduction contract: Ascend interleaved structure
 
 **Claim.** A small ordinary Ascend profiler SQLite can preserve exact graph
@@ -50,3 +70,16 @@ checked-in structural audit, checks exact graph capability, validates every
 materialized source-row link, and compares stable unit fields plus ordered
 logical membership hashes against the full-profile reference observations.
 Generated reports and sidecars remain temporary.
+
+## Active scale contract: Ascend nested folding
+
+The sanitized medium pair under `../kickstart_smoke` retains 78,585,856 bytes
+of real profiler input and 145,927 normalized events. Current TraceLoom reduces
+those to 44,733 semantic anchors and 990 rendered tree nodes while recovering
+both `Repeat x29 -> Repeat x74` and `Repeat x29 -> Repeat x24` on each device.
+This is a structural-compression claim only; elapsed analyzer time is not part
+of the contract.
+
+`tools/verify_kickstart_folding.py` checks input hashes and privacy, regenerates
+both reports, verifies exact event/anchor/node counts and nested repeats, and
+requires at least 40 anchors and 100 normalized events per rendered node.

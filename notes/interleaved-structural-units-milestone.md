@@ -115,8 +115,9 @@ materialization.
 The synthetic golden now checks graph/non-graph interleaving, adjacent graph
 folding, exact one-owner anchor membership, typed open boundaries, stable
 families, expansion links, and absence of synthesized `decode`/`prefill`
-labels. A repository-bundled stock/fused input golden is still pending T5's
-artifact reduction.
+labels. The repository-bundled reduced stock/fused pair now checks the same
+contract against the retained full-profile stable fields and logical
+memberships.
 
 - Add a golden with protected graph units interleaved with productive repeated
   sequences.
@@ -128,6 +129,13 @@ artifact reduction.
   observations.
 
 ### T5. Package the retained case for the paper
+
+Completed for the rank-0 representative pair on 2026-08-05. The checked-in
+3.55 MiB bundle preserves `G1..G4` and `U1..U3`; a CPU-only verifier checks
+exact graph capability, the structural SQL audit, source-row links, privacy,
+cost/fingerprint fields, and ordered logical membership hashes. Full rank
+profiles remain external and are bound by source hashes. Shape remains
+explicitly `unavailable` rather than synthesized.
 
 - Produce an immutable compact receipt for both stock and changed captures.
 - Verify ordered unit membership, the four repeated structures, task counts,

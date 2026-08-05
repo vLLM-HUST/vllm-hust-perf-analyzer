@@ -41,8 +41,8 @@ As of this roadmap:
 - a real Nsight node-level CUDA Graph export recovers five exact visible-body
   units, two templates, and the oracle schedule `A/B/A/A/B`, with corruption
   tests that fail closed;
-- the repository's kickstart example already supplies more than 1.18 million
-  selected source rows and is a suitable no-new-capture scaling input;
+- the repository's sanitized 78,585,856-byte kickstart pair supplies 145,927
+  normalized events and a current, CPU-only folding oracle;
 - a newly audited production pair now emits an exact neutral top-level
   structural partition. Across all four retained rank profiles, every
   productive anchor has exactly one unit owner; open trace boundaries remain
@@ -58,12 +58,12 @@ but must not displace a failing P0 gate.
 
 | ID | Priority | Gate | Current state | Completion evidence |
 | --- | --- | --- | --- | --- |
-| R1 | P0 | Neutral interleaved structural units | baseline implemented and real-profile reproduced; artifact golden pending | analyzer output, goldens, wide composition table |
+| R1 | P0 | Neutral interleaved structural units | implemented, real-profile reproduced, and checkout golden verified | analyzer output, goldens, wide composition table |
 | R2 | P0 | Fair workflow comparison | prose only | one fixed question set answered by top-k, timeline/SQL, repeat-only, and TraceLoom |
 | R3 | P0 | Patch/cost-shift case | evidence discovered, paper loop open | correctness, structural delta, cost localization, bounded mechanism wording |
 | R4 | P0 | Raw-row provenance for every central result | mixed checkout/external | one command verifies every central row from immutable input |
-| R5 | P0 | Offline reviewer artifact | partial scripts and fixtures | clean CPU-only checkout reproduces key tables and one Loop Tree |
-| R6 | P1 | Million-row analysis-cost point | input exists | time, peak RSS, input/output size, compression reported |
+| R5 | P0 | Offline reviewer artifact | two-tier CPU-only ledger implemented and CTest-gated | clean CPU-only checkout reproduces exact and folding contracts |
+| R6 | P1 | Million-row analysis-cost point | input size and compression frozen; isolated time/RSS pending | time, peak RSS, input/output size, compression reported |
 | R7 | P1 | Real-model CUDA Graph external validity | real model and graph evidence are separate | correctness-gated single-GPU model graph, exact visible-body report |
 | R8 | P1 | Paper figures and final case integration | planned | final TeX contains pipeline and counterintuitive cost-localization figures |
 
@@ -172,15 +172,18 @@ or the paper's first-run path.
   oracle, expected summary, and verifier;
 - do not require accelerator hardware or vendor runtime libraries.
 
-The approximately 0.7 MiB Nsight node-level CUDA Graph SQLite is the first
-candidate. A compact controlled Ascend oracle and a claim-preserving reduced
-mapped-gather pair are also candidates.
+The 3.55 MiB Ascend interleaved pair is now checked in with source manifests,
+full-versus-reduced stable-field oracles, provenance checks, and an exact graph
+verifier. The approximately 0.7 MiB Nsight node-level CUDA Graph SQLite remains
+a candidate for the same tier.
 
 **Tier B: curated medium examples.** A 10--50 MiB input may be checked in when
 it is uniquely useful as a user-facing example and cannot be represented by a
 smaller faithful artifact. Review the history cost explicitly. The existing
-kickstart example is grandfathered and already covers the million-row scale
-point; do not duplicate it.
+kickstart pair is now sanitized and manifest-governed at 36.42--38.52 MiB per
+database. Its checked verifier freezes 145,927 normalized events, 44,733
+anchors, 990 rendered nodes, and the shared nested-repeat oracle; do not
+duplicate it.
 
 **Tier C: external full captures.** Large rank sets, full production captures,
 `.nsys-rep` files, and redundant raw profiles remain release assets or
@@ -209,17 +212,16 @@ A hand-edited SQLite is not acceptable evidence.
 ```text
 examples/paper_artifacts/
   README.md
-  manifest.json
-  verify.sh
-  cuda_graph_visible_body/
-    input.sqlite
-    oracle.json
-    expected.tsv
-    provenance.sql
-  ascend_graph_oracle/
-    ...
-  mapped_gather_delta/
-    ...
+  verify.py
+  ascend_interleaved/
+    README.md
+    expected.json
+    stock/...
+    fused/...
+  tools/
+    reduce_ascend_sqlite.py
+    verify_ascend_interleaved.py
+    verify_kickstart_folding.py
 ```
 
 Generated reports go to an ignored output directory. Only small canonical
@@ -233,7 +235,8 @@ for this manifest-governed directory; do not create a blanket exception for
 The target interface is one CPU-only command from a clean checkout:
 
 ```bash
-./examples/paper_artifacts/verify.sh ./build/native/native/traceloom /tmp/traceloom-paper
+examples/paper_artifacts/verify.py \
+  --traceloom build/native-tests/native/traceloom
 ```
 
 It must verify input hashes, regenerate outputs, compare canonical summaries,
@@ -285,9 +288,9 @@ external interpretation, not in TraceLoom's emitted schema.
 
 ## Execution Order
 
-1. Implement and golden-test R1.
-2. Freeze the central claim set and choose the minimum Tier A artifact set.
-3. Build the R4-R5 verifier and run it in a clean CPU-only environment.
+1. ~~Implement and golden-test R1.~~ Complete.
+2. ~~Freeze the minimum Ascend Tier A/Tier B artifact set.~~ Complete.
+3. Run the implemented R4-R5 ledger once in a fresh clone and retain the receipt.
 4. Run R2 over the frozen inputs and materialize the comparison table.
 5. Close R3 with the strongest wording supported by the available ablation.
 6. Measure R6 on the already checked-in kickstart profile.
