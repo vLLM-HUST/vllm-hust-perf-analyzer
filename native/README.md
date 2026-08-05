@@ -87,6 +87,37 @@ Use more or fewer worker threads when needed:
 traceloom /path/to/msprof_output --threads 48
 ```
 
+## Compare Matched Production Paths
+
+For a matched baseline/candidate capture, each path may contain one profile per
+rank:
+
+```bash
+traceloom compare /path/to/baseline /path/to/candidate \
+  --same-workload \
+  --out comparison.json
+```
+
+The command loads graph evidence directly; it does not run grammar or the
+idle-evidence pipeline. It selects one exact period-one body per rank, reduces
+multi-rank samples to an ordinal rank-critical maximum, and compares baseline
+and candidate distributions with a deterministic circular moving-block
+bootstrap. Sample counts may differ between variants. The primary metric is
+the observed whole-body envelope; task sum and overlap-removed busy union are
+reported separately and can conservatively downgrade a contradictory verdict.
+
+`--same-workload` is an explicit experimental attestation, not an inference
+from similar-looking traces. Without it, or when rank count, device set,
+visible stream shape, within-variant sample alignment, exact-body selection,
+or minimum evidence is unsupported, the command succeeds with
+`verdict: inconclusive` and typed `reason_codes`. It does not pair unequal
+variant samples by index and does not treat exact-unit count as throughput.
+
+The defaults require at least eight exact samples per variant, use 20,000
+bootstrap iterations with 95% confidence, and require a 1% minimum effect.
+They can be changed with `--minimum-samples`, `--bootstrap-iterations`,
+`--confidence`, and `--minimum-effect-pct`.
+
 ## CUDA/Nsight Kernel Preview
 
 The first native CUDA adapter slice accepts an Nsight Systems SQLite export

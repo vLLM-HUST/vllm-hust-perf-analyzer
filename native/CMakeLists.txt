@@ -16,6 +16,7 @@ add_library(traceloom_native_core
   src/analysis/exact_periodic_suffix.cpp
   src/analysis/flat_anchor_builder.cpp
   src/analysis/graph_body_cost_summary.cpp
+  src/analysis/graph_body_performance_comparison.cpp
   src/analysis/idle_explanation.cpp
   src/analysis/idle_evidence_pipeline.cpp
   src/analysis/idle_evidence_semantic_rules.cpp
@@ -458,6 +459,18 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
   add_test(
     NAME traceloom_native_graph_body_cost_summary_tests
     COMMAND traceloom_native_graph_body_cost_summary_tests
+  )
+
+  add_executable(traceloom_native_graph_body_performance_comparison_tests
+    tests/analysis/graph_body_performance_comparison_tests.cpp
+  )
+  target_link_libraries(
+    traceloom_native_graph_body_performance_comparison_tests
+    PRIVATE traceloom_native_core
+  )
+  add_test(
+    NAME traceloom_native_graph_body_performance_comparison_tests
+    COMMAND traceloom_native_graph_body_performance_comparison_tests
   )
 
   add_executable(traceloom_native_sha256_tests

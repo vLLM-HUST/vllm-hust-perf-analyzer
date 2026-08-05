@@ -75,7 +75,31 @@ Native JSON also carries two audit surfaces for graph-heavy comparisons:
   cross-stream busy union, observed envelope, compute/communication/data-move
   components, plus all-body and exact-ReplayUnit distributions. Unequal exact
   occurrence counts are evidence, not a schema error; consumers compare
-  distributions rather than pairing occurrences by index.
+distributions rather than pairing occurrences by index.
+
+## Graph-Body Comparison JSON
+
+`traceloom compare BASELINE CANDIDATE --same-workload --out PATH` writes
+`graph-body-comparison-v1`. Its top-level `verdict` is one of `faster`,
+`slower`, `equivalent`, or `inconclusive`. A positive direction means the
+candidate duration is lower than baseline. The artifact includes:
+
+- the explicit workload-attestation bit, aggregation policy, confidence,
+  minimum-effect band, and bootstrap iteration count;
+- typed `reason_codes` for every refusal or downgrade;
+- baseline/candidate rank count, device set, exact sample count, body stream
+  count, task-kind counts, and replay-unit launch arity;
+- every selected input profile and its exact body-template/sample identity;
+- envelope, busy-union, task-sum, compute, communication, and data-move median
+  deltas with confidence intervals and per-metric verdicts.
+
+The current automatic selector is intentionally narrow: exactly one exact
+body template per profile and one graph launch per exact ReplayUnit. A
+multi-launch composition or multiple exact templates returns
+`inconclusive`/typed refusal until a workload-independent selector exists.
+Multi-rank reduction requires equal exact sample counts within each variant;
+counts may differ across variants. A confident envelope direction is downgraded
+when task sum or busy union confidently moves the opposite way.
 
 For Ascend, `semantic_operator_coverage` lists concrete operator identities
 without exact identity registration, including their fuzzy family rule and how
