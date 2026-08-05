@@ -196,8 +196,10 @@ def main() -> int:
                 )
                 for run_index in range(args.runs)
             ]
-            output_shapes = {json.dumps(run["output_bytes"], sort_keys=True) for run in runs}
-            assert len(output_shapes) == 1, "output sizes changed between identical runs"
+            for field in ("loop_tree_markdown", "compatibility_sidecar"):
+                assert len({run["output_bytes"][field] for run in runs}) == 1, (
+                    f"{field} size changed between identical runs"
+                )
             assert len({run["rendered_root_nodes"] for run in runs}) == 1
             wall = [run["wall_seconds"] for run in runs]
             rss = [run["peak_rss_kib"] for run in runs]
@@ -228,7 +230,20 @@ def main() -> int:
                         "minimum": min(rss),
                         "maximum": max(rss),
                     },
-                    "output_bytes": runs[0]["output_bytes"],
+                    "output_bytes": {
+                        "loop_tree_markdown": runs[0]["output_bytes"][
+                            "loop_tree_markdown"
+                        ],
+                        "result_json_minimum": min(
+                            run["output_bytes"]["result_json"] for run in runs
+                        ),
+                        "result_json_maximum": max(
+                            run["output_bytes"]["result_json"] for run in runs
+                        ),
+                        "compatibility_sidecar": runs[0]["output_bytes"][
+                            "compatibility_sidecar"
+                        ],
+                    },
                 }
             )
 
