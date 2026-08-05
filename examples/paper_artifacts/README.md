@@ -147,3 +147,11 @@ primary paper claim or a cross-tool speed comparison. The measurement includes
 the compact Loop Tree and the intentionally expansive provenance sidecar, and
 retains the first run plus the full range rather than reporting only a warmed
 best case.
+
+The same directory contains a separate ordinary-report-path thread-scaling
+receipt. On both medium profiles, eight workers give 2.728--2.881x TASK-row
+loading speedup and 1.360--1.571x candidate-map speedup with byte-identical
+Loop Trees across 1/2/4/8 threads. End-to-end speedup remains only
+1.018--1.032x at eight threads because global evidence and materialization
+stages dominate; the artifact freezes this limit rather than promoting it to a
+linear-scaling claim.

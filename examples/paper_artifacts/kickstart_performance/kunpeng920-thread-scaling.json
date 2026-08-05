@@ -1,0 +1,1364 @@
+{
+  "schema_version": "traceloom-thread-scaling-v1",
+  "generated_at_utc": "2026-08-05T07:51:50.931093+00:00",
+  "scope": "fresh process per run; balanced forward/reverse thread schedule; warm OS page cache allowed; ordinary Loop Tree and JSON report path; no compatibility sidecar",
+  "runs_per_thread_per_profile": 5,
+  "thread_counts": [
+    1,
+    2,
+    4,
+    8
+  ],
+  "analyzer_commit": "61ef9d24dc00dc934cbe075bc4dc1035c733f4d3",
+  "analyzer_tree_clean": true,
+  "build": {
+    "type": "Release",
+    "compiler": "/usr/bin/c++",
+    "compiler_version": "c++ (GCC) 12.3.1 (openEuler 12.3.1-105.oe2403sp3)"
+  },
+  "host": {
+    "architecture": "aarch64",
+    "cpu_model": "Kunpeng-920",
+    "logical_cpus": 192,
+    "kernel": "5.15.0-25-generic"
+  },
+  "command_template": "traceloom INPUT --threads N --out RESULT --loop-tree-out TREE --timings",
+  "profiles": [
+    {
+      "device_id": 0,
+      "source_path": "msprof_raw/PROF_000001_20260609064648517_AJJGNKPPJMEGGLFA/msprof_20260609064817.db",
+      "source_sha256": "affb0e234463188bbd8998669271048e2ecef18271e93277e119b4826cb34903",
+      "input_bytes": 40394752,
+      "selected_trace_events": 86701,
+      "semantic_anchors": 22830,
+      "rendered_root_nodes": 507,
+      "loop_tree_sha256_all_runs": "9b2b0fff3e189ba413c6a57202449946529d231abe98c098b7445e207bb83d72",
+      "thread_results": [
+        {
+          "threads": 1,
+          "runs": [
+            {
+              "wall_seconds": 4.5967,
+              "peak_rss_kib": 131880,
+              "timing_ms": {
+                "load_task_rows_ms": 195.003,
+                "load_ms": 381.6,
+                "native_pipeline_ms": 817.083,
+                "idle_evidence_pipeline_ms": 2707.03,
+                "loop_tree_rows_ms": 301.538
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 795.01,
+                "candidate_scan_map": 3.47112,
+                "candidate_reduce": 17.9666,
+                "materialization": 3337.85
+              },
+              "loop_tree_sha256": "9b2b0fff3e189ba413c6a57202449946529d231abe98c098b7445e207bb83d72"
+            },
+            {
+              "wall_seconds": 4.651894,
+              "peak_rss_kib": 131916,
+              "timing_ms": {
+                "load_task_rows_ms": 191.346,
+                "load_ms": 375.442,
+                "native_pipeline_ms": 821.833,
+                "idle_evidence_pipeline_ms": 2703.96,
+                "loop_tree_rows_ms": 356.763
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 797.777,
+                "candidate_scan_map": 4.02886,
+                "candidate_reduce": 19.2886,
+                "materialization": 3368.72
+              },
+              "loop_tree_sha256": "9b2b0fff3e189ba413c6a57202449946529d231abe98c098b7445e207bb83d72"
+            },
+            {
+              "wall_seconds": 4.665369,
+              "peak_rss_kib": 133048,
+              "timing_ms": {
+                "load_task_rows_ms": 191.538,
+                "load_ms": 378.206,
+                "native_pipeline_ms": 819.678,
+                "idle_evidence_pipeline_ms": 2738.21,
+                "loop_tree_rows_ms": 337.508
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 796.849,
+                "candidate_scan_map": 3.92507,
+                "candidate_reduce": 18.2903,
+                "materialization": 3383.84
+              },
+              "loop_tree_sha256": "9b2b0fff3e189ba413c6a57202449946529d231abe98c098b7445e207bb83d72"
+            },
+            {
+              "wall_seconds": 4.56574,
+              "peak_rss_kib": 132840,
+              "timing_ms": {
+                "load_task_rows_ms": 193.605,
+                "load_ms": 374.71,
+                "native_pipeline_ms": 831.425,
+                "idle_evidence_pipeline_ms": 2707.38,
+                "loop_tree_rows_ms": 297.501
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 808.874,
+                "candidate_scan_map": 3.82111,
+                "candidate_reduce": 18.0562,
+                "materialization": 3299.11
+              },
+              "loop_tree_sha256": "9b2b0fff3e189ba413c6a57202449946529d231abe98c098b7445e207bb83d72"
+            },
+            {
+              "wall_seconds": 4.691498,
+              "peak_rss_kib": 131892,
+              "timing_ms": {
+                "load_task_rows_ms": 191.282,
+                "load_ms": 372.679,
+                "native_pipeline_ms": 818.115,
+                "idle_evidence_pipeline_ms": 2788.2,
+                "loop_tree_rows_ms": 346.312
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 795.535,
+                "candidate_scan_map": 3.61405,
+                "candidate_reduce": 18.302,
+                "materialization": 3435.08
+              },
+              "loop_tree_sha256": "9b2b0fff3e189ba413c6a57202449946529d231abe98c098b7445e207bb83d72"
+            }
+          ],
+          "wall_seconds": {
+            "median": 4.651894,
+            "minimum": 4.56574,
+            "maximum": 4.691498
+          },
+          "wall_speedup_vs_1": 1.0,
+          "peak_rss_kib": {
+            "median": 131916.0,
+            "minimum": 131880.0,
+            "maximum": 133048.0
+          },
+          "timing_ms": {
+            "load_task_rows_ms": {
+              "median": 191.538,
+              "minimum": 191.282,
+              "maximum": 195.003,
+              "speedup_vs_1": 1.0
+            },
+            "load_ms": {
+              "median": 375.442,
+              "minimum": 372.679,
+              "maximum": 381.6,
+              "speedup_vs_1": 1.0
+            },
+            "native_pipeline_ms": {
+              "median": 819.678,
+              "minimum": 817.083,
+              "maximum": 831.425,
+              "speedup_vs_1": 1.0
+            },
+            "idle_evidence_pipeline_ms": {
+              "median": 2707.38,
+              "minimum": 2703.96,
+              "maximum": 2788.2,
+              "speedup_vs_1": 1.0
+            },
+            "loop_tree_rows_ms": {
+              "median": 337.508,
+              "minimum": 297.501,
+              "maximum": 356.763,
+              "speedup_vs_1": 1.0
+            }
+          },
+          "pipeline_timing_ms": {
+            "build_anchor_tokens": {
+              "median": 796.849,
+              "minimum": 795.01,
+              "maximum": 808.874,
+              "speedup_vs_1": 1.0
+            },
+            "candidate_scan_map": {
+              "median": 3.82111,
+              "minimum": 3.47112,
+              "maximum": 4.02886,
+              "speedup_vs_1": 1.0
+            },
+            "candidate_reduce": {
+              "median": 18.2903,
+              "minimum": 17.9666,
+              "maximum": 19.2886,
+              "speedup_vs_1": 1.0
+            },
+            "materialization": {
+              "median": 3368.72,
+              "minimum": 3299.11,
+              "maximum": 3435.08,
+              "speedup_vs_1": 1.0
+            }
+          }
+        },
+        {
+          "threads": 2,
+          "runs": [
+            {
+              "wall_seconds": 4.699303,
+              "peak_rss_kib": 134280,
+              "timing_ms": {
+                "load_task_rows_ms": 92.6468,
+                "load_ms": 281.664,
+                "native_pipeline_ms": 814.875,
+                "idle_evidence_pipeline_ms": 2900.49,
+                "loop_tree_rows_ms": 328.489
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 793.244,
+                "candidate_scan_map": 2.65925,
+                "candidate_reduce": 18.4256,
+                "materialization": 3530.1
+              },
+              "loop_tree_sha256": "9b2b0fff3e189ba413c6a57202449946529d231abe98c098b7445e207bb83d72"
+            },
+            {
+              "wall_seconds": 4.502823,
+              "peak_rss_kib": 136944,
+              "timing_ms": {
+                "load_task_rows_ms": 93.2039,
+                "load_ms": 283.121,
+                "native_pipeline_ms": 815.323,
+                "idle_evidence_pipeline_ms": 2675.34,
+                "loop_tree_rows_ms": 331.997
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 793.493,
+                "candidate_scan_map": 2.673,
+                "candidate_reduce": 18.4466,
+                "materialization": 3334.53
+              },
+              "loop_tree_sha256": "9b2b0fff3e189ba413c6a57202449946529d231abe98c098b7445e207bb83d72"
+            },
+            {
+              "wall_seconds": 4.532382,
+              "peak_rss_kib": 135012,
+              "timing_ms": {
+                "load_task_rows_ms": 94.889,
+                "load_ms": 279.895,
+                "native_pipeline_ms": 820.999,
+                "idle_evidence_pipeline_ms": 2672.06,
+                "loop_tree_rows_ms": 358.271
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 798.576,
+                "candidate_scan_map": 2.798,
+                "candidate_reduce": 19.0835,
+                "materialization": 3352.05
+              },
+              "loop_tree_sha256": "9b2b0fff3e189ba413c6a57202449946529d231abe98c098b7445e207bb83d72"
+            },
+            {
+              "wall_seconds": 4.437198,
+              "peak_rss_kib": 134780,
+              "timing_ms": {
+                "load_task_rows_ms": 92.533,
+                "load_ms": 280.668,
+                "native_pipeline_ms": 818.102,
+                "idle_evidence_pipeline_ms": 2698.55,
+                "loop_tree_rows_ms": 301.698
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 796.474,
+                "candidate_scan_map": 2.68885,
+                "candidate_reduce": 18.3876,
+                "materialization": 3280.76
+              },
+              "loop_tree_sha256": "9b2b0fff3e189ba413c6a57202449946529d231abe98c098b7445e207bb83d72"
+            },
+            {
+              "wall_seconds": 4.525763,
+              "peak_rss_kib": 134876,
+              "timing_ms": {
+                "load_task_rows_ms": 93.658,
+                "load_ms": 278.144,
+                "native_pipeline_ms": 822.707,
+                "idle_evidence_pipeline_ms": 2713.16,
+                "loop_tree_rows_ms": 330.849
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 798.048,
+                "candidate_scan_map": 3.47768,
+                "candidate_reduce": 20.5355,
+                "materialization": 3355.74
+              },
+              "loop_tree_sha256": "9b2b0fff3e189ba413c6a57202449946529d231abe98c098b7445e207bb83d72"
+            }
+          ],
+          "wall_seconds": {
+            "median": 4.525763,
+            "minimum": 4.437198,
+            "maximum": 4.699303
+          },
+          "wall_speedup_vs_1": 1.028,
+          "peak_rss_kib": {
+            "median": 134876.0,
+            "minimum": 134280.0,
+            "maximum": 136944.0
+          },
+          "timing_ms": {
+            "load_task_rows_ms": {
+              "median": 93.2039,
+              "minimum": 92.533,
+              "maximum": 94.889,
+              "speedup_vs_1": 2.055
+            },
+            "load_ms": {
+              "median": 280.668,
+              "minimum": 278.144,
+              "maximum": 283.121,
+              "speedup_vs_1": 1.338
+            },
+            "native_pipeline_ms": {
+              "median": 818.102,
+              "minimum": 814.875,
+              "maximum": 822.707,
+              "speedup_vs_1": 1.002
+            },
+            "idle_evidence_pipeline_ms": {
+              "median": 2698.55,
+              "minimum": 2672.06,
+              "maximum": 2900.49,
+              "speedup_vs_1": 1.003
+            },
+            "loop_tree_rows_ms": {
+              "median": 330.849,
+              "minimum": 301.698,
+              "maximum": 358.271,
+              "speedup_vs_1": 1.02
+            }
+          },
+          "pipeline_timing_ms": {
+            "build_anchor_tokens": {
+              "median": 796.474,
+              "minimum": 793.244,
+              "maximum": 798.576,
+              "speedup_vs_1": 1.0
+            },
+            "candidate_scan_map": {
+              "median": 2.68885,
+              "minimum": 2.65925,
+              "maximum": 3.47768,
+              "speedup_vs_1": 1.421
+            },
+            "candidate_reduce": {
+              "median": 18.4466,
+              "minimum": 18.3876,
+              "maximum": 20.5355,
+              "speedup_vs_1": 0.992
+            },
+            "materialization": {
+              "median": 3352.05,
+              "minimum": 3280.76,
+              "maximum": 3530.1,
+              "speedup_vs_1": 1.005
+            }
+          }
+        },
+        {
+          "threads": 4,
+          "runs": [
+            {
+              "wall_seconds": 4.408734,
+              "peak_rss_kib": 135068,
+              "timing_ms": {
+                "load_task_rows_ms": 72.344,
+                "load_ms": 257.018,
+                "native_pipeline_ms": 819.72,
+                "idle_evidence_pipeline_ms": 2690.93,
+                "loop_tree_rows_ms": 299.135
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 797.824,
+                "candidate_scan_map": 2.25585,
+                "candidate_reduce": 19.0566,
+                "materialization": 3270.59
+              },
+              "loop_tree_sha256": "9b2b0fff3e189ba413c6a57202449946529d231abe98c098b7445e207bb83d72"
+            },
+            {
+              "wall_seconds": 4.411232,
+              "peak_rss_kib": 135768,
+              "timing_ms": {
+                "load_task_rows_ms": 72.2877,
+                "load_ms": 254.777,
+                "native_pipeline_ms": 824.918,
+                "idle_evidence_pipeline_ms": 2693.04,
+                "loop_tree_rows_ms": 296.686
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 802.231,
+                "candidate_scan_map": 2.46979,
+                "candidate_reduce": 19.6254,
+                "materialization": 3272.9
+              },
+              "loop_tree_sha256": "9b2b0fff3e189ba413c6a57202449946529d231abe98c098b7445e207bb83d72"
+            },
+            {
+              "wall_seconds": 4.482613,
+              "peak_rss_kib": 134936,
+              "timing_ms": {
+                "load_task_rows_ms": 76.6986,
+                "load_ms": 262.129,
+                "native_pipeline_ms": 822.957,
+                "idle_evidence_pipeline_ms": 2678.86,
+                "loop_tree_rows_ms": 339.418
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 800.207,
+                "candidate_scan_map": 2.70194,
+                "candidate_reduce": 19.4409,
+                "materialization": 3323.34
+              },
+              "loop_tree_sha256": "9b2b0fff3e189ba413c6a57202449946529d231abe98c098b7445e207bb83d72"
+            },
+            {
+              "wall_seconds": 4.393851,
+              "peak_rss_kib": 135084,
+              "timing_ms": {
+                "load_task_rows_ms": 72.9336,
+                "load_ms": 261.82,
+                "native_pipeline_ms": 817.934,
+                "idle_evidence_pipeline_ms": 2659.52,
+                "loop_tree_rows_ms": 312.53
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 795.547,
+                "candidate_scan_map": 2.3685,
+                "candidate_reduce": 19.4523,
+                "materialization": 3253.07
+              },
+              "loop_tree_sha256": "9b2b0fff3e189ba413c6a57202449946529d231abe98c098b7445e207bb83d72"
+            },
+            {
+              "wall_seconds": 4.581805,
+              "peak_rss_kib": 135604,
+              "timing_ms": {
+                "load_task_rows_ms": 71.5948,
+                "load_ms": 260.477,
+                "native_pipeline_ms": 831.815,
+                "idle_evidence_pipeline_ms": 2703.79,
+                "loop_tree_rows_ms": 350.787
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 807.294,
+                "candidate_scan_map": 2.8755,
+                "candidate_reduce": 20.8171,
+                "materialization": 3411.61
+              },
+              "loop_tree_sha256": "9b2b0fff3e189ba413c6a57202449946529d231abe98c098b7445e207bb83d72"
+            }
+          ],
+          "wall_seconds": {
+            "median": 4.411232,
+            "minimum": 4.393851,
+            "maximum": 4.581805
+          },
+          "wall_speedup_vs_1": 1.055,
+          "peak_rss_kib": {
+            "median": 135084.0,
+            "minimum": 134936.0,
+            "maximum": 135768.0
+          },
+          "timing_ms": {
+            "load_task_rows_ms": {
+              "median": 72.344,
+              "minimum": 71.5948,
+              "maximum": 76.6986,
+              "speedup_vs_1": 2.648
+            },
+            "load_ms": {
+              "median": 260.477,
+              "minimum": 254.777,
+              "maximum": 262.129,
+              "speedup_vs_1": 1.441
+            },
+            "native_pipeline_ms": {
+              "median": 822.957,
+              "minimum": 817.934,
+              "maximum": 831.815,
+              "speedup_vs_1": 0.996
+            },
+            "idle_evidence_pipeline_ms": {
+              "median": 2690.93,
+              "minimum": 2659.52,
+              "maximum": 2703.79,
+              "speedup_vs_1": 1.006
+            },
+            "loop_tree_rows_ms": {
+              "median": 312.53,
+              "minimum": 296.686,
+              "maximum": 350.787,
+              "speedup_vs_1": 1.08
+            }
+          },
+          "pipeline_timing_ms": {
+            "build_anchor_tokens": {
+              "median": 800.207,
+              "minimum": 795.547,
+              "maximum": 807.294,
+              "speedup_vs_1": 0.996
+            },
+            "candidate_scan_map": {
+              "median": 2.46979,
+              "minimum": 2.25585,
+              "maximum": 2.8755,
+              "speedup_vs_1": 1.547
+            },
+            "candidate_reduce": {
+              "median": 19.4523,
+              "minimum": 19.0566,
+              "maximum": 20.8171,
+              "speedup_vs_1": 0.94
+            },
+            "materialization": {
+              "median": 3272.9,
+              "minimum": 3253.07,
+              "maximum": 3411.61,
+              "speedup_vs_1": 1.029
+            }
+          }
+        },
+        {
+          "threads": 8,
+          "runs": [
+            {
+              "wall_seconds": 4.506814,
+              "peak_rss_kib": 136856,
+              "timing_ms": {
+                "load_task_rows_ms": 66.487,
+                "load_ms": 256.117,
+                "native_pipeline_ms": 816.507,
+                "idle_evidence_pipeline_ms": 2720.08,
+                "loop_tree_rows_ms": 339.582
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 794.504,
+                "candidate_scan_map": 2.43287,
+                "candidate_reduce": 18.9109,
+                "materialization": 3362.14
+              },
+              "loop_tree_sha256": "9b2b0fff3e189ba413c6a57202449946529d231abe98c098b7445e207bb83d72"
+            },
+            {
+              "wall_seconds": 4.597619,
+              "peak_rss_kib": 136520,
+              "timing_ms": {
+                "load_task_rows_ms": 68.8114,
+                "load_ms": 250.11,
+                "native_pipeline_ms": 826.538,
+                "idle_evidence_pipeline_ms": 2761.02,
+                "loop_tree_rows_ms": 367.023
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 802.521,
+                "candidate_scan_map": 3.14379,
+                "candidate_reduce": 20.1549,
+                "materialization": 3444.86
+              },
+              "loop_tree_sha256": "9b2b0fff3e189ba413c6a57202449946529d231abe98c098b7445e207bb83d72"
+            },
+            {
+              "wall_seconds": 4.388186,
+              "peak_rss_kib": 137344,
+              "timing_ms": {
+                "load_task_rows_ms": 64.8386,
+                "load_ms": 249.581,
+                "native_pipeline_ms": 816.72,
+                "idle_evidence_pipeline_ms": 2679.04,
+                "loop_tree_rows_ms": 297.767
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 794.726,
+                "candidate_scan_map": 2.33975,
+                "candidate_reduce": 19.0073,
+                "materialization": 3260.67
+              },
+              "loop_tree_sha256": "9b2b0fff3e189ba413c6a57202449946529d231abe98c098b7445e207bb83d72"
+            },
+            {
+              "wall_seconds": 4.382475,
+              "peak_rss_kib": 136764,
+              "timing_ms": {
+                "load_task_rows_ms": 65.5823,
+                "load_ms": 248.496,
+                "native_pipeline_ms": 813.892,
+                "idle_evidence_pipeline_ms": 2679.72,
+                "loop_tree_rows_ms": 297.764
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 792.371,
+                "candidate_scan_map": 2.24141,
+                "candidate_reduce": 18.6709,
+                "materialization": 3259.12
+              },
+              "loop_tree_sha256": "9b2b0fff3e189ba413c6a57202449946529d231abe98c098b7445e207bb83d72"
+            },
+            {
+              "wall_seconds": 4.527451,
+              "peak_rss_kib": 136892,
+              "timing_ms": {
+                "load_task_rows_ms": 83.5442,
+                "load_ms": 280.24,
+                "native_pipeline_ms": 831.615,
+                "idle_evidence_pipeline_ms": 2721.46,
+                "loop_tree_rows_ms": 306.106
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 808.13,
+                "candidate_scan_map": 2.60194,
+                "candidate_reduce": 20.141,
+                "materialization": 3341.0
+              },
+              "loop_tree_sha256": "9b2b0fff3e189ba413c6a57202449946529d231abe98c098b7445e207bb83d72"
+            }
+          ],
+          "wall_seconds": {
+            "median": 4.506814,
+            "minimum": 4.382475,
+            "maximum": 4.597619
+          },
+          "wall_speedup_vs_1": 1.032,
+          "peak_rss_kib": {
+            "median": 136856.0,
+            "minimum": 136520.0,
+            "maximum": 137344.0
+          },
+          "timing_ms": {
+            "load_task_rows_ms": {
+              "median": 66.487,
+              "minimum": 64.8386,
+              "maximum": 83.5442,
+              "speedup_vs_1": 2.881
+            },
+            "load_ms": {
+              "median": 250.11,
+              "minimum": 248.496,
+              "maximum": 280.24,
+              "speedup_vs_1": 1.501
+            },
+            "native_pipeline_ms": {
+              "median": 816.72,
+              "minimum": 813.892,
+              "maximum": 831.615,
+              "speedup_vs_1": 1.004
+            },
+            "idle_evidence_pipeline_ms": {
+              "median": 2720.08,
+              "minimum": 2679.04,
+              "maximum": 2761.02,
+              "speedup_vs_1": 0.995
+            },
+            "loop_tree_rows_ms": {
+              "median": 306.106,
+              "minimum": 297.764,
+              "maximum": 367.023,
+              "speedup_vs_1": 1.103
+            }
+          },
+          "pipeline_timing_ms": {
+            "build_anchor_tokens": {
+              "median": 794.726,
+              "minimum": 792.371,
+              "maximum": 808.13,
+              "speedup_vs_1": 1.003
+            },
+            "candidate_scan_map": {
+              "median": 2.43287,
+              "minimum": 2.24141,
+              "maximum": 3.14379,
+              "speedup_vs_1": 1.571
+            },
+            "candidate_reduce": {
+              "median": 19.0073,
+              "minimum": 18.6709,
+              "maximum": 20.1549,
+              "speedup_vs_1": 0.962
+            },
+            "materialization": {
+              "median": 3341.0,
+              "minimum": 3259.12,
+              "maximum": 3444.86,
+              "speedup_vs_1": 1.008
+            }
+          }
+        }
+      ]
+    },
+    {
+      "device_id": 1,
+      "source_path": "msprof_raw/PROF_000001_20260609064648547_OEJLKCHMOPRFGKIB/msprof_20260609064834.db",
+      "source_sha256": "b05c9543a44fa6e0c0497903b1136c839d3492fc853c0cae989c0ba7ea6fe5f4",
+      "input_bytes": 38191104,
+      "selected_trace_events": 59226,
+      "semantic_anchors": 21903,
+      "rendered_root_nodes": 483,
+      "loop_tree_sha256_all_runs": "35c259cafcba5f723d915e1f69319e5f15e443219b912fac0d97a2111dd8849a",
+      "thread_results": [
+        {
+          "threads": 1,
+          "runs": [
+            {
+              "wall_seconds": 3.463992,
+              "peak_rss_kib": 117872,
+              "timing_ms": {
+                "load_task_rows_ms": 131.485,
+                "load_ms": 314.751,
+                "native_pipeline_ms": 777.659,
+                "idle_evidence_pipeline_ms": 1812.7,
+                "loop_tree_rows_ms": 262.569
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 757.253,
+                "candidate_scan_map": 2.97721,
+                "candidate_reduce": 16.9225,
+                "materialization": 2320.32
+              },
+              "loop_tree_sha256": "35c259cafcba5f723d915e1f69319e5f15e443219b912fac0d97a2111dd8849a"
+            },
+            {
+              "wall_seconds": 3.536522,
+              "peak_rss_kib": 117740,
+              "timing_ms": {
+                "load_task_rows_ms": 133.569,
+                "load_ms": 314.462,
+                "native_pipeline_ms": 774.852,
+                "idle_evidence_pipeline_ms": 1848.19,
+                "loop_tree_rows_ms": 288.356
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 753.342,
+                "candidate_scan_map": 3.23413,
+                "candidate_reduce": 17.6557,
+                "materialization": 2391.19
+              },
+              "loop_tree_sha256": "35c259cafcba5f723d915e1f69319e5f15e443219b912fac0d97a2111dd8849a"
+            },
+            {
+              "wall_seconds": 3.613519,
+              "peak_rss_kib": 119100,
+              "timing_ms": {
+                "load_task_rows_ms": 136.523,
+                "load_ms": 315.464,
+                "native_pipeline_ms": 780.365,
+                "idle_evidence_pipeline_ms": 1851.13,
+                "loop_tree_rows_ms": 318.725
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 759.171,
+                "candidate_scan_map": 3.41283,
+                "candidate_reduce": 17.2088,
+                "materialization": 2455.94
+              },
+              "loop_tree_sha256": "35c259cafcba5f723d915e1f69319e5f15e443219b912fac0d97a2111dd8849a"
+            },
+            {
+              "wall_seconds": 3.452798,
+              "peak_rss_kib": 118564,
+              "timing_ms": {
+                "load_task_rows_ms": 134.353,
+                "load_ms": 310.706,
+                "native_pipeline_ms": 779.266,
+                "idle_evidence_pipeline_ms": 1796.82,
+                "loop_tree_rows_ms": 265.348
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 758.902,
+                "candidate_scan_map": 2.97949,
+                "candidate_reduce": 16.8582,
+                "materialization": 2310.33
+              },
+              "loop_tree_sha256": "35c259cafcba5f723d915e1f69319e5f15e443219b912fac0d97a2111dd8849a"
+            },
+            {
+              "wall_seconds": 3.522321,
+              "peak_rss_kib": 118476,
+              "timing_ms": {
+                "load_task_rows_ms": 131.094,
+                "load_ms": 305.068,
+                "native_pipeline_ms": 779.173,
+                "idle_evidence_pipeline_ms": 1831.48,
+                "loop_tree_rows_ms": 289.518
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 757.522,
+                "candidate_scan_map": 3.24244,
+                "candidate_reduce": 17.8242,
+                "materialization": 2381.24
+              },
+              "loop_tree_sha256": "35c259cafcba5f723d915e1f69319e5f15e443219b912fac0d97a2111dd8849a"
+            }
+          ],
+          "wall_seconds": {
+            "median": 3.522321,
+            "minimum": 3.452798,
+            "maximum": 3.613519
+          },
+          "wall_speedup_vs_1": 1.0,
+          "peak_rss_kib": {
+            "median": 118476.0,
+            "minimum": 117740.0,
+            "maximum": 119100.0
+          },
+          "timing_ms": {
+            "load_task_rows_ms": {
+              "median": 133.569,
+              "minimum": 131.094,
+              "maximum": 136.523,
+              "speedup_vs_1": 1.0
+            },
+            "load_ms": {
+              "median": 314.462,
+              "minimum": 305.068,
+              "maximum": 315.464,
+              "speedup_vs_1": 1.0
+            },
+            "native_pipeline_ms": {
+              "median": 779.173,
+              "minimum": 774.852,
+              "maximum": 780.365,
+              "speedup_vs_1": 1.0
+            },
+            "idle_evidence_pipeline_ms": {
+              "median": 1831.48,
+              "minimum": 1796.82,
+              "maximum": 1851.13,
+              "speedup_vs_1": 1.0
+            },
+            "loop_tree_rows_ms": {
+              "median": 288.356,
+              "minimum": 262.569,
+              "maximum": 318.725,
+              "speedup_vs_1": 1.0
+            }
+          },
+          "pipeline_timing_ms": {
+            "build_anchor_tokens": {
+              "median": 757.522,
+              "minimum": 753.342,
+              "maximum": 759.171,
+              "speedup_vs_1": 1.0
+            },
+            "candidate_scan_map": {
+              "median": 3.23413,
+              "minimum": 2.97721,
+              "maximum": 3.41283,
+              "speedup_vs_1": 1.0
+            },
+            "candidate_reduce": {
+              "median": 17.2088,
+              "minimum": 16.8582,
+              "maximum": 17.8242,
+              "speedup_vs_1": 1.0
+            },
+            "materialization": {
+              "median": 2381.24,
+              "minimum": 2310.33,
+              "maximum": 2455.94,
+              "speedup_vs_1": 1.0
+            }
+          }
+        },
+        {
+          "threads": 2,
+          "runs": [
+            {
+              "wall_seconds": 3.439141,
+              "peak_rss_kib": 120176,
+              "timing_ms": {
+                "load_task_rows_ms": 64.629,
+                "load_ms": 246.613,
+                "native_pipeline_ms": 778.011,
+                "idle_evidence_pipeline_ms": 1836.65,
+                "loop_tree_rows_ms": 272.428
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 756.479,
+                "candidate_scan_map": 2.51134,
+                "candidate_reduce": 18.5036,
+                "materialization": 2360.67
+              },
+              "loop_tree_sha256": "35c259cafcba5f723d915e1f69319e5f15e443219b912fac0d97a2111dd8849a"
+            },
+            {
+              "wall_seconds": 3.446257,
+              "peak_rss_kib": 122292,
+              "timing_ms": {
+                "load_task_rows_ms": 64.6879,
+                "load_ms": 243.04,
+                "native_pipeline_ms": 783.094,
+                "idle_evidence_pipeline_ms": 1845.62,
+                "loop_tree_rows_ms": 264.643
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 760.429,
+                "candidate_scan_map": 3.00926,
+                "candidate_reduce": 19.0328,
+                "materialization": 2362.95
+              },
+              "loop_tree_sha256": "35c259cafcba5f723d915e1f69319e5f15e443219b912fac0d97a2111dd8849a"
+            },
+            {
+              "wall_seconds": 3.389447,
+              "peak_rss_kib": 122660,
+              "timing_ms": {
+                "load_task_rows_ms": 64.3766,
+                "load_ms": 241.143,
+                "native_pipeline_ms": 777.831,
+                "idle_evidence_pipeline_ms": 1798.87,
+                "loop_tree_rows_ms": 265.035
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 756.348,
+                "candidate_scan_map": 2.60211,
+                "candidate_reduce": 18.3405,
+                "materialization": 2315.46
+              },
+              "loop_tree_sha256": "35c259cafcba5f723d915e1f69319e5f15e443219b912fac0d97a2111dd8849a"
+            },
+            {
+              "wall_seconds": 3.425281,
+              "peak_rss_kib": 119908,
+              "timing_ms": {
+                "load_task_rows_ms": 65.2286,
+                "load_ms": 242.962,
+                "native_pipeline_ms": 777.434,
+                "idle_evidence_pipeline_ms": 1824.07,
+                "loop_tree_rows_ms": 273.208
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 755.761,
+                "candidate_scan_map": 2.59354,
+                "candidate_reduce": 18.5308,
+                "materialization": 2350.78
+              },
+              "loop_tree_sha256": "35c259cafcba5f723d915e1f69319e5f15e443219b912fac0d97a2111dd8849a"
+            },
+            {
+              "wall_seconds": 3.479117,
+              "peak_rss_kib": 122516,
+              "timing_ms": {
+                "load_task_rows_ms": 66.7316,
+                "load_ms": 257.412,
+                "native_pipeline_ms": 781.34,
+                "idle_evidence_pipeline_ms": 1835.25,
+                "loop_tree_rows_ms": 289.016
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 758.068,
+                "candidate_scan_map": 3.1843,
+                "candidate_reduce": 19.4717,
+                "materialization": 2384.54
+              },
+              "loop_tree_sha256": "35c259cafcba5f723d915e1f69319e5f15e443219b912fac0d97a2111dd8849a"
+            }
+          ],
+          "wall_seconds": {
+            "median": 3.439141,
+            "minimum": 3.389447,
+            "maximum": 3.479117
+          },
+          "wall_speedup_vs_1": 1.024,
+          "peak_rss_kib": {
+            "median": 122292.0,
+            "minimum": 119908.0,
+            "maximum": 122660.0
+          },
+          "timing_ms": {
+            "load_task_rows_ms": {
+              "median": 64.6879,
+              "minimum": 64.3766,
+              "maximum": 66.7316,
+              "speedup_vs_1": 2.065
+            },
+            "load_ms": {
+              "median": 243.04,
+              "minimum": 241.143,
+              "maximum": 257.412,
+              "speedup_vs_1": 1.294
+            },
+            "native_pipeline_ms": {
+              "median": 778.011,
+              "minimum": 777.434,
+              "maximum": 783.094,
+              "speedup_vs_1": 1.001
+            },
+            "idle_evidence_pipeline_ms": {
+              "median": 1835.25,
+              "minimum": 1798.87,
+              "maximum": 1845.62,
+              "speedup_vs_1": 0.998
+            },
+            "loop_tree_rows_ms": {
+              "median": 272.428,
+              "minimum": 264.643,
+              "maximum": 289.016,
+              "speedup_vs_1": 1.058
+            }
+          },
+          "pipeline_timing_ms": {
+            "build_anchor_tokens": {
+              "median": 756.479,
+              "minimum": 755.761,
+              "maximum": 760.429,
+              "speedup_vs_1": 1.001
+            },
+            "candidate_scan_map": {
+              "median": 2.60211,
+              "minimum": 2.51134,
+              "maximum": 3.1843,
+              "speedup_vs_1": 1.243
+            },
+            "candidate_reduce": {
+              "median": 18.5308,
+              "minimum": 18.3405,
+              "maximum": 19.4717,
+              "speedup_vs_1": 0.929
+            },
+            "materialization": {
+              "median": 2360.67,
+              "minimum": 2315.46,
+              "maximum": 2384.54,
+              "speedup_vs_1": 1.009
+            }
+          }
+        },
+        {
+          "threads": 4,
+          "runs": [
+            {
+              "wall_seconds": 3.388246,
+              "peak_rss_kib": 120600,
+              "timing_ms": {
+                "load_task_rows_ms": 52.469,
+                "load_ms": 231.508,
+                "native_pipeline_ms": 779.942,
+                "idle_evidence_pipeline_ms": 1808.34,
+                "loop_tree_rows_ms": 264.294
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 758.203,
+                "candidate_scan_map": 2.49839,
+                "candidate_reduce": 18.6714,
+                "materialization": 2323.26
+              },
+              "loop_tree_sha256": "35c259cafcba5f723d915e1f69319e5f15e443219b912fac0d97a2111dd8849a"
+            },
+            {
+              "wall_seconds": 3.455564,
+              "peak_rss_kib": 121656,
+              "timing_ms": {
+                "load_task_rows_ms": 53.8713,
+                "load_ms": 234.646,
+                "native_pipeline_ms": 778.789,
+                "idle_evidence_pipeline_ms": 1823.25,
+                "loop_tree_rows_ms": 294.224
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 756.101,
+                "candidate_scan_map": 2.64946,
+                "candidate_reduce": 19.3533,
+                "materialization": 2382.24
+              },
+              "loop_tree_sha256": "35c259cafcba5f723d915e1f69319e5f15e443219b912fac0d97a2111dd8849a"
+            },
+            {
+              "wall_seconds": 3.375522,
+              "peak_rss_kib": 119628,
+              "timing_ms": {
+                "load_task_rows_ms": 51.2712,
+                "load_ms": 230.157,
+                "native_pipeline_ms": 778.419,
+                "idle_evidence_pipeline_ms": 1799.42,
+                "loop_tree_rows_ms": 266.393
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 757.087,
+                "candidate_scan_map": 2.42675,
+                "candidate_reduce": 18.4032,
+                "materialization": 2313.76
+              },
+              "loop_tree_sha256": "35c259cafcba5f723d915e1f69319e5f15e443219b912fac0d97a2111dd8849a"
+            },
+            {
+              "wall_seconds": 3.402774,
+              "peak_rss_kib": 119660,
+              "timing_ms": {
+                "load_task_rows_ms": 52.6504,
+                "load_ms": 230.713,
+                "native_pipeline_ms": 773.834,
+                "idle_evidence_pipeline_ms": 1821.22,
+                "loop_tree_rows_ms": 274.355
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 752.029,
+                "candidate_scan_map": 2.60397,
+                "candidate_reduce": 18.6357,
+                "materialization": 2345.28
+              },
+              "loop_tree_sha256": "35c259cafcba5f723d915e1f69319e5f15e443219b912fac0d97a2111dd8849a"
+            },
+            {
+              "wall_seconds": 3.383934,
+              "peak_rss_kib": 121488,
+              "timing_ms": {
+                "load_task_rows_ms": 52.019,
+                "load_ms": 231.341,
+                "native_pipeline_ms": 775.473,
+                "idle_evidence_pipeline_ms": 1802.9,
+                "loop_tree_rows_ms": 268.042
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 753.743,
+                "candidate_scan_map": 2.43248,
+                "candidate_reduce": 18.7194,
+                "materialization": 2324.49
+              },
+              "loop_tree_sha256": "35c259cafcba5f723d915e1f69319e5f15e443219b912fac0d97a2111dd8849a"
+            }
+          ],
+          "wall_seconds": {
+            "median": 3.388246,
+            "minimum": 3.375522,
+            "maximum": 3.455564
+          },
+          "wall_speedup_vs_1": 1.04,
+          "peak_rss_kib": {
+            "median": 120600.0,
+            "minimum": 119628.0,
+            "maximum": 121656.0
+          },
+          "timing_ms": {
+            "load_task_rows_ms": {
+              "median": 52.469,
+              "minimum": 51.2712,
+              "maximum": 53.8713,
+              "speedup_vs_1": 2.546
+            },
+            "load_ms": {
+              "median": 231.341,
+              "minimum": 230.157,
+              "maximum": 234.646,
+              "speedup_vs_1": 1.359
+            },
+            "native_pipeline_ms": {
+              "median": 778.419,
+              "minimum": 773.834,
+              "maximum": 779.942,
+              "speedup_vs_1": 1.001
+            },
+            "idle_evidence_pipeline_ms": {
+              "median": 1808.34,
+              "minimum": 1799.42,
+              "maximum": 1823.25,
+              "speedup_vs_1": 1.013
+            },
+            "loop_tree_rows_ms": {
+              "median": 268.042,
+              "minimum": 264.294,
+              "maximum": 294.224,
+              "speedup_vs_1": 1.076
+            }
+          },
+          "pipeline_timing_ms": {
+            "build_anchor_tokens": {
+              "median": 756.101,
+              "minimum": 752.029,
+              "maximum": 758.203,
+              "speedup_vs_1": 1.002
+            },
+            "candidate_scan_map": {
+              "median": 2.49839,
+              "minimum": 2.42675,
+              "maximum": 2.64946,
+              "speedup_vs_1": 1.294
+            },
+            "candidate_reduce": {
+              "median": 18.6714,
+              "minimum": 18.4032,
+              "maximum": 19.3533,
+              "speedup_vs_1": 0.922
+            },
+            "materialization": {
+              "median": 2324.49,
+              "minimum": 2313.76,
+              "maximum": 2382.24,
+              "speedup_vs_1": 1.024
+            }
+          }
+        },
+        {
+          "threads": 8,
+          "runs": [
+            {
+              "wall_seconds": 3.415726,
+              "peak_rss_kib": 124552,
+              "timing_ms": {
+                "load_task_rows_ms": 47.9732,
+                "load_ms": 231.017,
+                "native_pipeline_ms": 776.85,
+                "idle_evidence_pipeline_ms": 1804.0,
+                "loop_tree_rows_ms": 288.085
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 754.691,
+                "candidate_scan_map": 2.37889,
+                "candidate_reduce": 19.1608,
+                "materialization": 2351.5
+              },
+              "loop_tree_sha256": "35c259cafcba5f723d915e1f69319e5f15e443219b912fac0d97a2111dd8849a"
+            },
+            {
+              "wall_seconds": 3.539146,
+              "peak_rss_kib": 122340,
+              "timing_ms": {
+                "load_task_rows_ms": 50.7195,
+                "load_ms": 233.231,
+                "native_pipeline_ms": 781.219,
+                "idle_evidence_pipeline_ms": 1834.62,
+                "loop_tree_rows_ms": 326.359
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 759.325,
+                "candidate_scan_map": 2.47366,
+                "candidate_reduce": 18.7277,
+                "materialization": 2454.76
+              },
+              "loop_tree_sha256": "35c259cafcba5f723d915e1f69319e5f15e443219b912fac0d97a2111dd8849a"
+            },
+            {
+              "wall_seconds": 3.460778,
+              "peak_rss_kib": 124508,
+              "timing_ms": {
+                "load_task_rows_ms": 47.8295,
+                "load_ms": 234.326,
+                "native_pipeline_ms": 776.304,
+                "idle_evidence_pipeline_ms": 1810.26,
+                "loop_tree_rows_ms": 285.76
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 755.41,
+                "candidate_scan_map": 2.13212,
+                "candidate_reduce": 18.2357,
+                "materialization": 2373.3
+              },
+              "loop_tree_sha256": "35c259cafcba5f723d915e1f69319e5f15e443219b912fac0d97a2111dd8849a"
+            },
+            {
+              "wall_seconds": 3.460392,
+              "peak_rss_kib": 124748,
+              "timing_ms": {
+                "load_task_rows_ms": 48.9544,
+                "load_ms": 229.816,
+                "native_pipeline_ms": 801.617,
+                "idle_evidence_pipeline_ms": 1838.71,
+                "loop_tree_rows_ms": 274.36
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 780.04,
+                "candidate_scan_map": 2.49684,
+                "candidate_reduce": 18.4764,
+                "materialization": 2371.01
+              },
+              "loop_tree_sha256": "35c259cafcba5f723d915e1f69319e5f15e443219b912fac0d97a2111dd8849a"
+            },
+            {
+              "wall_seconds": 3.394144,
+              "peak_rss_kib": 124216,
+              "timing_ms": {
+                "load_task_rows_ms": 50.279,
+                "load_ms": 236.527,
+                "native_pipeline_ms": 778.474,
+                "idle_evidence_pipeline_ms": 1803.32,
+                "loop_tree_rows_ms": 266.342
+              },
+              "pipeline_timing_ms": {
+                "build_anchor_tokens": 757.461,
+                "candidate_scan_map": 2.16844,
+                "candidate_reduce": 18.3073,
+                "materialization": 2326.32
+              },
+              "loop_tree_sha256": "35c259cafcba5f723d915e1f69319e5f15e443219b912fac0d97a2111dd8849a"
+            }
+          ],
+          "wall_seconds": {
+            "median": 3.460392,
+            "minimum": 3.394144,
+            "maximum": 3.539146
+          },
+          "wall_speedup_vs_1": 1.018,
+          "peak_rss_kib": {
+            "median": 124508.0,
+            "minimum": 122340.0,
+            "maximum": 124748.0
+          },
+          "timing_ms": {
+            "load_task_rows_ms": {
+              "median": 48.9544,
+              "minimum": 47.8295,
+              "maximum": 50.7195,
+              "speedup_vs_1": 2.728
+            },
+            "load_ms": {
+              "median": 233.231,
+              "minimum": 229.816,
+              "maximum": 236.527,
+              "speedup_vs_1": 1.348
+            },
+            "native_pipeline_ms": {
+              "median": 778.474,
+              "minimum": 776.304,
+              "maximum": 801.617,
+              "speedup_vs_1": 1.001
+            },
+            "idle_evidence_pipeline_ms": {
+              "median": 1810.26,
+              "minimum": 1803.32,
+              "maximum": 1838.71,
+              "speedup_vs_1": 1.012
+            },
+            "loop_tree_rows_ms": {
+              "median": 285.76,
+              "minimum": 266.342,
+              "maximum": 326.359,
+              "speedup_vs_1": 1.009
+            }
+          },
+          "pipeline_timing_ms": {
+            "build_anchor_tokens": {
+              "median": 757.461,
+              "minimum": 754.691,
+              "maximum": 780.04,
+              "speedup_vs_1": 1.0
+            },
+            "candidate_scan_map": {
+              "median": 2.37889,
+              "minimum": 2.13212,
+              "maximum": 2.49684,
+              "speedup_vs_1": 1.36
+            },
+            "candidate_reduce": {
+              "median": 18.4764,
+              "minimum": 18.2357,
+              "maximum": 19.1608,
+              "speedup_vs_1": 0.931
+            },
+            "materialization": {
+              "median": 2371.01,
+              "minimum": 2326.32,
+              "maximum": 2454.76,
+              "speedup_vs_1": 1.004
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

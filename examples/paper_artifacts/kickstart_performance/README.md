@@ -34,3 +34,45 @@ Interpret the sizes separately. The compact Loop Tree is the human/agent-facing
 structural projection. The much larger compatibility sidecar deliberately
 materializes normalized events, anchors, relations, and raw-row provenance for
 auditing; it is not a compressed storage format.
+
+## Deterministic thread scaling
+
+`kunpeng920-thread-scaling.json` isolates the ordinary report path without the
+compatibility sidecar. It uses the same clean Release build and medium pair,
+five fresh processes at each of 1, 2, 4, and 8 threads, and a balanced
+forward/reverse schedule. Every one of the 40 generated Loop Trees per pair is
+byte-identical across runs and thread counts.
+
+| profile | threads | TASK-row stage | complete load | candidate map | end-to-end |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| device 0 | 1 | 191.538 ms | 375.442 ms | 3.821 ms | 4.652 s |
+| device 0 | 8 | 66.487 ms (2.881x) | 250.110 ms (1.501x) | 2.433 ms (1.571x) | 4.507 s (1.032x) |
+| device 1 | 1 | 133.569 ms | 314.462 ms | 3.234 ms | 3.522 s |
+| device 1 | 8 | 48.954 ms (2.728x) | 233.231 ms (1.348x) | 2.379 ms (1.360x) | 3.460 s (1.018x) |
+
+This is deliberately a stage-scaling result, not a claim of linear whole-tool
+speedup. Parallel SQLite rowid shards remove much of the TASK-ingestion cost,
+and owned candidate partitions with halos accelerate their map stage while
+preserving deterministic output. Global anchor construction, evidence
+analysis, reduction, and report materialization dominate these profiles, so
+the observed end-to-end improvement is only 1.8--5.5% across the checked
+thread counts. The receipt retains all samples and the stage breakdown rather
+than hiding that boundary.
+
+Reproduce the protocol with:
+
+```bash
+cmake -S . -B build/parallel-scaling-release \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DTRACELOOM_NATIVE_BUILD_TESTS=OFF
+cmake --build build/parallel-scaling-release -j8
+examples/paper_artifacts/tools/benchmark_parallel_scaling.py \
+  --traceloom build/parallel-scaling-release/native/traceloom \
+  --runs 5 \
+  --threads 1,2,4,8 \
+  --output /tmp/kunpeng920-thread-scaling.json
+```
+
+`verify_parallel_scaling_receipt.py` checks source hashes, every summary and
+speedup calculation, cross-thread Loop Tree identity, the positive stage
+result, and the bounded end-to-end claim.

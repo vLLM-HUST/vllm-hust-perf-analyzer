@@ -317,6 +317,18 @@ claim or a cross-tool comparison. The 64--68 KiB Loop Trees are compact; the
 206--258 MiB compatibility sidecars intentionally expand normalized evidence
 and raw-row provenance and must not be presented as compressed storage.
 
+The isolated ordinary-report-path receipt at
+`examples/paper_artifacts/kickstart_performance/kunpeng920-thread-scaling.json`
+adds the narrower systems result. Across five fresh processes per thread count,
+eight threads accelerate TASK-row loading by 2.728--2.881x, complete input
+loading by 1.348--1.501x, and the owned-partition candidate map by
+1.360--1.571x. All 40 Loop Trees are byte-identical across 1/2/4/8 threads.
+Whole-tool speedup is only 1.018--1.032x at eight threads (and at most 1.055x
+among the checked medians), because anchor construction, global evidence
+analysis, reduction, and materialization dominate. Paper wording must present
+parallelism as a deterministic scalability mechanism with measured stage
+benefit, not linear end-to-end acceleration.
+
 ## R7: CUDA External Validity
 
 The required next evidence is one correctness-gated, single-GPU real-model

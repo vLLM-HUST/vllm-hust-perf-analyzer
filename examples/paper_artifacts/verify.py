@@ -27,6 +27,7 @@ def main() -> int:
         ),
         ("mapped-gather-perturbation", tools / "verify_ascend_mapped_gather.py"),
         ("medium-folding", tools / "verify_kickstart_folding.py"),
+        ("parallel-scaling-receipt", tools / "verify_parallel_scaling_receipt.py"),
         ("workflow-comparison", tools / "verify_workflow_comparison.py"),
     )
     for claim, verifier in checks:
