@@ -130,6 +130,15 @@ def cache_value(cache: Path, key: str) -> str | None:
 
 
 def cpu_model() -> str:
+    lscpu = subprocess.run(
+        ["lscpu"],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+    ).stdout
+    for line in lscpu.splitlines():
+        if line.startswith("Model name:"):
+            return line.partition(":")[2].strip()
     cpuinfo = Path("/proc/cpuinfo")
     if cpuinfo.is_file():
         for line in cpuinfo.read_text(encoding="utf-8").splitlines():
