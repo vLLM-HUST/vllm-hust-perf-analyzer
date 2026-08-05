@@ -26,6 +26,17 @@
       "graph_launch_body_member_count": 10170,
       "resolved_host_source_rows": 1110,
       "resolved_task_source_rows": 13500,
+      "communication_localization": {
+        "replay_structural_positions": 30,
+        "replay_launches": 1110,
+        "replay_average_us": "27241.419",
+        "replay_total_us": "817242.580",
+        "allreduce_structural_positions": 8,
+        "allreduce_occurrences": 280,
+        "allreduce_average_us": "95431.933",
+        "allreduce_total_us": "763455.460",
+        "resolved_communication_source_rows": 280
+      },
       "root_node_count": 543,
       "root_tree_sha256": "03aa897e80dd6d7e32c94a5bb5d568b8a79bb77855bdd67744c75d201dbf2175",
       "exact_evidence_sha256": "bbb34d101f987806c2d3b50f00b7038c83dd8d003573f840edffa493110a55f9"
@@ -55,6 +66,17 @@
       "graph_launch_body_member_count": 10170,
       "resolved_host_source_rows": 1110,
       "resolved_task_source_rows": 13500,
+      "communication_localization": {
+        "replay_structural_positions": 30,
+        "replay_launches": 1110,
+        "replay_average_us": "28271.932",
+        "replay_total_us": "848157.960",
+        "allreduce_structural_positions": 8,
+        "allreduce_occurrences": 280,
+        "allreduce_average_us": "941337.438",
+        "allreduce_total_us": "7530699.500",
+        "resolved_communication_source_rows": 280
+      },
       "root_node_count": 519,
       "root_tree_sha256": "9f5b5b8acbaafdafe0908b3e2bf9f2d19909ddd6b2ba587b1a342829246aa91f",
       "exact_evidence_sha256": "f0b23e15d25b04fec15a65507e36ca6a19810fdb5a4230e2da3d15870ca62c58"

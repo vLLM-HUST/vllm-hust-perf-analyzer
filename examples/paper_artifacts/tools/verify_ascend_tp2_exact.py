@@ -204,22 +204,26 @@ def verify_input(
 
 
 def run_traceloom(
-    executable: Path, source: Path, output: Path
-) -> tuple[dict[str, Any], str]:
+    executable: Path, source: Path, output: Path, *, with_sidecar: bool
+) -> tuple[dict[str, Any], str, Path | None]:
     output.mkdir()
     result = output / "result.json"
     report = output / "loop_tree_v2.md"
+    sidecar = output / "sidecar.db" if with_sidecar else None
+    command = [
+        str(executable.resolve()),
+        str(source),
+        "--threads",
+        "2",
+        "--out",
+        str(result),
+        "--loop-tree-out",
+        str(report),
+    ]
+    if sidecar is not None:
+        command.extend(("--compat-db-out", str(sidecar)))
     subprocess.run(
-        [
-            str(executable.resolve()),
-            str(source),
-            "--threads",
-            "2",
-            "--out",
-            str(result),
-            "--loop-tree-out",
-            str(report),
-        ],
+        command,
         check=True,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -227,7 +231,84 @@ def run_traceloom(
     return (
         json.loads(result.read_text(encoding="utf-8")),
         report.read_text(encoding="utf-8"),
+        sidecar,
     )
+
+
+def communication_observation(
+    sidecar: Path, source: Path, expected: dict[str, Any]
+) -> dict[str, Any]:
+    with sqlite3.connect(sidecar) as db:
+        replay = db.execute(
+            "SELECT count(*), sum(observed_launch_count), avg(dur_us), "
+            "sum(dur_us) FROM traceloom_aclgraph_reconstruction_region "
+            "WHERE status = 'recognized_complete_pattern'"
+        ).fetchone()
+        positions = db.execute(
+            "WITH first_replay AS ("
+            "  SELECT min(first_anchor_idx) AS idx "
+            "  FROM traceloom_semantic_node WHERE symbol = 'ReplayUnit T1'"
+            ") "
+            "SELECT node_id, occurrence_count, total_us "
+            "FROM traceloom_semantic_node "
+            "WHERE symbol = 'AllReduce' AND occurrence_count = 35 "
+            "AND last_anchor_idx < (SELECT idx FROM first_replay) "
+            "ORDER BY preorder_idx"
+        ).fetchall()
+        position_ids = [str(row[0]) for row in positions]
+        placeholders = ",".join("?" for _ in position_ids)
+        source_rows = db.execute(
+            "SELECT e.source_table, e.source_key "
+            "FROM traceloom_tree_node_anchor AS t "
+            "JOIN traceloom_anchor AS a "
+            "  ON a.anchor_id = t.anchor_id AND a.db_idx = t.db_idx "
+            "  AND a.device_id = t.device_id "
+            "JOIN traceloom_event AS e "
+            "  ON e.event_id = a.event_id AND e.db_idx = a.db_idx "
+            "  AND e.device_id = a.device_id "
+            f"WHERE t.node_id IN ({placeholders}) "
+            "ORDER BY t.node_id, t.occurrence_idx",
+            position_ids,
+        ).fetchall()
+
+    assert replay is not None
+    assert len(positions) == 8
+    assert {int(row[1]) for row in positions} == {35}
+    assert len(source_rows) == 280
+    assert {str(row[0]) for row in source_rows} == {"COMMUNICATION_OP"}
+    source_keys = {int(row[1]) for row in source_rows}
+    assert len(source_keys) == 280
+
+    with sqlite3.connect(source) as db:
+        ordered = sorted(source_keys)
+        resolved = 0
+        for offset in range(0, len(ordered), 900):
+            batch = ordered[offset : offset + 900]
+            raw_placeholders = ",".join("?" for _ in batch)
+            resolved += int(
+                db.execute(
+                    "SELECT count(*) FROM COMMUNICATION_OP "
+                    f"WHERE opId IN ({raw_placeholders})",
+                    batch,
+                ).fetchone()[0]
+            )
+    assert resolved == len(source_keys)
+
+    observed = {
+        "replay_structural_positions": int(replay[0]),
+        "replay_launches": int(replay[1]),
+        "replay_average_us": f"{float(replay[2]):.3f}",
+        "replay_total_us": f"{float(replay[3]):.3f}",
+        "allreduce_structural_positions": len(positions),
+        "allreduce_occurrences": sum(int(row[1]) for row in positions),
+        "allreduce_average_us": (
+            f"{sum(float(row[2]) for row in positions) / len(positions):.3f}"
+        ),
+        "allreduce_total_us": f"{sum(float(row[2]) for row in positions):.3f}",
+        "resolved_communication_source_rows": resolved,
+    }
+    assert observed == expected, json.dumps(observed, indent=2, sort_keys=True)
+    return observed
 
 
 def verify_exact_shape(
@@ -296,7 +377,11 @@ def verify_exact_shape(
 
 
 def observation(
-    result: dict[str, Any], report: str, source: Path, expected: dict[str, Any]
+    result: dict[str, Any],
+    report: str,
+    source: Path,
+    expected: dict[str, Any],
+    communication: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     stats = result["stats"]
     selected_stats = {field: int(stats[field]) for field in expected["stats"]}
@@ -318,6 +403,8 @@ def observation(
         "root_tree_sha256": tree_hash,
         "exact_evidence_sha256": exact_evidence_hash(result),
     }
+    if communication is not None:
+        observed["communication_localization"] = communication
     frozen = {field: expected[field] for field in observed}
     assert observed == frozen, json.dumps(observed, indent=2, sort_keys=True)
     return observed
@@ -334,20 +421,30 @@ def main() -> int:
         for rank in ("device2", "device3"):
             profile_expected = expected["profiles"][rank]
             source, _stream_info = verify_input(artifact, profile_expected)
-            result, report = run_traceloom(
-                args.traceloom, source, temp_root / f"reduced-{rank}"
+            result, report, sidecar = run_traceloom(
+                args.traceloom,
+                source,
+                temp_root / f"reduced-{rank}",
+                with_sidecar=True,
+            )
+            assert sidecar is not None
+            communication = communication_observation(
+                sidecar,
+                source,
+                profile_expected["communication_localization"],
             )
             reduced_observation = observation(
-                result, report, source, profile_expected
+                result, report, source, profile_expected, communication
             )
 
             reference = getattr(args, f"reference_{rank}")
             if reference is not None:
                 reference_source = next(reference.glob("msprof_*.db"))
-                reference_result, reference_report = run_traceloom(
+                reference_result, reference_report, _ = run_traceloom(
                     args.traceloom,
                     reference_source,
                     temp_root / f"reference-{rank}",
+                    with_sidecar=False,
                 )
                 reference_observation = observation(
                     reference_result,
@@ -355,11 +452,16 @@ def main() -> int:
                     reference_source,
                     profile_expected,
                 )
-                assert reference_observation == reduced_observation
+                assert reference_observation == {
+                    field: value
+                    for field, value in reduced_observation.items()
+                    if field != "communication_localization"
+                }
             print(
                 f"{rank}: 30 exact H+Lx35+T units, 1110 launches, "
                 f"{profile_expected['resolved_host_source_rows']} host + "
-                f"{profile_expected['resolved_task_source_rows']} task rows; PASS"
+                f"{profile_expected['resolved_task_source_rows']} task rows, "
+                "8 AllReduce positions / 280 raw communication rows; PASS"
             )
 
     print("TP2 exact checkout artifact: 2/2 PASS")

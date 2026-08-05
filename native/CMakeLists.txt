@@ -879,7 +879,7 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
       )
       set_tests_properties(
         traceloom_native_ascend_tp2_exact_artifact
-        PROPERTIES LABELS "artifact" TIMEOUT 60
+        PROPERTIES LABELS "artifact" TIMEOUT 120
       )
 
       add_test(

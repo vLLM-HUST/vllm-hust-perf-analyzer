@@ -61,7 +61,7 @@ but must not displace a failing P0 gate.
 | R1 | P0 | Neutral interleaved structural units | implemented, real-profile reproduced, and checkout golden verified | analyzer output, goldens, wide composition table |
 | R2 | P0 | Fair workflow comparison | implemented, checkout-verified, and CTest-gated | one fixed question set answered by top-k, timeline/SQL, repeat-only, and TraceLoom |
 | R3 | P0 | Patch/cost-shift case | bounded current case integrated; positive follow-up preregistered | correctness, structural delta, cost localization, bounded mechanism wording |
-| R4 | P0 | Raw-row provenance for every central result | strongest exact TP2 result checkout-green; external secondary rows remain | one command verifies every central row from immutable input |
+| R4 | P0 | Raw-row provenance for every central result | core Ascend rows checkout-green; bounded CUDA external | one command verifies every central row from immutable input |
 | R5 | P0 | Offline reviewer artifact | two-tier CPU-only ledger implemented and CTest-gated | clean CPU-only checkout reproduces exact and folding contracts |
 | R6 | P1 | Million-row analysis-cost point | five-run Release receipt complete | time, peak RSS, input/output size, compression reported |
 | R7 | P1 | Real-model CUDA Graph external validity | real model and graph evidence are separate | correctness-gated single-GPU model graph, exact visible-body report |
@@ -196,8 +196,11 @@ The 39.15 MiB two-rank TP2 pair is also checked in as a Tier B exactness
 artifact. It preserves all primary event rows while removing host identity and
 PMU bulk. A CPU-only verifier checks 30 exact `H + L×35 + T` units, all 1,110
 launch members, 1,110 host rows and 13,500 distinct supporting task rows per
-rank, and the current unknown-first Loop Tree. Optional reference mode proves
-full/reduced equality; split-layout parity remains external to avoid another
+rank, and the current unknown-first Loop Tree. The same command checks eight
+pre-graph `AllReduce` positions, all 280 occurrences per rank, their distinct
+raw `COMMUNICATION_OP` rows, and the frozen 1.038x replay versus 9.864x
+communication contrast. Optional reference mode proves full/reduced exact
+observation equality; split-layout parity remains external to avoid another
 large duplicate input bundle.
 
 **Tier B: curated medium examples.** A 10--50 MiB input may be checked in when
@@ -328,7 +331,7 @@ external interpretation, not in TraceLoom's emitted schema.
 
 1. ~~Implement and golden-test R1.~~ Complete.
 2. ~~Freeze the minimum Ascend Tier A/Tier B artifact set.~~ Complete.
-3. ~~Run the implemented R4-R5 ledger once in a fresh clone and retain the receipt.~~ Complete at `dd979a40fe52`: 3/3 claims passed and the checkout remained clean.
+3. ~~Run the implemented R4-R5 ledger once in a fresh clone and retain the receipt.~~ Complete at `dd979a40fe52`; the expanded current ledger now checks 4/4 claims, including exact TP2 provenance and communication localization.
 4. ~~Run R2 over the frozen inputs and materialize the comparison table.~~ Complete.
 5. ~~Close R3 with the strongest wording supported by the available ablation.~~ Complete; retain the strengthened-operator capture as optional positive evidence.
 6. ~~Measure R6 on the already checked-in kickstart profile.~~ Complete.

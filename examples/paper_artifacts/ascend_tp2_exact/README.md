@@ -13,7 +13,16 @@ Each rank independently recovers:
 - one 37-slot graph template with the shared body-sequence identity;
 - zero incomplete or legacy replay units; and
 - raw-row resolution for all 1,110 host launch rows and 13,500 distinct task
-  rows supporting launch control and visible graph bodies.
+  rows supporting launch control and visible graph bodies; and
+- eight repeated pre-graph `AllReduce` positions (280 occurrences) with every
+  selected anchor resolved to a distinct raw `COMMUNICATION_OP` row.
+
+The communication slice also freezes a cross-rank localization contrast that
+is invisible in replay counts alone: replay-envelope time is 817.243/848.158 ms
+(1.038x), while the same eight pre-graph `AllReduce` positions total
+763.455/7,530.700 ms (9.864x) on device 2/device 3. TraceLoom reports structural
+position and source evidence; workload-semantic attribution remains a separate
+human or agent judgment.
 
 The current unknown-first projection emits 5,669/5,645 semantic anchors and
 543/519 Loop Tree nodes. Of those anchors, 2,550/2,530 are preserved
@@ -56,7 +65,8 @@ examples/paper_artifacts/tools/verify_ascend_tp2_exact.py \
   --reference-device3 /path/to/device3/PROF_...
 ```
 
-The checkout contract proves exact multi-stream reconstruction and direct
-source provenance on the normal monolithic path. The previously verified
+The checkout contract proves exact multi-stream reconstruction, direct source
+provenance, and communication-cost localization on the normal monolithic path.
+The previously verified
 monolithic/split storage-layout parity remains an external secondary result;
 the split databases are intentionally not duplicated into this repository.

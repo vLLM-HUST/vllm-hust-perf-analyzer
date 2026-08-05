@@ -22,7 +22,7 @@ one fixture:
 | Artifact | Main DB size | Contract |
 | --- | ---: | --- |
 | `ascend_interleaved` | 1.69-1.86 MiB each | exact graph/interleaved-unit fidelity |
-| `ascend_tp2_exact` | 15.60/23.55 MiB | 30-unit multi-stream exact composition and raw provenance |
+| `ascend_tp2_exact` | 15.60/23.55 MiB | exact TP2 composition, raw provenance, and communication localization |
 | `../kickstart_smoke` | 36.42-38.52 MiB each | realistic ingestion and nested folding |
 
 The medium pair is close to the requested 50 MB-per-profile review scale while
@@ -38,6 +38,11 @@ exact `H + L×35 + T` units covering 1,110 capture-instance-linked launches.
 The verifier resolves all 1,110 host launch rows and 13,500 distinct task rows
 per rank directly against the reduced source database and freezes the current
 unknown-first Loop Tree.
+
+The same verifier localizes the asymmetric rank cost to eight repeated
+pre-graph `AllReduce` positions: replay envelopes differ by only 1.038x, while
+the selected communication positions differ by 9.864x. All 280 selected
+anchors per rank resolve to distinct bundled `COMMUNICATION_OP` source rows.
 
 The pair is a deterministic full-time-range reduction: it preserves every
 primary event row, dependent semantic row, referenced string, table schema,
