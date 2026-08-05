@@ -31,8 +31,10 @@ The exact CUDA path requires all of the following:
 
 The body is an unordered set of stream lanes. Order inside each lane is exact;
 raw stream identifiers and timing are not part of template identity. Kernels
-retain their exact resolved names, memcpy nodes retain copy kind and byte
-count, and recognized NCCL kernels retain their communication role.
+retain their exact resolved names, grid XYZ, block XYZ, and dynamic
+shared-memory bytes. Memcpy nodes retain copy kind and byte count, and
+recognized NCCL kernels retain their communication role. An absent or
+partially present launch-shape group fails closed as missing body capability.
 
 Missing children, singleton bodies, duplicate launch correlations, or unknown
 graph-node activity capabilities produce typed unrecognized regions and no
@@ -74,8 +76,9 @@ their GEMM kernel identity and memcpy size.
   to `unrecognized_missing_body_capability` and produces zero exact units.
 - Checked-in adapter tests also cover a singleton body, duplicate runtime
   correlation, a launch with no visible children, an incomplete supported
-  activity schema, contradictory bodies for one raw node set, deterministic
-  reload, and the exact `A/B/A/A/B` schedule.
+  activity schema, contradictory names or launch shapes for one raw node set,
+  a partial launch-shape schema, deterministic reload, and the exact
+  `A/B/A/A/B` schedule.
 
 The CUDA-Graph-plus-TP capture attempt in the bundle remains a negative result:
 it hung and was terminated. The current evidence therefore supports exact

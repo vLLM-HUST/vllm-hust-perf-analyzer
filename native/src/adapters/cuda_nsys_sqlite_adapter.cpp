@@ -688,6 +688,39 @@ StreamId stream_for_raw_id(const NativeIr& ir, std::uint32_t device_id,
   return StreamId::invalid();
 }
 
+struct CudaKernelLaunchShapeColumns {
+  std::string grid_x;
+  std::string grid_y;
+  std::string grid_z;
+  std::string block_x;
+  std::string block_y;
+  std::string block_z;
+  std::string dynamic_shared_memory;
+
+  bool complete() const {
+    return !grid_x.empty() && !grid_y.empty() && !grid_z.empty() &&
+           !block_x.empty() && !block_y.empty() && !block_z.empty() &&
+           !dynamic_shared_memory.empty();
+  }
+
+  std::vector<std::string> values() const {
+    return {grid_x, grid_y, grid_z, block_x, block_y, block_z,
+            dynamic_shared_memory};
+  }
+};
+
+CudaKernelLaunchShapeColumns kernel_launch_shape_columns(
+    const ColumnMap& columns) {
+  return CudaKernelLaunchShapeColumns{
+      find_column(columns, "gridX"),
+      find_column(columns, "gridY"),
+      find_column(columns, "gridZ"),
+      find_column(columns, "blockX"),
+      find_column(columns, "blockY"),
+      find_column(columns, "blockZ"),
+      find_column(columns, "dynamicSharedMemory")};
+}
+
 bool graph_node_activity_capability_complete(SqliteDb& db) {
   static const std::set<std::string> supported{
       "CUDA_GRAPH_NODE_EVENTS", "CUPTI_ACTIVITY_KIND_KERNEL",
@@ -717,6 +750,17 @@ bool graph_node_activity_capability_complete(SqliteDb& db) {
     if (table == kKernelTable) {
       required = {find_column(columns, "contextId"),
                   find_column(columns, "correlationId")};
+      const CudaKernelLaunchShapeColumns launch_shape =
+          kernel_launch_shape_columns(columns);
+      // Exact identity must distinguish graph-exec parameter updates. Nsight
+      // exports launch geometry as one contract, so an absent or partially
+      // present group cannot support exact body identity.
+      if (!launch_shape.complete()) {
+        return false;
+      }
+      const std::vector<std::string> shape_values = launch_shape.values();
+      required.insert(required.end(), shape_values.begin(),
+                      shape_values.end());
     } else if (table == "CUPTI_ACTIVITY_KIND_MEMCPY") {
       required = {find_column(columns, "contextId"),
                   find_column(columns, "correlationId"),
@@ -819,16 +863,29 @@ void load_cuda_graph_kernel_children(
   const std::string context = find_column(columns, "contextId");
   const std::string correlation = find_column(columns, "correlationId");
   const std::string graph_node = find_column(columns, "graphNodeId");
+  const CudaKernelLaunchShapeColumns launch_shape =
+      kernel_launch_shape_columns(columns);
   if (context.empty() || correlation.empty() || graph_node.empty()) {
     return;
   }
+  const auto select_or_null = [](const std::string& column) {
+    return column.empty() ? std::string("NULL") : quote_identifier(column);
+  };
   const std::map<std::uint64_t, TaskId> task_ids =
       tasks_by_source_row(ir, source_ref);
   SqliteStmt stmt(
       db.get(), "SELECT rowid, start, end, deviceId, streamId, " +
                     quote_identifier(context) + ", " +
                     quote_identifier(correlation) + ", " +
-                    quote_identifier(graph_node) + " FROM " +
+                    quote_identifier(graph_node) + ", " +
+                    select_or_null(launch_shape.grid_x) + ", " +
+                    select_or_null(launch_shape.grid_y) + ", " +
+                    select_or_null(launch_shape.grid_z) + ", " +
+                    select_or_null(launch_shape.block_x) + ", " +
+                    select_or_null(launch_shape.block_y) + ", " +
+                    select_or_null(launch_shape.block_z) + ", " +
+                    select_or_null(launch_shape.dynamic_shared_memory) +
+                    " FROM " +
                     quote_identifier(kKernelTable) + " WHERE " +
                     quote_identifier(correlation) + " IS NOT NULL AND " +
                     quote_identifier(graph_node) + " IS NOT NULL ORDER BY " +
@@ -855,6 +912,23 @@ void load_cuda_graph_kernel_children(
                                       : "cuda_kernel_" +
                                             std::to_string(source_row_id);
     const bool communication = task_row.comm_name_symbol_id.valid();
+    std::string exact_label =
+        std::string(communication ? "communication\t" : "kernel\t") +
+        raw_label;
+    std::string readable_label = raw_label;
+    if (launch_shape.complete()) {
+      const std::string launch_shape_label =
+          "grid=" + std::to_string(sqlite_i64(stmt.get(), 8)) + "," +
+          std::to_string(sqlite_i64(stmt.get(), 9)) + "," +
+          std::to_string(sqlite_i64(stmt.get(), 10)) + " block=" +
+          std::to_string(sqlite_i64(stmt.get(), 11)) + "," +
+          std::to_string(sqlite_i64(stmt.get(), 12)) + "," +
+          std::to_string(sqlite_i64(stmt.get(), 13)) +
+          " dynamic_shared_memory=" +
+          std::to_string(sqlite_i64(stmt.get(), 14));
+      exact_label += "\t" + launch_shape_label;
+      readable_label += " [" + launch_shape_label + "]";
+    }
     out.push_back(CudaGraphChildEvidence{
         source_ref,
         task->second,
@@ -871,9 +945,8 @@ void load_cuda_graph_kernel_children(
         sqlite_i64(stmt.get(), 2),
         !communication,
         communication,
-        std::string(communication ? "communication\t" : "kernel\t") +
-            raw_label,
-        raw_label});
+        std::move(exact_label),
+        std::move(readable_label)});
   }
 }
 
@@ -1025,7 +1098,7 @@ void prepare_cuda_graph_body(PreparedCudaGraphLaunch& prepared) {
   }
   std::sort(lane_sequences.begin(), lane_sequences.end());
   prepared.body_signature =
-      "cuda_graph_observed_stream_set_v1\nstream_count=" +
+      "cuda_graph_observed_stream_set_v2\nstream_count=" +
       std::to_string(lane_sequences.size()) + "\n";
   for (std::size_t lane = 0; lane < lane_sequences.size(); ++lane) {
     prepared.body_signature +=

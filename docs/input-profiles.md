@@ -50,7 +50,11 @@ visible-body reconstruction, use an Nsight node-level graph export. TraceLoom
 requires a nonempty `CUDA_GRAPH_NODE_EVENTS` table, unique direct runtime
 correlation, supported `graphNodeId` activity tables, and at least two matching
 observations of the same raw node set and normalized visible body. Unsupported
-or incomplete evidence remains a typed unrecognized region.
+or incomplete evidence remains a typed unrecognized region. When the kernel
+table exposes Nsight launch-shape metadata, the exact body identity includes
+grid XYZ, block XYZ, and dynamic shared-memory bytes. That seven-column group
+must be wholly present and non-null for graph-node kernel rows; absent or
+partial schemas fail closed as missing body capability.
 
 ## Artifact Policy
 

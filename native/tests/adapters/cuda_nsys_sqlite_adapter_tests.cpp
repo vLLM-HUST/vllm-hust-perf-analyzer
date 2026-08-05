@@ -59,6 +59,8 @@ enum class GraphFixtureVariant {
   kUnsupportedGraphNodeActivity,
   kIncompleteMemcpyCapability,
   kBodyMismatch,
+  kLaunchShapeMismatch,
+  kIncompleteKernelLaunchCapability,
 };
 
 void create_graph_node_db(const std::string& path,
@@ -74,7 +76,15 @@ void create_graph_node_db(const std::string& path,
          "CREATE TABLE CUPTI_ACTIVITY_KIND_KERNEL("
          "start INTEGER, end INTEGER, deviceId INTEGER, contextId INTEGER,"
          "streamId INTEGER, correlationId INTEGER, graphNodeId INTEGER,"
-         "shortName INTEGER);";
+         "shortName INTEGER";
+  if (variant == GraphFixtureVariant::kIncompleteKernelLaunchCapability) {
+    sql << ", gridX INTEGER";
+  } else {
+    sql << ", gridX INTEGER, gridY INTEGER, gridZ INTEGER,"
+           "blockX INTEGER, blockY INTEGER, blockZ INTEGER,"
+           "dynamicSharedMemory INTEGER";
+  }
+  sql << ");";
   sql << "CREATE TABLE CUPTI_ACTIVITY_KIND_MEMCPY("
          "start INTEGER, end INTEGER, deviceId INTEGER, contextId INTEGER,"
          "streamId INTEGER, correlationId INTEGER, graphNodeId INTEGER,"
@@ -91,19 +101,25 @@ void create_graph_node_db(const std::string& path,
   const std::int64_t graph_b = 21474836480LL;
   const int schedule[] = {0, 1, 0, 0, 1};
   std::size_t launch_count =
-      variant == GraphFixtureVariant::kBodyMismatch ? 2 : 5;
+      variant == GraphFixtureVariant::kBodyMismatch ||
+              variant == GraphFixtureVariant::kLaunchShapeMismatch
+          ? 2
+          : 5;
   if (variant == GraphFixtureVariant::kSingleton ||
       variant == GraphFixtureVariant::kDuplicateLaunchCorrelation ||
       variant == GraphFixtureVariant::kMissingBody ||
       variant == GraphFixtureVariant::kUnsupportedGraphNodeActivity ||
-      variant == GraphFixtureVariant::kIncompleteMemcpyCapability) {
+      variant == GraphFixtureVariant::kIncompleteMemcpyCapability ||
+      variant == GraphFixtureVariant::kIncompleteKernelLaunchCapability) {
     launch_count = 1;
   }
   for (std::size_t index = 0; index < launch_count; ++index) {
     const std::int64_t correlation = 101 + static_cast<std::int64_t>(index);
     const std::int64_t base = 1000 + static_cast<std::int64_t>(index) * 100;
     const bool graph_b_case =
-        variant != GraphFixtureVariant::kBodyMismatch && schedule[index] == 1;
+        variant != GraphFixtureVariant::kBodyMismatch &&
+        variant != GraphFixtureVariant::kLaunchShapeMismatch &&
+        schedule[index] == 1;
     const std::int64_t graph_node_base = graph_b_case ? graph_b : graph_a;
     const int gemm_name = graph_b_case ? 4 : 2;
     const int pointwise_name =
@@ -117,15 +133,32 @@ void create_graph_node_db(const std::string& path,
           << ',' << base + 6 << ',' << correlation << ",1);";
     }
     if (variant != GraphFixtureVariant::kMissingBody) {
+      const int first_grid_x =
+          variant == GraphFixtureVariant::kLaunchShapeMismatch && index == 1
+              ? 2
+              : 1;
       sql << "INSERT INTO CUPTI_ACTIVITY_KIND_KERNEL VALUES("
           << base + 10 << ',' << base + 20 << ",0,7,11," << correlation
-          << ',' << graph_node_base << ',' << gemm_name << ");"
+          << ',' << graph_node_base << ',' << gemm_name << ','
+          << first_grid_x;
+      if (variant != GraphFixtureVariant::kIncompleteKernelLaunchCapability) {
+        sql << ",1,1,256,1,1,0";
+      }
+      sql << ");"
           << "INSERT INTO CUPTI_ACTIVITY_KIND_KERNEL VALUES("
           << base + 21 << ',' << base + 25 << ",0,7,11," << correlation
-          << ',' << graph_node_base + 1 << ',' << pointwise_name << ");"
+          << ',' << graph_node_base + 1 << ',' << pointwise_name << ",1";
+      if (variant != GraphFixtureVariant::kIncompleteKernelLaunchCapability) {
+        sql << ",1,1,128,1,1,0";
+      }
+      sql << ");"
           << "INSERT INTO CUPTI_ACTIVITY_KIND_KERNEL VALUES("
           << base + 26 << ',' << base + 36 << ",0,7,11," << correlation
-          << ',' << graph_node_base + 2 << ',' << gemm_name << ");"
+          << ',' << graph_node_base + 2 << ',' << gemm_name << ",1";
+      if (variant != GraphFixtureVariant::kIncompleteKernelLaunchCapability) {
+        sql << ",1,1,256,1,1,1024";
+      }
+      sql << ");"
           << "INSERT INTO CUPTI_ACTIVITY_KIND_MEMCPY VALUES("
           << base + 37 << ',' << base + 42 << ",0,7,11," << correlation
           << ',' << graph_node_base + 3 << ','
@@ -429,6 +462,13 @@ int main(int argc, char** argv) {
                 body.topology_policy ==
                     ReplayBodyTopologyPolicy::kObservedStreamSetUnordered,
             "CUDA visible body summary or topology policy is incorrect");
+    const std::string readable_body =
+        symbol(graph_exact_ir, body.op_sequence_symbol_id);
+    require(readable_body.find("grid=") != std::string::npos &&
+                readable_body.find("block=") != std::string::npos &&
+                readable_body.find("dynamic_shared_memory=") !=
+                    std::string::npos,
+            "CUDA visible body omitted launch-shape evidence");
   }
   for (const ReplayCompositionCandidateRow& candidate :
        graph_exact_ir.replay_composition_candidates.rows()) {
@@ -565,6 +605,39 @@ int main(int argc, char** argv) {
             "contradictory CUDA graph body lost its typed mismatch status");
   }
 
+  const std::string graph_launch_shape_mismatch_path =
+      temp_db_path("_graph_launch_shape_mismatch");
+  create_graph_node_db(graph_launch_shape_mismatch_path,
+                       GraphFixtureVariant::kLaunchShapeMismatch);
+  const NativeIr graph_launch_shape_mismatch_ir =
+      CudaNsightSQLiteAdapter(graph_launch_shape_mismatch_path).load();
+  require(graph_launch_shape_mismatch_ir.graph_launch_bodies.size() == 2 &&
+              graph_launch_shape_mismatch_ir.replay_body_templates.size() ==
+                  2 &&
+              graph_launch_shape_mismatch_ir.replay_units.empty(),
+          "different CUDA launch shapes collapsed into one exact body");
+  for (const ReplayCompositionRegionRow& region :
+       graph_launch_shape_mismatch_ir.replay_composition_regions.rows()) {
+    require(region.status ==
+                ReplayCompositionRegionStatus::kUnrecognizedBodyMismatch,
+            "CUDA launch-shape change lost its typed body mismatch");
+  }
+
+  const std::string graph_incomplete_kernel_shape_path =
+      temp_db_path("_graph_incomplete_kernel_shape");
+  create_graph_node_db(
+      graph_incomplete_kernel_shape_path,
+      GraphFixtureVariant::kIncompleteKernelLaunchCapability);
+  const NativeIr graph_incomplete_kernel_shape_ir =
+      CudaNsightSQLiteAdapter(graph_incomplete_kernel_shape_path).load();
+  require(graph_incomplete_kernel_shape_ir.graph_launch_bodies.empty() &&
+              graph_incomplete_kernel_shape_ir.replay_units.empty() &&
+              graph_incomplete_kernel_shape_ir
+                      .replay_composition_regions.rows()[0]
+                      .status == ReplayCompositionRegionStatus::
+                                     kUnrecognizedMissingBodyCapability,
+          "partial CUDA launch-shape schema did not fail closed");
+
   const std::string malformed_path = temp_db_path("_malformed");
   create_db(malformed_path,
             "CREATE TABLE CUPTI_ACTIVITY_KIND_KERNEL("
@@ -634,6 +707,8 @@ int main(int argc, char** argv) {
   std::remove(graph_unsupported_path.c_str());
   std::remove(graph_incomplete_memcpy_path.c_str());
   std::remove(graph_body_mismatch_path.c_str());
+  std::remove(graph_launch_shape_mismatch_path.c_str());
+  std::remove(graph_incomplete_kernel_shape_path.c_str());
   std::remove(malformed_path.c_str());
   std::remove(malformed_aux_path.c_str());
   std::remove(partial_cuda_event_path.c_str());
