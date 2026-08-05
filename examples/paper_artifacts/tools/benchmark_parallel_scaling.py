@@ -28,6 +28,12 @@ TIMING_FIELDS = (
     "idle_evidence_pipeline_ms",
     "loop_tree_rows_ms",
 )
+PIPELINE_TIMING_FIELDS = (
+    "build_anchor_tokens",
+    "candidate_scan_map",
+    "candidate_reduce",
+    "materialization",
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -154,11 +160,18 @@ def run_once(
     timing = {key: float(value) for key, value in TIMING.findall(stderr.read_text())}
     missing = set(TIMING_FIELDS) - set(timing)
     assert not missing, f"missing timing fields: {sorted(missing)}"
+    pipeline_timing = observed["timing_ms"]
+    missing = set(PIPELINE_TIMING_FIELDS) - set(pipeline_timing)
+    assert not missing, f"missing pipeline timing fields: {sorted(missing)}"
 
     return {
         "wall_seconds": round(wall_seconds, 6),
         "peak_rss_kib": int(usage.ru_maxrss),
         "timing_ms": {field: round(timing[field], 6) for field in TIMING_FIELDS},
+        "pipeline_timing_ms": {
+            field: round(float(pipeline_timing[field]), 6)
+            for field in PIPELINE_TIMING_FIELDS
+        },
         "loop_tree_sha256": sha256_file(report),
     }
 
@@ -227,6 +240,12 @@ def main() -> int:
                 )
                 for field in TIMING_FIELDS
             }
+            baseline_pipeline_timing = {
+                field: statistics.median(
+                    sample["pipeline_timing_ms"][field] for sample in baseline
+                )
+                for field in PIPELINE_TIMING_FIELDS
+            }
             thread_rows: list[dict[str, Any]] = []
             for threads in args.threads:
                 samples = by_thread[threads]
@@ -242,6 +261,7 @@ def main() -> int:
                         [float(sample["peak_rss_kib"]) for sample in samples]
                     ),
                     "timing_ms": {},
+                    "pipeline_timing_ms": {},
                 }
                 for field in TIMING_FIELDS:
                     values = [sample["timing_ms"][field] for sample in samples]
@@ -249,6 +269,16 @@ def main() -> int:
                         **summarize(values),
                         "speedup_vs_1": round(
                             baseline_timing[field] / statistics.median(values), 3
+                        ),
+                    }
+                for field in PIPELINE_TIMING_FIELDS:
+                    values = [sample["pipeline_timing_ms"][field] for sample in samples]
+                    row["pipeline_timing_ms"][field] = {
+                        **summarize(values),
+                        "speedup_vs_1": round(
+                            baseline_pipeline_timing[field]
+                            / statistics.median(values),
+                            3,
                         ),
                     }
                 thread_rows.append(row)
