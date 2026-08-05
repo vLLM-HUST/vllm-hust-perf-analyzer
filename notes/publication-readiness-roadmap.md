@@ -312,7 +312,7 @@ external interpretation, not in TraceLoom's emitted schema.
 
 1. ~~Implement and golden-test R1.~~ Complete.
 2. ~~Freeze the minimum Ascend Tier A/Tier B artifact set.~~ Complete.
-3. Run the implemented R4-R5 ledger once in a fresh clone and retain the receipt.
+3. ~~Run the implemented R4-R5 ledger once in a fresh clone and retain the receipt.~~ Complete at `dd979a40fe52`: 3/3 claims passed and the checkout remained clean.
 4. ~~Run R2 over the frozen inputs and materialize the comparison table.~~ Complete.
 5. Close R3 with the strongest wording supported by the available ablation.
 6. ~~Measure R6 on the already checked-in kickstart profile.~~ Complete.
