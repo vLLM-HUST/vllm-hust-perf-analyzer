@@ -6,6 +6,11 @@ include(GNUInstallDirs)
 
 option(TRACELOOM_NATIVE_BUILD_TESTS "Build TraceLoom native tests" ON)
 option(
+  TRACELOOM_NATIVE_BUILD_BENCHMARKS
+  "Build non-installed TraceLoom native benchmark tools"
+  OFF
+)
+option(
   TRACELOOM_NATIVE_ENABLE_ASCEND_SQLITE
   "Build optional SQLite source adapters (legacy option name)"
   ON
@@ -252,6 +257,15 @@ target_link_libraries(
   traceloom_native_adapters
   traceloom_native_materialize
 )
+
+if(TRACELOOM_NATIVE_BUILD_BENCHMARKS)
+  add_executable(traceloom-native-pattern-scaling-benchmark
+    src/tools/pattern_scaling_benchmark_main.cpp
+  )
+  target_link_libraries(
+    traceloom-native-pattern-scaling-benchmark PRIVATE traceloom_native_core
+  )
+endif()
 
 if(TRACELOOM_NATIVE_BUILD_TESTS)
   enable_testing()
