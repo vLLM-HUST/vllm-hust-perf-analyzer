@@ -23,6 +23,7 @@ one fixture:
 | --- | ---: | --- |
 | `ascend_interleaved` | 1.69-1.86 MiB each | exact graph/interleaved-unit fidelity |
 | `ascend_tp2_exact` | 15.60/23.55 MiB | exact TP2 composition, raw provenance, and communication localization |
+| `ascend_tp2_fresh_negative` | 10.87-10.98 MiB each | preregistered six-rank negative, fail-closed current recovery |
 | `ascend_mapped_gather` | 7.12 MiB/124 KiB | correctness-gated 512x target-operation perturbation |
 | `../kickstart_smoke` | 36.42-38.52 MiB each | realistic ingestion and nested folding |
 
@@ -44,6 +45,17 @@ The same verifier localizes the asymmetric rank cost to eight repeated
 pre-graph `AllReduce` positions: replay envelopes differ by only 1.038x, while
 the selected communication positions differ by 9.864x. All 280 selected
 anchors per rank resolve to distinct bundled `COMMUNICATION_OP` source rows.
+
+## Active negative contract: fresh Ascend TP2
+
+The six-rank `ascend_tp2_fresh_negative` campaign makes the preregistered
+stability failure reproducible from a checkout. Its hypothesis required every
+rank to reproduce 30 exact units, 1,110 launch members, zero unknown regions,
+and stable within-rank topology. None reproduced the cardinality. Current
+analysis recovers only 27--28 exact period-one units, preserves one typed
+missing-completion region in four profiles, and exposes a 9-task versus
+411-task body mismatch. Passing the verifier means that this negative remains
+faithful; it does not relabel the failed hypothesis as a success.
 
 ## Active perturbation contract: mapped gather
 

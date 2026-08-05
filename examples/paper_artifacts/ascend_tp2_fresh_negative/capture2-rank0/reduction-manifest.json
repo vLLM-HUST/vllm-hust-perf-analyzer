@@ -1,0 +1,48 @@
+{
+  "copied_rows": {
+    "AICORE_FREQ": 1,
+    "CANN_API": 115705,
+    "COMMUNICATION_OP": 541,
+    "COMMUNICATION_TASK_INFO": 4796,
+    "COMPUTE_TASK_INFO": 4907,
+    "ENUM_API_TYPE": 5,
+    "ENUM_HCCL_DATA_TYPE": 20,
+    "ENUM_HCCL_LINK_TYPE": 10,
+    "ENUM_HCCL_RDMA_TYPE": 5,
+    "ENUM_HCCL_TRANSPORT_TYPE": 7,
+    "ENUM_MEMCPY_OPERATION": 9,
+    "ENUM_MODULE": 65,
+    "ENUM_MSTX_EVENT_TYPE": 4,
+    "HOST_INFO": 0,
+    "MEMCPY_INFO": 1886,
+    "META_DATA": 4,
+    "NPU_INFO": 1,
+    "RANK_DEVICE_MAP": 1,
+    "SESSION_TIME_INFO": 1,
+    "STRING_IDS": 1145,
+    "TASK": 83096,
+    "TASK_PMU_INFO": 0
+  },
+  "omitted_row_content": [
+    "HOST_INFO",
+    "TASK_PMU_INFO"
+  ],
+  "output_bytes": 11452416,
+  "output_sha256": "8689286d88a3757d0b6ae64f2a79bd5987d7358d45e7362dce653589519584d1",
+  "schema_version": "traceloom-ascend-reduction-v1",
+  "source_bytes": 18599936,
+  "source_rowid_policy": "preserved",
+  "source_sha256": "41d5f0ff607de3b3076ea56d81a38b5d9bd82abb0579bec7c855034b1aebb4d8",
+  "stream_info": {
+    "copied_rows": 153,
+    "output_bytes": 8192,
+    "output_sha256": "e7b8b3ccf6ef15858c69daf02b1ca813c3be6027e119a4d2e2530e1e1c0756de",
+    "source_bytes": 8192,
+    "source_rowid_policy": "preserved",
+    "source_sha256": "ef31c7047b7417c335518ce7819ff85cafec5a634c534342e17548bb573e1e89"
+  },
+  "window": {
+    "end_ns": 1785861565020798940,
+    "start_ns": 1785861525536386350
+  }
+}

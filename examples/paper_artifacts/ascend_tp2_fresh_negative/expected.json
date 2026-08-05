@@ -1,0 +1,110 @@
+{
+  "schema_version": "traceloom-ascend-tp2-fresh-negative-v1",
+  "claim": {
+    "expected_exact_units_per_rank": 30,
+    "expected_launch_members_per_rank": 1110,
+    "expected_unknown_regions_per_rank": 0,
+    "preregistered_outcome": "NOT_REPRODUCED"
+  },
+  "workload_receipt": {
+    "accelerator": "Ascend 910B2",
+    "cann": "9.0.0",
+    "model": "Qwen2.5-3B-Instruct",
+    "tensor_parallel_size": 2,
+    "capture_count": 3,
+    "requests_per_capture": 2,
+    "output_tokens_per_request": 16,
+    "output_text_sha256": "9d151beec5d659846087f0b6fd97e643315a94321bdb0bef39652a6c6a9476de",
+    "token_strings_sha256": "6073a9051cc1c7bb0ea17d704e9bd4ca9abf69ac238f1e31ac0ff89560900c90"
+  },
+  "historical_receipts": {
+    "preregistered.tsv": "c73be55bbfcb3247ffa08e5db542b0706a1f7ac9823ce302c90c66cd95d2522c",
+    "posthoc-repair.tsv": "f2e408d314ff89f8b00077dc88c26580ed73feb1a9569dfc19c3942c710355c3"
+  },
+  "profiles": {
+    "capture1-rank0": {
+      "capture": 1,
+      "rank": 0,
+      "database_bytes": 11505664,
+      "database_sha256": "9ea0949cee8ff8f4e21d0ec583c1dfa03682ce22f578dd8de2322854b90d7e55",
+      "stream_info_sha256": "18391f34cfa34766beac3015b0489ed59d9dd941783fb094ccc854a2512a1366",
+      "raw_database_sha256": "61fd4ce691cfcd2a54b9a97b56c65a435c808c262636d72ac004731bde218536",
+      "stats": [84543, 5502, 38, 152, 28, 28, 0, 28, 28],
+      "projection": [4960, 542, 2701],
+      "body": [9, 2, 16470478170119524675],
+      "unknown_statuses": [],
+      "resolved_host_source_rows": 28,
+      "resolved_task_source_rows": 336
+    },
+    "capture1-rank1": {
+      "capture": 1,
+      "rank": 1,
+      "database_bytes": 11485184,
+      "database_sha256": "d6ee8570b9cd74c9078a45cb7e34b09d98946ba722f8137c07b5c4ef15a2784a",
+      "stream_info_sha256": "d75eca80fafcccd5a1fe0cf2d2f940780483229d19caf8ff9bd9da293b9c91ce",
+      "raw_database_sha256": "34c9316b79fdbae1b1a1a2cbc5b796579b11314093e33de702c50bbb31820b4f",
+      "stats": [84356, 5475, 38, 152, 28, 27, 1, 27, 27],
+      "projection": [4934, 541, 2669],
+      "body": [9, 2, 16470478170119524675],
+      "unknown_statuses": ["unrecognized_missing_completion_evidence"],
+      "resolved_host_source_rows": 28,
+      "resolved_task_source_rows": 325
+    },
+    "capture2-rank0": {
+      "capture": 2,
+      "rank": 0,
+      "database_bytes": 11452416,
+      "database_sha256": "8689286d88a3757d0b6ae64f2a79bd5987d7358d45e7362dce653589519584d1",
+      "stream_info_sha256": "e7b8b3ccf6ef15858c69daf02b1ca813c3be6027e119a4d2e2530e1e1c0756de",
+      "raw_database_sha256": "41d5f0ff607de3b3076ea56d81a38b5d9bd82abb0579bec7c855034b1aebb4d8",
+      "stats": [83664, 5475, 38, 152, 28, 27, 1, 27, 27],
+      "projection": [4934, 541, 2669],
+      "body": [9, 2, 16470478170119524675],
+      "unknown_statuses": ["unrecognized_missing_completion_evidence"],
+      "resolved_host_source_rows": 28,
+      "resolved_task_source_rows": 325
+    },
+    "capture2-rank1": {
+      "capture": 2,
+      "rank": 1,
+      "database_bytes": 11513856,
+      "database_sha256": "10e2971d39b09ea9bdfc48e2eaa48817d7d354665d9a5ec79a129ffb6c06284e",
+      "stream_info_sha256": "b3e3d01ccc47590098768a82c6c1df3690c5dd7a4da1ee355b10ab4451dad424",
+      "raw_database_sha256": "aa9b2a3160985251585dc2acf7c3c78daedf16bcb1299bf6b7d4ae9b75d0e546",
+      "stats": [84467, 5468, 38, 152, 28, 28, 0, 28, 28],
+      "projection": [4927, 541, 2669],
+      "body": [9, 2, 16470478170119524675],
+      "unknown_statuses": [],
+      "resolved_host_source_rows": 28,
+      "resolved_task_source_rows": 336
+    },
+    "capture3-rank0": {
+      "capture": 3,
+      "rank": 0,
+      "database_bytes": 11472896,
+      "database_sha256": "3c5198f344b2a7a886686740d5bcaa1432be655c4aae27b2ce52bb54eed4ecda",
+      "stream_info_sha256": "64b5ffb0bf41c3de4ea70e48e37a8239a72def1c2eb310bb6d726b0aeeedb219",
+      "raw_database_sha256": "11d754415c07ee314cd690139fcc948eb9345f0550227b049108b67bcdea9ba5",
+      "stats": [83058, 5475, 38, 152, 28, 27, 1, 27, 27],
+      "projection": [4934, 541, 2669],
+      "body": [9, 2, 16470478170119524675],
+      "unknown_statuses": ["unrecognized_missing_completion_evidence"],
+      "resolved_host_source_rows": 28,
+      "resolved_task_source_rows": 325
+    },
+    "capture3-rank1": {
+      "capture": 3,
+      "rank": 1,
+      "database_bytes": 11399168,
+      "database_sha256": "de6b8b6c45a722a28eb29b6b4fbf1cd68232dc91358b1aa3bb7e50dbbe015a8a",
+      "stream_info_sha256": "060bf3ab81a6624e01e73971bfff87138b4beb53c1fa8d9c9644704004c1c42c",
+      "raw_database_sha256": "e6c060d9613a8a32cea294c28e364d8fc7dad348cd8ca7f029bd9bd66ba71240",
+      "stats": [84889, 5568, 38, 152, 29, 28, 1, 28, 28],
+      "projection": [5026, 542, 2725],
+      "body": [411, 2, 5933614199419680576],
+      "unknown_statuses": ["unrecognized_missing_completion_evidence"],
+      "resolved_host_source_rows": 29,
+      "resolved_task_source_rows": 11593
+    }
+  }
+}
