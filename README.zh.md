@@ -137,6 +137,37 @@ traceloom /path/to/msprof.db \
 运行 `traceloom --help-advanced` 可以查看 grammar diagnostics 和辅助归因
 materialization 选项。
 
+## 典型用法：阅读 Graph Replay 之间的工作
+
+不要预设两个 graph unit 之间只是 idle 或 overhead。服务、训练和
+pipeline trace 都可能在受保护的 graph replay 之间插入大段非 graph
+的 productive sequence。TraceLoom 会把这些任务保留在全局结构里，
+并压缩其内部重复。在当前报告中，应当从根序列里查看
+`graph_unit` 之间是否存在非空的 `Seq`/`Repeat` 结构；只读 graph
+reconstruction count 不等于读完整条执行时间线。
+
+最高层结构适合先整理成大横表阅读。下表的中性
+`structural_unit` wrapper 是待实现的读者界面；当前报告可能会把
+同一 body 展开成包含 `Repeat x47` 的 sequence：
+
+| order | node | kind | run | structural fingerprint | task count | shape signature | total_us | evidence |
+| ---: | --- | --- | ---: | --- | ---: | --- | ---: | --- |
+| 0 | `G1` | `graph_unit` | 1 | `graph:T1/body:B1` | 1024 | `S-graph-1` | measured | `exact` |
+| 1 | `U7` | `structural_unit` | 1 | `H7 (contains Repeat x47)` | 2106 | `S471` | measured | `complete` |
+| 2 | `G1` | `graph_unit` | 3 | `graph:T1/body:B1` | 1024 each | `S-graph-1` | measured | `exact` |
+| 3 | `U8` | `structural_unit` | 1 | `H8 (contains Repeat x47)` | 2105 | `S472` | measured | `complete` |
+
+这是 observation format，不是 workload-semantic classifier。TraceLoom 可以报告
+profiler 明示的 graph identity、具体算子、原始 shape、cardinality、
+timing、repeat 和 provenance；它不会自行判定 `G1` 是 decode，`U7`
+是 prefill，也不会声称某个 node 导致了端到端变化。
+
+应当结合 Loop Tree 和 evidence database 使用：展开 `U7`，核对其
+`Repeat x47` body 和原始行，再与外部 workload metadata 组合。人类或
+agent 负责提出并验证解释，同时使解释与 TraceLoom 的结构观测
+保持清晰分层。本案例与实现 TODO 见
+[`notes/interleaved-structural-units-milestone.md`](notes/interleaved-structural-units-milestone.md)。
+
 ## 仓库内置 Kickstart Profile
 
 仓库在 [`examples/kickstart_smoke`](examples/kickstart_smoke) 中提供了一份真实的

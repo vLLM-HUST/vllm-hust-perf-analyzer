@@ -163,6 +163,41 @@ Ascend Loop Trees include an observation-backed device summary of visible
 productive gaps. It preserves unattributed residual and states its collection
 status explicitly; it must not be read as hardware-idle or causal evidence.
 
+## Typical Use: Read Work Between Graph Replays
+
+Do not assume that time between two graph units is idle or overhead. A serving,
+training, or pipeline trace may interleave protected graph replays with large
+productive sequences that are not graph replays. TraceLoom keeps those tasks in
+the global structure and compresses their internal repetition. In the current
+report, inspect the root sequence for `graph_unit` nodes separated by nonempty
+`Seq`/`Repeat` structures; the graph-reconstruction count alone is not the full
+execution timeline.
+
+A useful first-pass review transcribes that highest-level composition into a
+wide table. The neutral `structural_unit` wrapper below is the planned
+reader-facing promotion; current reports may show the same body expanded as a
+sequence containing `Repeat x47`:
+
+| order | node | kind | run | structural fingerprint | task count | shape signature | total_us | evidence |
+| ---: | --- | --- | ---: | --- | ---: | --- | ---: | --- |
+| 0 | `G1` | `graph_unit` | 1 | `graph:T1/body:B1` | 1024 | `S-graph-1` | measured | `exact` |
+| 1 | `U7` | `structural_unit` | 1 | `H7 (contains Repeat x47)` | 2106 | `S471` | measured | `complete` |
+| 2 | `G1` | `graph_unit` | 3 | `graph:T1/body:B1` | 1024 each | `S-graph-1` | measured | `exact` |
+| 3 | `U8` | `structural_unit` | 1 | `H8 (contains Repeat x47)` | 2105 | `S472` | measured | `complete` |
+
+This is an observation format, not a workload-semantic classifier. TraceLoom
+may report profiler-native graph identity, concrete operators, raw shapes,
+cardinality, timing, repetition, and provenance. It does not decide that `G1`
+is a decode phase, that `U7` is a prefill phase, or that either node caused an
+end-to-end change.
+
+Use the Loop Tree and evidence database together: expand `U7`, verify its
+`Repeat x47` body and source rows, then combine those observations with external
+workload metadata. A human or agent can supply and test the interpretation while
+keeping it visibly separate from TraceLoom's recovered structure. See
+[`notes/interleaved-structural-units-milestone.md`](notes/interleaved-structural-units-milestone.md)
+for the motivating case and implementation TODO.
+
 ## Checked-In Kickstart Profile
 
 The repository includes a real two-device vLLM-Ascend profile under
