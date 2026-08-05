@@ -412,6 +412,41 @@ metadata cannot establish a complete lane set.
 - optional host/device correlation only after real clock calibration and a
   provider-validated host allowlist exist.
 
+## 2026-08-05 Unknown-First Graph Cost Evidence
+
+Operator filtering now follows a fail-open invariant: a task with concrete
+operator identity remains a sequence anchor unless a positive ignore rule
+classifies it as noise. Generic container rows without operator identity still
+remain auxiliary. The native JSON and default report publish an exact-identity
+registration census with counts, durations, fuzzy-family lineage, and
+graph-body membership, so a new graph kernel cannot be hidden by replay
+protection or by a broad substring match. `DispatchFFNCombineBF16` has a
+dedicated exact fused-MoE semantic rule and graph-body family rather than
+falling through to generic `ffn` matching.
+
+Graph launch bodies now retain exact task membership (source row, canonical
+lane/order, kind, raw operator, interval, and semantic lineage). The derived
+cost summary publishes three non-interchangeable observations per occurrence:
+scheduled task-duration sum, overlap-removed busy union, and full body
+envelope, with separate compute/communication/data-move components and
+all-body/exact-unit distributions. CANN rows carrying both compute-looking and
+HCCL metadata are classified as communication because communication provenance
+is stronger.
+
+The first fused-MoE production-path audit over two repeated TP2 pairs and both
+ranks confirms the mechanism: each stable body changes from `927 compute + 97
+communication` tasks to `543 compute + 97 communication` tasks, and the fused
+operator is recognized directly. It does **not yet justify a faster verdict**:
+steady exact-body task-sum and envelope medians change sign across the four
+rank/pair cells, while visible communication duration falls and compute
+duration rises. The previous equal-occurrence gate was invalid, but simply
+removing it is not enough. The next promotion gate is a native cross-run
+comparison that preserves unequal sample counts, tests distributional
+confidence, and either conditions on observable workload shape or returns an
+explicit `inconclusive` result. Until that gate passes, the retained macro and
+microbench positives are external validation, not something TraceLoom may
+retroactively manufacture from mixed local evidence.
+
 ## Promotion Gate
 
 The exact path may replace legacy output only when every promoted replay unit

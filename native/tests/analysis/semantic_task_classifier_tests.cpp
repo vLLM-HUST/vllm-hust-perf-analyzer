@@ -2,6 +2,7 @@
 #include "traceloom/analysis/idle_evidence_semantic_rules.h"
 #include "traceloom/testing/test_util.h"
 
+#include <algorithm>
 #include <string>
 
 namespace {
@@ -18,11 +19,13 @@ traceloom::NativeIr make_ir() {
   const SymbolId unknown_task = ir.symbols.intern("UNKNOWN_FUTURE_TASK");
   const SymbolId aicore = ir.symbols.intern("AI_CORE");
   const SymbolId label = ir.symbols.intern("raw_label");
+  const SymbolId future_op = ir.symbols.intern("FutureFusedKernelV1");
 
   const TraceEventId e0 = ir.trace_events.append(source, 1, 0, 0, 0, 10, label);
   const TraceEventId e1 = ir.trace_events.append(source, 2, 0, 0, 10, 20, label);
   const TraceEventId e2 = ir.trace_events.append(source, 3, 0, 0, 20, 30, label);
   const TraceEventId e3 = ir.trace_events.append(source, 4, 0, 0, 30, 40, label);
+  const TraceEventId e4 = ir.trace_events.append(source, 5, 0, 0, 40, 55, label);
 
   // AI_CORE with MatMul metadata -> productive_compute via blob rule.
   ir.tasks.append(source, e0, 1, 1001, -1, aicore, matmul, matmul,
@@ -39,6 +42,11 @@ traceloom::NativeIr make_ir() {
   ir.tasks.append(source, e3, 4, 1004, -1, unknown_task, SymbolId::invalid(),
                   SymbolId::invalid(), SymbolId::invalid(),
                   SymbolId::invalid());
+  ir.tasks.append(source, e4, 5, 1005, -1, aicore, SymbolId::invalid(),
+                  future_op, SymbolId::invalid(), SymbolId::invalid());
+  ir.graph_launch_body_members.append(
+      GraphLaunchBodyId(0), TaskId(4), 0, 0,
+      GraphLaunchBodyMemberRow::Kind::kCompute);
   return ir;
 }
 
@@ -85,6 +93,28 @@ int main() {
           "unknown task -> unknown");
   require(!result.rows[3].matched_rule_id.has_value(),
           "unknown task has no matched rule");
+  require(result.rows[4].role == SemanticTaskRole::kUnknown &&
+              !result.rows[4].matched_rule_id.has_value(),
+          "unknown operator remains unknown");
+
+  const SemanticOperatorCoverageSummary coverage =
+      summarize_semantic_operator_coverage(ir, result);
+  require(coverage.task_count == 5 && coverage.unknown_task_count == 2,
+          "operator coverage task counts");
+  require(coverage.unregistered_operator_occurrence_count == 2 &&
+              coverage.unregistered_operators.size() == 2,
+          "operator coverage keeps concrete unknowns separate");
+  const auto future = std::find_if(
+      coverage.unregistered_operators.begin(),
+      coverage.unregistered_operators.end(),
+      [](const UnregisteredOperatorSummaryRow& row) {
+        return row.operator_name == "FutureFusedKernelV1";
+      });
+  require(future != coverage.unregistered_operators.end() &&
+              future->semantic_role == "unknown" &&
+              future->total_duration_ns == 15 &&
+              future->graph_body_member_count == 1,
+          "unknown graph-body operator evidence summary");
 
   // Classification input composition: blob includes op and task fields.
   const SemanticTaskClassificationInput input =

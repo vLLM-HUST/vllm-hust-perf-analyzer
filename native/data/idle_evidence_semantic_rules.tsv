@@ -5,6 +5,8 @@
 # rules outrank fuzzy blob keyword rules; there is no catch-all rule, so an
 # unmatched task is explicitly `unknown`.
 #
+# Exact operator rules register a raw identity; fuzzy blob matches provide a
+# family role without hiding that the identity remains unregistered.
 # Productive compute/comm patterns were reviewed and migrated from the
 # structural anchor ruleset where the kernel-name evidence is trustworthy.
 rule_id	priority	source_domain	field	match	pattern	role	note
@@ -30,6 +32,7 @@ runtime.task_timeout_set	170	task	task_type	exact	TASK_TIMEOUT_SET	runtime_contr
 runtime.profiling_enable	170	task	task_type	exact	PROFILING_ENABLE	runtime_control	Profiling control task
 runtime.profiling_disable	170	task	task_type	exact	PROFILING_DISABLE	runtime_control	Profiling control task
 runtime.hccl_aiv_sync	170	task	blob	contains	hccl_aiv_sync	runtime_control	HCCL internal sync helper
+compute.dispatch_ffn_combine	160	task	operator	exact	DispatchFFNCombineBF16	productive_compute	Fused MoE dispatch, FFN, and combine kernel
 comm.allreduce	150	task	blob	contains	allreduce	productive_comm	AllReduce collective
 comm.all_reduce	150	task	blob	contains	all_reduce	productive_comm	AllReduce collective
 comm.allgather	150	task	blob	contains	allgather	productive_comm	AllGather collective

@@ -50,8 +50,11 @@ int main() {
   const ReplayBodyTemplateId body_template = ir.replay_body_templates.append(
       source, 24680, ir.symbols.intern("Muls\nAdds\nRelu"), 3, 0, 1,
       ReplayBodyTopologyPolicy::kSingleModelStream);
-  ir.graph_launch_bodies.append(graph_launch, body_template, TaskId(0),
-                                TaskId(0), 3, 0, 1);
+  const GraphLaunchBodyId graph_body = ir.graph_launch_bodies.append(
+      graph_launch, body_template, TaskId(0), TaskId(0), 3, 0, 1);
+  ir.graph_launch_body_members.append(
+      graph_body, TaskId(0), 0, 0,
+      GraphLaunchBodyMemberRow::Kind::kCompute);
   const ReplayCompositionCandidateId composition =
       ir.replay_composition_candidates.append(
           source, 0, graph_launch, graph_launch, 4, 0, 1, 4, 0, 67890,
@@ -129,6 +132,10 @@ int main() {
   json_options.thread_count = 2;
   json_options.top_candidate_limit = 2;
   json_options.native_ir = &ir;
+  const SemanticTaskClassificationResult semantic_classification =
+      classify_semantic_tasks(ir,
+                              load_default_idle_evidence_semantic_ruleset());
+  json_options.semantic_task_classification = &semantic_classification;
 
   AnchorInternalCostBreakdown breakdown;
   AnchorInternalCostBreakdownRow row;
@@ -172,6 +179,22 @@ int main() {
           std::string::npos);
   require(json.find("\"graph_launch_body_count\": 1") !=
           std::string::npos);
+  require(json.find("\"graph_launch_body_member_count\": 1") !=
+          std::string::npos);
+  require(json.find("\"graph_launch_body_members\": [") !=
+          std::string::npos);
+  require(json.find("\"operator\": \"A\"") != std::string::npos);
+  require(json.find("\"duration_ns\": 10") != std::string::npos);
+  require(json.find("\"semantic_role\": \"unknown\"") !=
+          std::string::npos);
+  require(json.find("\"semantic_operator_coverage\": {") !=
+          std::string::npos);
+  require(json.find("\"unique_unregistered_operator_count\": 2") !=
+          std::string::npos);
+  require(json.find("\"graph_body_cost_summary\": {") !=
+          std::string::npos);
+  require(json.find("\"task_sum_ns\": 10") != std::string::npos);
+  require(json.find("\"busy_union_ns\": 10") != std::string::npos);
   require(json.find("\"topology_policy\": \"single_model_stream\"") !=
           std::string::npos);
   require(json.find("\"stream_count\": 1") != std::string::npos);

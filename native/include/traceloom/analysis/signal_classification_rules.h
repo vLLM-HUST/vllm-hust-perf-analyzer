@@ -15,6 +15,7 @@ enum class SignalRole {
 enum class SignalMatchField {
   kTaskType,
   kBlob,
+  kOperator,
 };
 
 enum class SignalMatchKind {
@@ -37,6 +38,7 @@ struct SignalClassificationInput {
   std::string source_domain;
   std::string task_type;
   std::string blob;
+  std::string operator_name;
 };
 
 class SignalClassificationRuleset {

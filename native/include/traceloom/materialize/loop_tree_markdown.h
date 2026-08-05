@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "traceloom/compat/sidecar_writer.h"
+#include "traceloom/analysis/semantic_task_classifier.h"
 
 namespace traceloom {
 
@@ -49,6 +50,12 @@ struct LoopTreeMarkdownOptions {
   std::uint64_t replay_unit_count = 0;
   std::uint64_t exact_replay_unit_count = 0;
   std::vector<ReconstructionStatusCount> reconstruction_status_counts;
+  bool has_semantic_operator_coverage = false;
+  std::string semantic_rules_version;
+  std::uint64_t unknown_task_count = 0;
+  std::uint64_t unregistered_operator_occurrence_count = 0;
+  std::uint64_t unique_unregistered_operator_count = 0;
+  std::vector<UnregisteredOperatorSummaryRow> unregistered_operators;
   bool has_idle_explanation_summary = false;
   std::string idle_analysis_status;
   std::string idle_collection_status;

@@ -644,6 +644,7 @@ struct PreparedCudaGraphLaunch {
   std::uint32_t stream_count = 0;
   std::uint32_t compute_task_count = 0;
   std::uint32_t communication_task_count = 0;
+  std::uint32_t data_move_task_count = 0;
   std::int64_t body_start_ns = 0;
   std::int64_t body_end_ns = 0;
   TaskId first_task_id;
@@ -988,6 +989,8 @@ void prepare_cuda_graph_body(PreparedCudaGraphLaunch& prepared) {
       ++prepared.communication_task_count;
     } else if (child->compute) {
       ++prepared.compute_task_count;
+    } else {
+      ++prepared.data_move_task_count;
     }
   }
   prepared.stream_count = static_cast<std::uint32_t>(stream_ids.size());
@@ -1127,7 +1130,8 @@ void materialize_cuda_graph_node_replays(
             ir.symbols.intern(prepared.readable_body),
             prepared.compute_task_count, prepared.communication_task_count,
             prepared.stream_count,
-            ReplayBodyTopologyPolicy::kObservedStreamSetUnordered);
+            ReplayBodyTopologyPolicy::kObservedStreamSetUnordered,
+            prepared.data_move_task_count);
         body_templates.emplace(prepared.body_signature, body_template);
       } else {
         body_template = found->second;
@@ -1161,10 +1165,38 @@ void materialize_cuda_graph_node_replays(
                 ? GraphLaunchInstanceAssociationPolicy::kCudaGraphNodeSet
                 : GraphLaunchInstanceAssociationPolicy::kNone);
     if (has_body) {
-      ir.graph_launch_bodies.append(
+      const GraphLaunchBodyId body_id = ir.graph_launch_bodies.append(
           occurrence, body_template, prepared.first_task_id,
           prepared.last_task_id, prepared.compute_task_count,
-          prepared.communication_task_count, prepared.stream_count);
+          prepared.communication_task_count, prepared.stream_count,
+          prepared.data_move_task_count);
+      std::map<std::uint32_t, std::uint32_t> lane_ordinals;
+      std::map<std::uint32_t, std::uint32_t> task_ordinals;
+      for (const CudaGraphChildEvidence* child : prepared.children) {
+        if (lane_ordinals.find(child->stream_id) == lane_ordinals.end()) {
+          lane_ordinals.emplace(
+              child->stream_id,
+              static_cast<std::uint32_t>(lane_ordinals.size()));
+        }
+      }
+      // Numeric stream order is occurrence-stable and the raw stream remains
+      // available through the referenced TraceEventRow. Template identity is
+      // independently canonicalized by prepare_cuda_graph_body().
+      std::uint32_t lane = 0;
+      for (auto& item : lane_ordinals) {
+        item.second = lane++;
+      }
+      for (const CudaGraphChildEvidence* child : prepared.children) {
+        const std::uint32_t lane_ordinal = lane_ordinals.at(child->stream_id);
+        ir.graph_launch_body_members.append(
+            body_id, child->task_id, lane_ordinal,
+            task_ordinals[lane_ordinal]++,
+            child->communication
+                ? GraphLaunchBodyMemberRow::Kind::kCommunication
+                : (child->compute
+                       ? GraphLaunchBodyMemberRow::Kind::kCompute
+                       : GraphLaunchBodyMemberRow::Kind::kDataMove));
+      }
     }
 
     const bool recognized =

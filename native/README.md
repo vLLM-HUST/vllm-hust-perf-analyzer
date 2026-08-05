@@ -162,7 +162,10 @@ Signal classification defaults are inspectable in
 with `--classification-rules PATH`, or add higher-priority environment-specific
 rules with `--extend-classification-rules PATH`. `TRACELOOM_CLASSIFICATION_RULES`
 can also select a complete ruleset. Unknown columns, roles, match modes, and
-equal-precedence conflicts fail before analysis starts.
+equal-precedence conflicts fail before analysis starts. Rules may match the
+normalized `task_type`, the full evidence `blob`, or an exact raw `operator`
+identity. Only an explicit `ignore` rule may remove a concrete operator row;
+an unmatched operator remains in the structural sequence.
 
 ### Idle Evidence Semantic Taxonomy
 
@@ -180,9 +183,10 @@ parent repository; the local design draft is
 Defaults live in `data/idle_evidence_semantic_rules.tsv`, declared with a
 `# ruleset_version:` header line and stable, unique `rule_id`s (for example
 `wait.event_wait`, `compute.matmul`) so classification lineage stays stable
-across file edits. Exact `task_type` rules (priority 200-170) outrank fuzzy
-`blob` keyword rules (priority 150-100); there is no catch-all rule, so an
-unmatched task is explicitly `unknown` with an empty `matched_rule_id`.
+across file edits. Exact `task_type` rules (priority 200-170) and registered
+exact `operator` rules outrank fuzzy `blob` keyword rules (priority 150-100);
+there is no catch-all rule, so an unmatched task is explicitly `unknown` with
+an empty `matched_rule_id`.
 Rules with equal priority must agree on the role, otherwise classification
 fails rather than silently picking a file order.
 
@@ -197,9 +201,18 @@ traceloom-native-idle-evidence-audit \
   --source-db /path/to/msprof.db [--idle-evidence-rules PATH]
 ```
 
+The production JSON exposes an exact-identity registration census under
+`semantic_operator_coverage`. Fuzzy family matches remain useful but do not
+hide a previously unseen raw operator name from this audit. Unregistered
+concrete operators are preserved by the structural anchor projection unless
+an explicit noise rule rejects them.
+Graph-contained operators additionally retain exact body membership and cost
+under `graph_launch_body_members` and `graph_body_cost_summary`; graph replay
+protection therefore cannot make a new kernel disappear from the audit.
+
 An explicit ruleset override that fails to load exits non-zero; it never
 silently falls back. `TRACELOOM_IDLE_EVIDENCE_RULES` selects the default
 ruleset path. The E2 productive-timeline library
 (`build_productive_timelines`) consumes these roles to build per-device
-productive timelines and visible gaps; main CLI / SQL materialization
-remains deferred to a later milestone.
+productive timelines and visible gaps; the main Ascend CLI uses the same
+classification for idle evidence, JSON lineage, and unknown-operator audit.

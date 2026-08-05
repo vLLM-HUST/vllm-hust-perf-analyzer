@@ -89,6 +89,7 @@ NativePipelineStats collect_stats(
   }
   stats.replay_body_template_count = ir.replay_body_templates.size();
   stats.graph_launch_body_count = ir.graph_launch_bodies.size();
+  stats.graph_launch_body_member_count = ir.graph_launch_body_members.size();
   stats.graph_launch_activity_count = ir.graph_launch_activities.size();
   stats.graph_launch_activity_member_count =
       ir.graph_launch_activity_members.size();

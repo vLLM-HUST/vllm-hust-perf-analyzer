@@ -1,5 +1,7 @@
 #include "traceloom/materialize/native_result_json.h"
 
+#include "traceloom/analysis/graph_body_cost_summary.h"
+
 #include <algorithm>
 #include <iomanip>
 #include <ostream>
@@ -394,7 +396,10 @@ void write_graph_launch_occurrences(std::ostream& out, const NativeIr* ir) {
 
 }
 
-void write_graph_launch_bodies(std::ostream& out, const NativeIr* ir) {
+void write_graph_launch_bodies(
+    std::ostream& out,
+    const NativeIr* ir,
+    const SemanticTaskClassificationResult* classification) {
   out << "  \"replay_body_templates\": [\n";
   if (ir != nullptr) {
     const auto& rows = ir->replay_body_templates.rows();
@@ -407,8 +412,10 @@ void write_graph_launch_bodies(std::ostream& out, const NativeIr* ir) {
           << ", \"compute_task_count\": " << row.compute_task_count
           << ", \"communication_task_count\": "
           << row.communication_task_count
+          << ", \"data_move_task_count\": " << row.data_move_task_count
           << ", \"normalized_task_count\": "
-          << row.compute_task_count + row.communication_task_count
+          << row.compute_task_count + row.communication_task_count +
+                 row.data_move_task_count
           << ", \"stream_count\": " << row.stream_count
           << ", \"topology_policy\": ";
       write_json_string(out,
@@ -445,8 +452,10 @@ void write_graph_launch_bodies(std::ostream& out, const NativeIr* ir) {
       out << ", \"compute_task_count\": " << row.compute_task_count
           << ", \"communication_task_count\": "
           << row.communication_task_count
+          << ", \"data_move_task_count\": " << row.data_move_task_count
           << ", \"normalized_task_count\": "
-          << row.compute_task_count + row.communication_task_count
+          << row.compute_task_count + row.communication_task_count +
+                 row.data_move_task_count
           << ", \"stream_count\": " << row.stream_count << "}";
       if (index + 1 < rows.size()) {
         out << ",";
@@ -455,6 +464,194 @@ void write_graph_launch_bodies(std::ostream& out, const NativeIr* ir) {
     }
   }
   out << "  ],\n";
+
+  out << "  \"graph_launch_body_members\": [\n";
+  if (ir != nullptr) {
+    const auto& rows = ir->graph_launch_body_members.rows();
+    for (std::size_t index = 0; index < rows.size(); ++index) {
+      const GraphLaunchBodyMemberRow& row = rows[index];
+      const TaskRow& task = ir->tasks.row(row.task_id);
+      const TraceEventRow& event = ir->trace_events.row(task.trace_event_id);
+      SymbolId op_symbol = task.op_type_symbol_id;
+      if (!op_symbol.valid()) {
+        op_symbol = task.op_name_symbol_id;
+      }
+      if (!op_symbol.valid()) {
+        op_symbol = task.comm_name_symbol_id;
+      }
+      if (!op_symbol.valid()) {
+        op_symbol = task.task_type_symbol_id;
+      }
+      out << "    {\"graph_launch_body_member_id\": " << row.id.value()
+          << ", \"graph_launch_body_id\": "
+          << row.graph_launch_body_id.value()
+          << ", \"task_id\": " << row.task_id.value()
+          << ", \"source_table\": ";
+      write_json_string(out,
+                        ir->source_refs.row(task.source_ref_id).table_name);
+      out << ", \"source_row_id\": " << event.source_row_id
+          << ", \"lane_ordinal\": " << row.lane_ordinal
+          << ", \"task_ordinal\": " << row.task_ordinal
+          << ", \"kind\": ";
+      switch (row.kind) {
+        case GraphLaunchBodyMemberRow::Kind::kCompute:
+          write_json_string(out, "compute");
+          break;
+        case GraphLaunchBodyMemberRow::Kind::kCommunication:
+          write_json_string(out, "communication");
+          break;
+        case GraphLaunchBodyMemberRow::Kind::kDataMove:
+          write_json_string(out, "data_move");
+          break;
+      }
+      out << ", \"operator\": ";
+      if (op_symbol.valid()) {
+        write_json_string(out, ir->symbols.value(op_symbol));
+      } else {
+        out << "null";
+      }
+      out << ", \"task_type\": ";
+      if (task.task_type_symbol_id.valid()) {
+        write_json_string(out, ir->symbols.value(task.task_type_symbol_id));
+      } else {
+        out << "null";
+      }
+      out << ", \"semantic_role\": ";
+      if (classification != nullptr &&
+          row.task_id.value() < classification->rows.size()) {
+        const SemanticTaskClassificationRow& semantic =
+            classification->rows[row.task_id.value()];
+        write_json_string(
+            out, std::string(semantic_task_role_name(semantic.role)));
+        out << ", \"semantic_rule_id\": ";
+        if (semantic.matched_rule_id.has_value()) {
+          write_json_string(out, *semantic.matched_rule_id);
+        } else {
+          out << "null";
+        }
+      } else {
+        out << "null, \"semantic_rule_id\": null";
+      }
+      out << ", \"device_id\": " << event.device_id
+          << ", \"stream_id\": " << event.stream_id
+          << ", \"start_ns\": " << event.start_ns
+          << ", \"end_ns\": " << event.end_ns
+          << ", \"duration_ns\": " << event.end_ns - event.start_ns << "}";
+      if (index + 1 < rows.size()) {
+        out << ",";
+      }
+      out << "\n";
+    }
+  }
+  out << "  ],\n";
+}
+
+void write_semantic_operator_coverage(
+    std::ostream& out,
+    const NativeIr* ir,
+    const SemanticTaskClassificationResult* classification) {
+  out << "  \"semantic_operator_coverage\": ";
+  if (ir == nullptr || classification == nullptr) {
+    out << "null,\n";
+    return;
+  }
+  const SemanticOperatorCoverageSummary summary =
+      summarize_semantic_operator_coverage(*ir, *classification);
+  out << "{\n";
+  out << "    \"semantic_rules_version\": ";
+  write_json_string(out, classification->semantic_rules_version);
+  out << ",\n    \"semantic_rules_sha256\": ";
+  write_json_string(out, classification->semantic_rules_sha256);
+  out << ",\n    \"task_count\": " << summary.task_count
+      << ",\n    \"unknown_task_count\": " << summary.unknown_task_count
+      << ",\n    \"unregistered_operator_occurrence_count\": "
+      << summary.unregistered_operator_occurrence_count
+      << ",\n    \"unique_unregistered_operator_count\": "
+      << summary.unregistered_operators.size()
+      << ",\n    \"unregistered_operators\": [\n";
+  for (std::size_t index = 0; index < summary.unregistered_operators.size();
+       ++index) {
+    const UnregisteredOperatorSummaryRow& row =
+        summary.unregistered_operators[index];
+    out << "      {\"operator\": ";
+    write_json_string(out, row.operator_name);
+    out << ", \"task_type\": ";
+    write_json_string(out, row.task_type);
+    out << ", \"semantic_role\": ";
+    write_json_string(out, row.semantic_role);
+    out << ", \"matched_rule_id\": ";
+    if (row.matched_rule_id.empty()) {
+      out << "null";
+    } else {
+      write_json_string(out, row.matched_rule_id);
+    }
+    out << ", \"occurrence_count\": " << row.occurrence_count
+        << ", \"total_duration_ns\": " << row.total_duration_ns
+        << ", \"graph_body_member_count\": "
+        << row.graph_body_member_count << "}";
+    if (index + 1 < summary.unregistered_operators.size()) {
+      out << ",";
+    }
+    out << "\n";
+  }
+  out << "    ]\n  },\n";
+}
+
+void write_graph_body_cost_summary(std::ostream& out, const NativeIr* ir) {
+  out << "  \"graph_body_cost_summary\": ";
+  if (ir == nullptr) {
+    out << "null,\n";
+    return;
+  }
+  const GraphBodyCostSummary summary = build_graph_body_cost_summary(*ir);
+  out << "{\n    \"semantics\": "
+         "\"task_sum preserves scheduled work; busy_union removes "
+         "cross-stream overlap; envelope includes observed gaps\",\n";
+  out << "    \"occurrences\": [\n";
+  for (std::size_t index = 0; index < summary.occurrences.size(); ++index) {
+    const GraphBodyOccurrenceCostRow& row = summary.occurrences[index];
+    out << "      {\"graph_launch_body_id\": "
+        << row.graph_launch_body_id.value()
+        << ", \"graph_launch_occurrence_id\": "
+        << row.graph_launch_occurrence_id.value()
+        << ", \"replay_body_template_id\": "
+        << row.replay_body_template_id.value()
+        << ", \"exact_replay_unit\": "
+        << (row.exact_replay_unit ? "true" : "false")
+        << ", \"member_count\": " << row.member_count
+        << ", \"compute_ns\": " << row.compute_ns
+        << ", \"communication_ns\": " << row.communication_ns
+        << ", \"data_move_ns\": " << row.data_move_ns
+        << ", \"task_sum_ns\": " << row.task_sum_ns
+        << ", \"busy_union_ns\": " << row.busy_union_ns
+        << ", \"envelope_ns\": " << row.envelope_ns << "}";
+    if (index + 1 < summary.occurrences.size()) {
+      out << ",";
+    }
+    out << "\n";
+  }
+  out << "    ],\n    \"distributions\": [\n";
+  for (std::size_t index = 0; index < summary.distributions.size(); ++index) {
+    const GraphBodyCostDistributionRow& row = summary.distributions[index];
+    out << "      {\"replay_body_template_id\": "
+        << row.replay_body_template_id.value() << ", \"scope\": ";
+    write_json_string(out, std::string(graph_body_cost_scope_name(row.scope)));
+    out << ", \"occurrence_count\": " << row.occurrence_count
+        << ", \"task_sum_p25_ns\": " << row.task_sum_p25_ns
+        << ", \"task_sum_median_ns\": " << row.task_sum_median_ns
+        << ", \"task_sum_p75_ns\": " << row.task_sum_p75_ns
+        << ", \"busy_union_median_ns\": " << row.busy_union_median_ns
+        << ", \"envelope_median_ns\": " << row.envelope_median_ns
+        << ", \"compute_median_ns\": " << row.compute_median_ns
+        << ", \"communication_median_ns\": "
+        << row.communication_median_ns
+        << ", \"data_move_median_ns\": " << row.data_move_median_ns << "}";
+    if (index + 1 < summary.distributions.size()) {
+      out << ",";
+    }
+    out << "\n";
+  }
+  out << "    ]\n  },\n";
 }
 
 void write_graph_launch_activities(std::ostream& out, const NativeIr* ir) {
@@ -804,6 +1001,8 @@ void write_native_result_json(std::ostream& out,
       << result.stats.replay_body_template_count << ",\n";
   out << "    \"graph_launch_body_count\": "
       << result.stats.graph_launch_body_count << ",\n";
+  out << "    \"graph_launch_body_member_count\": "
+      << result.stats.graph_launch_body_member_count << ",\n";
   out << "    \"graph_launch_activity_count\": "
       << result.stats.graph_launch_activity_count << ",\n";
   out << "    \"graph_launch_activity_member_count\": "
@@ -858,7 +1057,9 @@ void write_native_result_json(std::ostream& out,
   out << "    \"communication_anchors\": "
       << result.anchor_stats.communication_anchors << ",\n";
   out << "    \"skipped_task_events\": "
-      << result.anchor_stats.skipped_task_events << "\n";
+      << result.anchor_stats.skipped_task_events << ",\n";
+  out << "    \"preserved_unclassified_task_events\": "
+      << result.anchor_stats.preserved_unclassified_task_events << "\n";
   out << "  },\n";
 
   out << "  \"timing_ms\": {\n";
@@ -915,7 +1116,11 @@ void write_native_result_json(std::ostream& out,
 
   write_graph_capture_evidence(out, options.native_ir);
   write_graph_launch_occurrences(out, options.native_ir);
-  write_graph_launch_bodies(out, options.native_ir);
+  write_graph_launch_bodies(out, options.native_ir,
+                            options.semantic_task_classification);
+  write_graph_body_cost_summary(out, options.native_ir);
+  write_semantic_operator_coverage(out, options.native_ir,
+                                   options.semantic_task_classification);
   write_graph_launch_activities(out, options.native_ir);
   write_replay_composition_candidates(out, options.native_ir);
   write_replay_units(out, options.native_ir);
