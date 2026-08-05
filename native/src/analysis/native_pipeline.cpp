@@ -55,7 +55,7 @@ NativePipelineMemory estimate_memory(
 
 NativePipelineStats collect_stats(
     const NativeIr& ir,
-    const PatternCandidateTable& pattern_candidate_table,
+    std::size_t candidate_occurrence_count,
     const PatternMiningDiagnostics& pattern_mining_diagnostics,
     const std::vector<CandidateSummaryRow>& reduced_candidates) {
   NativePipelineStats stats;
@@ -153,7 +153,7 @@ NativePipelineStats collect_stats(
   stats.anchor_count = ir.anchors.size();
   stats.token_count = ir.tokens.size();
   stats.protected_interval_count = ir.protected_intervals.size();
-  stats.candidate_occurrence_count = pattern_candidate_table.rows.size();
+  stats.candidate_occurrence_count = candidate_occurrence_count;
   stats.candidate_distinct_count = reduced_candidates.size();
   stats.candidate_diagnostic_count = pattern_mining_diagnostics.rows.size();
   return stats;
@@ -221,23 +221,24 @@ NativePipelineResult run_native_pipeline(NativeIr& ir,
     plan = PartitionPlan::build(sequence.size(), options.partition_config);
   });
 
-  CandidateScanResult scan_result;
+  CandidateAggregateResult aggregate_result;
   result.timing.candidate_scan_map_ms = time_stage([&]() {
-    scan_result = scan_candidate_partitions_with_diagnostics(
+    aggregate_result = scan_and_reduce_candidate_partitions(
         sequence, boundaries, plan, options.candidate_scan_config,
         options.thread_count);
   });
 
+  const std::size_t candidate_occurrence_count =
+      aggregate_result.occurrence_count;
   result.timing.pattern_candidate_table_ms = time_stage([&]() {
-    result.pattern_candidate_table =
-        build_pattern_candidate_table(std::move(scan_result.occurrences));
+    result.pattern_candidate_table = build_pattern_candidate_table({});
     result.pattern_mining_diagnostics =
-        build_pattern_mining_diagnostics(std::move(scan_result.diagnostics));
+        build_pattern_mining_diagnostics(
+            std::move(aggregate_result.diagnostics));
   });
 
   result.timing.candidate_reduce_ms = time_stage([&]() {
-    result.reduced_candidates =
-        reduce_candidates(result.pattern_candidate_table.rows);
+    result.reduced_candidates = std::move(aggregate_result.summaries);
   });
 
   result.timing.pattern_candidate_summary_ms = time_stage([&]() {
@@ -248,7 +249,7 @@ NativePipelineResult run_native_pipeline(NativeIr& ir,
   result.timing.cost_summary_lite_ms = time_stage(
       [&]() { result.cost_summary_lite = summarize_anchor_costs(ir.anchors); });
 
-  result.stats = collect_stats(ir, result.pattern_candidate_table,
+  result.stats = collect_stats(ir, candidate_occurrence_count,
                                result.pattern_mining_diagnostics,
                                result.reduced_candidates);
   result.memory = estimate_memory(ir, result.pattern_candidate_table,

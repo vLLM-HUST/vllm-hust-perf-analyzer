@@ -80,9 +80,30 @@ int main() {
   const std::vector<CandidateSummaryRow> summary_threads8 =
       reduce_candidates(scan_candidate_partitions(
           sequence, boundaries, plan, CandidateScanConfig{2, 5}, 8));
+  const CandidateAggregateResult aggregate_threads1 =
+      scan_and_reduce_candidate_partitions(
+          sequence, boundaries, plan, CandidateScanConfig{2, 5}, 1);
+  const CandidateAggregateResult aggregate_threads3 =
+      scan_and_reduce_candidate_partitions(
+          sequence, boundaries, plan, CandidateScanConfig{2, 5}, 3);
+  const CandidateAggregateResult aggregate_threads8 =
+      scan_and_reduce_candidate_partitions(
+          sequence, boundaries, plan, CandidateScanConfig{2, 5}, 8);
 
   require(summaries_equal(summary, summary_threads3));
   require(summaries_equal(summary, summary_threads8));
+  require(summaries_equal(summary, aggregate_threads1.summaries));
+  require(summaries_equal(summary, aggregate_threads3.summaries));
+  require(summaries_equal(summary, aggregate_threads8.summaries));
+  require(aggregate_threads1.occurrence_count == all_occurrences.size());
+  require(aggregate_threads3.occurrence_count == all_occurrences.size());
+  require(aggregate_threads8.occurrence_count == all_occurrences.size());
+  require(aggregate_threads1.diagnostics.size() ==
+          scan_result.diagnostics.size());
+  require(aggregate_threads3.diagnostics.size() ==
+          scan_result.diagnostics.size());
+  require(aggregate_threads8.diagnostics.size() ==
+          scan_result.diagnostics.size());
 
   require(has_key_count(summary, {SymbolId(2), SymbolId(3)}, 1));
   require(has_key_count(summary, {SymbolId(3), SymbolId(1)}, 1));
@@ -147,6 +168,26 @@ int main() {
   const std::vector<CandidateSummaryRow> deduped =
       reduce_candidates(duplicated);
   require(has_key_count(deduped, {SymbolId(2), SymbolId(3)}, 1));
+
+  ProtectedIntervalTable ambiguous_intervals;
+  ambiguous_intervals.append(
+      ProtectedIntervalKind::kUserWindow, BoundaryPolicy::kBlockAnyOverlap,
+      TokenId(1), TokenId(1), AnchorId(1), AnchorId(1), SourceRefId(0));
+  const BoundaryIndex ambiguous_boundaries =
+      BoundaryIndex::build(sequence, ambiguous_intervals);
+  const CandidateScanResult ambiguous_scan =
+      scan_candidate_partitions_with_diagnostics(
+          sequence, ambiguous_boundaries, plan, CandidateScanConfig{2, 5}, 3);
+  const std::vector<CandidateSummaryRow> ambiguous_summary =
+      reduce_candidates(ambiguous_scan.occurrences);
+  const CandidateAggregateResult ambiguous_aggregate =
+      scan_and_reduce_candidate_partitions(
+          sequence, ambiguous_boundaries, plan, CandidateScanConfig{2, 5}, 3);
+  require(summaries_equal(ambiguous_summary, ambiguous_aggregate.summaries));
+  require(ambiguous_scan.occurrences.size() ==
+          ambiguous_aggregate.occurrence_count);
+  require(ambiguous_scan.diagnostics.size() ==
+          ambiguous_aggregate.diagnostics.size());
 
   return 0;
 }

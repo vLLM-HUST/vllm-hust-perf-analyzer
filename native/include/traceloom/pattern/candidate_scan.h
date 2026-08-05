@@ -15,6 +15,12 @@ struct CandidateScanConfig {
   std::size_t max_length = 4;
 };
 
+struct CandidateAggregateResult {
+  std::size_t occurrence_count = 0;
+  std::vector<CandidateSummaryRow> summaries;
+  std::vector<CandidateDiagnostic> diagnostics;
+};
+
 CandidateScanResult scan_candidates_with_diagnostics(
     const ProtectedSequence& sequence,
     const BoundaryIndex& boundaries,
@@ -28,6 +34,13 @@ std::vector<CandidateOccurrence> scan_candidates(
     CandidateScanConfig config);
 
 CandidateScanResult scan_candidate_partitions_with_diagnostics(
+    const ProtectedSequence& sequence,
+    const BoundaryIndex& boundaries,
+    const PartitionPlan& plan,
+    CandidateScanConfig config,
+    std::size_t thread_count);
+
+CandidateAggregateResult scan_and_reduce_candidate_partitions(
     const ProtectedSequence& sequence,
     const BoundaryIndex& boundaries,
     const PartitionPlan& plan,
