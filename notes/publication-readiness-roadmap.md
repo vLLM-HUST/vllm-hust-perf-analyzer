@@ -60,12 +60,12 @@ but must not displace a failing P0 gate.
 | --- | --- | --- | --- | --- |
 | R1 | P0 | Neutral interleaved structural units | implemented, real-profile reproduced, and checkout golden verified | analyzer output, goldens, wide composition table |
 | R2 | P0 | Fair workflow comparison | implemented, checkout-verified, and CTest-gated | one fixed question set answered by top-k, timeline/SQL, repeat-only, and TraceLoom |
-| R3 | P0 | Patch/cost-shift case | evidence discovered, paper loop open | correctness, structural delta, cost localization, bounded mechanism wording |
+| R3 | P0 | Patch/cost-shift case | bounded current case integrated; positive follow-up preregistered | correctness, structural delta, cost localization, bounded mechanism wording |
 | R4 | P0 | Raw-row provenance for every central result | mixed checkout/external | one command verifies every central row from immutable input |
 | R5 | P0 | Offline reviewer artifact | two-tier CPU-only ledger implemented and CTest-gated | clean CPU-only checkout reproduces exact and folding contracts |
 | R6 | P1 | Million-row analysis-cost point | five-run Release receipt complete | time, peak RSS, input/output size, compression reported |
 | R7 | P1 | Real-model CUDA Graph external validity | real model and graph evidence are separate | correctness-gated single-GPU model graph, exact visible-body report |
-| R8 | P1 | Paper figures and final case integration | planned | final TeX contains pipeline and counterintuitive cost-localization figures |
+| R8 | P1 | Paper figures and final case integration | implemented and TeX-verified | final TeX contains pipeline and counterintuitive cost-localization figures |
 
 CUDA Graph plus tensor parallelism, hidden CUDA graph-definition recovery,
 CUDA idle taxonomy, and cross-stream dependency inference are not submission
@@ -161,6 +161,14 @@ ablation that changes only that dimension.
 The mapped-gather experiment remains the simpler known-perturbation case. It
 should establish structural sensitivity, while the fused case demonstrates
 that recovered structure can revise an initially plausible mechanism story.
+
+The paper now carries that bounded case and its verified neutral `X/G/U`
+figure. A strengthened fused operator is reserved as a separate prospective
+positive microscopic gate: two matched captures per variant, correctness and
+macro guards, a preregistered structural position, complete provenance, and a
+`faster` verdict in both matched pairs. It may validate TraceLoom's positive
+comparator path, but it must not overwrite the current inconclusive/corrective
+case or become a submission blocker.
 
 ## R4-R5: Repository-Bundled Reviewer Artifact
 
@@ -314,10 +322,10 @@ external interpretation, not in TraceLoom's emitted schema.
 2. ~~Freeze the minimum Ascend Tier A/Tier B artifact set.~~ Complete.
 3. ~~Run the implemented R4-R5 ledger once in a fresh clone and retain the receipt.~~ Complete at `dd979a40fe52`: 3/3 claims passed and the checkout remained clean.
 4. ~~Run R2 over the frozen inputs and materialize the comparison table.~~ Complete.
-5. Close R3 with the strongest wording supported by the available ablation.
+5. ~~Close R3 with the strongest wording supported by the available ablation.~~ Complete; retain the strengthened-operator capture as optional positive evidence.
 6. ~~Measure R6 on the already checked-in kickstart profile.~~ Complete.
 7. Integrate the CUDA return from R7 if it passes its evidence gate.
-8. Produce R8 and update the paper only from verified tables.
+8. ~~Produce R8 and update the paper only from verified tables.~~ Complete for the pipeline and interleaved cost-localization figures.
 
 R7 may proceed concurrently on a CUDA host. It must not block R1-R6.
 
