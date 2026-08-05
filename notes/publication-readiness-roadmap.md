@@ -63,7 +63,7 @@ but must not displace a failing P0 gate.
 | R3 | P0 | Patch/cost-shift case | evidence discovered, paper loop open | correctness, structural delta, cost localization, bounded mechanism wording |
 | R4 | P0 | Raw-row provenance for every central result | mixed checkout/external | one command verifies every central row from immutable input |
 | R5 | P0 | Offline reviewer artifact | two-tier CPU-only ledger implemented and CTest-gated | clean CPU-only checkout reproduces exact and folding contracts |
-| R6 | P1 | Million-row analysis-cost point | input size and compression frozen; isolated time/RSS pending | time, peak RSS, input/output size, compression reported |
+| R6 | P1 | Million-row analysis-cost point | five-run Release receipt complete | time, peak RSS, input/output size, compression reported |
 | R7 | P1 | Real-model CUDA Graph external validity | real model and graph evidence are separate | correctness-gated single-GPU model graph, exact visible-body report |
 | R8 | P1 | Paper figures and final case integration | planned | final TeX contains pipeline and counterintuitive cost-localization figures |
 
@@ -267,6 +267,21 @@ The profile is capability-incomplete for exact graph-body recovery. That does
 not invalidate it as a throughput and memory input, but the paper must keep
 the scaling claim separate from semantic recovery quality.
 
+The checked Release receipt is now in
+`examples/paper_artifacts/kickstart_performance/kunpeng920-release.json`. Each
+database contains more than 1.2 million raw SQLite rows; TraceLoom selects
+86,701 and 59,226 normalized events. On a 192-logical-CPU Kunpeng-920 host with
+two analysis threads, five fresh processes per input give median end-to-end
+times of 14.898 s and 10.908 s and median peak RSS of 525.6 MiB and 419.5 MiB.
+The timing includes parsing, analysis, Loop Tree and JSON rendering, and the
+compatibility sidecar. The OS page cache was not cleared, and the full ordered
+samples, including the first runs, are retained.
+
+Treat this as a descriptive usability/feasibility point, not a central speed
+claim or a cross-tool comparison. The 64--68 KiB Loop Trees are compact; the
+206--258 MiB compatibility sidecars intentionally expand normalized evidence
+and raw-row provenance and must not be presented as compressed storage.
+
 ## R7: CUDA External Validity
 
 The required next evidence is one correctness-gated, single-GPU real-model
@@ -300,7 +315,7 @@ external interpretation, not in TraceLoom's emitted schema.
 3. Run the implemented R4-R5 ledger once in a fresh clone and retain the receipt.
 4. ~~Run R2 over the frozen inputs and materialize the comparison table.~~ Complete.
 5. Close R3 with the strongest wording supported by the available ablation.
-6. Measure R6 on the already checked-in kickstart profile.
+6. ~~Measure R6 on the already checked-in kickstart profile.~~ Complete.
 7. Integrate the CUDA return from R7 if it passes its evidence gate.
 8. Produce R8 and update the paper only from verified tables.
 

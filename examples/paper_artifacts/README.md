@@ -93,3 +93,12 @@ answers, including four exact units, the neutral interleaved order, zero
 orphaned source links, and the opposite cost directions inside and between
 graph units. The interpretation and explicit non-claims are recorded in
 `../../notes/workflow-comparison-study.md`.
+
+## Descriptive analysis cost
+
+`kickstart_performance/` contains the five-process Release-build timing and
+peak-RSS receipt for both medium profiles. It is a feasibility point, not a
+primary paper claim or a cross-tool speed comparison. The measurement includes
+the compact Loop Tree and the intentionally expansive provenance sidecar, and
+retains the first run plus the full range rather than reporting only a warmed
+best case.

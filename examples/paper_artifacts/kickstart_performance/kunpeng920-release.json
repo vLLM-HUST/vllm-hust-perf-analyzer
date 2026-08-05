@@ -1,0 +1,183 @@
+{
+  "schema_version": "traceloom-kickstart-performance-v1",
+  "generated_at_utc": "2026-08-05T05:31:53.879734+00:00",
+  "scope": "fresh process per run; warm OS page cache allowed; end-to-end parse, analysis, Loop Tree, JSON, and compatibility-sidecar materialization",
+  "runs_per_profile": 5,
+  "threads": 2,
+  "analyzer_commit": "6304039dda17a8f68590e6a3ef47088fec4cca11",
+  "analyzer_tree_clean": true,
+  "build": {
+    "type": "Release",
+    "compiler": "/usr/bin/c++",
+    "compiler_version": "c++ (GCC) 12.3.1 (openEuler 12.3.1-105.oe2403sp3)"
+  },
+  "host": {
+    "architecture": "aarch64",
+    "cpu_model": "Kunpeng-920",
+    "logical_cpus": 192,
+    "kernel": "5.15.0-25-generic"
+  },
+  "command_template": "traceloom INPUT --threads 2 --loop-tree-out TREE --out RESULT --compat-db-out SIDECAR",
+  "profiles": [
+    {
+      "device_id": 0,
+      "source_path": "msprof_raw/PROF_000001_20260609064648517_AJJGNKPPJMEGGLFA/msprof_20260609064817.db",
+      "source_sha256": "affb0e234463188bbd8998669271048e2ecef18271e93277e119b4826cb34903",
+      "input_bytes": 40394752,
+      "raw_sqlite_rows": 1260826,
+      "selected_trace_events": 86701,
+      "semantic_anchors": 22830,
+      "rendered_root_nodes": 507,
+      "event_to_node_ratio": 171.008,
+      "runs": [
+        {
+          "wall_seconds": 15.275843,
+          "peak_rss_kib": 537532,
+          "output_bytes": {
+            "loop_tree_markdown": 67697,
+            "result_json": 1749542,
+            "compatibility_sidecar": 270966784
+          },
+          "rendered_root_nodes": 507
+        },
+        {
+          "wall_seconds": 15.477472,
+          "peak_rss_kib": 537600,
+          "output_bytes": {
+            "loop_tree_markdown": 67697,
+            "result_json": 1749541,
+            "compatibility_sidecar": 270966784
+          },
+          "rendered_root_nodes": 507
+        },
+        {
+          "wall_seconds": 14.851653,
+          "peak_rss_kib": 538384,
+          "output_bytes": {
+            "loop_tree_markdown": 67697,
+            "result_json": 1749543,
+            "compatibility_sidecar": 270966784
+          },
+          "rendered_root_nodes": 507
+        },
+        {
+          "wall_seconds": 14.779523,
+          "peak_rss_kib": 538196,
+          "output_bytes": {
+            "loop_tree_markdown": 67697,
+            "result_json": 1749542,
+            "compatibility_sidecar": 270966784
+          },
+          "rendered_root_nodes": 507
+        },
+        {
+          "wall_seconds": 14.897661,
+          "peak_rss_kib": 539260,
+          "output_bytes": {
+            "loop_tree_markdown": 67697,
+            "result_json": 1749545,
+            "compatibility_sidecar": 270966784
+          },
+          "rendered_root_nodes": 507
+        }
+      ],
+      "wall_seconds": {
+        "first": 15.275843,
+        "median": 14.897661,
+        "minimum": 14.779523,
+        "maximum": 15.477472
+      },
+      "peak_rss_kib": {
+        "median": 538196,
+        "minimum": 537532,
+        "maximum": 539260
+      },
+      "output_bytes": {
+        "loop_tree_markdown": 67697,
+        "result_json_minimum": 1749541,
+        "result_json_maximum": 1749545,
+        "compatibility_sidecar": 270966784
+      }
+    },
+    {
+      "device_id": 1,
+      "source_path": "msprof_raw/PROF_000001_20260609064648547_OEJLKCHMOPRFGKIB/msprof_20260609064834.db",
+      "source_sha256": "b05c9543a44fa6e0c0497903b1136c839d3492fc853c0cae989c0ba7ea6fe5f4",
+      "input_bytes": 38191104,
+      "raw_sqlite_rows": 1232988,
+      "selected_trace_events": 59226,
+      "semantic_anchors": 21903,
+      "rendered_root_nodes": 483,
+      "event_to_node_ratio": 122.621,
+      "runs": [
+        {
+          "wall_seconds": 10.355409,
+          "peak_rss_kib": 429584,
+          "output_bytes": {
+            "loop_tree_markdown": 64757,
+            "result_json": 1410126,
+            "compatibility_sidecar": 216064000
+          },
+          "rendered_root_nodes": 483
+        },
+        {
+          "wall_seconds": 11.225447,
+          "peak_rss_kib": 431172,
+          "output_bytes": {
+            "loop_tree_markdown": 64757,
+            "result_json": 1410127,
+            "compatibility_sidecar": 216064000
+          },
+          "rendered_root_nodes": 483
+        },
+        {
+          "wall_seconds": 11.174025,
+          "peak_rss_kib": 427836,
+          "output_bytes": {
+            "loop_tree_markdown": 64757,
+            "result_json": 1410127,
+            "compatibility_sidecar": 216064000
+          },
+          "rendered_root_nodes": 483
+        },
+        {
+          "wall_seconds": 10.908358,
+          "peak_rss_kib": 428040,
+          "output_bytes": {
+            "loop_tree_markdown": 64757,
+            "result_json": 1410130,
+            "compatibility_sidecar": 216064000
+          },
+          "rendered_root_nodes": 483
+        },
+        {
+          "wall_seconds": 10.766011,
+          "peak_rss_kib": 430172,
+          "output_bytes": {
+            "loop_tree_markdown": 64757,
+            "result_json": 1410127,
+            "compatibility_sidecar": 216064000
+          },
+          "rendered_root_nodes": 483
+        }
+      ],
+      "wall_seconds": {
+        "first": 10.355409,
+        "median": 10.908358,
+        "minimum": 10.355409,
+        "maximum": 11.225447
+      },
+      "peak_rss_kib": {
+        "median": 429584,
+        "minimum": 427836,
+        "maximum": 431172
+      },
+      "output_bytes": {
+        "loop_tree_markdown": 64757,
+        "result_json_minimum": 1410126,
+        "result_json_maximum": 1410130,
+        "compatibility_sidecar": 216064000
+      }
+    }
+  ]
+}
