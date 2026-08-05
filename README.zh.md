@@ -200,6 +200,8 @@ ctest --preset dev-tests
 - [输出约定](docs/output-schema.md)
 - [原生架构](docs/architecture.md)
 - [Loop Tree 阅读指南](docs/tree-map-guide.zh.md)
+- [论文可发表性路线图](notes/publication-readiness-roadmap.md)
+- [CUDA 真实模型 Graph 交接说明](notes/cuda-real-model-graph-handoff.md)
 
 ## License
 

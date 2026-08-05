@@ -4,6 +4,12 @@ Status: active
 
 Date: 2026-08-04
 
+The cross-cutting publication gates, repository-bundled artifact policy, and
+current execution order are maintained in
+`notes/publication-readiness-roadmap.md`. CUDA-host work should use the current
+`notes/cuda-real-model-graph-handoff.md` rather than the superseded
+workspace-root baseline handoff.
+
 TraceLoom's target is not zero unknowns. It is an auditable reconstruction in
 which every reported semantic object has exact evidence, every inference names
 its policy, cost is never double counted, and unsupported structure remains an

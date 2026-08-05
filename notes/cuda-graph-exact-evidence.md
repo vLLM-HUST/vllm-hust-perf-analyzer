@@ -81,3 +81,9 @@ The CUDA-Graph-plus-TP capture attempt in the bundle remains a negative result:
 it hung and was terminated. The current evidence therefore supports exact
 single-GPU CUDA Graph visible-body recovery and eager TP/NCCL normalization,
 not exact CUDA Graph TP reconstruction.
+
+The next CUDA evidence layer is a correctness-gated, single-GPU real-model
+CUDA Graph capture. Its collection, acceptance, bundle, and return contract is
+maintained in `notes/cuda-real-model-graph-handoff.md`. Publication ordering
+and artifact-packaging gates are tracked in
+`notes/publication-readiness-roadmap.md`.

@@ -231,6 +231,8 @@ still run.
 - [Output contract](docs/output-schema.md)
 - [Native architecture](docs/architecture.md)
 - [Loop Tree reading guide](docs/tree-map-guide.zh.md)
+- [Publication-readiness roadmap](notes/publication-readiness-roadmap.md)
+- [CUDA real-model graph handoff](notes/cuda-real-model-graph-handoff.md)
 
 ## License
 
