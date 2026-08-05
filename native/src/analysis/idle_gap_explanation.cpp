@@ -277,13 +277,29 @@ void validate_correlated_evidence(
 
 bool absence_claim_allowed(
     const CollectionCompletenessAttestation& collection,
-    const StreamStateRunResult& run,
+    const ProductiveTimelineRunResult& productive_run,
+    const StreamStateRunResult& stream_run,
     const StreamStateDeviceResult& device) {
-  return collection.status == CollectionStatus::kComplete &&
+  return productive_run.status == AnalysisStatus::kOk &&
+         stream_run.status == AnalysisStatus::kOk &&
+         collection.status == CollectionStatus::kComplete &&
          collection.all_discovered_device_shards_imported &&
          collection.all_required_task_tables_readable &&
          collection.no_dropped_events_or_truncated_capture &&
-         device.observed_universe_scan_complete && run.diagnostics.empty();
+         device.observed_universe_scan_complete &&
+         stream_run.diagnostics.empty();
+}
+
+AnalysisStatus combine_run_status(AnalysisStatus productive_status,
+                                  AnalysisStatus stream_status) {
+  if (productive_status == AnalysisStatus::kInvalidInput ||
+      stream_status == AnalysisStatus::kInvalidInput) {
+    return AnalysisStatus::kInvalidInput;
+  }
+  if (productive_status != stream_status) {
+    throw std::invalid_argument("E2/E3 run analysis status mismatch");
+  }
+  return productive_status;
 }
 
 const StreamStateInterval& interval_covering(
@@ -450,6 +466,7 @@ void explain_gap(
     const DeviceIntervalRow& gap,
     const StreamStateDeviceResult& stream_device,
     const std::vector<const ValidatedCorrelatedEvidenceInterval*>& device_evidence,
+    const ProductiveTimelineRunResult& productive_run,
     const StreamStateRunResult& stream_run,
     const IdleGapExplanationOptions& options,
     std::vector<IdleExplanationRow>* rows) {
@@ -492,7 +509,8 @@ void explain_gap(
                    boundaries.end());
 
   const bool allow_absence =
-      absence_claim_allowed(options.collection, stream_run, stream_device);
+      absence_claim_allowed(options.collection, productive_run, stream_run,
+                            stream_device);
   for (std::size_t index = 0; index + 1 < boundaries.size(); ++index) {
     const std::int64_t start_ns = boundaries[index];
     const std::int64_t end_ns = boundaries[index + 1];
@@ -630,7 +648,7 @@ IdleExplanationRunResult build_idle_gap_explanations(
   }
 
   IdleExplanationRunResult run;
-  run.status = streams.status;
+  run.status = combine_run_status(productive.status, streams.status);
   run.attribution_rule_version = kAttributionRuleVersion;
   for (const DeviceTimelineResult& productive_device : productive.devices) {
     validate_device_intervals(productive_device);
@@ -657,8 +675,8 @@ IdleExplanationRunResult build_idle_gap_explanations(
            index < productive_device.intervals.size(); ++index) {
         const DeviceIntervalRow& interval = productive_device.intervals[index];
         if (interval.kind == DeviceIntervalKind::kVisibleProductiveIdle) {
-          explain_gap(index, interval, stream_device, device_evidence, streams,
-                      options, &result.rows);
+          explain_gap(index, interval, stream_device, device_evidence,
+                      productive, streams, options, &result.rows);
         }
       }
     }

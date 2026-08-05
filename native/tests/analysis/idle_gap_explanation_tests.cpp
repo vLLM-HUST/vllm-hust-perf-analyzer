@@ -390,6 +390,38 @@ int main() {
             "device-unattributable run damage vetoes healthy device absence");
   }
 
+  // Either upstream stage may skip damaged input while retaining valid
+  // per-device partitions. invalid_input must propagate and independently
+  // veto absence even when every observed stream is empty.
+  {
+    ProductiveTimelineRunResult productive = one_gap_productive(0, 10);
+    productive.status = AnalysisStatus::kInvalidInput;
+    StreamStateRunResult streams = stream_result(
+        {timeline(0, {state_interval(0, 10, StreamState::kEmptyObserved)}, 0,
+                  10)},
+        true, 0, 10);
+    IdleGapExplanationOptions options;
+    options.collection = complete_collection();
+    const IdleExplanationRunResult run =
+        build_idle_gap_explanations(productive, streams, options);
+    require(run.status == AnalysisStatus::kInvalidInput,
+            "E2 invalid_input propagates to E4 run status");
+    require(run.devices[0].rows.size() == 1 &&
+                run.devices[0].rows[0].category ==
+                    IdleExplanationCategory::kUnattributedVisibleIdle,
+            "E2 invalid_input vetoes no_observed_device_work");
+
+    productive.status = AnalysisStatus::kOk;
+    streams.status = AnalysisStatus::kInvalidInput;
+    const IdleExplanationRunResult e3_invalid_run =
+        build_idle_gap_explanations(productive, streams, options);
+    require(e3_invalid_run.status == AnalysisStatus::kInvalidInput,
+            "E3 invalid_input propagates to E4 run status");
+    require(e3_invalid_run.devices[0].rows[0].category ==
+                IdleExplanationCategory::kUnattributedVisibleIdle,
+            "E3 invalid_input vetoes no_observed_device_work without diagnostics");
+  }
+
   // An E2 gap cannot intersect any E3 productive component. Reject both a
   // direct productive state and an ambiguous interval containing one.
   {
