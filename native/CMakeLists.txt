@@ -15,7 +15,8 @@ set(TRACELOOM_NATIVE_ASCEND_SQLITE_AVAILABLE OFF)
 add_library(traceloom_native_core
   src/analysis/exact_periodic_suffix.cpp
   src/analysis/flat_anchor_builder.cpp
-  src/analysis/idle_gap_explanation.cpp
+  src/analysis/idle_explanation.cpp
+  src/analysis/idle_evidence_pipeline.cpp
   src/analysis/idle_evidence_semantic_rules.cpp
   src/analysis/productive_timeline.cpp
   src/analysis/semantic_task_classifier.cpp
@@ -114,6 +115,8 @@ add_library(traceloom_native_materialize
   src/compat/anchor_cost_breakdown_rows.cpp
   src/compat/aux_attribution_rows.cpp
   src/compat/collective_tag_rows.cpp
+  src/compat/idle_explanation_rows.cpp
+  src/compat/idle_evidence_sql_rows.cpp
   src/compat/native_graph_replay_rows.cpp
   src/compat/native_sidecar_materializer.cpp
   src/compat/report_tree_rows.cpp
@@ -477,15 +480,15 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     COMMAND traceloom_native_stream_state_timeline_tests
   )
 
-  add_executable(traceloom_native_idle_gap_explanation_tests
-    tests/analysis/idle_gap_explanation_tests.cpp
+  add_executable(traceloom_native_idle_explanation_tests
+    tests/analysis/idle_explanation_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_idle_gap_explanation_tests PRIVATE traceloom_native_core
+    traceloom_native_idle_explanation_tests PRIVATE traceloom_native_core
   )
   add_test(
-    NAME traceloom_native_idle_gap_explanation_tests
-    COMMAND traceloom_native_idle_gap_explanation_tests
+    NAME traceloom_native_idle_explanation_tests
+    COMMAND traceloom_native_idle_explanation_tests
   )
 
   add_executable(traceloom_native_pipeline_tests
@@ -614,6 +617,18 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
   add_test(
     NAME traceloom_native_anchor_cost_breakdown_rows_tests
     COMMAND traceloom_native_anchor_cost_breakdown_rows_tests
+  )
+
+  add_executable(traceloom_native_idle_explanation_rows_tests
+    tests/compat/idle_explanation_rows_tests.cpp
+  )
+  target_link_libraries(
+    traceloom_native_idle_explanation_rows_tests PRIVATE
+    traceloom_native_materialize
+  )
+  add_test(
+    NAME traceloom_native_idle_explanation_rows_tests
+    COMMAND traceloom_native_idle_explanation_rows_tests
   )
 
   add_executable(traceloom_native_aclgraph_graph_replay_rows_tests

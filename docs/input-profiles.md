@@ -16,18 +16,22 @@ monolithic or split SQLite output:
 
 For each `PROF_*` directory, the native analyzer prefers a monolithic DB with a
 nonempty `TASK` table. If it is absent or unusable, TraceLoom reports a warning
-and normalizes the split `AscendTask`, `TaskInfo`, `HostTask`, and `ApiData`
-tables instead. The inventory command shows every discovered split table,
-schema source, and row count:
+and normalizes the split `AscendTask`, `TaskInfo`, `HostTask`, `ApiData`, and
+available HCCL tables instead. `HCCLOP` (or `HCCLOpSingleDevice`) supplies
+observed collective identity, while linked `HCCLTaskSingleDevice` and
+`AscendTask` rows supply device geometry and task-level auxiliary evidence.
+The inventory command shows every discovered split table, schema source, and
+row count:
 
 ```bash
 traceloom-native-ascend-sqlite-inventory /path/to/PROF_...
 ```
 
-The first split-SQLite stage provides the base device timeline and summary.
-Fine-grained split communication, graph replay, and PMU attribution remain
-incremental; monolithic profiles continue to provide those enrichments when
-their corresponding tables are available.
+Split communication and exact graph reconstruction feed the same native IR and
+report pipeline as their monolithic equivalents. Missing or ambiguous HCCL
+operation evidence is retained at task granularity rather than guessed. Rich
+transport/topology fields and PMU attribution remain incremental analysis
+surfaces.
 
 ## Hygon/HIP
 

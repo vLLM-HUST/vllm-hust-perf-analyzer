@@ -316,6 +316,101 @@ void write_loop_tree_markdown(std::ostream& out,
     }
   }
 
+  if (options.has_idle_explanation_summary) {
+    const double direct_pct =
+        options.visible_productive_idle_ns == 0
+            ? 0.0
+            : 100.0 *
+                  static_cast<double>(options.direct_explained_idle_ns) /
+                  static_cast<double>(options.visible_productive_idle_ns);
+    out << "\n## Visible Productive Idle Evidence\n\n";
+    out << "- analysis_status: `" << options.idle_analysis_status << "`\n";
+    out << "- collection_status: `" << options.idle_collection_status
+        << "`\n";
+    out << "- attribution_rule_version: `"
+        << options.idle_attribution_rule_version << "`\n";
+    out << "- visible_productive_idle_us: `"
+        << fmt(static_cast<double>(options.visible_productive_idle_ns) /
+               1000.0)
+        << "`\n";
+    out << "- visible_productive_idle_ns: `"
+        << options.visible_productive_idle_ns << "`\n";
+    out << "- directly_explained_us: `"
+        << fmt(static_cast<double>(options.direct_explained_idle_ns) / 1000.0)
+        << "` (`" << fmt(direct_pct) << "%`)\n";
+    out << "- directly_explained_ns: `"
+        << options.direct_explained_idle_ns << "`\n";
+    out << "- semantic_boundary: gaps in profiler-visible productive work; "
+           "not proof of hardware idleness or causality\n\n";
+    out << "| Category | Slices | Duration (ns) | Duration (us) | Gap % |\n";
+    out << "| --- | ---: | ---: | ---: | ---: |\n";
+    for (const IdleExplanationSummaryCount& count :
+         options.idle_explanation_counts) {
+      const double category_pct =
+          options.visible_productive_idle_ns == 0
+              ? 0.0
+              : 100.0 * static_cast<double>(count.duration_ns) /
+                    static_cast<double>(options.visible_productive_idle_ns);
+      out << "| `" << count.category << "` | " << count.slice_count << " | "
+          << count.duration_ns << " | "
+          << fmt(static_cast<double>(count.duration_ns) / 1000.0) << " | "
+          << fmt(category_pct) << "% |\n";
+    }
+    if (options.idle_explanation_counts.empty()) {
+      out << "| `(no visible productive idle)` | 0 | 0 | 0.000 | 0.000% |\n";
+    }
+
+    const double anchor_attribution_pct =
+        options.visible_productive_idle_ns == 0
+            ? 0.0
+            : 100.0 * static_cast<double>(
+                          options.anchor_prelude_attributed_idle_ns) /
+                  static_cast<double>(options.visible_productive_idle_ns);
+    out << "\n### Anchor-Prelude Attribution\n\n";
+    out << "- attributed_visible_productive_idle_us: `"
+        << fmt(static_cast<double>(
+                   options.anchor_prelude_attributed_idle_ns) /
+               1000.0)
+        << "` (`" << fmt(anchor_attribution_pct) << "%`)\n";
+    out << "- attributed_visible_productive_idle_ns: `"
+        << options.anchor_prelude_attributed_idle_ns << "`\n";
+    out << "- device_only_unassigned_us: `"
+        << fmt(static_cast<double>(options.device_only_unassigned_idle_ns) /
+               1000.0)
+        << "`\n";
+    out << "- device_only_unassigned_ns: `"
+        << options.device_only_unassigned_idle_ns << "`\n";
+    out << "- attribution_boundary: exact intersections with the disjoint "
+           "prelude window before each anchor; device-only residual is not "
+           "forced onto a node\n";
+    out << "- hierarchy_boundary: parent and child hotspot rows overlap by "
+           "construction and are not additive\n\n";
+    out << "| Node | Kind | Total (us) | Avg (us) | Wait | Capture | Runtime "
+           "| No work | Unattributed |\n";
+    out << "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: "
+           "|\n";
+    for (const IdleExplanationNodeHotspot& hotspot :
+         options.idle_node_hotspots) {
+      out << "| `" << hotspot.node_id << "` " << hotspot.label << " | `"
+          << hotspot.kind << "` | "
+          << fmt(static_cast<double>(hotspot.attributed_ns) / 1000.0) << " | "
+          << fmt(hotspot.average_attributed_ns / 1000.0) << " | "
+          << fmt(static_cast<double>(hotspot.wait_ns) / 1000.0) << " | "
+          << fmt(static_cast<double>(hotspot.capture_control_ns) / 1000.0)
+          << " | "
+          << fmt(static_cast<double>(hotspot.runtime_control_ns) / 1000.0)
+          << " | "
+          << fmt(static_cast<double>(hotspot.no_observed_work_ns) / 1000.0)
+          << " | "
+          << fmt(static_cast<double>(hotspot.unattributed_ns) / 1000.0)
+          << " |\n";
+    }
+    if (options.idle_node_hotspots.empty()) {
+      out << "| `(no anchor-prelude attribution)` |  | 0.00 | 0.00 | 0.00 | "
+             "0.00 | 0.00 | 0.00 | 0.00 |\n";
+    }
+  }
+
   constexpr std::size_t kTreeColumnWidth = 48;
   constexpr std::size_t kCategoryColumnWidth = 14;
 

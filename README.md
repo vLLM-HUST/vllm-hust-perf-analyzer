@@ -122,8 +122,12 @@ traceloom /path/to/msprof_output --threads 48
 
 Within each `PROF_*`, a nonempty monolithic `TASK` table takes priority.
 Otherwise TraceLoom emits a warning and builds the base timeline from split
-`AscendTask`, `TaskInfo`, `HostTask`, and `ApiData` tables. Fine-grained split
-communication, graph replay, and PMU attribution remain incremental.
+`AscendTask`, `TaskInfo`, `HostTask`, and `ApiData` tables. When present,
+`HCCLOP`/`HCCLOpSingleDevice` and `HCCLTaskSingleDevice` recover the same
+collective-operation anchors as the monolithic path while retaining the
+device-task decomposition as auxiliary evidence. Graph replay uses the same
+exact reconstruction contract in both layouts; PMU attribution remains
+incremental.
 
 ### 3. Read The Loop Tree
 
@@ -152,6 +156,10 @@ traceloom /path/to/msprof.db \
 
 Run `traceloom --help-advanced` for grammar diagnostics and auxiliary
 materialization options.
+
+Ascend Loop Trees include an observation-backed device summary of visible
+productive gaps. It preserves unattributed residual and states its collection
+status explicitly; it must not be read as hardware-idle or causal evidence.
 
 ## Checked-In Kickstart Profile
 

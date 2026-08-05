@@ -22,6 +22,8 @@
 // runtime traces.
 
 #include "traceloom/adapters/ascend_sqlite_adapter.h"
+#include "traceloom/analysis/idle_explanation.h"
+#include "traceloom/analysis/idle_evidence_pipeline.h"
 #include "traceloom/analysis/idle_evidence_semantic_rules.h"
 #include "traceloom/analysis/productive_timeline.h"
 #include "traceloom/analysis/semantic_task_classifier.h"
@@ -435,10 +437,14 @@ int main() {
   const NativeIr ir = adapter.load();
   const SemanticTaskRuleset ruleset =
       load_default_idle_evidence_semantic_ruleset();
-  const SemanticTaskClassificationResult classification =
-      classify_semantic_tasks(ir, ruleset);
-  const ProductiveTimelineRunResult run =
-      build_productive_timelines(ir, classification);
+  IdleEvidencePipelineOptions pipeline_options;
+  pipeline_options.idle_explanation.collection_status =
+      CollectionStatus::kComplete;
+  const IdleEvidencePipelineResult pipeline =
+      run_idle_evidence_pipeline(ir, ruleset, pipeline_options);
+  const SemanticTaskClassificationResult& classification =
+      pipeline.classification;
+  const ProductiveTimelineRunResult& run = pipeline.productive_timeline;
 
   require(run.status == AnalysisStatus::kOk,
           "fixture run status must be ok");
@@ -510,8 +516,7 @@ int main() {
   // The fixture's three adjacent compute tasks on stream 3 must yield three
   // adjacent running_compute intervals, NOT merged: adjacent same-state
   // segments with different source lineage stay separate (contract 3.3). ---
-  const StreamStateRunResult stream_run =
-      build_stream_state_timelines(ir, classification, run);
+  const StreamStateRunResult& stream_run = pipeline.stream_states;
   require(stream_run.status == AnalysisStatus::kOk,
           "stream state run status must be ok");
   require(stream_run.stream_universe_size == 1,
@@ -558,6 +563,15 @@ int main() {
   }
   require(stream_cursor == stream_timeline.span_end_ns,
           "stream state intervals cover the span exactly");
+
+  // --- 4. E4: a host wait cannot fabricate a device idle explanation.
+  // Collection is complete by fixture construction, but there is no gap to
+  // explain, so the official explanation partition is empty. ---
+  const IdleExplanationRunResult& explanations = pipeline.idle_explanations;
+  require(explanations.status == AnalysisStatus::kOk &&
+              explanations.devices.size() == 1 &&
+              explanations.devices[0].explanations.empty(),
+          "host wait with zero visible idle produces no E4 explanation");
 
   // --- The counterexample, asserted as a unit: host wait exists AND
   // visible idle is zero. ---

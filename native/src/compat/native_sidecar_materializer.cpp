@@ -11,6 +11,8 @@
 #include "traceloom/compat/anchor_sequence_rows.h"
 #include "traceloom/compat/aux_attribution_rows.h"
 #include "traceloom/compat/collective_tag_rows.h"
+#include "traceloom/compat/idle_evidence_sql_rows.h"
+#include "traceloom/compat/idle_explanation_rows.h"
 #include "traceloom/compat/native_graph_replay_rows.h"
 #include "traceloom/compat/report_tree_rows.h"
 #include "traceloom/compat/sidecar_writer.h"
@@ -145,7 +147,8 @@ NodeCoverageSqlRows build_native_loop_tree_node_coverage_rows(
 void write_basic_native_compatibility_sidecar(
     const std::string& sqlite_path,
     const NativeIr& ir,
-    const NativeCompatibilitySidecarOptions& options) {
+    const NativeCompatibilitySidecarOptions& options,
+    const IdleEvidencePipelineResult* idle_evidence) {
   std::vector<MetadataSqlRow> metadata{
       {"traceloom_schema_version", "augmented_db_v1"},
       {"native_compatibility_materializer", "basic_native_ir_v1"},
@@ -198,6 +201,24 @@ void write_basic_native_compatibility_sidecar(
   const NodeAnchorCoverageSqlRows coverage_rows =
       split_node_anchor_coverage_sql_rows(node_rows);
   replace_node_anchor_coverage_rows(sqlite_path, coverage_rows);
+  if (idle_evidence != nullptr) {
+    const IdleExplanationAttributionRows attribution =
+        build_idle_explanation_attribution_rows(
+            report_tokens, idle_evidence->idle_explanations, node_rows,
+            options.db_idx);
+    IdleEvidenceSqlRowOptions idle_options;
+    idle_options.db_idx = options.db_idx;
+    idle_options.source_kind = options.source_kind;
+    idle_options.source_path = options.source_path;
+    replace_idle_evidence_rows(
+        sqlite_path,
+        build_idle_evidence_sql_rows(ir, *idle_evidence, attribution,
+                                     idle_options));
+  } else {
+    // Replacement semantics matter when an existing sidecar is regenerated
+    // for a provider whose idle taxonomy is not enabled.
+    replace_idle_evidence_rows(sqlite_path, IdleEvidenceSqlRows{});
+  }
   if (options.materialize_collective_tags) {
     CollectiveTagMemberInput member;
     member.db_name = options.collective_db_name.empty()

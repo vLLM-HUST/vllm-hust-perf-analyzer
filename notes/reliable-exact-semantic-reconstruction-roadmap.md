@@ -64,8 +64,8 @@ missing bodies, and body mismatches remain typed unrecognized regions.
 ## Active Front
 
 1. Keep exact ACLGraph reconstruction contract- and performance-stable on
-   large profiles while the next analyzer fronts move to main-pipeline idle
-   explanation and provider-neutral lowered-op semantics.
+   large profiles while the next analyzer fronts move to provider-neutral
+   lowered-op semantics and paper evaluation.
 2. Capture a current-runtime prefill graph only if the runtime actually graphs
    prefill and a concrete consumer needs that additional real promotion case.
    Exact periodic decode promotion is now established on real TP2 LLM data;
@@ -78,6 +78,64 @@ counts, and a typed status histogram. Unknown regions remain absent from the
 tree itself, but are no longer invisible beside it; a kickstart report shows
 `0 exact / 11 unrecognized`, while each capability-complete TP2 rank shows
 `30 exact / 0 unrecognized`.
+
+The main-pipeline idle front has reached E4 device-only explanation. E2
+productive gaps are now projected through E3 per-stream state partitions into
+an exact, non-overlapping explanation partition with frozen priority, evidence
+level/relation, alignment status, and source lineage. Unknown collection
+completeness conservatively disables absence claims; a complete synthetic
+attestation enables `no_observed_device_work` only when every observed stream
+is empty and the scan is complete. Unknown and ambiguous task coverage stays
+typed `unattributed_visible_idle` with diagnostic lineage. The checked-in
+host-wait counterexample now runs through E4 and proves that a host wait over a
+fully productive device span creates no idle explanation.
+
+Both real kickstart ranks run E1→E4 successfully. E4 takes 640 ms and 421 ms
+in the recorded one-run audit and preserves the entire visible-gap duration;
+the larger input improved from 18,009 ms after replacing full-timeline rescans
+with indexed interval lookup. The device-only explanation semantics are no
+longer the open front.
+
+The production `traceloom` command now runs that E1→E4 path for Ascend Loop
+Tree reports and renders a device-scoped `Visible Productive Idle Evidence`
+section. The section reports analysis/collection/rule status, total gap time,
+directly explained coverage, and every category including unattributed
+residual. It remains separate from the compatibility tree's historical
+prelude `idle_us`, preventing two different measurements from being silently
+conflated. Ascend-specific rules are deliberately gated off for CUDA and Hygon
+reports until those providers have validated taxonomies.
+
+Exact anchor/node attribution is now implemented for the conservative
+anchor-prelude view. E4 slices are intersected with the same disjoint prelude
+windows used by Loop Tree cost packets; intersections aggregate through the
+existing node/anchor coverage rows, while uncovered explanation time remains
+an explicit device-only residual. The production report exposes the coverage
+ratio and top hierarchical hotspots and warns that parent/child rows are not
+additive. On the larger kickstart rank, 65,097,292,403 of 65,097,292,443 gap
+nanoseconds map to anchor preludes; the remaining 40 ns is retained rather than
+rounded into a node.
+
+Raw idle evidence is now materialized in compatibility sidecars. One
+deterministic `traceloom_run_metadata` row records the frozen analysis,
+collection, ruleset, and attribution versions; its `run_id` is the lowercase
+SHA-256 of the generated RFC-8785-canonical metadata JSON without `run_id`.
+The sidecar also carries exact-nanosecond device intervals, per-stream state
+partitions and universe completeness, E4 explanation slices linked to their
+owning productive gaps, precise source-row evidence links, and anchor/node
+aggregates. Host API rules are explicitly `not_loaded`, so this materializer
+does not imply host correlation or collection completeness. Regenerating a
+sidecar without a provider-validated idle pipeline clears these tables instead
+of retaining stale Ascend conclusions.
+
+The larger real kickstart rank materializes 30,628 productive intervals and
+30,627 gaps. Explanation duration sums to the exact 65,097,292,443 ns gap
+total; anchor aggregation remains 65,097,292,403 ns, the root-node aggregate
+matches that value, all explanation-to-gap links resolve, and all 143,355
+materialized source links resolve to compatibility timeline events. The next
+idle-evidence front is therefore optional host/device correlation (only after
+real clock calibration and host allowlist import), not more device-only
+heuristics. The raw tables now have checked-in capability, summary, and audit
+queries suitable for regression and paper evaluation.
 
 Cross-stream reconstruction is intentionally **not** an active front. The
 stable TraceLoom boundary is a coarse, permutation-invariant projection of
@@ -134,6 +192,16 @@ not invoke the legacy capture-cardinality projector: without an exact H/L/T
 candidate, they retain launch/body evidence rather than manufacture coarse
 ReplayUnits.
 
+The retained TP2 ranks also exposed a report-granularity mismatch: split input
+initially promoted all `3,655` HCCL device tasks as primary anchors because it
+did not materialize the `398` observed collective-operation envelopes. The
+adapter now joins `HCCLOP`/`HCCLOpSingleDevice` identity to the
+`HCCLTaskSingleDevice`-identified task groups, uses the linked task envelope as
+device geometry, and keeps every task as trace/auxiliary evidence. Both ranks
+now match their monolithic event and anchor cardinality and their complete
+structural report-node rows. The evidence and validation protocol are recorded
+in `notes/split-fallback-communication-parity.md`.
+
 A separate adapter-level missing-row golden removes both normalized body lanes
 from one otherwise complete decode composition. The candidate and surrounding
 units survive, the affected region becomes
@@ -177,6 +245,47 @@ four retain all 14 launch
 members as five typed unknown regions and promote no ReplayUnits; the last
 still promotes four exact units using device execution order.
 
+## 2026-08-04 Golden SQL Audit Contract
+
+Three checked-in, executable SQL reports freeze the paper-facing evidence
+surface. `reconstruction-capability-matrix.sql` reduces the typed region ledger
+and replay rows into capability, body, completion, ordering, recognition, and
+legacy outcomes. `idle-evidence-summary.sql` emits exact category totals and
+visible-gap shares. `idle-evidence-audit.sql` checks interval arithmetic,
+per-gap partition and non-overlap, stream adjacency, source/owner lineage,
+evidence extents, anchor/node references, and root conservation before
+returning `PASS` or `FAIL`.
+
+The SQL compatibility golden fixes the column contracts and known-good values,
+then corrupts one explanation duration and requires the audit to change from
+`PASS` to `FAIL`. Supporting identity indexes keep lineage checks bounded on
+large sidecars.
+
+The matrix separates the two important real outcomes without interpretation:
+the older kickstart artifact reports `capability_incomplete`, unavailable body
+capability, incomplete completion evidence, 11 typed unknown regions, and zero
+promoted units; a capability-complete TP2 split rank reports available body and
+completion evidence, device-execution ordering, 30 recognized regions, 30
+exact ReplayUnits, and zero unknown or legacy units. The TP2 idle sidecar also
+passes every audit invariant over 40,055 device intervals, 37,160 explanation
+slices, and 221,377 evidence links. Its 47,986,216,440 ns visible gap is
+conserved exactly; 47,191,604,280 ns maps to anchor/root preludes and
+794,612,160 ns remains explicit device-only residual.
+
+That real split profile also contains zero-duration CANN anchor events. They
+are retained as ordering observations that may own the immediately preceding
+prelude but contribute no productive duration; only inverted intervals are
+rejected. This prevents valid point events from aborting sidecar materialization
+without weakening duration conservation.
+
+The second TP2 rank establishes a separate negative-result boundary: E2 can
+retain a valid productive projection while E3 rejects damaged unknown point
+events and marks the combined E4 analysis `invalid_input`. Sidecar
+materialization now records that conservative joined status instead of
+requiring every stage status to be identical and aborting. SQL
+`audit_status=PASS` remains table-integrity evidence only; it never promotes an
+`invalid_input` analysis into a positive semantic result.
+
 ## 2026-08-04 Hierarchical Projection And Cost Gate
 
 Exact replay units are now seeded as atomic semantic grammar symbols keyed by
@@ -191,8 +300,8 @@ Before the schema capability gate, the two kickstart ranks exposed the decode
 body as `[MatMul, AllReduce, BroadcastTo, ReplayUnit T2] x8/x6`. That result
 remains useful structural evidence, but it is no longer emitted as exact
 because those artifacts cannot prove the captured stream set. The hierarchical
-ReplayUnit path remains covered by capability-complete synthetic fixtures
-until a fresh LLM trace supplies the missing real evidence.
+ReplayUnit path is covered by capability-complete synthetic fixtures and by
+the retained TP2 LLM ranks, which independently promote 30 exact units.
 
 The report-tree validator now checks that every structural node's children
 exactly tile its span, atoms own one token, every occurrence has one matching
@@ -229,12 +338,15 @@ metadata cannot establish a complete lane set.
 
 ## Following Fronts
 
-- capability-complete real LLM H/L/T capture and promotion;
-- main-pipeline idle explanation and Loop Tree aggregation;
-- provider-neutral lowered-op and graph semantics;
-- portable S1-S6, ambiguity, truncation, and cost-conservation
-  golden fixtures;
-- versioned JSON/SQLite/report contracts and large-profile performance gates.
+- provider-neutral lowered-op and graph semantics, beginning with the CUDA
+  workspace handoff while keeping the Ascend evidence contract authoritative;
+- paper claim/evaluation tables built only from checked SQL and retained
+  artifacts;
+- portable ambiguity, truncation, lineage, and cost-conservation regression
+  fixtures as new provider/schema variants appear;
+- versioned JSON/SQLite/report contracts and large-profile performance gates;
+- optional host/device correlation only after real clock calibration and a
+  provider-validated host allowlist exist.
 
 ## Promotion Gate
 

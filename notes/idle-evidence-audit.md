@@ -119,6 +119,47 @@ membership, and do not invalidate the scan. Negative-duration rows and
 zero-duration productive/unknown rows remain `invalid_event_duration` and
 void scan completeness.
 
+## E4 device-only explanation validation
+
+The first official idle-explanation projector now slices every E2 visible
+productive gap against the E3 stream-state partitions. It implements the
+frozen device-side priority:
+
+```text
+blocked_by_visible_wait
+  > capture_control_present
+  > runtime_control_present
+  > no_observed_device_work
+  > unattributed_visible_idle
+```
+
+The real kickstart captures carry no external collection-completeness
+attestation, so the audit deliberately reports `collection_status = unknown`.
+Consequently, an all-observed-streams-empty slice remains
+`unattributed_visible_idle`; the analyzer does not infer capture completeness
+from trace contents. Direct categories preserve exact task/stream lineage and
+report device-event coverage, not causality.
+
+| profile/device | visible wait | capture/control | runtime control | unattributed | E4 wall time |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `AJJGNKPPJMEGGLFA` / 0 | 95,272,254 ns (0.146354%) | 1,795,652 ns (0.002758%) | 2,990,622 ns (0.004594%) | 64,997,233,915 ns (99.846294%) | 640 ms |
+| `OEJLKCHMOPRFGKIB` / 1 | 27,126,000 ns (0.042553%) | 1,722,520 ns (0.002702%) | 2,110,620 ns (0.003311%) | 63,715,019,520 ns (99.951434%) | 421 ms |
+
+These percentages partition visible productive gaps, not total task duration.
+In particular, much of the profiler-visible wait-task duration overlaps
+productive work on other streams and therefore does not explain a global
+productive gap. The two E4 timings are single-run environment observations,
+not portable performance guarantees. An indexed interval lookup reduced E4
+from 18,009 ms to 640 ms on the larger profile without changing any category,
+boundary, duration, or lineage result.
+
+The production Loop Tree attribution pass conservatively maps only exact
+intersections with disjoint anchor-prelude windows. On
+`AJJGNKPPJMEGGLFA`/device 0 it attributes 65,097,292,403 of
+65,097,292,443 visible-gap nanoseconds; the remaining 40 ns stays explicitly
+device-only. Node hotspot rows aggregate through the existing anchor coverage
+graph and are hierarchical, so parent and child values are not additive.
+
 ## Re-run
 
 ```bash

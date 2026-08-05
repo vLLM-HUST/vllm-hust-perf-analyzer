@@ -1,5 +1,4 @@
 #include <algorithm>
-#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <fstream>
@@ -10,6 +9,8 @@
 #include <vector>
 
 #include "traceloom/adapters/ascend_sqlite_adapter.h"
+#include "traceloom/analysis/idle_explanation.h"
+#include "traceloom/analysis/idle_evidence_pipeline.h"
 #include "traceloom/analysis/idle_evidence_semantic_rules.h"
 #include "traceloom/analysis/productive_timeline.h"
 #include "traceloom/analysis/semantic_task_classifier.h"
@@ -53,7 +54,9 @@ CliOptions parse_args(int argc, char** argv) {
                    "detail; E2 builds the productive timeline and visible "
                    "gaps; E3 builds the per-stream observable state "
                    "timelines with run/device status, stream universe, "
-                   "diagnostic counts, and E3 wall time. A ruleset override "
+                   "diagnostic counts, and E3 wall time; E4 projects "
+                   "device-only explanations with collection completeness "
+                   "conservatively left unknown. A ruleset override "
                    "that fails to load exits non-zero; it never silently "
                    "falls back.\n";
       std::exit(0);
@@ -113,8 +116,9 @@ int main(int argc, char** argv) {
             : load_idle_evidence_semantic_ruleset(
                   options.idle_evidence_rules_path);
 
-    const SemanticTaskClassificationResult result =
-        classify_semantic_tasks(ir, ruleset);
+    const IdleEvidencePipelineResult pipeline =
+        run_idle_evidence_pipeline(ir, ruleset);
+    const SemanticTaskClassificationResult& result = pipeline.classification;
     if (result.rows.size() != ir.tasks.size()) {
       throw std::invalid_argument(
           "classification row count does not match task count");
@@ -215,16 +219,10 @@ int main(int argc, char** argv) {
     }
 
     // ---- E2/E3: productive timeline and per-stream observable states. ----
-    const ProductiveTimelineRunResult timeline =
-        build_productive_timelines(ir, result);
-    const auto e3_begin = std::chrono::steady_clock::now();
-    const StreamStateRunResult streams =
-        build_stream_state_timelines(ir, result, timeline);
-    const auto e3_end = std::chrono::steady_clock::now();
-    const std::int64_t e3_elapsed_ms =
-        std::chrono::duration_cast<std::chrono::milliseconds>(e3_end -
-                                                              e3_begin)
-            .count();
+    const ProductiveTimelineRunResult& timeline = pipeline.productive_timeline;
+    const StreamStateRunResult& streams = pipeline.stream_states;
+    const IdleExplanationRunResult& explanations =
+        pipeline.idle_explanations;
 
     output += "\n## Productive timeline (E2)\n\n";
     output += "- run_status: " +
@@ -251,7 +249,10 @@ int main(int argc, char** argv) {
               std::string(streams.observed_universe_scan_complete ? "true"
                                                                   : "false") +
               "\n";
-    output += "- E3_elapsed_ms: " + std::to_string(e3_elapsed_ms) + "\n";
+    output += "- E3_elapsed_ms: " +
+              std::to_string(static_cast<std::int64_t>(
+                  pipeline.timing.stream_states_ms)) +
+              "\n";
     output += "- peak_rss_kb: " + peak_rss_kb() + "\n";
     std::uint64_t unassigned_op_count = 0;
     for (const CommunicationOpRow& op : ir.communication_ops.rows()) {
@@ -308,6 +309,53 @@ int main(int argc, char** argv) {
     for (const auto& [code, count] : diagnostic_counts) {
       output += "| " + (code.empty() ? "(empty)" : code) + " | " +
                 std::to_string(count) + " |\n";
+    }
+
+    output += "\n## Idle explanation (E4, device-only)\n\n";
+    output += "- run_status: " +
+              std::string(analysis_status_name(explanations.status)) + "\n";
+    output += "- collection_status: " +
+              std::string(collection_status_name(
+                  explanations.collection_status)) +
+              "\n";
+    output += "- attribution_rule_version: " +
+              explanations.attribution_rule_version + "\n";
+    output += "- E4_elapsed_ms: " +
+              std::to_string(static_cast<std::int64_t>(
+                  pipeline.timing.idle_explanations_ms)) +
+              "\n";
+    output +=
+        "- boundary: visible productive idle is not hardware-idle proof; "
+        "direct categories report device-event coverage, not causality.\n";
+    output += "\n| device | category | slices | duration_ns | gap % |\n";
+    output += "| --- | --- | --- | --- | --- |\n";
+    for (const IdleExplanationDeviceResult& device : explanations.devices) {
+      struct CategoryStat {
+        std::uint64_t count = 0;
+        std::int64_t duration_ns = 0;
+      };
+      std::map<IdleExplanationCategory, CategoryStat> stats;
+      std::int64_t gap_duration_ns = 0;
+      for (const IdleExplanationRow& row : device.explanations) {
+        const std::int64_t duration_ns = row.end_ns - row.start_ns;
+        stats[row.category].count += 1;
+        stats[row.category].duration_ns += duration_ns;
+        gap_duration_ns += duration_ns;
+      }
+      for (const auto& [category, stat] : stats) {
+        output += "| " + std::to_string(device.device_id) + " | " +
+                  std::string(idle_explanation_category_name(category)) +
+                  " | " + std::to_string(stat.count) + " | " +
+                  std::to_string(stat.duration_ns) + " | " +
+                  std::to_string(
+                      pct(static_cast<std::uint64_t>(stat.duration_ns),
+                          static_cast<std::uint64_t>(gap_duration_ns))) +
+                  " |\n";
+      }
+      if (stats.empty()) {
+        output += "| " + std::to_string(device.device_id) +
+                  " | (no visible productive idle) | 0 | 0 | 0.000000 |\n";
+      }
     }
 
     if (options.out_path == "-") {
