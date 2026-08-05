@@ -76,3 +76,20 @@ examples/paper_artifacts/tools/benchmark_parallel_scaling.py \
 `verify_parallel_scaling_receipt.py` checks source hashes, every summary and
 speedup calculation, cross-thread Loop Tree identity, the positive stage
 result, and the bounded end-to-end claim.
+
+## Large protected-sequence baseline
+
+`pattern-scaling-preregistration.md` fixes a separate candidate-discovery
+strong-scaling protocol before observation. The corresponding immutable
+`kunpeng920-pattern-scaling-baseline.json` records 90 fresh processes over
+100,000 to 4,000,000 tokens and 1--32 threads. Every count and hash is
+thread-invariant, but the preregistered 4.0x eight-thread scan threshold is not
+reproduced: the largest case reaches 2.348x.
+
+This negative boundary is more informative than polishing the speedup. Nearly
+eight million occurrence rows reduce to only 200 candidate summaries; the
+serial global sort takes 5.87 s versus 0.90 s for one-thread scanning and limits
+the eight-thread scan-plus-reduce result to 1.152x. The frozen outcome and next
+decision are in `pattern-scaling-baseline-outcome.md`. Any local-reduction
+optimization must use a new protocol and receipt rather than replacing the
+baseline.
