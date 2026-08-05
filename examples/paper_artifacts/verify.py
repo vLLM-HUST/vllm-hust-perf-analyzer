@@ -21,6 +21,7 @@ def main() -> int:
     checks = (
         ("exact-interleaved", tools / "verify_ascend_interleaved.py"),
         ("medium-folding", tools / "verify_kickstart_folding.py"),
+        ("workflow-comparison", tools / "verify_workflow_comparison.py"),
     )
     for claim, verifier in checks:
         print(f"[{claim}]", flush=True)

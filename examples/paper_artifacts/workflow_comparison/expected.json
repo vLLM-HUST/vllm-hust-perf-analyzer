@@ -1,0 +1,51 @@
+{
+  "schema_version": "traceloom-workflow-comparison-v1",
+  "profiles": {
+    "stock": {
+      "top_k": [
+        ["aclnnGroupedMatmulV5_GroupedMatmul_GroupedMatmul", 480, 55663840],
+        ["AivKernel", 490, 18038720],
+        ["aclnnMatmul_MatMulCommon_MatMulV2", 725, 11356200]
+      ],
+      "raw_execute_candidates": 4,
+      "repeat_only": {
+        "anchor_count": 5400,
+        "exact_replay_unit_count": 0,
+        "unrecognized_region_count": 4,
+        "root_node_count": 469,
+        "repeat_node_count": 33
+      },
+      "traceloom": {
+        "exact_graph_unit_count": 4,
+        "open_boundary_count": 2,
+        "ordered_units": ["X1", "G1", "U1", "G2", "U2", "G3", "U3", "G4", "X2"],
+        "graph_total_us": [29595.6, 23107.98, 23193.22, 23286.58],
+        "structural_total_us": [183646.64, 2390.62, 2551.38],
+        "source_link_orphan_count": 0
+      }
+    },
+    "fused": {
+      "top_k": [
+        ["DispatchFFNCombineBF16", 240, 120368480],
+        ["AivKernel", 490, 72369060],
+        ["aclnnMatmul_MatMulCommon_MatMulV2", 725, 11543120]
+      ],
+      "raw_execute_candidates": 4,
+      "repeat_only": {
+        "anchor_count": 3674,
+        "exact_replay_unit_count": 0,
+        "unrecognized_region_count": 4,
+        "root_node_count": 395,
+        "repeat_node_count": 35
+      },
+      "traceloom": {
+        "exact_graph_unit_count": 4,
+        "open_boundary_count": 2,
+        "ordered_units": ["X1", "G1", "U1", "G2", "U2", "G3", "U3", "G4", "X2"],
+        "graph_total_us": [30681.4, 28439.34, 23992.02, 24218.22],
+        "structural_total_us": [162387.44, 2258.86, 2294.24],
+        "source_link_orphan_count": 0
+      }
+    }
+  }
+}

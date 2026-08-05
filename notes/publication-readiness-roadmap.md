@@ -59,7 +59,7 @@ but must not displace a failing P0 gate.
 | ID | Priority | Gate | Current state | Completion evidence |
 | --- | --- | --- | --- | --- |
 | R1 | P0 | Neutral interleaved structural units | implemented, real-profile reproduced, and checkout golden verified | analyzer output, goldens, wide composition table |
-| R2 | P0 | Fair workflow comparison | prose only | one fixed question set answered by top-k, timeline/SQL, repeat-only, and TraceLoom |
+| R2 | P0 | Fair workflow comparison | implemented, checkout-verified, and CTest-gated | one fixed question set answered by top-k, timeline/SQL, repeat-only, and TraceLoom |
 | R3 | P0 | Patch/cost-shift case | evidence discovered, paper loop open | correctness, structural delta, cost localization, bounded mechanism wording |
 | R4 | P0 | Raw-row provenance for every central result | mixed checkout/external | one command verifies every central row from immutable input |
 | R5 | P0 | Offline reviewer artifact | two-tier CPU-only ledger implemented and CTest-gated | clean CPU-only checkout reproduces exact and folding contracts |
@@ -134,6 +134,13 @@ Report whether the answer is directly materialized, derivable only through a
 case-specific query, or unavailable. Do not claim that SQL or timelines are
 incapable; the claim is that TraceLoom makes the reusable analysis object
 explicit and auditable.
+
+This comparison is now materialized in
+`notes/workflow-comparison-study.md` and verified from the frozen Tier A pair
+by `examples/paper_artifacts/tools/verify_workflow_comparison.py`. The receipt
+checks top-k and raw candidate queries, a repeat-only capability ablation, the
+complete typed unit sequence, source-link integrity, and the observed opposite
+cost directions inside versus between exact graph units.
 
 ## R3: Patch And Cost-Shift Case
 
@@ -291,7 +298,7 @@ external interpretation, not in TraceLoom's emitted schema.
 1. ~~Implement and golden-test R1.~~ Complete.
 2. ~~Freeze the minimum Ascend Tier A/Tier B artifact set.~~ Complete.
 3. Run the implemented R4-R5 ledger once in a fresh clone and retain the receipt.
-4. Run R2 over the frozen inputs and materialize the comparison table.
+4. ~~Run R2 over the frozen inputs and materialize the comparison table.~~ Complete.
 5. Close R3 with the strongest wording supported by the available ablation.
 6. Measure R6 on the already checked-in kickstart profile.
 7. Integrate the CUDA return from R7 if it passes its evidence gate.

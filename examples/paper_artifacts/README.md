@@ -83,3 +83,13 @@ of the contract.
 `tools/verify_kickstart_folding.py` checks input hashes and privacy, regenerates
 both reports, verifies exact event/anchor/node counts and nested repeats, and
 requires at least 40 anchors and 100 normalized events per rendered node.
+
+## Fixed workflow-comparison receipt
+
+`workflow_comparison/` adds no new capture. It evaluates top-k aggregation,
+direct raw SQL, repeat-only structural compression, and complete TraceLoom over
+the same exact stock/fused pair. Its verifier freezes the directly observed
+answers, including four exact units, the neutral interleaved order, zero
+orphaned source links, and the opposite cost directions inside and between
+graph units. The interpretation and explicit non-claims are recorded in
+`../../notes/workflow-comparison-study.md`.
