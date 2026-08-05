@@ -67,9 +67,15 @@ std::vector<std::string> split_tsv(const std::string& line) {
 }
 
 std::string rule_key(const SignalClassificationRule& rule) {
+  std::string pattern = rule.pattern;
+  if (rule.field == SignalMatchField::kTaskType) {
+    pattern = normalize_task_type(pattern);
+  } else {
+    pattern = lower_ascii(pattern);
+  }
   return rule.source_domain + "\n" + std::to_string(static_cast<int>(rule.field)) +
          "\n" + std::to_string(static_cast<int>(rule.match)) + "\n" +
-         rule.pattern + "\n" + std::to_string(rule.priority);
+         pattern + "\n" + std::to_string(rule.priority);
 }
 
 void validate_rules(const std::vector<SignalClassificationRule>& rules) {
@@ -98,6 +104,9 @@ SignalMatchField parse_field(const std::string& value, std::size_t line) {
   }
   if (value == "blob") {
     return SignalMatchField::kBlob;
+  }
+  if (value == "operator") {
+    return SignalMatchField::kOperator;
   }
   throw std::invalid_argument("unknown signal rule field at line " +
                               std::to_string(line) + ": " + value);
@@ -132,8 +141,11 @@ bool matches(const SignalClassificationRule& rule,
   if (rule.field == SignalMatchField::kTaskType) {
     value = normalize_task_type(input.task_type);
     pattern = normalize_task_type(pattern);
-  } else {
+  } else if (rule.field == SignalMatchField::kBlob) {
     value = lower_ascii(input.blob);
+    pattern = lower_ascii(pattern);
+  } else {
+    value = lower_ascii(input.operator_name);
     pattern = lower_ascii(pattern);
   }
   if (rule.match == SignalMatchKind::kExact) {

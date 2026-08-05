@@ -45,12 +45,15 @@ struct SemanticTaskClassificationInput {
   std::string source_domain;
   std::string task_type;
   std::string blob;
+  std::string operator_name;
 };
 
 struct SemanticTaskMatch {
   SemanticTaskRole role = SemanticTaskRole::kUnknown;
   std::optional<std::string> matched_rule_id;
   std::int32_t matched_priority = 0;
+  std::optional<SignalMatchField> matched_field;
+  std::optional<SignalMatchKind> matched_kind;
 };
 
 class SemanticTaskRuleset {

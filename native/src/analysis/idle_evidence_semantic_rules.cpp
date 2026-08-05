@@ -109,6 +109,9 @@ SignalMatchField parse_field(const std::string& value, std::size_t line) {
   if (value == "blob") {
     return SignalMatchField::kBlob;
   }
+  if (value == "operator") {
+    return SignalMatchField::kOperator;
+  }
   throw std::invalid_argument("unknown idle evidence rule field at line " +
                               std::to_string(line) + ": " + value);
 }
@@ -131,8 +134,11 @@ bool matches(const SemanticTaskRule& rule,
   if (rule.field == SignalMatchField::kTaskType) {
     value = normalize_task_type(input.task_type);
     pattern = normalize_task_type(pattern);
-  } else {
+  } else if (rule.field == SignalMatchField::kBlob) {
     value = lower_ascii(input.blob);
+    pattern = lower_ascii(pattern);
+  } else {
+    value = lower_ascii(input.operator_name);
     pattern = lower_ascii(pattern);
   }
   if (rule.match == SignalMatchKind::kExact) {
@@ -244,6 +250,8 @@ SemanticTaskMatch SemanticTaskRuleset::classify(
       best.role = rule.role;
       best.matched_rule_id = rule.rule_id;
       best.matched_priority = rule.priority;
+      best.matched_field = rule.field;
+      best.matched_kind = rule.match;
       conflict = false;
       continue;
     }

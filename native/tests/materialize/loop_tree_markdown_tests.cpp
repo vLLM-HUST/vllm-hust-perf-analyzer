@@ -36,6 +36,14 @@ int main() {
       {"recognized_complete_pattern", 1},
       {"unrecognized_missing_body_capability", 2},
   };
+  options.has_semantic_operator_coverage = true;
+  options.semantic_rules_version = "semantic-v1";
+  options.unknown_task_count = 7;
+  options.unregistered_operator_occurrence_count = 3;
+  options.unique_unregistered_operator_count = 1;
+  options.unregistered_operators = {
+      {"FutureFusedKernelV1", "AI_CORE", "unknown", "", 3, 12000, 2},
+  };
   options.has_idle_explanation_summary = true;
   options.idle_analysis_status = "ok";
   options.idle_collection_status = "unknown";
@@ -69,6 +77,13 @@ int main() {
           std::string::npos);
   require(markdown.find("| `unrecognized_missing_body_capability` | 2 |") !=
           std::string::npos);
+  require(markdown.find("## Unregistered Operator Audit") !=
+          std::string::npos);
+  require(markdown.find("- unique_unregistered_operators: `1`") !=
+          std::string::npos);
+  require(markdown.find(
+              "| `FutureFusedKernelV1` | `AI_CORE` | `unknown` | `(none)` | 3 | 2 | 12 |") !=
+          std::string::npos);
   require(markdown.find("## Visible Productive Idle Evidence") !=
           std::string::npos);
   require(markdown.find("- collection_status: `unknown`") !=
@@ -93,6 +108,8 @@ int main() {
   require(empty_out.str().find("## ACLGraph Reconstruction") ==
           std::string::npos);
   require(empty_out.str().find("## Visible Productive Idle Evidence") ==
+          std::string::npos);
+  require(empty_out.str().find("## Unregistered Operator Audit") ==
           std::string::npos);
 
   return 0;

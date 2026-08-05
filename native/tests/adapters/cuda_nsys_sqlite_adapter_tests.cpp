@@ -1,5 +1,6 @@
 #include <sqlite3.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -456,6 +457,23 @@ int main(int argc, char** argv) {
             "repeated direct CUDA graph body was not recognized");
   }
   const auto& exact_bodies = graph_exact_ir.graph_launch_bodies.rows();
+  std::size_t expected_body_members = 0;
+  for (const GraphLaunchBodyRow& body : exact_bodies) {
+    expected_body_members +=
+        body.compute_task_count + body.communication_task_count +
+        body.data_move_task_count;
+  }
+  require(graph_exact_ir.graph_launch_body_members.size() ==
+              expected_body_members,
+          "CUDA graph launch body members lost exact child provenance");
+  require(std::any_of(
+              graph_exact_ir.graph_launch_body_members.rows().begin(),
+              graph_exact_ir.graph_launch_body_members.rows().end(),
+              [](const GraphLaunchBodyMemberRow& member) {
+                return member.kind ==
+                       GraphLaunchBodyMemberRow::Kind::kDataMove;
+              }),
+          "CUDA graph launch body members lost memcpy evidence");
   require(exact_bodies[0].replay_body_template_id ==
                   exact_bodies[2].replay_body_template_id &&
               exact_bodies[0].replay_body_template_id ==

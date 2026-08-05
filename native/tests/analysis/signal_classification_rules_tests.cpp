@@ -17,6 +17,9 @@ int main() {
           SignalRole::kAnchor);
   require(defaults.classify({"task", "CUDA_KERNEL", "unknown_kernel"}) ==
           SignalRole::kAnchor);
+  require(defaults.classify({"task", "AI_CORE", "DispatchFFNCombineBF16",
+                             "DispatchFFNCombineBF16"}) ==
+          SignalRole::kAnchor);
   require(defaults.classify({"task", "EVENT_WAIT", "event_wait"}) ==
           SignalRole::kIgnore);
   require(!defaults.classify({"task", "UNKNOWN", "unknown"}).has_value());

@@ -42,6 +42,7 @@ struct NativeIr {
   GraphLaunchActivityMemberTable graph_launch_activity_members;
   ReplayBodyTemplateTable replay_body_templates;
   GraphLaunchBodyTable graph_launch_bodies;
+  GraphLaunchBodyMemberTable graph_launch_body_members;
   ReplayCompositionCandidateTable replay_composition_candidates;
   ReplayCompositionSlotTable replay_composition_slots;
   ReplayCompositionRegionTable replay_composition_regions;

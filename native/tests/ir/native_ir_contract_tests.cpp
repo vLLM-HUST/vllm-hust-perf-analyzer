@@ -192,6 +192,16 @@ int main() {
           body_template0);
   require(graph_launch_bodies.row(launch_body0).stream_count == 1);
 
+  GraphLaunchBodyMemberTable graph_launch_body_members;
+  const GraphLaunchBodyMemberId launch_body_member0 =
+      graph_launch_body_members.append(
+          launch_body0, task0, 0, 0,
+          GraphLaunchBodyMemberRow::Kind::kCompute);
+  require(launch_body_member0.valid());
+  require(graph_launch_body_members.row(launch_body_member0).task_id == task0);
+  require(graph_launch_body_members.row(launch_body_member0).kind ==
+          GraphLaunchBodyMemberRow::Kind::kCompute);
+
   GraphLaunchActivityTable graph_launch_activities;
   const GraphLaunchActivityId activity0 = graph_launch_activities.append(
       source0, 123, 50, 51, 52, SymbolId(24), 90, 170, 1, 1,

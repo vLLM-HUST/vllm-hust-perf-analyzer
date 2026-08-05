@@ -80,6 +80,9 @@ int main() {
   const SymbolId memcpy_symbol = filtered.symbols.intern("MEMCPY_ASYNC");
   const SymbolId maintenance_symbol =
       filtered.symbols.intern("MODEL_MAINTAINCE");
+  const SymbolId unknown_kernel_symbol =
+      filtered.symbols.intern("FutureFusedKernelV1");
+  const SymbolId filtered_ai_core = filtered.symbols.intern("AI_CORE");
   const TraceEventId skipped_task_event = filtered.trace_events.append(
       filtered_task_source, 201, 0, 3, 0, 10, skip_symbol);
   const TraceEventId covered_task_event = filtered.trace_events.append(
@@ -92,6 +95,8 @@ int main() {
       filtered_task_source, 205, 0, 3, 80, 90, memcpy_symbol);
   const TraceEventId maintenance_task_event = filtered.trace_events.append(
       filtered_task_source, 206, 0, 3, 100, 110, maintenance_symbol);
+  const TraceEventId unknown_task_event = filtered.trace_events.append(
+      filtered_task_source, 207, 0, 3, 120, 130, unknown_kernel_symbol);
   const TraceEventId filtered_comm_event = filtered.trace_events.append(
       filtered_comm_source, 1, 0, 3, 18, 32, comm_symbol);
   filtered.tasks.append(filtered_task_source, skipped_task_event, 21, 9201,
@@ -116,6 +121,10 @@ int main() {
                         805, maintenance_symbol, SymbolId::invalid(),
                         SymbolId::invalid(), SymbolId::invalid(),
                         SymbolId::invalid());
+  filtered.tasks.append(filtered_task_source, unknown_task_event, 27, 9207,
+                        806, filtered_ai_core, SymbolId::invalid(),
+                        unknown_kernel_symbol, SymbolId::invalid(),
+                        SymbolId::invalid());
   filtered.communication_ops.append(filtered_comm_source, filtered_comm_event,
                                     801, 66, 1, 1, comm_symbol);
   FlatAnchorBuildConfig filter_config;
@@ -125,13 +134,16 @@ int main() {
   const FlatAnchorBuildStats filtered_stats =
       build_flat_anchors(filtered, filter_config);
   require(filtered_stats.skipped_task_events == 5);
-  require(filtered_stats.device_event_anchors == 1);
+  require(filtered_stats.preserved_unclassified_task_events == 1);
+  require(filtered_stats.device_event_anchors == 2);
   require(filtered_stats.communication_anchors == 1);
-  require(filtered.tokens.size() == 2);
+  require(filtered.tokens.size() == 3);
   require(filtered.anchors.row(AnchorId(0)).kind == AnchorKind::kCommunication);
   require(filtered.anchors.row(AnchorId(0)).symbol_id ==
           filtered.symbols.intern("AllReduce"));
   require(filtered.anchors.row(AnchorId(1)).trace_event_id == kept_task_event);
+  require(filtered.anchors.row(AnchorId(2)).trace_event_id ==
+          unknown_task_event);
 
   NativeIr normalized_comm;
   const SourceRefId normalized_comm_source =

@@ -27,6 +27,13 @@ turn empty observed streams into an absence claim without external capture
 completeness evidence. These values describe gaps in visible productive work;
 they are not proof of hardware idleness or causality.
 
+The default Ascend report's `Unregistered Operator Audit` is the fail-open
+counterpart: it lists concrete raw operator identities without an exact
+operator rule, prioritizing operators observed inside graph bodies. Fuzzy
+family matches retain their useful semantic role but remain on this list; they
+do not silently turn a new raw name into a fully known operator. A nonempty
+table is an explicit analysis-coverage warning, not profiler noise to discard.
+
 This section is intentionally separate from the tree's compatibility
 `idle_us` cost. The latter is the residual in an anchor's prelude cost packet;
 the former is a device-global productive-gap partition and may include visible
@@ -55,6 +62,24 @@ Use `traceloom --help-advanced` for non-default outputs:
 Only one output may target stdout at a time, and explicit output paths require
 a single input database.
 
+Native JSON also carries two audit surfaces for graph-heavy comparisons:
+
+- `graph_launch_body_members` retains every observed body task with launch,
+  lane/order, raw operator, source row, interval, task kind, and (where a
+  provider taxonomy is validated) semantic rule lineage;
+- `graph_body_cost_summary` reports per-occurrence scheduled-task sum,
+  cross-stream busy union, observed envelope, compute/communication/data-move
+  components, plus all-body and exact-ReplayUnit distributions. Unequal exact
+  occurrence counts are evidence, not a schema error; consumers compare
+  distributions rather than pairing occurrences by index.
+
+For Ascend, `semantic_operator_coverage` lists concrete operator identities
+without exact identity registration, including their fuzzy family rule and how
+often they occur inside graph bodies. Structural filtering is fail-open for
+such operator rows: only an explicit ignore rule may remove one from the anchor
+sequence. This deliberately prefers a noisy sequence over silently losing a
+newly introduced kernel.
+
 Native JSON also emits `replay_internal_cost_map`, the replay-internal
 query surface: ReplayUnit -> ordered launch/composition slots -> body
 template -> per-stream ordered members -> fine-grained costs and provenance.
@@ -65,6 +90,7 @@ slot id/`slot_order` as the drill-down contract), the cost-lens boundaries
 (kind sums partition scheduled `task_sum` but are not an additive wall-clock
 decomposition), scheduled-work-share denominators, and the fail-closed
 support/reason model.
+
 
 
 The checked-in SQL audit surfaces are:

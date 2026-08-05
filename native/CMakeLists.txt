@@ -16,6 +16,7 @@ add_library(traceloom_native_core
   src/analysis/audit_report.cpp
   src/analysis/exact_periodic_suffix.cpp
   src/analysis/flat_anchor_builder.cpp
+  src/analysis/graph_body_cost_summary.cpp
   src/analysis/idle_explanation.cpp
   src/analysis/idle_evidence_pipeline.cpp
   src/analysis/idle_evidence_semantic_rules.cpp
@@ -449,7 +450,19 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     COMMAND traceloom_native_semantic_task_classifier_tests
   )
 
-  add_executable(traceloom_native_replay_internal_cost_map_tests
+  add_executable(traceloom_native_graph_body_cost_summary_tests
+    tests/analysis/graph_body_cost_summary_tests.cpp
+  )
+  target_link_libraries(
+    traceloom_native_graph_body_cost_summary_tests PRIVATE
+    traceloom_native_core
+  )
+  add_test(
+    NAME traceloom_native_graph_body_cost_summary_tests
+    COMMAND traceloom_native_graph_body_cost_summary_tests
+  )
+
+add_executable(traceloom_native_replay_internal_cost_map_tests
     tests/analysis/replay_internal_cost_map_tests.cpp
   )
   target_link_libraries(
@@ -460,6 +473,7 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     NAME traceloom_native_replay_internal_cost_map_tests
     COMMAND traceloom_native_replay_internal_cost_map_tests
   )
+
 
 
   add_executable(traceloom_native_sha256_tests

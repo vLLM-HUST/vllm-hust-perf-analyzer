@@ -207,9 +207,16 @@ SymbolId choose_task_anchor_symbol(NativeIr& ir, const TaskRow& task) {
   return normalize_compute_symbol(ir, symbol);
 }
 
-bool is_semantic_anchor_task(const NativeIr& ir,
-                             const TaskRow& task,
-                             const SignalClassificationRuleset& rules) {
+bool has_concrete_operator_identity(const TaskRow& task) {
+  return task.op_name_symbol_id.valid() || task.op_type_symbol_id.valid() ||
+         task.compute_task_type_symbol_id.valid() ||
+         task.comm_name_symbol_id.valid();
+}
+
+std::optional<SignalRole> classify_structural_task(
+    const NativeIr& ir,
+    const TaskRow& task,
+    const SignalClassificationRuleset& rules) {
   const std::string task_type =
       normalize_task_key(symbol_text(ir, task.task_type_symbol_id));
   const std::string label = symbol_text(ir, choose_task_symbol(task));
@@ -219,9 +226,18 @@ bool is_semantic_anchor_task(const NativeIr& ir,
       symbol_text(ir, task.compute_task_type_symbol_id) + " " +
       symbol_text(ir, task.task_type_symbol_id));
 
-  const std::optional<SignalRole> role =
-      rules.classify(SignalClassificationInput{"task", task_type, blob});
-  return role.has_value() && *role == SignalRole::kAnchor;
+  // AI_CORE is a generic execution container in older CANN schemas, but a
+  // row carrying a concrete op identity is not merely that container. Let
+  // explicit blob rules classify it, and preserve it when no rule knows the
+  // operator. This prevents the broad AI_CORE noise rule from erasing new
+  // kernels before the ruleset has learned their names.
+  const bool has_concrete_operator = has_concrete_operator_identity(task);
+  const std::string classifiable_task_type =
+      has_concrete_operator && task_type == "AI_CORE" ? std::string()
+                                                       : task_type;
+  return rules.classify(
+      SignalClassificationInput{"task", classifiable_task_type, blob,
+                                label});
 }
 
 void validate_task_trace_event_refs(const TaskTable& tasks,
@@ -442,10 +458,26 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
       ++stats.skipped_task_events;
       continue;
     }
-    if (config.filter_auxiliary_task_anchors &&
-        !is_semantic_anchor_task(ir, task, config.classification_rules)) {
-      ++stats.skipped_task_events;
-      continue;
+    if (config.filter_auxiliary_task_anchors) {
+      const std::optional<SignalRole> role =
+          classify_structural_task(ir, task, config.classification_rules);
+      if (role.has_value() && *role == SignalRole::kIgnore) {
+        ++stats.skipped_task_events;
+        continue;
+      }
+      if (!role.has_value()) {
+        if (has_concrete_operator_identity(task)) {
+          // Noise filtering is deliberately positive-selection for operator
+          // rows: only an explicit ignore rule may remove one. Unknown work
+          // stays in the sequence so a new operator cannot disappear as
+          // "noise". Rows without any operator identity remain auxiliary
+          // task records rather than sequence features.
+          ++stats.preserved_unclassified_task_events;
+        } else {
+          ++stats.skipped_task_events;
+          continue;
+        }
+      }
     }
     if (comm_event_ids.find(task.trace_event_id.value()) !=
         comm_event_ids.end()) {

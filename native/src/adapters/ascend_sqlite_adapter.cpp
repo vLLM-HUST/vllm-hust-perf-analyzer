@@ -489,8 +489,23 @@ std::string symbol_value_or_empty(const NativeIr& ir, SymbolId id) {
   return id.valid() ? ir.symbols.value(id) : std::string();
 }
 
+bool graph_body_task_is_communication(const TaskRow& task) {
+  // Some CANN schemas populate compute-looking op columns on HCCL task rows.
+  // Communication provenance is the stronger signal and must win so body
+  // topology and cost accounting do not silently classify collectives as
+  // compute.
+  return task.comm_name_symbol_id.valid() ||
+         task.communication_task_type_symbol_id.valid();
+}
+
 std::string graph_body_family(const std::string& label) {
   const std::string low = lower_ascii(label);
+  if (low.find("dispatchffncombine") != std::string::npos ||
+      (low.find("dispatch") != std::string::npos &&
+       low.find("ffn") != std::string::npos &&
+       low.find("combine") != std::string::npos)) {
+    return "moe_fused";
+  }
   if (low.find("matmul") != std::string::npos ||
       low.find("gemm") != std::string::npos) {
     return "matmul";
@@ -592,6 +607,9 @@ std::string canonical_graph_body_label(const std::string& family,
   }
   if (family == "rope") {
     return "Rope";
+  }
+  if (family == "moe_fused") {
+    return "MoeDispatchFFNCombine";
   }
   if (family == "index") {
     return "Index";
@@ -2469,9 +2487,7 @@ std::set<GraphLaunchOccurrenceId> materialize_graph_launch_bodies(
       for (const GraphTaskView* row : stream_body.tasks) {
         const TaskRow& task = *row->task;
         const bool is_communication =
-            !task.op_type_symbol_id.valid() &&
-            !task.op_name_symbol_id.valid() &&
-            task.comm_name_symbol_id.valid();
+            graph_body_task_is_communication(task);
         std::string op;
         if (is_communication) {
           op = ir.symbols.value(task.comm_name_symbol_id);
@@ -2560,9 +2576,7 @@ std::set<GraphLaunchOccurrenceId> materialize_graph_launch_bodies(
         static_cast<std::uint32_t>(std::count_if(
             body_tasks.begin(), body_tasks.end(),
             [](const GraphTaskView* row) {
-              return !row->task->op_type_symbol_id.valid() &&
-                     !row->task->op_name_symbol_id.valid() &&
-                     row->task->comm_name_symbol_id.valid();
+              return graph_body_task_is_communication(*row->task);
             }));
     const std::uint32_t compute_task_count =
         static_cast<std::uint32_t>(body_tasks.size()) -
@@ -2580,11 +2594,26 @@ std::set<GraphLaunchOccurrenceId> materialize_graph_launch_bodies(
     } else {
       template_id = existing->second;
     }
-    ir.graph_launch_bodies.append(
+    const GraphLaunchBodyId body_id = ir.graph_launch_bodies.append(
         launch.id, template_id, body_tasks.front()->task->id,
         body_tasks.back()->task->id,
         compute_task_count, communication_task_count,
         static_cast<std::uint32_t>(stream_bodies.size()));
+    for (std::size_t lane = 0; lane < stream_bodies.size(); ++lane) {
+      const StreamBody& stream_body = stream_bodies[lane];
+      for (std::size_t task_ordinal = 0;
+           task_ordinal < stream_body.tasks.size(); ++task_ordinal) {
+        const TaskRow& task = *stream_body.tasks[task_ordinal]->task;
+        const bool is_communication =
+            graph_body_task_is_communication(task);
+        ir.graph_launch_body_members.append(
+            body_id, task.id, static_cast<std::uint32_t>(lane),
+            static_cast<std::uint32_t>(task_ordinal),
+            is_communication
+                ? GraphLaunchBodyMemberRow::Kind::kCommunication
+                : GraphLaunchBodyMemberRow::Kind::kCompute);
+      }
+    }
   }
   return missing_body_capability_launches;
 }

@@ -1023,6 +1023,15 @@ int main() {
               body0.stream_count == 2 && body1.stream_count == 1 &&
               body2.stream_count == 2,
           "graph launch body compute task counts mismatch");
+  require(launch_identity_ir.graph_launch_body_members.size() == 5,
+          "graph launch body members lost exact task provenance");
+  require(launch_identity_ir.graph_launch_body_members
+                  .row(GraphLaunchBodyMemberId(0))
+                  .graph_launch_body_id == body0.id &&
+              launch_identity_ir.graph_launch_body_members
+                      .row(GraphLaunchBodyMemberId(0))
+                      .lane_ordinal == 0,
+          "graph launch body member linkage mismatch");
   require(launch_identity_ir.replay_body_templates
                   .row(body0.replay_body_template_id)
                   .topology_policy ==
@@ -1321,10 +1330,11 @@ int main() {
   exact_anchor_config.skip_events_covered_by_replay_units = true;
   const FlatAnchorBuildStats exact_anchor_stats =
       build_flat_anchors(exact_hlt_ir, exact_anchor_config);
-  require(exact_anchor_stats.device_event_anchors == 12 &&
+  require(exact_anchor_stats.device_event_anchors == 16 &&
               exact_anchor_stats.communication_anchors == 0 &&
+              exact_anchor_stats.preserved_unclassified_task_events == 4 &&
               exact_hlt_ir.protected_intervals.size() == 4,
-          "exact HLT projection did not preserve its complete units");
+          "exact HLT projection did not preserve complete units and unknown operators");
   std::size_t head_anchors = 0;
   std::size_t layer_anchors = 0;
   std::size_t tail_anchors = 0;
@@ -1348,7 +1358,7 @@ int main() {
     }
   }
   require(head_anchors == 4 && layer_anchors == 4 && tail_anchors == 4 &&
-              raw_anchors == 0,
+              raw_anchors == 4,
           "exact HLT anchor roles mismatch");
   for (std::size_t index = 0;
        index < exact_hlt_ir.protected_intervals.size(); ++index) {
@@ -1357,7 +1367,7 @@ int main() {
     require(interval.first_token_id.value() == index * 3 &&
                 interval.last_token_id.value() == index * 3 + 2 &&
                 interval.boundary_policy == BoundaryPolicy::kNoCross,
-            "exact HLT protected interval is not one full H/L/T unit");
+            "unknown operator was folded into an exact H/L/T interval");
   }
 
   const std::filesystem::path missing_body_dir =

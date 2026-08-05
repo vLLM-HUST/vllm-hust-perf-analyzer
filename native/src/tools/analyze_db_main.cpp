@@ -568,25 +568,40 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
     sidecar_options.timing_diagnostics = cli.timings;
 
     std::optional<traceloom::IdleEvidencePipelineResult> idle_pipeline;
-    if (!is_cuda && !is_hygon &&
-        (!cli.compat_sidecar_out_path.empty() || cli.loop_tree_out_path_set)) {
-      const Stopwatch idle_evidence_watch;
-      const traceloom::SemanticTaskRuleset idle_ruleset =
+    std::optional<traceloom::SemanticTaskClassificationResult>
+        semantic_classification;
+    std::optional<traceloom::SemanticTaskRuleset> idle_ruleset;
+    if (!is_cuda && !is_hygon) {
+      idle_ruleset.emplace(
           cli.idle_evidence_rules_path.empty()
               ? traceloom::load_default_idle_evidence_semantic_ruleset(
                     cli.executable_path)
               : traceloom::load_idle_evidence_semantic_ruleset(
-                    cli.idle_evidence_rules_path);
+                    cli.idle_evidence_rules_path));
+    }
+    if (!is_cuda && !is_hygon &&
+        (!cli.compat_sidecar_out_path.empty() || cli.loop_tree_out_path_set)) {
+      const Stopwatch idle_evidence_watch;
       // Trace contents cannot attest collection completeness. The main CLI
       // keeps the default kUnknown and never upgrades observed emptiness into
       // an absence claim without external collection evidence.
       idle_pipeline.emplace(
-          traceloom::run_idle_evidence_pipeline(ir, idle_ruleset));
+          traceloom::run_idle_evidence_pipeline(ir, *idle_ruleset));
       if (cli.timings) {
         std::cerr << "timing idle_evidence_pipeline_ms="
                   << idle_evidence_watch.elapsed_ms() << "\n";
       }
+    } else if (idle_ruleset.has_value() && !report_only) {
+      semantic_classification.emplace(
+          traceloom::classify_semantic_tasks(ir, *idle_ruleset));
     }
+
+    json_options.semantic_task_classification =
+        idle_pipeline.has_value()
+            ? &idle_pipeline->classification
+            : (semantic_classification.has_value()
+                   ? &*semantic_classification
+                   : nullptr);
 
     if (!cli.compat_sidecar_out_path.empty()) {
       const Stopwatch sidecar_watch;
@@ -667,6 +682,45 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
         if (!idle_pipeline.has_value()) {
           throw std::logic_error(
               "Ascend Loop Tree idle evidence pipeline was not prepared");
+        }
+        const traceloom::SemanticOperatorCoverageSummary operator_coverage =
+            traceloom::summarize_semantic_operator_coverage(
+                ir, idle_pipeline->classification);
+        markdown_options.has_semantic_operator_coverage = true;
+        markdown_options.semantic_rules_version =
+            idle_pipeline->classification.semantic_rules_version;
+        markdown_options.unknown_task_count =
+            operator_coverage.unknown_task_count;
+        markdown_options.unregistered_operator_occurrence_count =
+            operator_coverage.unregistered_operator_occurrence_count;
+        markdown_options.unique_unregistered_operator_count =
+            operator_coverage.unregistered_operators.size();
+        markdown_options.unregistered_operators =
+            operator_coverage.unregistered_operators;
+        std::stable_sort(
+            markdown_options.unregistered_operators.begin(),
+            markdown_options.unregistered_operators.end(),
+            [](const traceloom::UnregisteredOperatorSummaryRow& lhs,
+               const traceloom::UnregisteredOperatorSummaryRow& rhs) {
+              if ((lhs.graph_body_member_count != 0) !=
+                  (rhs.graph_body_member_count != 0)) {
+                return lhs.graph_body_member_count != 0;
+              }
+              if (lhs.graph_body_member_count !=
+                  rhs.graph_body_member_count) {
+                return lhs.graph_body_member_count >
+                       rhs.graph_body_member_count;
+              }
+              if (lhs.occurrence_count != rhs.occurrence_count) {
+                return lhs.occurrence_count > rhs.occurrence_count;
+              }
+              return lhs.operator_name < rhs.operator_name;
+            });
+        constexpr std::size_t kUnregisteredOperatorLimit = 20;
+        if (markdown_options.unregistered_operators.size() >
+            kUnregisteredOperatorLimit) {
+          markdown_options.unregistered_operators.resize(
+              kUnregisteredOperatorLimit);
         }
         const traceloom::IdleExplanationRunResult& idle_explanations =
             idle_pipeline->idle_explanations;

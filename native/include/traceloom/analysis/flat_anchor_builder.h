@@ -23,6 +23,7 @@ struct FlatAnchorBuildStats {
   std::size_t device_event_anchors = 0;
   std::size_t communication_anchors = 0;
   std::size_t skipped_task_events = 0;
+  std::size_t preserved_unclassified_task_events = 0;
   std::size_t tokens = 0;
 };
 

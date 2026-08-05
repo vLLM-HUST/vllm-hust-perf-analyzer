@@ -316,6 +316,36 @@ void write_loop_tree_markdown(std::ostream& out,
     }
   }
 
+  if (options.has_semantic_operator_coverage) {
+    out << "\n## Unregistered Operator Audit\n\n";
+    out << "- semantic_rules_version: `" << options.semantic_rules_version
+        << "`\n";
+    out << "- unknown_task_count: `" << options.unknown_task_count << "`\n";
+    out << "- unregistered_operator_occurrences: `"
+        << options.unregistered_operator_occurrence_count << "`\n";
+    out << "- unique_unregistered_operators: `"
+        << options.unique_unregistered_operator_count << "`\n";
+    out << "- policy: only an exact operator-identity rule marks a raw name "
+           "registered; fuzzy family matches remain visible here; only "
+           "explicit ignore rules may filter concrete operators\n\n";
+    out << "| Operator | Task type | Semantic role | Rule | Occurrences | In "
+           "graph bodies | Total (us) |\n";
+    out << "| --- | --- | --- | --- | ---: | ---: | ---: |\n";
+    for (const UnregisteredOperatorSummaryRow& row :
+         options.unregistered_operators) {
+      out << "| `" << row.operator_name << "` | `" << row.task_type
+          << "` | `" << row.semantic_role << "` | `"
+          << (row.matched_rule_id.empty() ? "(none)" : row.matched_rule_id)
+          << "` | " << row.occurrence_count << " | "
+          << row.graph_body_member_count << " | "
+          << fmt(static_cast<double>(row.total_duration_ns) / 1000.0)
+          << " |\n";
+    }
+    if (options.unregistered_operators.empty()) {
+      out << "| `(none)` |  |  |  | 0 | 0 | 0.000 |\n";
+    }
+  }
+
   if (options.has_idle_explanation_summary) {
     const double direct_pct =
         options.visible_productive_idle_ns == 0

@@ -35,7 +35,7 @@ int main() {
   const auto classify = [&defaults](const std::string& task_type,
                                     const std::string& blob) {
     return defaults.classify(
-        SemanticTaskClassificationInput{"task", task_type, blob});
+        SemanticTaskClassificationInput{"task", task_type, blob, blob});
   };
 
   require(classify("EVENT_WAIT", "event_wait").role ==
@@ -77,6 +77,15 @@ int main() {
   require(classify("AI_CORE", "MatMulV2").role ==
               SemanticTaskRole::kProductiveCompute,
           "MatMul blob -> productive_compute");
+  const SemanticTaskMatch fused_moe =
+      classify("AI_CORE", "DispatchFFNCombineBF16");
+  require(fused_moe.role == SemanticTaskRole::kProductiveCompute &&
+              fused_moe.matched_rule_id.has_value() &&
+              *fused_moe.matched_rule_id ==
+                  "compute.dispatch_ffn_combine" &&
+              fused_moe.matched_field == SignalMatchField::kOperator &&
+              fused_moe.matched_kind == SignalMatchKind::kExact,
+          "fused MoE kernel uses its dedicated semantic rule");
   require(classify("AI_CORE", "allreduce").role ==
               SemanticTaskRole::kProductiveComm,
           "allreduce blob -> productive_comm");
@@ -257,8 +266,10 @@ int main() {
     probe.source_domain = "task";
     if (rule.field == SignalMatchField::kTaskType) {
       probe.task_type = rule.pattern;
-    } else {
+    } else if (rule.field == SignalMatchField::kBlob) {
       probe.blob = rule.pattern;
+    } else {
+      probe.operator_name = rule.pattern;
     }
     const SemanticTaskMatch hit = defaults.classify(probe);
     require(hit.matched_rule_id.has_value(),

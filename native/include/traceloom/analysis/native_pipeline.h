@@ -45,6 +45,7 @@ struct NativePipelineStats {
   std::size_t graph_launch_unmatched_count = 0;
   std::size_t replay_body_template_count = 0;
   std::size_t graph_launch_body_count = 0;
+  std::size_t graph_launch_body_member_count = 0;
   std::size_t graph_launch_activity_count = 0;
   std::size_t graph_launch_activity_member_count = 0;
   std::size_t graph_launch_activity_host_sync_count = 0;
