@@ -21,6 +21,22 @@ int main() {
   root.total_us = 10.0;
   root.avg_total_us = 10.0;
   rows.nodes.push_back(root);
+  compat::StructuralUnitSqlRow structural_unit;
+  structural_unit.unit_id = "U1";
+  structural_unit.unit_order = 0;
+  structural_unit.family_id = "UF1";
+  structural_unit.kind = "structural_unit";
+  structural_unit.run_count = 1;
+  structural_unit.body_fingerprint = "H1234";
+  structural_unit.anchor_count = 42;
+  structural_unit.shape_signature = "unavailable";
+  structural_unit.span_us = 208410.0;
+  structural_unit.total_us = 207000.0;
+  structural_unit.evidence_status = "complete";
+  structural_unit.expansion_nodes =
+      "node-N001#1,node-N002#1,node-N003#1,node-N004#1,node-N005#1,"
+      "node-N006#1,node-N007#1";
+  rows.structural_units.push_back(structural_unit);
 
   LoopTreeMarkdownOptions options;
   options.source_kind = "ascend_sqlite_hot_path";
@@ -78,6 +94,11 @@ int main() {
           std::string::npos);
   require(markdown.find("| `unrecognized_missing_body_capability` | 2 |") !=
           std::string::npos);
+  require(markdown.find("## Structural Composition") != std::string::npos);
+  require(markdown.find(
+              "| 0 | `U1` | `structural_unit` | 1 | `UF1` | `H1234` | 42 | `unavailable` | 208410 | 207000 | `complete` | `node-N001#1,node-N002#1,node-N003#1,node-N004#1,node-N005#1,node-N006#1,...(+1)` |") !=
+          std::string::npos);
+  require(markdown.find("not a workload phase") != std::string::npos);
   require(markdown.find("## Unregistered Operator Audit") !=
           std::string::npos);
   require(markdown.find("- unique_unregistered_operators: `1`") !=

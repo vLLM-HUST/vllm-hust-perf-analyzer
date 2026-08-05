@@ -168,35 +168,35 @@ status explicitly; it must not be read as hardware-idle or causal evidence.
 Do not assume that time between two graph units is idle or overhead. A serving,
 training, or pipeline trace may interleave protected graph replays with large
 productive sequences that are not graph replays. TraceLoom keeps those tasks in
-the global structure and compresses their internal repetition. In the current
-report, inspect the root sequence for `graph_unit` nodes separated by nonempty
-`Seq`/`Repeat` structures; the graph-reconstruction count alone is not the full
-execution timeline.
+the global structure and compresses their internal repetition. The report's
+`Structural Composition` table is the highest-level ordered map; expand its
+Loop Tree handles when the graph-reconstruction count alone does not explain
+the full execution timeline.
 
-A useful first-pass review transcribes that highest-level composition into a
-wide table. The neutral `structural_unit` wrapper below is the planned
-reader-facing promotion; current reports may show the same body expanded as a
-sequence containing `Repeat x47`:
+A useful first-pass review starts from the emitted wide table:
 
-| order | node | kind | run | structural fingerprint | task count | shape signature | total_us | evidence |
-| ---: | --- | --- | ---: | --- | ---: | --- | ---: | --- |
-| 0 | `G1` | `graph_unit` | 1 | `graph:T1/body:B1` | 1024 | `S-graph-1` | measured | `exact` |
-| 1 | `U7` | `structural_unit` | 1 | `H7 (contains Repeat x47)` | 2106 | `S471` | measured | `complete` |
-| 2 | `G1` | `graph_unit` | 3 | `graph:T1/body:B1` | 1024 each | `S-graph-1` | measured | `exact` |
-| 3 | `U8` | `structural_unit` | 1 | `H8 (contains Repeat x47)` | 2105 | `S472` | measured | `complete` |
+| order | unit | kind | run | family | fingerprint | anchors | shape | total_us | evidence | expansion |
+| ---: | --- | --- | ---: | --- | --- | ---: | --- | ---: | --- | --- |
+| 0 | `X1` | `unrecognized` | 1 | `XF1` | `H...` | observed | `unavailable` | measured | `unrecognized_open_prefix` | `node-N002#1,...` |
+| 1 | `G1` | `graph_unit` | 1 | `GF1` | `H...` | 1 | `unavailable` | measured | `exact` | `node-N1360#1` |
+| 2 | `U1` | `structural_unit` | 1 | `UF1` | `H...` | 1186 | `unavailable` | measured | `complete` | `node-N1362#1,...` |
+
+`anchors` counts the projected productive anchors owned by the unit. An exact
+graph unit may therefore be one protected anchor whose graph-body tasks remain
+available through the graph evidence tables and Loop Tree drill-down.
 
 This is an observation format, not a workload-semantic classifier. TraceLoom
 may report profiler-native graph identity, concrete operators, raw shapes,
 cardinality, timing, repetition, and provenance. It does not decide that `G1`
-is a decode phase, that `U7` is a prefill phase, or that either node caused an
+is a decode phase, that `U1` is a prefill phase, or that either node caused an
 end-to-end change.
 
-Use the Loop Tree and evidence database together: expand `U7`, verify its
+Use the Loop Tree and evidence database together: expand `U1`, verify its
 `Repeat x47` body and source rows, then combine those observations with external
 workload metadata. A human or agent can supply and test the interpretation while
 keeping it visibly separate from TraceLoom's recovered structure. See
 [`notes/interleaved-structural-units-milestone.md`](notes/interleaved-structural-units-milestone.md)
-for the motivating case and implementation TODO.
+for the motivating case and current implementation status.
 
 ## Checked-In Kickstart Profile
 

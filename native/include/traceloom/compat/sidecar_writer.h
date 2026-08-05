@@ -207,18 +207,61 @@ struct LoopNodeSqlRow {
   std::string raw_json;
 };
 
+struct StructuralUnitSqlRow {
+  std::string unit_id;
+  std::uint32_t db_idx = 0;
+  std::uint32_t device_id = 0;
+  std::uint32_t unit_order = 0;
+  std::string family_id;
+  std::string kind;
+  std::uint32_t run_count = 1;
+  std::string body_fingerprint;
+  std::uint32_t token_start_ordinal = 0;
+  std::uint32_t token_end_ordinal = 0;
+  std::uint32_t first_anchor_idx = 0;
+  std::uint32_t last_anchor_idx = 0;
+  std::uint32_t anchor_count = 0;
+  std::int64_t start_ns = 0;
+  std::int64_t end_ns = 0;
+  double span_us = 0.0;
+  double compute_us = 0.0;
+  double comm_us = 0.0;
+  double idle_us = 0.0;
+  double total_us = 0.0;
+  double aux_events = 0.0;
+  double aux_us = 0.0;
+  std::string evidence_status;
+  std::string boundary_policy;
+  std::string expansion_nodes;
+  std::string shape_signature;
+  std::string raw_json;
+};
+
+struct StructuralUnitAnchorSqlRow {
+  std::string unit_id;
+  std::string anchor_id;
+  std::uint32_t db_idx = 0;
+  std::uint32_t device_id = 0;
+  std::uint32_t anchor_order = 0;
+  std::string membership_role = "observed_member";
+};
+
 struct NodeCoverageSqlRows {
   std::vector<VizNodeSqlRow> nodes;
   std::vector<VizEdgeSqlRow> edges;
   std::vector<VizNodeAnchorSqlRow> node_anchors;
   std::vector<AnchorPrimaryNodeSqlRow> anchor_primary_nodes;
   std::vector<LoopNodeSqlRow> loop_nodes;
+  std::vector<StructuralUnitSqlRow> structural_units;
+  std::vector<StructuralUnitAnchorSqlRow> structural_unit_anchors;
 };
 
 struct LoopTreeSqlRows {
   std::vector<VizNodeSqlRow> nodes;
   std::vector<VizEdgeSqlRow> edges;
   std::vector<LoopNodeSqlRow> loop_nodes;
+  std::vector<StructuralUnitSqlRow> structural_units;
+  std::vector<StructuralUnitAnchorSqlRow> structural_unit_anchors;
 };
 
 struct NodeAnchorCoverageSqlRows {

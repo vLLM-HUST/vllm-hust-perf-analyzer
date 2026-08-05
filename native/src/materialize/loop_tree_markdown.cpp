@@ -14,6 +14,32 @@
 namespace traceloom {
 namespace {
 
+std::string summarize_expansion_nodes(const std::string& nodes) {
+  constexpr std::size_t kVisibleNodeLimit = 6;
+  if (nodes.empty()) {
+    return nodes;
+  }
+  std::size_t count = 1;
+  std::size_t cursor = 0;
+  std::size_t visible_end = nodes.size();
+  while ((cursor = nodes.find(',', cursor)) != std::string::npos) {
+    ++count;
+    ++cursor;
+    if (count == kVisibleNodeLimit + 1) {
+      visible_end = cursor - 1;
+      break;
+    }
+  }
+  if (count <= kVisibleNodeLimit) {
+    return nodes;
+  }
+  const std::size_t total_count =
+      1 + static_cast<std::size_t>(
+              std::count(nodes.begin(), nodes.end(), ','));
+  return nodes.substr(0, visible_end) + ",...(+" +
+         std::to_string(total_count - kVisibleNodeLimit) + ")";
+}
+
 std::string basename_or_default(const std::string& path,
                                 const std::string& fallback) {
   if (path.empty()) {
@@ -313,6 +339,28 @@ void write_loop_tree_markdown(std::ostream& out,
          options.reconstruction_status_counts) {
       out << "| `" << status_count.status << "` | "
           << status_count.region_count << " |\n";
+    }
+  }
+
+  if (!rows.structural_units.empty()) {
+    out << "\n## Structural Composition\n\n";
+    out << "This ordered view partitions every productive anchor around "
+           "exact graph units. `structural_unit` is a neutral observed "
+           "sequence, not a workload phase; open trace boundaries remain "
+           "typed `unrecognized`. Expansion links are abbreviated here; the "
+           "sidecar retains the complete list and exact anchor membership.\n\n";
+    out << "| Order | Unit | Kind | Run | Family | Fingerprint | Anchors | "
+           "Shape | Span (us) | Total (us) | Evidence | Expansion |\n";
+    out << "| ---: | --- | --- | ---: | --- | --- | ---: | --- | ---: | "
+           "---: | --- | --- |\n";
+    for (const compat::StructuralUnitSqlRow& row : rows.structural_units) {
+      out << "| " << row.unit_order << " | `" << row.unit_id << "` | `"
+          << row.kind << "` | " << row.run_count << " | `" << row.family_id
+          << "` | `" << row.body_fingerprint << "` | " << row.anchor_count
+          << " | `" << row.shape_signature << "` | " << fmt(row.span_us)
+          << " | " << fmt(row.total_us) << " | `" << row.evidence_status
+          << "` | `" << summarize_expansion_nodes(row.expansion_nodes)
+          << "` |\n";
     }
   }
 

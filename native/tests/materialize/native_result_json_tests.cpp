@@ -137,6 +137,32 @@ int main() {
                               load_default_idle_evidence_semantic_ruleset());
   json_options.semantic_task_classification = &semantic_classification;
 
+  std::vector<compat::StructuralUnitSqlRow> structural_units(1);
+  structural_units[0].unit_id = "U1";
+  structural_units[0].db_idx = 7;
+  structural_units[0].device_id = 3;
+  structural_units[0].unit_order = 2;
+  structural_units[0].family_id = "UF1";
+  structural_units[0].kind = "structural_unit";
+  structural_units[0].body_fingerprint = "H1234";
+  structural_units[0].token_start_ordinal = 10;
+  structural_units[0].token_end_ordinal = 20;
+  structural_units[0].first_anchor_idx = 11;
+  structural_units[0].last_anchor_idx = 20;
+  structural_units[0].anchor_count = 10;
+  structural_units[0].start_ns = 1000;
+  structural_units[0].end_ns = 2000;
+  structural_units[0].span_us = 1.0;
+  structural_units[0].compute_us = 0.75;
+  structural_units[0].comm_us = 0.25;
+  structural_units[0].total_us = 1.0;
+  structural_units[0].evidence_status = "complete";
+  structural_units[0].boundary_policy =
+      "bounded_by_adjacent_exact_graph_units";
+  structural_units[0].expansion_nodes = "node-N007#1";
+  structural_units[0].shape_signature = "unavailable";
+  json_options.structural_units = &structural_units;
+
   AnchorInternalCostBreakdown breakdown;
   AnchorInternalCostBreakdownRow row;
   row.anchor_occurrence_id = ReportNodeOccurrenceId(7);
@@ -302,6 +328,16 @@ int main() {
   require(json.find("\"full_repeat_count\": 4") != std::string::npos);
   require(json.find("\"candidate_distinct_count\"") != std::string::npos);
   require(json.find("\"anchor_internal_cost_breakdown\"") !=
+          std::string::npos);
+  require(json.find("\"structural_units\": [") != std::string::npos);
+  require(json.find("\"unit_id\": \"U1\"") != std::string::npos);
+  require(json.find("\"kind\": \"structural_unit\"") !=
+          std::string::npos);
+  require(json.find("\"evidence_status\": \"complete\"") !=
+          std::string::npos);
+  require(json.find(
+              "\"boundary_policy\": "
+              "\"bounded_by_adjacent_exact_graph_units\"") !=
           std::string::npos);
 
   NativeIr fixture_ir;

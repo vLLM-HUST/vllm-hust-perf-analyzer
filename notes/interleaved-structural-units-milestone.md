@@ -2,7 +2,9 @@
 
 Date: 2026-08-05
 
-Status: **evidence reproduced; reader-facing structural promotion is TODO**.
+Status: **T1/T3 baseline implemented and reproduced on four retained Ascend
+profiles; unit-level grammar, shape evidence, and immutable artifact packaging
+remain**.
 
 ## Why this matters
 
@@ -52,26 +54,29 @@ Profiler-native facts remain allowed: for example, an ACL graph replay may be
 named a graph unit, an HCCL row may be named communication, and concrete raw
 operator identities and shapes may be retained.
 
-## Desired highest-level artifact
+## Highest-level artifact
 
 The primary human- and agent-readable view should make the observed composition
 obvious without assigning workload semantics. A wide table is preferred over a
 deep prose rendering for the highest level:
 
-| order | structural node | kind | run | body fingerprint | task count | observed shape signature | total_us | evidence status |
-| ---: | --- | --- | ---: | --- | ---: | --- | ---: | --- |
-| 0 | `G1` | `graph_unit` | 1 | `graph:T1/body:B1` | 1024 | `S-graph-1` | observed | `exact` |
-| 1 | `U7` | `structural_unit` | 1 | `H7 (contains Repeat x47)` | 2106 | `S471` | observed | `complete` |
-| 2 | `G1` | `graph_unit` | 3 | `graph:T1/body:B1` | 1024 each | `S-graph-1` | observed | `exact` |
-| 3 | `U8` | `structural_unit` | 1 | `H8 (contains Repeat x47)` | 2105 | `S472` | observed | `complete` |
+| order | structural node | kind | run | family | body fingerprint | anchor count | shape signature | total_us | evidence status |
+| ---: | --- | --- | ---: | --- | --- | ---: | --- | ---: | --- |
+| 0 | `X1` | `unrecognized` | 1 | `XF1` | `H...` | observed | `unavailable` | observed | `unrecognized_open_prefix` |
+| 1 | `G1` | `graph_unit` | 1 | `GF1` | `H...` | 1 | `unavailable` | observed | `exact` |
+| 2 | `U1` | `structural_unit` | 1 | `UF1` | `H...` | 1186 | `unavailable` | observed | `complete` |
 
-Names such as `U7`, `H7`, and `S471` are stable structural identities, not
-semantic roles. The table must link to expanded Loop Tree nodes and evidence
-rows rather than replace them.
+Names such as `U1`, `UF1`, and the `H...` fingerprint are structural
+identities, not semantic roles. The table must link to expanded Loop Tree nodes
+and evidence rows rather than replace them.
 
 ## TODO
 
 ### T1. Promote interstitial productive sequences
+
+Implemented on 2026-08-05. The partition is exact over productive anchors;
+open prefix/suffix regions are emitted as typed `unrecognized` rows rather
+than exceptions or silently completed units.
 
 - Partition the global productive sequence around protected graph units.
 - Preserve every nonempty interstitial task sequence; never collapse it into a
@@ -92,6 +97,12 @@ rows rather than replace them.
 
 ### T3. Add a wide composition table
 
+Implemented baseline on 2026-08-05 in Markdown, native JSON, and the
+compatibility sidecar. The sidecar contains normalized exact anchor membership;
+Markdown abbreviates long expansion lists while retaining their full sidecar
+form. Shape signatures remain explicitly `unavailable` pending direct shape
+materialization.
+
 - Make the ordered, wide table the highest-level report map.
 - Retain the existing hierarchical Loop Tree as the expansion/drill-down view.
 - Include stable node/family IDs, order, run count, fingerprint, cardinality,
@@ -100,6 +111,12 @@ rows rather than replace them.
   the compatibility SQLite sidecar for agents.
 
 ### T4. Preserve the interpretation boundary in tests and documentation
+
+The synthetic golden now checks graph/non-graph interleaving, adjacent graph
+folding, exact one-owner anchor membership, typed open boundaries, stable
+families, expansion links, and absence of synthesized `decode`/`prefill`
+labels. A repository-bundled stock/fused input golden is still pending T5's
+artifact reduction.
 
 - Add a golden with protected graph units interleaved with productive repeated
   sequences.
@@ -127,3 +144,32 @@ productive work that a graph-only denominator made easy to overlook, exposed
 its repeated structure and placement, and gave an analyst enough auditable
 evidence to resolve an apparently contradictory performance result. The tool
 recovered the structure; the analyst supplied the meaning.
+
+## 2026-08-05 retained-profile receipt
+
+The new partition was run against both ranks of the retained stock/fused pair.
+All four sidecars passed exact membership conservation: the number of unit
+memberships, distinct member anchors, `traceloom_anchor` rows, and the sum of
+unit `anchor_count` were equal.
+
+| variant | rank | graph rows | complete structural rows | complete anchors | large family | small family |
+| --- | ---: | ---: | ---: | ---: | --- | --- |
+| stock | 0 | 15 | 14 | 5104 | 4 × 1186 anchors, avg 191405 us | 10 × 36 anchors, avg 2458 us |
+| stock | 1 | 15 | 14 | 5104 | 4 × 1186 anchors, avg 185225 us | 10 × 36 anchors, avg 2188 us |
+| fused | 0 | 18 | 17 | 4444 | 4 × 994 anchors, avg 161669 us | 13 × 36 anchors, avg 2212 us |
+| fused | 1 | 18 | 17 | 4444 | 4 × 994 anchors, avg 166842 us | 13 × 36 anchors, avg 2361 us |
+
+This is strong structural evidence that the externally aligned large
+graph-external unit changes from 1186 to 994 productive anchors per occurrence
+and shortens in both fused ranks. That cross-variant alignment is an analyst
+step, not an emitted workload label. The unequal graph/unit occurrence counts
+mean this table is not itself a paired end-to-end performance verdict.
+
+Input identities (full captures remain external):
+
+| input | bytes | SHA-256 |
+| --- | ---: | --- |
+| stock rank 0 | 54099968 | `e5bca17ff92c81d3a3b9ef3dc52dd2b358e6114e2ebcb221453c1d07369888f0` |
+| stock rank 1 | 54112256 | `49a9715146c1335780ddfcf768304f2a55b9ea4e5756c9d76825ab30de12f6ca` |
+| fused rank 0 | 40873984 | `bc982546ffc9ae3718421db6b212024c100ebc981862d8acf109767c162dd3c1` |
+| fused rank 1 | 40660992 | `adb4548466c5000b20d5c449c79e703c029a5297c149abc36050b3c9ccd74669` |

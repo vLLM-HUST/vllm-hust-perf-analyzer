@@ -215,6 +215,35 @@ Important columns:
 
 Parent-child edges for the compressed visualization tree.
 
+### `traceloom_structural_unit`
+
+The neutral, graph-centered top-level partition of the productive anchor
+sequence. It is present when exact graph units are available. A row has one of
+three `kind` values:
+
+- `graph_unit`: a profiler-evidence-backed exact graph unit;
+- `structural_unit`: a nonempty productive sequence bounded by adjacent exact
+  graph units; or
+- `unrecognized`: an observed open prefix or suffix whose missing outer
+  boundary prevents complete promotion.
+
+`body_fingerprint` is a stable hash of visible operator/category/anchor-kind
+identity; graph fingerprints also include the recovered graph-unit structural
+label. `family_id` groups identical fingerprints within one report.
+`token_start_ordinal` is inclusive and `token_end_ordinal` is exclusive.
+`span_us` is the wall-clock envelope, while `total_us` is the additive
+compute/communication/idle packet total. `expansion_nodes` contains complete
+Loop Tree occurrence handles for drill-down. `shape_signature='unavailable'`
+is explicit until shape evidence is materialized rather than inferred.
+
+### `traceloom_structural_unit_anchor`
+
+Exact anchor membership for structural units. Every productive anchor belongs
+to exactly one row when the structural partition is present. `anchor_order` is
+zero-based within the possibly folded unit and `membership_role` is currently
+`observed_member`. Use `docs/report-sql/structural-composition.sql` for the
+wide unit view and an immediate `anchor_count`/membership-count check.
+
 ### `traceloom_semantic_tree`
 
 Durable header for a recovered semantic execution tree. This table makes the

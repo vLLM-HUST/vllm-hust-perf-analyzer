@@ -15,6 +15,7 @@
 
 #include "traceloom/compat/anchor_sequence_rows.h"
 #include "traceloom/compat/aux_attribution_rows.h"
+#include "traceloom/compat/structural_unit_rows.h"
 #include "traceloom/report/report_tree_builder.h"
 
 namespace traceloom::compat {
@@ -929,6 +930,11 @@ NodeCoverageSqlRows build_report_tree_node_coverage_sql_rows(
     }
   }
 
+  const StructuralUnitSqlRows structural_units =
+      build_structural_unit_sql_rows(tree, tokens, db_idx);
+  rows.structural_units = structural_units.units;
+  rows.structural_unit_anchors = structural_units.unit_anchors;
+
   return rows;
 }
 
@@ -949,6 +955,8 @@ LoopTreeSqlRows split_loop_tree_sql_rows(const NodeCoverageSqlRows& rows) {
   out.nodes = rows.nodes;
   out.edges = rows.edges;
   out.loop_nodes = rows.loop_nodes;
+  out.structural_units = rows.structural_units;
+  out.structural_unit_anchors = rows.structural_unit_anchors;
   return out;
 }
 

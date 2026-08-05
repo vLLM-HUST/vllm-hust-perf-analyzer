@@ -305,6 +305,8 @@ int main() {
               "traceloom_semantic_node",
               "traceloom_semantic_tree",
               "traceloom_stream_state",
+              "traceloom_structural_unit",
+              "traceloom_structural_unit_anchor",
               "traceloom_viz_edge",
               "traceloom_viz_node",
               "traceloom_viz_node_anchor",
@@ -597,6 +599,31 @@ int main() {
   loop_node.total_us = 1.0;
   loop_node.avg_total_us = 1.0;
   loop_tree_rows.loop_nodes.push_back(loop_node);
+  traceloom::compat::StructuralUnitSqlRow structural_unit;
+  structural_unit.unit_id = "U1";
+  structural_unit.unit_order = 0;
+  structural_unit.family_id = "UF1";
+  structural_unit.kind = "structural_unit";
+  structural_unit.body_fingerprint = "H1234";
+  structural_unit.token_end_ordinal = 1;
+  structural_unit.first_anchor_idx = 1;
+  structural_unit.last_anchor_idx = 1;
+  structural_unit.anchor_count = 1;
+  structural_unit.end_ns = 1000;
+  structural_unit.span_us = 1.0;
+  structural_unit.compute_us = 1.0;
+  structural_unit.total_us = 1.0;
+  structural_unit.evidence_status = "complete";
+  structural_unit.boundary_policy =
+      "bounded_by_adjacent_exact_graph_units";
+  structural_unit.expansion_nodes = "node-N002#1";
+  structural_unit.shape_signature = "unavailable";
+  loop_tree_rows.structural_units.push_back(structural_unit);
+  traceloom::compat::StructuralUnitAnchorSqlRow structural_member;
+  structural_member.unit_id = "U1";
+  structural_member.anchor_id = "anchor-1";
+  structural_member.membership_role = "observed_member";
+  loop_tree_rows.structural_unit_anchors.push_back(structural_member);
   traceloom::compat::replace_loop_tree_rows(db_path, loop_tree_rows);
   require(run_scalar_int(db_path, "SELECT COUNT(*) FROM traceloom_viz_node") ==
           2);
@@ -604,6 +631,16 @@ int main() {
           1);
   require(run_scalar_int(db_path, "SELECT COUNT(*) FROM traceloom_loop_node") ==
           1);
+  require(run_scalar_int(
+              db_path,
+              "SELECT COUNT(*) FROM traceloom_structural_unit") == 1);
+  require(run_scalar_text(
+              db_path,
+              "SELECT evidence_status FROM traceloom_structural_unit") ==
+          "complete");
+  require(run_scalar_int(
+              db_path,
+              "SELECT COUNT(*) FROM traceloom_structural_unit_anchor") == 1);
   traceloom::compat::replace_loop_tree_rows(
       db_path, traceloom::compat::LoopTreeSqlRows{});
   require(run_scalar_int(db_path, "SELECT COUNT(*) FROM traceloom_viz_node") ==
@@ -612,6 +649,12 @@ int main() {
           0);
   require(run_scalar_int(db_path, "SELECT COUNT(*) FROM traceloom_loop_node") ==
           0);
+  require(run_scalar_int(
+              db_path,
+              "SELECT COUNT(*) FROM traceloom_structural_unit") == 0);
+  require(run_scalar_int(
+              db_path,
+              "SELECT COUNT(*) FROM traceloom_structural_unit_anchor") == 0);
 
   traceloom::compat::NodeAnchorCoverageSqlRows coverage_rows;
   traceloom::compat::VizNodeAnchorSqlRow node_anchor;
@@ -910,6 +953,8 @@ int main() {
               "idx_traceloom_semantic_node_tree_order",
               "idx_traceloom_stream_state_id",
               "idx_traceloom_stream_state_time",
+              "idx_traceloom_structural_unit_anchor",
+              "idx_traceloom_structural_unit_order",
               "idx_traceloom_viz_node_id",
           }));
 

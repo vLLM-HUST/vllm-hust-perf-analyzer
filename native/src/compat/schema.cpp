@@ -390,6 +390,57 @@ const CompatTableSchema& loop_node_table_schema() {
   return schema;
 }
 
+const CompatTableSchema& structural_unit_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_structural_unit",
+      {
+          {"unit_id", CompatColumnType::kText, false},
+          {"db_idx", CompatColumnType::kInteger, false},
+          {"device_id", CompatColumnType::kInteger, false},
+          {"unit_order", CompatColumnType::kInteger, false},
+          {"family_id", CompatColumnType::kText, false},
+          {"kind", CompatColumnType::kText, false},
+          {"run_count", CompatColumnType::kInteger, false},
+          {"body_fingerprint", CompatColumnType::kText, false},
+          {"token_start_ordinal", CompatColumnType::kInteger, false},
+          {"token_end_ordinal", CompatColumnType::kInteger, false},
+          {"first_anchor_idx", CompatColumnType::kInteger, false},
+          {"last_anchor_idx", CompatColumnType::kInteger, false},
+          {"anchor_count", CompatColumnType::kInteger, false},
+          {"start_ns", CompatColumnType::kInteger, false},
+          {"end_ns", CompatColumnType::kInteger, false},
+          {"span_us", CompatColumnType::kReal, false},
+          {"compute_us", CompatColumnType::kReal, false},
+          {"comm_us", CompatColumnType::kReal, false},
+          {"idle_us", CompatColumnType::kReal, false},
+          {"total_us", CompatColumnType::kReal, false},
+          {"aux_events", CompatColumnType::kReal, false},
+          {"aux_us", CompatColumnType::kReal, false},
+          {"evidence_status", CompatColumnType::kText, false},
+          {"boundary_policy", CompatColumnType::kText, false},
+          {"expansion_nodes", CompatColumnType::kText, true},
+          {"shape_signature", CompatColumnType::kText, true},
+          {"raw_json", CompatColumnType::kText, true},
+      },
+  };
+  return schema;
+}
+
+const CompatTableSchema& structural_unit_anchor_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_structural_unit_anchor",
+      {
+          {"unit_id", CompatColumnType::kText, false},
+          {"anchor_id", CompatColumnType::kText, false},
+          {"db_idx", CompatColumnType::kInteger, false},
+          {"device_id", CompatColumnType::kInteger, false},
+          {"anchor_order", CompatColumnType::kInteger, false},
+          {"membership_role", CompatColumnType::kText, false},
+      },
+  };
+  return schema;
+}
+
 const CompatTableSchema& semantic_tree_table_schema() {
   static const CompatTableSchema schema{
       "traceloom_semantic_tree",
@@ -771,6 +822,8 @@ std::vector<CompatTableSchema> compatibility_table_schemas() {
       viz_node_anchor_table_schema(),
       anchor_primary_node_table_schema(),
       loop_node_table_schema(),
+      structural_unit_table_schema(),
+      structural_unit_anchor_table_schema(),
       semantic_tree_table_schema(),
       semantic_node_table_schema(),
       semantic_edge_table_schema(),

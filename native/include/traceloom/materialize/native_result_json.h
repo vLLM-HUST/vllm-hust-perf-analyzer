@@ -3,9 +3,11 @@
 #include <cstddef>
 #include <iosfwd>
 #include <string>
+#include <vector>
 
 #include "traceloom/analysis/native_pipeline.h"
 #include "traceloom/analysis/semantic_task_classifier.h"
+#include "traceloom/compat/sidecar_writer.h"
 #include "traceloom/core/string_table.h"
 #include "traceloom/report/anchor_internal_cost_breakdown.h"
 
@@ -23,6 +25,7 @@ struct NativeResultJsonOptions {
   const SemanticTaskClassificationResult* semantic_task_classification =
       nullptr;
   const AnchorInternalCostBreakdown* anchor_internal_cost_breakdown = nullptr;
+  const std::vector<compat::StructuralUnitSqlRow>* structural_units = nullptr;
 };
 
 void write_native_result_json(std::ostream& out,

@@ -1010,6 +1010,31 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
                    ? &*semantic_classification
                    : nullptr);
 
+    traceloom::compat::NativeCompatibilitySidecarOptions loop_tree_options;
+    loop_tree_options.source_kind = sidecar_options.source_kind;
+    loop_tree_options.source_path = sidecar_options.source_path;
+    loop_tree_options.grammar_worker_count =
+        sidecar_options.grammar_worker_count;
+    loop_tree_options.grammar_target_nodes_per_chunk =
+        sidecar_options.grammar_target_nodes_per_chunk;
+    loop_tree_options.grammar_full_discovery_cap =
+        cli.loop_tree_full_discovery_cap;
+    loop_tree_options.materialize_grammar_report_tree = cli.loop_tree_grammar;
+    loop_tree_options.materialize_aux_attribution = cli.loop_tree_aux;
+    loop_tree_options.timing_diagnostics = cli.timings;
+    std::optional<traceloom::compat::NodeCoverageSqlRows> loop_tree_rows;
+    if (cli.loop_tree_out_path_set || cli.out_path_set) {
+      const Stopwatch loop_tree_rows_watch;
+      loop_tree_rows.emplace(
+          traceloom::compat::build_native_loop_tree_node_coverage_rows(
+              ir, loop_tree_options));
+      json_options.structural_units = &loop_tree_rows->structural_units;
+      if (cli.timings) {
+        std::cerr << "timing loop_tree_rows_ms="
+                  << loop_tree_rows_watch.elapsed_ms() << "\n";
+      }
+    }
+
     if (!cli.compat_sidecar_out_path.empty()) {
       const Stopwatch sidecar_watch;
       traceloom::compat::write_basic_native_compatibility_sidecar(
@@ -1021,27 +1046,11 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
       }
     }
     if (cli.loop_tree_out_path_set) {
-      traceloom::compat::NativeCompatibilitySidecarOptions loop_tree_options;
-      loop_tree_options.source_kind = sidecar_options.source_kind;
-      loop_tree_options.source_path = sidecar_options.source_path;
-      loop_tree_options.grammar_worker_count =
-          sidecar_options.grammar_worker_count;
-      loop_tree_options.grammar_target_nodes_per_chunk =
-          sidecar_options.grammar_target_nodes_per_chunk;
-      loop_tree_options.grammar_full_discovery_cap =
-          cli.loop_tree_full_discovery_cap;
-      loop_tree_options.materialize_grammar_report_tree =
-          cli.loop_tree_grammar;
-      loop_tree_options.materialize_aux_attribution = cli.loop_tree_aux;
-      loop_tree_options.timing_diagnostics = cli.timings;
-      const Stopwatch loop_tree_rows_watch;
-      const traceloom::compat::NodeCoverageSqlRows loop_tree_rows =
-          traceloom::compat::build_native_loop_tree_node_coverage_rows(
-              ir, loop_tree_options);
-      if (cli.timings) {
-        std::cerr << "timing loop_tree_rows_ms="
-                  << loop_tree_rows_watch.elapsed_ms() << "\n";
+      if (!loop_tree_rows.has_value()) {
+        throw std::logic_error("Loop Tree rows were not prepared");
       }
+      const traceloom::compat::NodeCoverageSqlRows& rendered_loop_tree_rows =
+          *loop_tree_rows;
       std::uint32_t inferred_device_id = 0;
       const bool has_inferred_device_id =
           infer_single_device_id(ir, inferred_device_id);
@@ -1147,7 +1156,7 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
         std::map<std::string, IdleSummary> idle_summary;
         std::set<std::uint32_t> report_device_ids;
         for (const traceloom::compat::VizNodeSqlRow& node :
-             loop_tree_rows.nodes) {
+             rendered_loop_tree_rows.nodes) {
           if (node.view_name == "native_report_tree" &&
               node.db_idx == sidecar_options.db_idx) {
             report_device_ids.insert(node.device_id);
@@ -1192,7 +1201,7 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
             traceloom::compat::build_report_tokens_from_native_ir(ir);
         const traceloom::compat::IdleExplanationAttributionRows attribution =
             traceloom::compat::build_idle_explanation_attribution_rows(
-                idle_report_tokens, idle_explanations, loop_tree_rows,
+                idle_report_tokens, idle_explanations, rendered_loop_tree_rows,
                 sidecar_options.db_idx, attribution_device_id);
         if (attribution.visible_productive_idle_ns !=
             markdown_options.visible_productive_idle_ns) {
@@ -1207,7 +1216,7 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
         std::map<std::string, const traceloom::compat::VizNodeSqlRow*>
             report_nodes;
         for (const traceloom::compat::VizNodeSqlRow& node :
-             loop_tree_rows.nodes) {
+             rendered_loop_tree_rows.nodes) {
           if (node.db_idx == sidecar_options.db_idx &&
               node.view_name == "native_report_tree" &&
               (!filter_idle_device || node.device_id == idle_device_id)) {
@@ -1274,7 +1283,7 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
       }
       const Stopwatch loop_tree_render_watch;
       std::ostringstream markdown;
-      traceloom::write_loop_tree_markdown(markdown, loop_tree_rows,
+      traceloom::write_loop_tree_markdown(markdown, rendered_loop_tree_rows,
                                           markdown_options);
       const std::string loop_tree_out =
           cli.loop_tree_out_path.empty()

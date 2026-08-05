@@ -998,6 +998,40 @@ void seed_semantic_tree_fixture(const std::string& db_path) {
   write_semantic_tree_fixture_via_asset_writers(db_path, rows);
 }
 
+void seed_structural_composition_fixture(const std::string& db_path) {
+  traceloom::compat::LoopTreeSqlRows rows;
+  traceloom::compat::StructuralUnitSqlRow unit;
+  unit.unit_id = "U1";
+  unit.unit_order = 3;
+  unit.family_id = "UF1";
+  unit.kind = "structural_unit";
+  unit.body_fingerprint = "H1234";
+  unit.token_start_ordinal = 10;
+  unit.token_end_ordinal = 12;
+  unit.first_anchor_idx = 11;
+  unit.last_anchor_idx = 12;
+  unit.anchor_count = 2;
+  unit.start_ns = 1000;
+  unit.end_ns = 3000;
+  unit.span_us = 2.0;
+  unit.compute_us = 1.5;
+  unit.comm_us = 0.5;
+  unit.total_us = 2.0;
+  unit.evidence_status = "complete";
+  unit.boundary_policy = "bounded_by_adjacent_exact_graph_units";
+  unit.expansion_nodes = "node-N007#1";
+  unit.shape_signature = "unavailable";
+  rows.structural_units.push_back(unit);
+  for (std::uint32_t index = 0; index < 2; ++index) {
+    traceloom::compat::StructuralUnitAnchorSqlRow member;
+    member.unit_id = "U1";
+    member.anchor_id = "anchor-" + std::to_string(index + 11);
+    member.anchor_order = index;
+    rows.structural_unit_anchors.push_back(member);
+  }
+  traceloom::compat::replace_loop_tree_rows(db_path, rows);
+}
+
 std::vector<QueryCase> active_query_cases() {
   return {
       QueryCase{
@@ -1217,6 +1251,29 @@ std::vector<QueryCase> active_query_cases() {
           1,
       },
       QueryCase{
+          "structural-composition.sql",
+          {
+              "unit_order",
+              "unit_id",
+              "kind",
+              "run_count",
+              "family_id",
+              "body_fingerprint",
+              "anchor_count",
+              "membership_count",
+              "shape_signature",
+              "span_us",
+              "total_us",
+              "compute_us",
+              "comm_us",
+              "idle_us",
+              "evidence_status",
+              "boundary_policy",
+              "expansion_nodes",
+          },
+          1,
+      },
+      QueryCase{
           "anchor-cost-breakdown.sql",
           traceloom::compat::column_names(
               traceloom::compat::anchor_cost_breakdown_table_schema()),
@@ -1295,6 +1352,8 @@ int main() {
     } else if (query_case.filename == "semantic-tree-readable.sql") {
       seed_semantic_tree_fixture(db_path);
       require_semantic_tree_invariants(db_path);
+    } else if (query_case.filename == "structural-composition.sql") {
+      seed_structural_composition_fixture(db_path);
     }
 
     const QueryResult result = run_query(db_path, query_case);
@@ -1374,6 +1433,14 @@ int main() {
       require(result.first_row[8] == "0.05");
       require(result.first_row[9] == "25.0" ||
               result.first_row[9] == "25");
+    } else if (query_case.filename == "structural-composition.sql") {
+      require(result.row_count == 1);
+      require(result.first_row[0] == "3");
+      require(result.first_row[1] == "U1");
+      require(result.first_row[2] == "structural_unit");
+      require(result.first_row[6] == "2");
+      require(result.first_row[7] == "2");
+      require(result.first_row[14] == "complete");
     } else if (query_case.filename ==
                "reconstruction-capability-matrix.sql") {
       require(result.row_count == 1);

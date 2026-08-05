@@ -121,6 +121,57 @@ void write_anchor_internal_cost_breakdown(
   out << "  },\n";
 }
 
+void write_structural_units(
+    std::ostream& out,
+    const std::vector<compat::StructuralUnitSqlRow>* rows) {
+  out << "  \"structural_units\": [\n";
+  if (rows != nullptr) {
+    for (std::size_t index = 0; index < rows->size(); ++index) {
+      const compat::StructuralUnitSqlRow& row = (*rows)[index];
+      out << "    {\"unit_id\": ";
+      write_json_string(out, row.unit_id);
+      out << ", \"db_idx\": " << row.db_idx
+          << ", \"device_id\": " << row.device_id
+          << ", \"unit_order\": " << row.unit_order
+          << ", \"family_id\": ";
+      write_json_string(out, row.family_id);
+      out << ", \"kind\": ";
+      write_json_string(out, row.kind);
+      out << ", \"run_count\": " << row.run_count
+          << ", \"body_fingerprint\": ";
+      write_json_string(out, row.body_fingerprint);
+      out << ", \"token_start_ordinal\": " << row.token_start_ordinal
+          << ", \"token_end_ordinal\": " << row.token_end_ordinal
+          << ", \"first_anchor_idx\": " << row.first_anchor_idx
+          << ", \"last_anchor_idx\": " << row.last_anchor_idx
+          << ", \"anchor_count\": " << row.anchor_count
+          << ", \"start_ns\": " << row.start_ns
+          << ", \"end_ns\": " << row.end_ns
+          << ", \"span_us\": " << row.span_us
+          << ", \"compute_us\": " << row.compute_us
+          << ", \"comm_us\": " << row.comm_us
+          << ", \"idle_us\": " << row.idle_us
+          << ", \"total_us\": " << row.total_us
+          << ", \"aux_events\": " << row.aux_events
+          << ", \"aux_us\": " << row.aux_us
+          << ", \"evidence_status\": ";
+      write_json_string(out, row.evidence_status);
+      out << ", \"boundary_policy\": ";
+      write_json_string(out, row.boundary_policy);
+      out << ", \"expansion_nodes\": ";
+      write_json_string(out, row.expansion_nodes);
+      out << ", \"shape_signature\": ";
+      write_json_string(out, row.shape_signature);
+      out << "}";
+      if (index + 1 < rows->size()) {
+        out << ',';
+      }
+      out << '\n';
+    }
+  }
+  out << "  ],\n";
+}
+
 const char* graph_launch_match_policy_name(GraphLaunchMatchPolicy policy) {
   switch (policy) {
     case GraphLaunchMatchPolicy::kNotifyCompletionAdjacent:
@@ -1124,6 +1175,7 @@ void write_native_result_json(std::ostream& out,
   write_graph_launch_activities(out, options.native_ir);
   write_replay_composition_candidates(out, options.native_ir);
   write_replay_units(out, options.native_ir);
+  write_structural_units(out, options.structural_units);
 
   if (options.anchor_internal_cost_breakdown != nullptr) {
     write_anchor_internal_cost_breakdown(

@@ -19,6 +19,14 @@ The report contains the compressed execution tree, occurrence and repeat
 counts, total wall-clock cost, per-occurrence/per-iteration averages, compute,
 communication, idle, active, auxiliary, and self-cost columns.
 
+When at least one exact graph unit exists, `Structural Composition` is the
+highest-level ordered map. It partitions every productive anchor exactly once
+into `graph_unit`, complete graph-bounded `structural_unit`, or typed
+`unrecognized` open-boundary rows. These are neutral observed units, not
+workload phases. The Markdown expansion column is abbreviated for readability;
+the sidecar retains the complete expansion handles and one membership row per
+anchor.
+
 When graph evidence is available, the provider-neutral `Graph Replay
 Reconstruction` section summarizes recognized and typed unrecognized regions
 plus exact and legacy ReplayUnit counts for ACLGraph or CUDA Graph inputs.
@@ -77,6 +85,12 @@ Native JSON also carries two audit surfaces for graph-heavy comparisons:
   occurrence counts are evidence, not a schema error; consumers compare
 distributions rather than pairing occurrences by index.
 
+Native JSON also emits `structural_units` whenever native JSON is requested.
+Its rows use the same IDs, fingerprints, token bounds, costs, evidence status,
+boundary policy, and expansion handles as the Markdown and sidecar views.
+Exact per-anchor membership is normalized in the sidecar rather than repeated
+as a large JSON array.
+
 ## Graph-Body Comparison JSON
 
 `traceloom compare BASELINE CANDIDATE --same-workload --out PATH` writes
@@ -112,6 +126,8 @@ The checked-in SQL audit surfaces are:
 
 - `docs/report-sql/reconstruction-capability-matrix.sql` for exact, typed
   unknown, and legacy ACLGraph capability outcomes;
+- `docs/report-sql/structural-composition.sql` for the neutral ordered unit map
+  and its membership-count conservation surface;
 - `docs/report-sql/idle-evidence-summary.sql` for paper-ready E4 category
   totals and shares; and
 - `docs/report-sql/idle-evidence-audit.sql` for exact partition, lineage, and

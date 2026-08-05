@@ -43,10 +43,10 @@ As of this roadmap:
   tests that fail closed;
 - the repository's kickstart example already supplies more than 1.18 million
   selected source rows and is a suitable no-new-capture scaling input;
-- a newly audited production pair shows graph runs interleaved with complete,
-  repeated, productive non-graph sequences. The current Loop Tree preserves
-  much of the order but does not yet promote those sequences as neutral
-  top-level structural units.
+- a newly audited production pair now emits an exact neutral top-level
+  structural partition. Across all four retained rank profiles, every
+  productive anchor has exactly one unit owner; open trace boundaries remain
+  typed unrecognized rows.
 
 The CUDA evidence details are in `notes/cuda-graph-exact-evidence.md`. The next
 CUDA collection task is specified in `notes/cuda-real-model-graph-handoff.md`.
@@ -58,7 +58,7 @@ but must not displace a failing P0 gate.
 
 | ID | Priority | Gate | Current state | Completion evidence |
 | --- | --- | --- | --- | --- |
-| R1 | P0 | Neutral interleaved structural units | designed, not implemented | analyzer output, goldens, wide composition table |
+| R1 | P0 | Neutral interleaved structural units | baseline implemented and real-profile reproduced; artifact golden pending | analyzer output, goldens, wide composition table |
 | R2 | P0 | Fair workflow comparison | prose only | one fixed question set answered by top-k, timeline/SQL, repeat-only, and TraceLoom |
 | R3 | P0 | Patch/cost-shift case | evidence discovered, paper loop open | correctness, structural delta, cost localization, bounded mechanism wording |
 | R4 | P0 | Raw-row provenance for every central result | mixed checkout/external | one command verifies every central row from immutable input |

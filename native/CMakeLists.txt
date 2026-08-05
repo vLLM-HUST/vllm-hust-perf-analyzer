@@ -124,6 +124,7 @@ add_library(traceloom_native_materialize
   src/compat/report_tree_rows.cpp
   src/compat/schema.cpp
   src/compat/sidecar_writer.cpp
+  src/compat/structural_unit_rows.cpp
   src/compat/timeline_rows.cpp
   src/materialize/grammar_debug_json.cpp
   src/materialize/loop_tree_markdown.cpp
@@ -716,6 +717,18 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
   add_test(
     NAME traceloom_native_report_tree_rows_tests
     COMMAND traceloom_native_report_tree_rows_tests
+  )
+
+  add_executable(traceloom_native_structural_unit_rows_tests
+    tests/compat/structural_unit_rows_tests.cpp
+  )
+  target_link_libraries(
+    traceloom_native_structural_unit_rows_tests PRIVATE
+    traceloom_native_materialize
+  )
+  add_test(
+    NAME traceloom_native_structural_unit_rows_tests
+    COMMAND traceloom_native_structural_unit_rows_tests
   )
 
   add_executable(traceloom_native_timeline_rows_tests

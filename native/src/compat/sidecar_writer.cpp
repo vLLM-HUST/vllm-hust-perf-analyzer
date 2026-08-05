@@ -380,6 +380,66 @@ void insert_viz_edge_row(SqliteStmt& stmt, const VizEdgeSqlRow& row) {
   sqlite3_clear_bindings(stmt.get());
 }
 
+void insert_structural_unit_row(SqliteStmt& stmt,
+                                const StructuralUnitSqlRow& row) {
+  bind_text(stmt, 1, row.unit_id);
+  bind_int64(stmt, 2, row.db_idx);
+  bind_int64(stmt, 3, row.device_id);
+  bind_int64(stmt, 4, row.unit_order);
+  bind_text(stmt, 5, row.family_id);
+  bind_text(stmt, 6, row.kind);
+  bind_int64(stmt, 7, row.run_count);
+  bind_text(stmt, 8, row.body_fingerprint);
+  bind_int64(stmt, 9, row.token_start_ordinal);
+  bind_int64(stmt, 10, row.token_end_ordinal);
+  bind_int64(stmt, 11, row.first_anchor_idx);
+  bind_int64(stmt, 12, row.last_anchor_idx);
+  bind_int64(stmt, 13, row.anchor_count);
+  bind_int64(stmt, 14, row.start_ns);
+  bind_int64(stmt, 15, row.end_ns);
+  bind_double(stmt, 16, row.span_us);
+  bind_double(stmt, 17, row.compute_us);
+  bind_double(stmt, 18, row.comm_us);
+  bind_double(stmt, 19, row.idle_us);
+  bind_double(stmt, 20, row.total_us);
+  bind_double(stmt, 21, row.aux_events);
+  bind_double(stmt, 22, row.aux_us);
+  bind_text(stmt, 23, row.evidence_status);
+  bind_text(stmt, 24, row.boundary_policy);
+  bind_text(stmt, 25, row.expansion_nodes);
+  bind_text(stmt, 26, row.shape_signature);
+  bind_text(stmt, 27, row.raw_json);
+
+  const int rc = sqlite3_step(stmt.get());
+  if (rc != SQLITE_DONE) {
+    throw std::runtime_error(
+        "failed to insert compatibility structural unit row: " +
+        std::string(sqlite3_errmsg(stmt.db())));
+  }
+  sqlite3_reset(stmt.get());
+  sqlite3_clear_bindings(stmt.get());
+}
+
+void insert_structural_unit_anchor_row(
+    SqliteStmt& stmt,
+    const StructuralUnitAnchorSqlRow& row) {
+  bind_text(stmt, 1, row.unit_id);
+  bind_text(stmt, 2, row.anchor_id);
+  bind_int64(stmt, 3, row.db_idx);
+  bind_int64(stmt, 4, row.device_id);
+  bind_int64(stmt, 5, row.anchor_order);
+  bind_text(stmt, 6, row.membership_role);
+
+  const int rc = sqlite3_step(stmt.get());
+  if (rc != SQLITE_DONE) {
+    throw std::runtime_error(
+        "failed to insert compatibility structural unit anchor row: " +
+        std::string(sqlite3_errmsg(stmt.db())));
+  }
+  sqlite3_reset(stmt.get());
+  sqlite3_clear_bindings(stmt.get());
+}
+
 void insert_viz_node_anchor_row(SqliteStmt& stmt,
                                 const VizNodeAnchorSqlRow& row) {
   bind_text(stmt, 1, row.node_id);
@@ -1325,6 +1385,12 @@ void materialize_report_compatibility_indexes(SqliteDb& db) {
       "CREATE INDEX IF NOT EXISTS idx_traceloom_node_anchor_anchor "
       "ON traceloom_viz_node_anchor(anchor_id)");
   db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_structural_unit_order "
+      "ON traceloom_structural_unit(db_idx, device_id, unit_order)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_structural_unit_anchor "
+      "ON traceloom_structural_unit_anchor(unit_id, anchor_order)");
+  db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_semantic_node_tree_order "
       "ON traceloom_semantic_node(tree_id, preorder_idx)");
   db.exec(
@@ -1875,12 +1941,16 @@ void replace_loop_tree_rows(const std::string& sqlite_path,
       {event_table_schema(), anchor_table_schema(),
        anchor_aux_slot_table_schema(), aux_link_table_schema(),
        viz_node_table_schema(), viz_edge_table_schema(),
-       viz_node_anchor_table_schema(), loop_node_table_schema()});
+       viz_node_anchor_table_schema(), loop_node_table_schema(),
+       structural_unit_table_schema(),
+       structural_unit_anchor_table_schema()});
 
   SqliteDb db(sqlite_path);
   db.exec("BEGIN IMMEDIATE");
   try {
     db.exec("DELETE FROM traceloom_loop_node");
+    db.exec("DELETE FROM traceloom_structural_unit_anchor");
+    db.exec("DELETE FROM traceloom_structural_unit");
     db.exec("DELETE FROM traceloom_viz_edge");
     db.exec("DELETE FROM traceloom_viz_node");
 
@@ -1919,6 +1989,31 @@ void replace_loop_tree_rows(const std::string& sqlite_path,
         ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     for (const LoopNodeSqlRow& row : rows.loop_nodes) {
       insert_loop_node_row(loop_node_stmt, row);
+    }
+
+    SqliteStmt structural_unit_stmt(
+        db.get(),
+        "INSERT INTO traceloom_structural_unit ("
+        "unit_id, db_idx, device_id, unit_order, family_id, kind, run_count, "
+        "body_fingerprint, token_start_ordinal, token_end_ordinal, "
+        "first_anchor_idx, last_anchor_idx, anchor_count, start_ns, end_ns, "
+        "span_us, compute_us, comm_us, idle_us, total_us, aux_events, aux_us, "
+        "evidence_status, boundary_policy, expansion_nodes, shape_signature, "
+        "raw_json"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+        "?, ?, ?, ?, ?, ?, ?, ?)");
+    for (const StructuralUnitSqlRow& row : rows.structural_units) {
+      insert_structural_unit_row(structural_unit_stmt, row);
+    }
+
+    SqliteStmt structural_unit_anchor_stmt(
+        db.get(),
+        "INSERT INTO traceloom_structural_unit_anchor ("
+        "unit_id, anchor_id, db_idx, device_id, anchor_order, membership_role"
+        ") VALUES (?, ?, ?, ?, ?, ?)");
+    for (const StructuralUnitAnchorSqlRow& row :
+         rows.structural_unit_anchors) {
+      insert_structural_unit_anchor_row(structural_unit_anchor_stmt, row);
     }
 
     materialize_node_cost_views(db);
