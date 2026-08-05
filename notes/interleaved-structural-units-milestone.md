@@ -150,7 +150,11 @@ recovered the structure; the analyst supplied the meaning.
 The new partition was run against both ranks of the retained stock/fused pair.
 All four sidecars passed exact membership conservation: the number of unit
 memberships, distinct member anchors, `traceloom_anchor` rows, and the sum of
-unit `anchor_count` were equal.
+unit `anchor_count` were equal. The checked-in
+`structural-composition-audit.sql` returned `PASS` for all four and checks unit
+order/token continuity, anchor identity and order, family identity, evidence
+policies, cost arithmetic, intervals, and expansion handles in addition to
+the count totals.
 
 | variant | rank | graph rows | complete structural rows | complete anchors | large family | small family |
 | --- | ---: | ---: | ---: | ---: | --- | --- |

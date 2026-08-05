@@ -242,7 +242,9 @@ Exact anchor membership for structural units. Every productive anchor belongs
 to exactly one row when the structural partition is present. `anchor_order` is
 zero-based within the possibly folded unit and `membership_role` is currently
 `observed_member`. Use `docs/report-sql/structural-composition.sql` for the
-wide unit view and an immediate `anchor_count`/membership-count check.
+wide unit view and an immediate `anchor_count`/membership-count check. Use
+`docs/report-sql/structural-composition-audit.sql` for the full partition
+integrity verdict; `PASS` attests internal conservation, not workload meaning.
 
 ### `traceloom_semantic_tree`
 

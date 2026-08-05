@@ -148,7 +148,7 @@ int main() {
     const std::size_t dash = member.anchor_id.find('-');
     require(dash != std::string::npos);
     const std::uint32_t ordinal =
-        static_cast<std::uint32_t>(std::stoul(member.anchor_id.substr(dash + 1)) - 1);
+        static_cast<std::uint32_t>(std::stoul(member.anchor_id.substr(dash + 1)));
     ++membership[ordinal];
   }
   for (std::uint32_t count : membership) {

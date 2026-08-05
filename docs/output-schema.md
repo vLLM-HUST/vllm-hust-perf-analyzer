@@ -128,6 +128,9 @@ The checked-in SQL audit surfaces are:
   unknown, and legacy ACLGraph capability outcomes;
 - `docs/report-sql/structural-composition.sql` for the neutral ordered unit map
   and its membership-count conservation surface;
+- `docs/report-sql/structural-composition-audit.sql` for exact unit/order,
+  membership, identity, evidence-policy, interval, cost, and expansion
+  invariants;
 - `docs/report-sql/idle-evidence-summary.sql` for paper-ready E4 category
   totals and shares; and
 - `docs/report-sql/idle-evidence-audit.sql` for exact partition, lineage, and

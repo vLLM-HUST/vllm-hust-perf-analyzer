@@ -25,7 +25,7 @@ struct GraphSpan {
 };
 
 std::string anchor_compat_id(AnchorId id) {
-  return id.valid() ? "anchor-" + std::to_string(id.value() + 1)
+  return id.valid() ? "anchor-" + std::to_string(id.value())
                     : std::string();
 }
 

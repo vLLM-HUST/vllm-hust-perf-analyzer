@@ -1000,16 +1000,37 @@ void seed_semantic_tree_fixture(const std::string& db_path) {
 
 void seed_structural_composition_fixture(const std::string& db_path) {
   traceloom::compat::LoopTreeSqlRows rows;
+  traceloom::compat::StructuralUnitSqlRow first_graph;
+  first_graph.unit_id = "G1";
+  first_graph.unit_order = 0;
+  first_graph.family_id = "GF1";
+  first_graph.kind = "graph_unit";
+  first_graph.body_fingerprint = "HG";
+  first_graph.token_start_ordinal = 0;
+  first_graph.token_end_ordinal = 1;
+  first_graph.first_anchor_idx = 11;
+  first_graph.last_anchor_idx = 11;
+  first_graph.anchor_count = 1;
+  first_graph.end_ns = 1000;
+  first_graph.span_us = 1.0;
+  first_graph.compute_us = 1.0;
+  first_graph.total_us = 1.0;
+  first_graph.evidence_status = "exact";
+  first_graph.boundary_policy = "direct_exact_graph_unit";
+  first_graph.expansion_nodes = "node-N006#1";
+  first_graph.shape_signature = "unavailable";
+  rows.structural_units.push_back(first_graph);
+
   traceloom::compat::StructuralUnitSqlRow unit;
   unit.unit_id = "U1";
-  unit.unit_order = 3;
+  unit.unit_order = 1;
   unit.family_id = "UF1";
   unit.kind = "structural_unit";
   unit.body_fingerprint = "H1234";
-  unit.token_start_ordinal = 10;
-  unit.token_end_ordinal = 12;
-  unit.first_anchor_idx = 11;
-  unit.last_anchor_idx = 12;
+  unit.token_start_ordinal = 1;
+  unit.token_end_ordinal = 3;
+  unit.first_anchor_idx = 12;
+  unit.last_anchor_idx = 13;
   unit.anchor_count = 2;
   unit.start_ns = 1000;
   unit.end_ns = 3000;
@@ -1022,14 +1043,52 @@ void seed_structural_composition_fixture(const std::string& db_path) {
   unit.expansion_nodes = "node-N007#1";
   unit.shape_signature = "unavailable";
   rows.structural_units.push_back(unit);
-  for (std::uint32_t index = 0; index < 2; ++index) {
+
+  traceloom::compat::StructuralUnitSqlRow last_graph = first_graph;
+  last_graph.unit_id = "G2";
+  last_graph.unit_order = 2;
+  last_graph.token_start_ordinal = 3;
+  last_graph.token_end_ordinal = 4;
+  last_graph.first_anchor_idx = 14;
+  last_graph.last_anchor_idx = 14;
+  last_graph.start_ns = 3000;
+  last_graph.end_ns = 4000;
+  last_graph.expansion_nodes = "node-N008#1";
+  rows.structural_units.push_back(last_graph);
+
+  const std::vector<std::pair<std::string, std::uint32_t>> memberships{
+      {"G1", 11}, {"U1", 12}, {"U1", 13}, {"G2", 14}};
+  std::string current_unit;
+  std::uint32_t anchor_order = 0;
+  for (const auto& membership : memberships) {
+    if (membership.first != current_unit) {
+      current_unit = membership.first;
+      anchor_order = 0;
+    }
     traceloom::compat::StructuralUnitAnchorSqlRow member;
-    member.unit_id = "U1";
-    member.anchor_id = "anchor-" + std::to_string(index + 11);
-    member.anchor_order = index;
+    member.unit_id = membership.first;
+    member.anchor_id = "anchor-" + std::to_string(membership.second);
+    member.anchor_order = anchor_order++;
     rows.structural_unit_anchors.push_back(member);
   }
   traceloom::compat::replace_loop_tree_rows(db_path, rows);
+  std::vector<traceloom::compat::AnchorSqlRow> anchors;
+  for (std::uint32_t index = 0; index < 4; ++index) {
+    traceloom::compat::AnchorSqlRow anchor;
+    anchor.anchor_id = "anchor-" + std::to_string(index + 11);
+    anchor.anchor_idx = index + 11;
+    anchor.event_id = "event-" + std::to_string(index + 11);
+    anchor.step_idx = index + 11;
+    anchor.symbol = "A";
+    anchor.role = "compute";
+    anchor.label = "A";
+    anchor.family = "exec";
+    anchor.start_ns = 1000 + static_cast<std::int64_t>(index) * 1000;
+    anchor.end_ns = anchor.start_ns + 1000;
+    anchor.dur_us = 1.0;
+    anchors.push_back(anchor);
+  }
+  traceloom::compat::replace_anchor_rows(db_path, anchors);
 }
 
 std::vector<QueryCase> active_query_cases() {
@@ -1251,6 +1310,32 @@ std::vector<QueryCase> active_query_cases() {
           1,
       },
       QueryCase{
+          "structural-composition-audit.sql",
+          {
+              "unit_count",
+              "graph_unit_count",
+              "complete_structural_unit_count",
+              "unrecognized_unit_count",
+              "anchor_count",
+              "unit_anchor_sum",
+              "membership_count",
+              "distinct_member_count",
+              "membership_count_delta",
+              "unit_membership_errors",
+              "duplicate_anchor_memberships",
+              "orphan_anchor_memberships",
+              "order_partition_errors",
+              "anchor_order_errors",
+              "identity_errors",
+              "evidence_policy_errors",
+              "cost_errors",
+              "interval_errors",
+              "expansion_errors",
+              "audit_status",
+          },
+          1,
+      },
+      QueryCase{
           "structural-composition.sql",
           {
               "unit_order",
@@ -1352,7 +1437,8 @@ int main() {
     } else if (query_case.filename == "semantic-tree-readable.sql") {
       seed_semantic_tree_fixture(db_path);
       require_semantic_tree_invariants(db_path);
-    } else if (query_case.filename == "structural-composition.sql") {
+    } else if (query_case.filename == "structural-composition.sql" ||
+               query_case.filename == "structural-composition-audit.sql") {
       seed_structural_composition_fixture(db_path);
     }
 
@@ -1433,14 +1519,45 @@ int main() {
       require(result.first_row[8] == "0.05");
       require(result.first_row[9] == "25.0" ||
               result.first_row[9] == "25");
-    } else if (query_case.filename == "structural-composition.sql") {
+    } else if (query_case.filename == "structural-composition-audit.sql") {
       require(result.row_count == 1);
       require(result.first_row[0] == "3");
-      require(result.first_row[1] == "U1");
-      require(result.first_row[2] == "structural_unit");
-      require(result.first_row[6] == "2");
-      require(result.first_row[7] == "2");
-      require(result.first_row[14] == "complete");
+      require(result.first_row[1] == "2");
+      require(result.first_row[2] == "1");
+      require(result.first_row[4] == "4");
+      require(result.first_row[5] == "4");
+      require(result.first_row[6] == "4");
+      require(result.first_row[7] == "4");
+      require(result.first_row[19] == "PASS");
+
+      execute_sql(db_path,
+                  "UPDATE traceloom_structural_unit_anchor "
+                  "SET anchor_id = 'anchor-999' "
+                  "WHERE anchor_id = 'anchor-14'");
+      const QueryResult orphaned = run_query(db_path, query_case);
+      require(orphaned.row_count == 1);
+      require(orphaned.first_row[11] == "1");
+      require(orphaned.first_row[19] == "FAIL");
+
+      execute_sql(db_path,
+                  "UPDATE traceloom_structural_unit_anchor "
+                  "SET anchor_id = 'anchor-14' "
+                  "WHERE anchor_id = 'anchor-999'");
+      execute_sql(db_path,
+                  "DELETE FROM traceloom_structural_unit_anchor "
+                  "WHERE anchor_id = 'anchor-14'");
+      const QueryResult corrupted = run_query(db_path, query_case);
+      require(corrupted.row_count == 1);
+      require(corrupted.first_row[9] == "1");
+      require(corrupted.first_row[19] == "FAIL");
+    } else if (query_case.filename == "structural-composition.sql") {
+      require(result.row_count == 3);
+      require(result.first_row[0] == "0");
+      require(result.first_row[1] == "G1");
+      require(result.first_row[2] == "graph_unit");
+      require(result.first_row[6] == "1");
+      require(result.first_row[7] == "1");
+      require(result.first_row[14] == "exact");
     } else if (query_case.filename ==
                "reconstruction-capability-matrix.sql") {
       require(result.row_count == 1);
