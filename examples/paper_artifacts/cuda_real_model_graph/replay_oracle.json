@@ -1,0 +1,19 @@
+{
+  "application_replay_sequence": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "expected_launch_count": 5,
+  "expected_template_sequence": [
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "graph_instances": 1,
+  "preregistered_before_profile_analysis": true
+}

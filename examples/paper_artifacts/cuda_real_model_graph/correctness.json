@@ -1,0 +1,113 @@
+{
+  "source_manifest_sha256": "a19c9433086cb2e4db380c356f974dd6ab1b032c12816beb079b897c90b010b4",
+  "sanitization": "model_path replaced by stable MODEL_SNAPSHOT label",
+  "observation": {
+    "architectures": [
+      "Qwen3_5ForConditionalGeneration"
+    ],
+    "attention_implementation": "eager",
+    "capture_seconds": 0.7974922358989716,
+    "correct": true,
+    "cosine_similarity": 1.0000000000000002,
+    "cuda_version": "12.1",
+    "cudnn_version": 90100,
+    "device": "NVIDIA A800 80GB PCIe LC",
+    "dtype": "bfloat16",
+    "eager_argmax": 77,
+    "eager_sample_logits": [
+      6.75,
+      7.125,
+      6.25,
+      8.0625,
+      3.953125,
+      4.53125,
+      -0.2314453125,
+      -2.375
+    ],
+    "eager_tail_sha256_float32": "029864015df3129c9ab490bda4ebaa280180348d9d3c7d4fc3fdb99953e50044",
+    "eager_top10": [
+      77,
+      6996,
+      82,
+      75,
+      89,
+      70,
+      67,
+      302,
+      81,
+      719
+    ],
+    "expected_graph_launches": 5,
+    "finite": true,
+    "graph_argmax": 77,
+    "graph_sample_logits": [
+      6.75,
+      7.125,
+      6.25,
+      8.0625,
+      3.953125,
+      4.53125,
+      -0.2314453125,
+      -2.375
+    ],
+    "graph_tail_sha256_float32": "029864015df3129c9ab490bda4ebaa280180348d9d3c7d4fc3fdb99953e50044",
+    "graph_top10": [
+      77,
+      6996,
+      82,
+      75,
+      89,
+      70,
+      67,
+      302,
+      81,
+      719
+    ],
+    "input_shape": [
+      1,
+      128
+    ],
+    "load_seconds": 31.351227197796106,
+    "max_abs_error": 0.0,
+    "mean_abs_error": 0.0,
+    "model_path": "MODEL_SNAPSHOT",
+    "model_type": "qwen3_5",
+    "output_shape": [
+      1,
+      128,
+      248320
+    ],
+    "parameter_count": 852985920,
+    "profile_control_enabled": true,
+    "replay_seconds": 0.1757732480764389,
+    "replay_sequence": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "sample_indices": [
+      0,
+      1,
+      2,
+      17,
+      101,
+      1009,
+      32000,
+      248319
+    ],
+    "seed": 20260805,
+    "thresholds_preregistered": {
+      "argmax_equal": true,
+      "cosine_similarity": 0.99999,
+      "max_abs_error": 0.001,
+      "mean_abs_error": 0.0001,
+      "top10_overlap": 10
+    },
+    "top10_overlap": 10,
+    "torch_version": "2.5.1+cu121",
+    "warmup_iterations": 3,
+    "workload": "Qwen/Qwen3.5-0.8B fixed-shape full forward"
+  }
+}

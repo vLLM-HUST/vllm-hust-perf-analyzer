@@ -919,6 +919,17 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
       )
 
       add_test(
+        NAME traceloom_native_cuda_real_model_graph_artifact
+        COMMAND ${Python3_EXECUTABLE}
+          ${CMAKE_CURRENT_SOURCE_DIR}/../examples/paper_artifacts/tools/verify_cuda_real_model_graph.py
+          --traceloom $<TARGET_FILE:traceloom>
+      )
+      set_tests_properties(
+        traceloom_native_cuda_real_model_graph_artifact
+        PROPERTIES LABELS "artifact" TIMEOUT 120
+      )
+
+      add_test(
         NAME traceloom_native_kickstart_folding_artifact
         COMMAND ${Python3_EXECUTABLE}
           ${CMAKE_CURRENT_SOURCE_DIR}/../examples/paper_artifacts/tools/verify_kickstart_folding.py

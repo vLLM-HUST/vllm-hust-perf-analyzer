@@ -1,0 +1,46 @@
+{
+  "format": "traceloom-cuda-nsys-reduction-v1",
+  "omitted_content": "unreferenced strings and non-analyzer metadata tables",
+  "output_bytes": 6017024,
+  "output_sha256": "a8536e8b32459eeda3f6017867b88f1b9919707adb373e16c808cd4200827ede",
+  "privacy_check": "referenced strings reject credentials and home paths",
+  "retained_string_ids": 152,
+  "retained_tables": [
+    "CUDA_GRAPH_NODE_EVENTS",
+    "CUPTI_ACTIVITY_KIND_KERNEL",
+    "CUPTI_ACTIVITY_KIND_MEMCPY",
+    "CUPTI_ACTIVITY_KIND_RUNTIME",
+    "CUPTI_ACTIVITY_KIND_SYNCHRONIZATION",
+    "StringIds"
+  ],
+  "row_counts": {
+    "CUDA_GRAPH_NODE_EVENTS": {
+      "retained": 30369,
+      "source": 30369
+    },
+    "CUPTI_ACTIVITY_KIND_KERNEL": {
+      "retained": 48877,
+      "source": 48877
+    },
+    "CUPTI_ACTIVITY_KIND_MEMCPY": {
+      "retained": 540,
+      "source": 540
+    },
+    "CUPTI_ACTIVITY_KIND_RUNTIME": {
+      "retained": 18598,
+      "source": 18598
+    },
+    "CUPTI_ACTIVITY_KIND_SYNCHRONIZATION": {
+      "retained": 4,
+      "source": 4
+    },
+    "StringIds": {
+      "retained": 152,
+      "source": 495
+    }
+  },
+  "source_bytes": 6676480,
+  "source_rowid_policy": "preserved",
+  "source_sha256": "90125e3a4689d3a9caba2436b5af2fdb40157896ed8aa46f9df6441d04d6297d",
+  "string_id_policy": "retain only values referenced by analyzed tables"
+}

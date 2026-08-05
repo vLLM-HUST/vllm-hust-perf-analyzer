@@ -77,13 +77,26 @@ their GEMM kernel identity and memcpy size.
   activity schema, contradictory bodies for one raw node set, deterministic
   reload, and the exact `A/B/A/A/B` schedule.
 
-The CUDA-Graph-plus-TP capture attempt in the bundle remains a negative result:
-it hung and was terminated. The current evidence therefore supports exact
-single-GPU CUDA Graph visible-body recovery and eager TP/NCCL normalization,
-not exact CUDA Graph TP reconstruction.
+## Real-Model External Validity
 
-The next CUDA evidence layer is a correctness-gated, single-GPU real-model
-CUDA Graph capture. Its collection, acceptance, bundle, and return contract is
-maintained in `notes/cuda-real-model-graph-handoff.md`. Publication ordering
-and artifact-packaging gates are tracked in
-`notes/publication-readiness-roadmap.md`.
+The follow-up A800 campaign executes a correctness-gated Qwen3.5-0.8B full
+forward inside a real `torch.cuda.CUDAGraph`. Two independent node-level
+captures each recover five exact ReplayUnits, one stable 9,881-member template
+(9,773 kernels plus 108 memcopies), and zero unrecognized reconstruction
+regions. All 49,405 body members per capture resolve to original Nsight kernel
+or memcpy rows. Reanalysis of the primary SQLite produces byte-identical
+canonical output, Loop Tree, and compatibility sidecar.
+
+The graph-level companion exposes five replay boundaries but zero exact bodies,
+preserving the timestamp-containment boundary. A deterministic 12.15 MiB
+checkout reduction packages both node-level captures and the graph-level
+input; its optional reference mode proves canonical semantic equality with the
+full immutable bundle.
+
+The TP2+NCCL follow-up supplies correct graph replays and direct raw node
+evidence for GEMM, D2D memcpy, and NCCL AllReduce on both devices. It is not an
+exact TraceLoom result: the current shared report path rejects structural units
+that span more than one device sequence. The evidence therefore supports
+single-GPU real-model visible-body recovery, not CUDA Graph TP reconstruction.
+Collection and artifact details remain in
+`notes/cuda-real-model-graph-handoff.md`.

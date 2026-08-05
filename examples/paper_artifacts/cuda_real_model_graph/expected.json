@@ -1,0 +1,43 @@
+{
+  "artifact_bundle_sha256": "312021850a07ec7d6b5dd2fe394ce07adb5ce42e3367e0fa1d41a1d41e356281",
+  "correctness_sha256": "6d53e736bbc5dc8f2d20aaf7dc0678fae515cb7b440d5f7184583e3ed2626b08",
+  "environment": {
+    "cuda": "12.1",
+    "device": "NVIDIA A800 80GB PCIe LC",
+    "driver": "535.104.05",
+    "model": "Qwen/Qwen3.5-0.8B",
+    "nsight": "2024.4.1.61",
+    "torch": "2.5.1+cu121"
+  },
+  "graph_level": {
+    "canonical_observation_sha256": "6455c46d69ed53bb025ae91e52a60bdb49a818278e8bef2486f29c06744c1591",
+    "database": "real_model_graph_graph.sqlite",
+    "loop_tree_sha256": "01223f49fbbebde87a45faaf950a509ffcb0c5256e5a8e7db7238fc7667b555f",
+    "reduction_manifest": "real_model_graph_graph-reduction.json"
+  },
+  "node_level": {
+    "anchors": 9,
+    "body_members": 49405,
+    "body_templates": 1,
+    "canonical_observation_sha256": "d62e64cc064c3d5128acb73ea5b8946bea02e40baa242a821bb8cb2952fddd56",
+    "compute_members_per_body": 9773,
+    "data_move_members_per_body": 108,
+    "database": "real_model_graph_node.sqlite",
+    "events": 68024,
+    "exact_replay_units": 5,
+    "loop_tree_sha256": "cbb5d40672324c939749165303cb0289b47f5f88adf42a0ba59699676da10300",
+    "members_per_body": 9881,
+    "recognized_regions": 5,
+    "reduction_manifest": "real_model_graph_node-reduction.json",
+    "template_hash": 9267402908908985375,
+    "template_sequence": [0, 0, 0, 0, 0],
+    "unknown_regions": 0
+  },
+  "repeat": {
+    "canonical_observation_sha256": "73450d119c2e7e73f75aa7bcfafacbd9220eed41e77477aeaaf4e8440c1b9ca5",
+    "database": "real_model_graph_node_repeat.sqlite",
+    "loop_tree_sha256": "e99f07a95bde4aabb30bd00598227c0ccc765c158e0e13b779fadeb5ce5efda7",
+    "reduction_manifest": "real_model_graph_node_repeat-reduction.json"
+  },
+  "replay_oracle_sha256": "8a2f3253ccc697ad6a73c4f675161bb984852db7b629fc6775a59a6a001360d8"
+}

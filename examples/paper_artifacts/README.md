@@ -25,12 +25,30 @@ one fixture:
 | `ascend_tp2_exact` | 15.60/23.55 MiB | exact TP2 composition, raw provenance, and communication localization |
 | `ascend_tp2_fresh_negative` | 10.87-10.98 MiB each | preregistered six-rank negative, fail-closed current recovery |
 | `ascend_mapped_gather` | 7.12 MiB/124 KiB | correctness-gated 512x target-operation perturbation |
+| `cuda_real_model_graph` | 5.74/5.74/0.66 MiB | real-model exact visible bodies, independent capture, graph-level boundary |
 | `../kickstart_smoke` | 36.42-38.52 MiB each | realistic ingestion and nested folding |
 
 The medium pair is close to the requested 50 MB-per-profile review scale while
 remaining natural data. Keeping the contracts separate prevents irrelevant
 rows from making the exactness fixture look more representative without adding
 evidence.
+
+## Active cross-provider contract: CUDA real-model graph
+
+The `cuda_real_model_graph` artifact promotes the CUDA result from a controlled
+API fixture to correctness-gated real-model external validity. Two independent
+Qwen3.5-0.8B node-level captures each recover five exact ReplayUnits, one
+stable 9,881-member body template, 49,405 source-linked body members, and zero
+reconstruction unknowns. A graph-level companion retains five replay
+boundaries but zero exact bodies. The verifier repeats the primary analysis,
+checks byte-identical canonical output/Loop Tree/sidecar, and resolves every
+body member to the bundled source SQLite.
+
+The deterministic reduction keeps all rows and original rowids from the
+analyzed Nsight activity tables while omitting unreferenced strings and
+non-analyzer metadata. Optional reference mode proves complete canonical
+semantic equality with the immutable full bundle. CUDA Graph plus TP remains a
+separate analyzer limitation rather than being folded into this success.
 
 ## Active exact-composition contract: Ascend TP2
 

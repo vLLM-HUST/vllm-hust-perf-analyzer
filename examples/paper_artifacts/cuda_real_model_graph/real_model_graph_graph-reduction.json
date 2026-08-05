@@ -1,0 +1,41 @@
+{
+  "format": "traceloom-cuda-nsys-reduction-v1",
+  "omitted_content": "unreferenced strings and non-analyzer metadata tables",
+  "output_bytes": 692224,
+  "output_sha256": "3ed0fdfe4e2a0380f5293c8dcd276ac1d7e47425cd0938caaf42310f63a33f55",
+  "privacy_check": "referenced strings reject credentials and home paths",
+  "retained_string_ids": 19,
+  "retained_tables": [
+    "CUPTI_ACTIVITY_KIND_GRAPH_TRACE",
+    "CUPTI_ACTIVITY_KIND_KERNEL",
+    "CUPTI_ACTIVITY_KIND_RUNTIME",
+    "CUPTI_ACTIVITY_KIND_SYNCHRONIZATION",
+    "StringIds"
+  ],
+  "row_counts": {
+    "CUPTI_ACTIVITY_KIND_GRAPH_TRACE": {
+      "retained": 5,
+      "source": 5
+    },
+    "CUPTI_ACTIVITY_KIND_KERNEL": {
+      "retained": 12,
+      "source": 12
+    },
+    "CUPTI_ACTIVITY_KIND_RUNTIME": {
+      "retained": 18598,
+      "source": 18598
+    },
+    "CUPTI_ACTIVITY_KIND_SYNCHRONIZATION": {
+      "retained": 4,
+      "source": 4
+    },
+    "StringIds": {
+      "retained": 19,
+      "source": 355
+    }
+  },
+  "source_bytes": 1347584,
+  "source_rowid_policy": "preserved",
+  "source_sha256": "e8a9f1ade0e8758f6e11fa246e3b596e20d7d1694c21bd68bda070e43151b006",
+  "string_id_policy": "retain only values referenced by analyzed tables"
+}

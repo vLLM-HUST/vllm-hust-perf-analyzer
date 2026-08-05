@@ -33,6 +33,7 @@ def main() -> int:
             "pattern-local-reduce-scaling",
             tools / "verify_pattern_local_reduce_scaling.py",
         ),
+        ("cuda-real-model-graph", tools / "verify_cuda_real_model_graph.py"),
         ("workflow-comparison", tools / "verify_workflow_comparison.py"),
     )
     for claim, verifier in checks:

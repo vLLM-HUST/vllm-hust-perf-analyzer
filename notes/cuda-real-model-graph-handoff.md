@@ -1,11 +1,32 @@
 # CUDA Real-Model Graph Evidence Handoff
 
-Status: ready for CUDA-host execution
+Status: complete; integrated as checkout reviewer evidence
 
 Date: 2026-08-05
 
 Audience: the Lumi session working on a local CUDA machine or a school CUDA
 server
+
+## Completed return
+
+The 2026-08-05 A800 campaign passed the P1 gate. The immutable bundle is
+`traceloom-cuda-real-model-20260805-final.tgz`, SHA-256
+`312021850a07ec7d6b5dd2fe394ce07adb5ce42e3367e0fa1d41a1d41e356281`.
+Two independent correctness-gated Qwen3.5-0.8B node-level captures each
+recover five exact ReplayUnits, one 9,881-member visible-body template, 49,405
+source-linked members, and zero reconstruction unknowns. The graph-level
+companion exposes five non-exact replay boundaries, as required.
+
+The reviewer-safe reduction and CPU-only verifier now live in
+`examples/paper_artifacts/cuda_real_model_graph/`. Full and reduced canonical
+semantic JSON are identical after excluding only input path, thread count,
+timing, and allocator telemetry.
+
+The optional TP2+NCCL diagnostic is not promoted into success: its raw node
+evidence and correctness gate pass, but the shared report path rejects a
+structural unit spanning two device sequences. Releasing the live CUDAGraph
+before `destroy_process_group` resolves the bounded teardown timeout; this does
+not prove that every earlier hang had the same cause.
 
 ## Mission
 

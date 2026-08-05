@@ -38,9 +38,10 @@ As of this roadmap:
 - mapped gather gives a correctness-gated, known structural perturbation;
 - fused expert MLP exposes a large task-count change, but its local graph-body
   speed verdict remains inconclusive;
-- a real Nsight node-level CUDA Graph export recovers five exact visible-body
-  units, two templates, and the oracle schedule `A/B/A/A/B`, with corruption
-  tests that fail closed;
+- two independent correctness-gated Qwen3.5-0.8B Nsight node-level CUDA Graph
+  exports each recover five exact visible-body units, one stable 9,881-member
+  template, and complete raw-row provenance; the graph-level companion remains
+  non-exact and controlled corruptions fail closed;
 - the repository's sanitized 78,585,856-byte kickstart pair supplies 145,927
   normalized events and a current, CPU-only folding oracle;
 - a newly audited production pair now emits an exact neutral top-level
@@ -48,8 +49,9 @@ As of this roadmap:
   productive anchor has exactly one unit owner; open trace boundaries remain
   typed unrecognized rows.
 
-The CUDA evidence details are in `notes/cuda-graph-exact-evidence.md`. The next
-CUDA collection task is specified in `notes/cuda-real-model-graph-handoff.md`.
+The CUDA evidence details are in `notes/cuda-graph-exact-evidence.md`; the
+completed collection contract and multi-device boundary are recorded in
+`notes/cuda-real-model-graph-handoff.md`.
 
 ## Submission Gates
 
@@ -61,10 +63,10 @@ but must not displace a failing P0 gate.
 | R1 | P0 | Neutral interleaved structural units | implemented, real-profile reproduced, and checkout golden verified | analyzer output, goldens, wide composition table |
 | R2 | P0 | Fair workflow comparison | implemented, checkout-verified, and CTest-gated | one fixed question set answered by top-k, timeline/SQL, repeat-only, and TraceLoom |
 | R3 | P0 | Patch/cost-shift case | bounded current case integrated; positive follow-up preregistered | correctness, structural delta, cost localization, bounded mechanism wording |
-| R4 | P0 | Raw-row provenance for every central result | packaged Ascend exact/communication/perturbation/fresh-negative rows green; CUDA external | one command verifies every central row from immutable input |
+| R4 | P0 | Raw-row provenance for every central result | packaged Ascend and CUDA central rows checkout-green | one command verifies every central row from immutable input |
 | R5 | P0 | Offline reviewer artifact | two-tier CPU-only ledger implemented and CTest-gated | clean CPU-only checkout reproduces exact and folding contracts |
 | R6 | P1 | Million-row analysis-cost point | five-run Release receipt complete | time, peak RSS, input/output size, compression reported |
-| R7 | P1 | Real-model CUDA Graph external validity | real model and graph evidence are separate | correctness-gated single-GPU model graph, exact visible-body report |
+| R7 | P1 | Real-model CUDA Graph external validity | complete, independently repeated, checkout-verified | correctness-gated single-GPU model graph, exact visible-body report |
 | R8 | P1 | Paper figures and final case integration | implemented and TeX-verified | final TeX contains pipeline and counterintuitive cost-localization figures |
 
 CUDA Graph plus tensor parallelism, hidden CUDA graph-definition recovery,
@@ -189,8 +191,9 @@ or the paper's first-run path.
 
 The 3.55 MiB Ascend interleaved pair is now checked in with source manifests,
 full-versus-reduced stable-field oracles, provenance checks, and an exact graph
-verifier. The approximately 0.7 MiB Nsight node-level CUDA Graph SQLite remains
-a candidate for the same tier.
+verifier. The 12.15 MiB CUDA real-model bundle adds two independently captured
+node-level databases and one graph-level boundary database, with full/reduced
+canonical equality and complete exact-member provenance.
 
 The 39.15 MiB two-rank TP2 pair is also checked in as a Tier B exactness
 artifact. It preserves all primary event rows while removing host identity and
@@ -343,15 +346,16 @@ global evidence analysis, and whole-tool scaling remain separate claims.
 
 ## R7: CUDA External Validity
 
-The required next evidence is one correctness-gated, single-GPU real-model
-CUDA Graph trace. It is intentionally narrower than CUDA Graph plus TP. The
-complete collection and return contract lives in
-`notes/cuda-real-model-graph-handoff.md`.
+R7 is complete. Two independent correctness-gated Qwen3.5-0.8B node-level
+captures each recover five exact visible-body units, one stable 9,881-member
+template, and complete raw-row provenance. The graph-level companion retains
+five replay boundaries but zero exact bodies. A deterministic checkout
+reduction plus optional full-reference mode makes this row CPU-only and green.
 
-Success upgrades the CUDA statement from a controlled real-API transfer
-fixture to real-model external validity. Failure is still useful when it
-identifies a profiler capability boundary, but it must not be normalized into
-an exact unit.
+The TP2+NCCL diagnostic remains a named follow-up boundary: profiler evidence
+and numerical correctness are present, but the shared report path rejects a
+unit spanning two device sequences. This does not weaken the completed
+single-GPU external-validity claim and is not silently counted as TP success.
 
 ## R8: Paper Integration And Visuals
 
@@ -375,10 +379,11 @@ external interpretation, not in TraceLoom's emitted schema.
 4. ~~Run R2 over the frozen inputs and materialize the comparison table.~~ Complete.
 5. ~~Close R3 with the strongest wording supported by the available ablation.~~ Complete; retain the strengthened-operator capture as optional positive evidence.
 6. ~~Measure R6 on the already checked-in kickstart profile.~~ Complete.
-7. Integrate the CUDA return from R7 if it passes its evidence gate.
+7. ~~Integrate the CUDA return from R7 if it passes its evidence gate.~~ Complete; real-model node-level exactness and graph-level fail-closed behavior are checkout-verified.
 8. ~~Produce R8 and update the paper only from verified tables.~~ Complete for the pipeline and interleaved cost-localization figures.
 
-R7 may proceed concurrently on a CUDA host. It must not block R1-R6.
+The optional multi-device report repair may proceed separately; it must not
+rewrite or delay the completed R7 claim.
 
 ## Stop Rules
 
