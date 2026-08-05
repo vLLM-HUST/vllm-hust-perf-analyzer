@@ -329,6 +329,18 @@ analysis, reduction, and materialization dominate. Paper wording must present
 parallelism as a deterministic scalability mechanism with measured stage
 benefit, not linear end-to-end acceleration.
 
+A preregistered larger-sequence campaign now separates the algorithmic scaling
+claim from that real-profile Amdahl limit. The immutable baseline materializes
+7,999,949 occurrences and globally sorts them into only 200 summaries; it fails
+the 4x/8-thread target and reaches only 1.152x for scan plus reduce. A separately
+preregistered production change reduces within each owned partition and merges
+compact summaries in deterministic key/source order. It preserves every frozen
+summary and diagnostic hash, lowers largest-case maximum median RSS from
+1,183.6 to 401.5 MiB, and reaches 7.752x at 8 threads (96.9% efficiency) and
+24.665x at 32 threads (77.1%). This supports strong scaling only for the
+protected-sequence pattern map/reduce stage on the named Kunpeng host; grammar,
+global evidence analysis, and whole-tool scaling remain separate claims.
+
 ## R7: CUDA External Validity
 
 The required next evidence is one correctness-gated, single-GPU real-model

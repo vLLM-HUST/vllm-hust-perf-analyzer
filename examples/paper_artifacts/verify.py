@@ -29,6 +29,10 @@ def main() -> int:
         ("medium-folding", tools / "verify_kickstart_folding.py"),
         ("parallel-scaling-receipt", tools / "verify_parallel_scaling_receipt.py"),
         ("pattern-scaling-baseline", tools / "verify_pattern_scaling_baseline.py"),
+        (
+            "pattern-local-reduce-scaling",
+            tools / "verify_pattern_local_reduce_scaling.py",
+        ),
         ("workflow-comparison", tools / "verify_workflow_comparison.py"),
     )
     for claim, verifier in checks:

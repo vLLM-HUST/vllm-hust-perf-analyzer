@@ -93,3 +93,25 @@ the eight-thread scan-plus-reduce result to 1.152x. The frozen outcome and next
 decision are in `pattern-scaling-baseline-outcome.md`. Any local-reduction
 optimization must use a new protocol and receipt rather than replacing the
 baseline.
+
+## Partition-local map/reduce result
+
+The separately preregistered follow-up keeps the exact owned-range/halo scan but
+reduces occurrences inside each partition. Workers return compact summaries
+and typed diagnostics; a deterministic key/first-position merge produces the
+global result. All counts plus diagnostic and summary hashes match the
+immutable baseline across all 90 optimized samples.
+
+| Tokens | Candidate occurrences | 1-thread map/reduce | 8-thread speedup (eff.) | 32-thread speedup (eff.) |
+| ---: | ---: | ---: | ---: | ---: |
+| 100,000 | 199,949 | 68.242 ms | 5.811x (72.6%) | 5.126x (16.0%) |
+| 1,000,000 | 1,999,949 | 686.473 ms | 7.592x (94.9%) | 18.005x (56.3%) |
+| 4,000,000 | 7,999,949 | 2,733.900 ms | 7.752x (96.9%) | 24.665x (77.1%) |
+
+At four million tokens, the local-reduction one-thread path is 2.443x faster
+than the 6,678.29 ms global-sort baseline before adding threads. The largest
+optimized median RSS is 401.5 MiB, 66.1% below the baseline's 1,183.6 MiB. At
+eight threads the complete map/reduce stage takes 352.655 ms; at 32 threads it
+takes 110.842 ms. This satisfies every preregistered correctness, scaling, and
+memory target. The full receipt is
+`kunpeng920-pattern-local-reduce-scaling.json`.

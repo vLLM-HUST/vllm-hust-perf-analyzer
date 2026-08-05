@@ -155,3 +155,11 @@ Loop Trees across 1/2/4/8 threads. End-to-end speedup remains only
 1.018--1.032x at eight threads because global evidence and materialization
 stages dominate; the artifact freezes this limit rather than promoting it to a
 linear-scaling claim.
+
+It also retains a preregistered million-token pattern campaign. The initial
+materialize-then-global-sort design does not reproduce its 4x/8-thread target.
+The separately preregistered partition-local reduction preserves every frozen
+summary/diagnostic hash, reduces largest-case retained RSS by 66.1%, and reaches
+7.752x at eight threads and 24.665x at 32 threads over 7,999,949 candidate
+occurrences. Baseline and optimized receipts coexist so the systems result is
+auditable rather than selected post hoc.
