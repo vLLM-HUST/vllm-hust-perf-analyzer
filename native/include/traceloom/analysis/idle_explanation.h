@@ -100,7 +100,8 @@ struct IdleExplanationOptions {
 };
 
 // productive and streams must be outputs of E2/E3 for the same IR and span.
-// Structural disagreement is a caller error and throws std::invalid_argument.
+// Structural disagreement, or productive E3 coverage inside an E2 visible
+// gap, is a caller error and throws std::invalid_argument.
 IdleExplanationRunResult build_idle_explanations(
     const ProductiveTimelineRunResult& productive,
     const StreamStateRunResult& streams,

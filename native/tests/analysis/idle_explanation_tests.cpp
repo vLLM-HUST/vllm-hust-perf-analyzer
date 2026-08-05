@@ -14,11 +14,13 @@ namespace {
 using namespace traceloom;
 
 StreamStateSourceLink source(std::uint32_t event_id,
-                             std::uint32_t task_id) {
+                             std::uint32_t task_id,
+                             StreamState observed_state =
+                                 StreamState::kUnknown) {
   return StreamStateSourceLink{
       StreamStateSourceLink::Kind::kTask, TraceEventId(event_id),
       TaskId(task_id), CommunicationOpId::invalid(), SourceRefId(event_id),
-      std::string("fixture-rule")};
+      std::string("fixture-rule"), observed_state};
 }
 
 StreamStateInterval state(std::int64_t start_ns,
@@ -239,6 +241,87 @@ int main() {
             "run-level damage gates absence attribution");
   }
 
+  // Damage that E3 cannot attribute to any device is a global absence veto,
+  // even if the run status and the current device's local scan flag are ok.
+  {
+    Inputs input = make_inputs();
+    input.streams.diagnostics.push_back(
+        TimelineDiagnostic{"unattributable damaged event", -1});
+    input.streams.observed_universe_scan_complete = false;
+    IdleExplanationOptions options;
+    options.collection_status = CollectionStatus::kComplete;
+    const IdleExplanationRunResult run =
+        build_idle_explanations(input.productive, input.streams, options);
+    require(run.devices.front().explanations.front().category ==
+                IdleExplanationCategory::kUnattributedVisibleIdle,
+            "device-unattributable run damage gates absence attribution");
+  }
+
+  // A different device's incomplete scan does not veto a locally complete
+  // device. Only device-unattributable run diagnostics are global.
+  {
+    Inputs input = make_inputs();
+    DeviceTimelineResult second_productive = input.productive.devices.front();
+    second_productive.device_id = 8;
+    input.productive.devices.push_back(std::move(second_productive));
+    StreamStateDeviceResult second_stream = input.streams.devices.front();
+    second_stream.device_id = 8;
+    second_stream.observed_universe_scan_complete = false;
+    for (StreamStateTimeline& timeline : second_stream.timelines) {
+      timeline.device_id = 8;
+    }
+    input.streams.devices.push_back(std::move(second_stream));
+    input.streams.stream_universe_size = 4;
+    input.streams.observed_universe_scan_complete = false;
+    IdleExplanationOptions options;
+    options.collection_status = CollectionStatus::kComplete;
+    const IdleExplanationRunResult run =
+        build_idle_explanations(input.productive, input.streams, options);
+    require(run.devices.size() == 2 &&
+                run.devices[0].explanations.front().category ==
+                    IdleExplanationCategory::kNoObservedDeviceWork &&
+                run.devices[1].explanations.front().category ==
+                    IdleExplanationCategory::kUnattributedVisibleIdle,
+            "absence completeness remains device-local when damage is attributable");
+  }
+
+  // E2 damage propagates to E4 and prevents an absence claim even when E3 is
+  // otherwise complete and empty on every observed stream.
+  {
+    Inputs input = make_inputs();
+    input.productive.status = AnalysisStatus::kInvalidInput;
+    IdleExplanationOptions options;
+    options.collection_status = CollectionStatus::kComplete;
+    const IdleExplanationRunResult run =
+        build_idle_explanations(input.productive, input.streams, options);
+    require(run.status == AnalysisStatus::kInvalidInput &&
+                run.devices.front().explanations.front().category ==
+                    IdleExplanationCategory::kUnattributedVisibleIdle,
+            "E2 invalid input propagates and gates absence attribution");
+  }
+
+  // Ambiguous E3 intervals retain component state. The frozen wait priority
+  // selects only the wait lineage rather than treating the whole overlap as
+  // unattributed.
+  {
+    Inputs input = make_inputs();
+    input.streams.devices.front().timelines.front().intervals[1] = state(
+        20, 40, StreamState::kAmbiguousOverlap,
+        {source(1, 1, StreamState::kRunningWait),
+         source(9, 9, StreamState::kRunningCaptureControl)});
+    const IdleExplanationRunResult run =
+        build_idle_explanations(input.productive, input.streams);
+    const IdleExplanationRow& row = run.devices.front().explanations[1];
+    require(row.start_ns == 20 && row.end_ns == 40 &&
+                row.category ==
+                    IdleExplanationCategory::kBlockedByVisibleWait &&
+                row.source_links.size() == 1 &&
+                row.source_links.front().state ==
+                    StreamState::kRunningWait &&
+                row.source_links.front().source.task_id == TaskId(1),
+            "ambiguous wait component obeys priority with exact lineage");
+  }
+
   // Non-ok device results propagate status and never invent explanations.
   {
     ProductiveTimelineRunResult productive;
@@ -276,6 +359,29 @@ int main() {
               (void)build_idle_explanations(input.productive, input.streams);
             }),
             "universe metadata mismatch fails fast");
+  }
+
+  // Productive E3 coverage inside an E2 visible gap is a semantic stage
+  // mismatch, including when productive work is one ambiguous component.
+  {
+    Inputs input = make_inputs();
+    input.streams.devices.front().timelines.front().intervals[1] =
+        state(20, 40, StreamState::kRunningCompute, {source(1, 1)});
+    require(throws_invalid_argument([&input]() {
+              (void)build_idle_explanations(input.productive, input.streams);
+            }),
+            "productive state inside an E2 gap fails fast");
+  }
+  {
+    Inputs input = make_inputs();
+    input.streams.devices.front().timelines.front().intervals[1] = state(
+        20, 40, StreamState::kAmbiguousOverlap,
+        {source(1, 1, StreamState::kRunningCompute),
+         source(9, 9, StreamState::kRunningWait)});
+    require(throws_invalid_argument([&input]() {
+              (void)build_idle_explanations(input.productive, input.streams);
+            }),
+            "ambiguous productive component inside an E2 gap fails fast");
   }
 
   return 0;
