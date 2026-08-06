@@ -112,10 +112,9 @@ std::vector<SemanticReplayInterval> semantic_replay_intervals(
     const ReplayCompositionCandidateRow& candidate =
         ir.replay_composition_candidates.row(
             region.replay_composition_candidate_id);
-    if (candidate.shape_policy !=
-        ReplayCompositionShapePolicy::kHeadRepeatedLayerTail) {
+    if (!replay_composition_candidate_has_exact_structure(candidate)) {
       throw std::invalid_argument(
-          "exact replay interval has unsupported composition shape");
+          "exact replay interval lacks structurally exact composition");
     }
     for (std::size_t token_index = span.first_token_index;
          token_index <= span.last_token_index; ++token_index) {

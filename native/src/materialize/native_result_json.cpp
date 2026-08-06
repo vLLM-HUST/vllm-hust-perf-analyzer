@@ -187,6 +187,8 @@ const char* replay_composition_slot_role_name(
       return "layer";
     case ReplayCompositionSlotRole::kTail:
       return "tail";
+    case ReplayCompositionSlotRole::kGeneric:
+      return "generic_slot";
   }
   return "unclassified";
 }

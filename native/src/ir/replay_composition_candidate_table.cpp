@@ -52,6 +52,39 @@ const char* replay_composition_shape_policy_name(
   return "unclassified";
 }
 
+bool replay_composition_candidate_has_exact_structure(
+    const ReplayCompositionCandidateRow& candidate) noexcept {
+  if (!candidate.segment_first_launch_id.valid() ||
+      !candidate.pattern_first_launch_id.valid() ||
+      candidate.identity_policy ==
+          ReplayCompositionIdentityPolicy::kUnavailable ||
+      candidate.pattern_length == 0 || candidate.full_repeat_count == 0) {
+    return false;
+  }
+
+  const std::uint64_t covered =
+      static_cast<std::uint64_t>(candidate.leading_launch_count) +
+      static_cast<std::uint64_t>(candidate.pattern_length) *
+          candidate.full_repeat_count +
+      candidate.trailing_launch_count;
+  if (covered != candidate.segment_launch_count) {
+    return false;
+  }
+
+  switch (candidate.boundary_policy) {
+    case ReplayCompositionBoundaryPolicy::kExactPeriodicSuffix:
+      return candidate.full_repeat_count >= 3;
+    case ReplayCompositionBoundaryPolicy::kExactOneShotLeadingComposition:
+      return candidate.leading_launch_count == 0 &&
+             candidate.full_repeat_count == 1 &&
+             candidate.trailing_launch_count == 0 &&
+             candidate.segment_launch_count == candidate.pattern_length;
+    case ReplayCompositionBoundaryPolicy::kIncompleteLaunchEvidence:
+      return false;
+  }
+  return false;
+}
+
 const char* replay_composition_region_status_name(
     ReplayCompositionRegionStatus status) noexcept {
   switch (status) {

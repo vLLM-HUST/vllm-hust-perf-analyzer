@@ -223,6 +223,29 @@ int main() {
           ReplayCompositionOrderPolicy::kHostSubmissionOrder);
   require(composition_candidates.row(composition0).shape_policy ==
           ReplayCompositionShapePolicy::kHeadRepeatedLayerTail);
+  ReplayCompositionCandidateRow generic_exact =
+      composition_candidates.row(composition0);
+  generic_exact.shape_policy = ReplayCompositionShapePolicy::kUnclassified;
+  require(replay_composition_candidate_has_exact_structure(generic_exact));
+  ReplayCompositionCandidateRow unavailable_identity = generic_exact;
+  unavailable_identity.identity_policy =
+      ReplayCompositionIdentityPolicy::kUnavailable;
+  require(!replay_composition_candidate_has_exact_structure(
+      unavailable_identity));
+  ReplayCompositionCandidateRow incomplete_evidence = generic_exact;
+  incomplete_evidence.boundary_policy =
+      ReplayCompositionBoundaryPolicy::kIncompleteLaunchEvidence;
+  require(!replay_composition_candidate_has_exact_structure(
+      incomplete_evidence));
+  ReplayCompositionCandidateRow inconsistent_coverage = generic_exact;
+  ++inconsistent_coverage.segment_launch_count;
+  require(!replay_composition_candidate_has_exact_structure(
+      inconsistent_coverage));
+  ReplayCompositionCandidateRow insufficient_repeats = generic_exact;
+  insufficient_repeats.segment_launch_count = 5;
+  insufficient_repeats.full_repeat_count = 2;
+  require(!replay_composition_candidate_has_exact_structure(
+      insufficient_repeats));
 
   ReplayCompositionSlotTable composition_slots;
   const ReplayCompositionSlotId composition_slot0 = composition_slots.append(

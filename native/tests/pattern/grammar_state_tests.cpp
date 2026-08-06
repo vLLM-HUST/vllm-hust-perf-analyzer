@@ -129,6 +129,51 @@ traceloom::NativeIr make_exact_replay_ir() {
   return ir;
 }
 
+traceloom::NativeIr make_generic_exact_replay_ir() {
+  using namespace traceloom;
+
+  NativeIr ir;
+  const SourceRefId source =
+      ir.source_refs.append("fixture", "generic_exact_replay", "TASK", 0);
+  const SymbolId graph = ir.symbols.intern("ACLG");
+  const GraphTemplateId graph_template =
+      ir.graph_templates.append(source, 91, 1);
+  const GraphLaunchOccurrenceId launch =
+      ir.graph_launch_occurrences.append(
+          source, source, 0, 1, 1, 1, -1, StreamId::invalid(),
+          StreamId::invalid(), CapturedGraphInstanceId::invalid(),
+          TaskId::invalid(), TaskId::invalid(), TaskId::invalid(), 0, 10, 0,
+          GraphLaunchMatchPolicy::kNotifyCompletionAdjacent);
+  const ReplayCompositionCandidateId candidate =
+      ir.replay_composition_candidates.append(
+          source, 0, launch, launch, 4, 0, 1, 4, 0, 92,
+          ReplayCompositionIdentityPolicy::kGraphConnection,
+          ReplayCompositionOrderPolicy::kHostSubmissionOrder,
+          ReplayCompositionShapePolicy::kUnclassified,
+          ReplayCompositionBoundaryPolicy::kExactPeriodicSuffix);
+
+  for (std::uint32_t index = 0; index < 4; ++index) {
+    const std::int64_t start_ns = static_cast<std::int64_t>(index) * 20;
+    const ReplayCompositionRegionId region =
+        ir.replay_composition_regions.append(
+            candidate, index, launch, launch, start_ns, start_ns + 10, 1, 1,
+            ReplayCompositionRegionStatus::kRecognizedCompletePattern);
+    const ReplayUnitId unit = ir.replay_units.append(
+        graph_template, source, AnchorId::invalid(), AnchorId::invalid(),
+        TraceEventId::invalid(), region);
+    const AnchorId anchor = ir.anchors.append(
+        source, TraceEventId::invalid(), unit,
+        AnchorKind::kGraphReplayUnit, graph, 0, 0, start_ns, start_ns + 10);
+    const TokenId token = ir.tokens.append(
+        anchor, graph, 0, index, start_ns, start_ns + 10);
+    ir.replay_units.set_anchor_bounds(unit, anchor, anchor);
+    ir.protected_intervals.append(
+        ProtectedIntervalKind::kGraphReplayUnit, BoundaryPolicy::kNoCross,
+        token, token, anchor, anchor, source);
+  }
+  return ir;
+}
+
 std::vector<traceloom::ReportToken> report_tokens_for_ir(
     const traceloom::NativeIr& ir) {
   using namespace traceloom;
@@ -351,6 +396,23 @@ int main() {
                                def.repeat_count == 4;
                       }),
           "semantic report outer repeat");
+
+  NativeIr generic_exact_ir = make_generic_exact_replay_ir();
+  GlobalGrammarState generic_exact_state =
+      build_initial_grammar_state(generic_exact_ir, config);
+  require(generic_exact_state.nodes.size() == 4 &&
+              generic_exact_state.live_node_count == 4 &&
+              generic_exact_state.protected_intervals.empty(),
+          "generic exact replay intervals were not consumed");
+  require(generic_exact_state.macro_defs.size() == 1 &&
+              generic_exact_state.macro_defs[0].rhs_symbols.size() == 1 &&
+              generic_exact_state.macro_defs[0].replace_count == 4,
+          "generic exact replay did not seed a shared semantic macro");
+  const GrammarEngineResult generic_exact_result =
+      run_grammar_state_machine(generic_exact_state);
+  require(generic_exact_result.ok() &&
+              generic_exact_state.live_node_count == 1,
+          "generic exact replay did not participate in outer compression");
 
   return 0;
 }
