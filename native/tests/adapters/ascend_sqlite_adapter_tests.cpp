@@ -1157,12 +1157,24 @@ int main() {
   const std::string body_mismatch_path =
       (body_mismatch_dir / "msprof.db").string();
   create_aclgraph_body_mismatch_profile(body_mismatch_path);
-  const NativeIr body_mismatch_ir =
+  NativeIr body_mismatch_ir =
       AscendSQLiteAdapter(body_mismatch_path, "graph_body_mismatch").load();
   require(body_mismatch_ir.replay_composition_candidates.size() == 1 &&
+              body_mismatch_ir.replay_composition_slots.size() == 1 &&
               body_mismatch_ir.replay_composition_regions.size() == 7 &&
               body_mismatch_ir.replay_composition_region_members.size() == 7,
           "body mismatch profile lost exact composition membership");
+  const ReplayCompositionCandidateRow& body_mismatch_candidate =
+      body_mismatch_ir.replay_composition_candidates.row(
+          ReplayCompositionCandidateId(0));
+  require(body_mismatch_candidate.shape_policy ==
+                  ReplayCompositionShapePolicy::kUnclassified &&
+              replay_composition_candidate_has_exact_structure(
+                  body_mismatch_candidate) &&
+              body_mismatch_ir.replay_composition_slots
+                      .row(ReplayCompositionSlotId(0))
+                      .role == ReplayCompositionSlotRole::kGeneric,
+          "generic periodic composition retained an H/L/T dependency");
   std::size_t recognized_regions = 0;
   std::size_t mismatched_regions = 0;
   for (const ReplayCompositionRegionRow& region :
@@ -1181,6 +1193,28 @@ int main() {
                       .status == ReplayCompositionRegionStatus::
                                      kUnrecognizedBodyMismatch,
           "repeated graph identity silently accepted a changed compute body");
+  require(body_mismatch_ir.replay_units.size() == 6 &&
+              body_mismatch_ir.graph_templates.size() == 1 &&
+              body_mismatch_ir.replay_unit_launch_members.size() == 6,
+          "generic periodic composition did not promote matching bodies");
+  for (const ReplayUnitRow& unit : body_mismatch_ir.replay_units.rows()) {
+    require(unit.replay_composition_region_id.valid(),
+            "generic exact unit fell back to legacy reconstruction");
+  }
+
+  FlatAnchorBuildConfig generic_anchor_config;
+  generic_anchor_config.filter_auxiliary_task_anchors = true;
+  generic_anchor_config.skip_events_covered_by_replay_units = true;
+  const FlatAnchorBuildStats generic_anchor_stats =
+      build_flat_anchors(body_mismatch_ir, generic_anchor_config);
+  require(generic_anchor_stats.device_event_anchors == 6 &&
+              body_mismatch_ir.protected_intervals.size() == 6,
+          "generic exact units did not project to protected anchors");
+  for (const AnchorRow& anchor : body_mismatch_ir.anchors.rows()) {
+    require(anchor.kind == AnchorKind::kGraphReplayUnit &&
+                body_mismatch_ir.symbols.value(anchor.symbol_id) == "ACLG",
+            "generic exact unit projected a semantic H/L/T anchor");
+  }
 
   const std::filesystem::path exact_hlt_dir =
       temp_prof_dir("_exact_hlt");

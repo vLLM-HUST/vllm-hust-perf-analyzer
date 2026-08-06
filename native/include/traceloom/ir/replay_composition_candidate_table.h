@@ -35,6 +35,7 @@ enum class ReplayCompositionSlotRole : std::uint8_t {
   kHead = 1,
   kLayer = 2,
   kTail = 3,
+  kGeneric = 4,
 };
 
 struct ReplayCompositionCandidateRow {
@@ -141,6 +142,8 @@ const char* replay_composition_order_policy_name(
     ReplayCompositionOrderPolicy policy) noexcept;
 const char* replay_composition_shape_policy_name(
     ReplayCompositionShapePolicy policy) noexcept;
+bool replay_composition_candidate_has_exact_structure(
+    const ReplayCompositionCandidateRow& candidate) noexcept;
 const char* replay_composition_region_status_name(
     ReplayCompositionRegionStatus status) noexcept;
 

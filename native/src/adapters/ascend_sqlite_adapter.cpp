@@ -2799,7 +2799,7 @@ void materialize_replay_composition_segment(
               .row(launch.captured_graph_instance_id)
               .slot_template_id;
     }
-    ReplayCompositionSlotRole role = ReplayCompositionSlotRole::kUnclassified;
+    ReplayCompositionSlotRole role = ReplayCompositionSlotRole::kGeneric;
     if (shape_policy ==
         ReplayCompositionShapePolicy::kHeadRepeatedLayerTail) {
       role = index == 0
@@ -3064,8 +3064,7 @@ std::set<std::uint32_t> materialize_exact_aclgraph_replay_units(
       device_candidates_by_device;
   for (const ReplayCompositionCandidateRow& candidate :
        ir.replay_composition_candidates.rows()) {
-    if (candidate.shape_policy !=
-        ReplayCompositionShapePolicy::kHeadRepeatedLayerTail) {
+    if (!replay_composition_candidate_has_exact_structure(candidate)) {
       continue;
     }
     auto& destination =
@@ -3091,10 +3090,12 @@ std::set<std::uint32_t> materialize_exact_aclgraph_replay_units(
     return {};
   }
 
-  // Once strong exact H/L/T evidence exists for a device, do not fall back
-  // to the older capture-cardinality heuristic on that device.  Ambiguous,
-  // missing, or contradictory exact evidence must remain explicit unknowns
-  // rather than being silently reclassified by a weaker projector.
+  // Once structurally exact composition evidence exists for a device, do not
+  // fall back to the older capture-cardinality heuristic on that device.
+  // Optional H/L/T labels do not strengthen identity, order, boundaries, or
+  // body evidence. Ambiguous, missing, or contradictory exact evidence must
+  // remain explicit unknowns rather than being silently reclassified by a
+  // weaker projector.
   std::set<std::uint32_t> exact_claimed_devices;
   for (const auto& device_candidates : candidates_by_device) {
     exact_claimed_devices.insert(device_candidates.first);

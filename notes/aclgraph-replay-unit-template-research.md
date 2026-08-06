@@ -1,7 +1,8 @@
 # ACLGraph Replay Activity, Unit, And Template Research
 
-Status: Exact hierarchical H/L/T units and coarse unordered multi-stream lane
-bodies promoted; cross-stream dependency topology intentionally out of scope
+Status: Exact structural replay compositions and coarse unordered multi-stream
+lane bodies promoted; H/L/T roles are optional enrichment and cross-stream
+dependency topology remains intentionally out of scope
 
 Date: 2026-08-04
 
@@ -946,3 +947,27 @@ ReplayUnits. On a capability-complete TP2 rank it reports 30 recognized
 regions, 30 exact ReplayUnits, and zero unknown or legacy units. A renderer
 golden covers both the status table and omission of the section when no
 reconstruction evidence exists.
+
+## Structural Exactness Beyond H/L/T Shapes
+
+Issue #25 exposed a policy coupling rather than missing evidence. A whole-model
+graph repeated once per token can have an exact periodic composition of length
+one while legitimately remaining `shape_policy = unclassified`. Requiring the
+specialized `head_repeated_layer_tail` label before promotion discarded that
+complete structure and allowed the weaker legacy projector to replace it.
+
+Exact promotion is now gated by structural evidence only: usable graph
+identity, a complete launch partition, an exact boundary policy, sufficient
+full repeats for periodic evidence, complete body templates, matching bodies,
+and completion-backed region bounds. H/L/T classification remains an optional
+annotation. Structurally exact slots without that annotation use the neutral
+`generic_slot` role and project as `ACLG` (or ordered `ACLG<n>` members for a
+multi-slot composition).
+
+The fail-closed behavior is unchanged. A changed body remains
+`unrecognized_body_mismatch`, incomplete evidence never becomes an exact unit,
+and the presence of a structurally exact candidate suppresses legacy
+reinterpretation of the same device sequence. The synthetic one-graph fixture
+now promotes six matching occurrences around one typed mismatch; the existing
+one-shot and periodic H/L/T fixtures retain their previous units, roles, and
+protected boundaries.

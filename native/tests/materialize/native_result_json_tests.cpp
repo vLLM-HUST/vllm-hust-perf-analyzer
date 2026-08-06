@@ -57,11 +57,12 @@ int main() {
           source, 0, graph_launch, graph_launch, 4, 0, 1, 4, 0, 67890,
           ReplayCompositionIdentityPolicy::kCapturedGraphInstance,
           ReplayCompositionOrderPolicy::kHostSubmissionOrder,
-          ReplayCompositionShapePolicy::kHeadRepeatedLayerTail,
+          ReplayCompositionShapePolicy::kUnclassified,
           ReplayCompositionBoundaryPolicy::kExactPeriodicSuffix);
   ir.replay_composition_slots.append(composition, 0, captured_instance,
                                      slot_template, body_template,
-                                     ReplayCompositionSlotRole::kHead, 9001);
+                                     ReplayCompositionSlotRole::kGeneric,
+                                     9001);
   ir.replay_composition_regions.append(
       composition, 0, graph_launch, graph_launch, 0, 10, 1, 1,
       ReplayCompositionRegionStatus::kRecognizedCompletePattern);
@@ -230,9 +231,10 @@ int main() {
           std::string::npos);
   require(json.find("\"order_policy\": \"host_submission_order\"") !=
           std::string::npos);
-  require(json.find("\"shape_policy\": \"head_repeated_layer_tail\"") !=
+  require(json.find("\"shape_policy\": \"unclassified\"") !=
           std::string::npos);
-  require(json.find("\"role\": \"head\"") != std::string::npos);
+  require(json.find("\"role\": \"generic_slot\"") !=
+          std::string::npos);
   require(json.find("\"replay_composition_regions\": [") !=
           std::string::npos);
   require(json.find("\"replay_composition_region_members\": [") !=
