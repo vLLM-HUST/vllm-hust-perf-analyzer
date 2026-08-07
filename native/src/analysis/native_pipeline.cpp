@@ -112,9 +112,18 @@ NativePipelineStats collect_stats(
       ir.replay_composition_candidates.size();
   for (const ReplayCompositionCandidateRow& candidate :
        ir.replay_composition_candidates.rows()) {
-    if (candidate.shape_policy ==
-            ReplayCompositionShapePolicy::kHeadRepeatedLayerTail ||
-        candidate.shape_policy == ReplayCompositionShapePolicy::kSingleGraph) {
+    if (!replay_composition_candidate_has_exact_structure(candidate)) {
+      continue;
+    }
+    std::uint32_t body_confirmed_slot_count = 0;
+    for (const ReplayCompositionSlotRow& slot :
+         ir.replay_composition_slots.rows()) {
+      if (slot.replay_composition_candidate_id == candidate.id &&
+          slot.replay_body_template_id.valid()) {
+        ++body_confirmed_slot_count;
+      }
+    }
+    if (body_confirmed_slot_count == candidate.pattern_length) {
       ++stats.replay_composition_body_confirmed_count;
     }
   }

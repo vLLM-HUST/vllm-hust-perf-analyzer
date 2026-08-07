@@ -19,20 +19,21 @@ explicit unrecognized result instead of becoming a plausible-looking guess.
 
 The input/provenance, anchor/grammar, overlap-safe cost, ACLGraph launch
 identity, capture/replay body templates, and exact composition evidence are
-working. Capability-complete, body-confirmed `H + L* + T` regions drive
-default replay-unit and Loop Tree projection. A repeated, body-confirmed
-single-graph composition is also exact and projects as an atomic `ACLGraph`
-unit rather than being forced into artificial H/L/T roles. Exact body
-capability requires a complete captured stream set plus classified identity
-for every observed body task; a stable sequence on one visible stream is not
-enough to prove that the graph has no other lanes. The legacy
+working. Capability-complete, body-confirmed structural compositions drive
+default replay-unit and Loop Tree projection; `H + L* + T` is optional shape
+enrichment rather than an exactness gate. A repeated, body-confirmed
+single-graph composition projects as the more specific atomic `ACLGraph`
+unit; other exact but unlabeled structures retain neutral generic slots.
+Exact body capability requires a complete captured stream set plus classified
+identity for every observed body task; a stable sequence on one visible stream
+is not enough to prove that the graph has no other lanes. The legacy
 `capture_group_size` path remains only where no completion-backed exact
 reconstruction is available.
 
 The exact path currently recognizes both:
 
-- a periodic decode suffix with every repetition revalidated against native
-  replay bodies; and
+- a periodic suffix of one or more graph slots with every repetition
+  revalidated against native replay bodies; and
 - one decode-sized, independently body-confirmed one-shot leading composition
   (the observed prefill case); and
 - a period-one graph identity repeated at least three times, with every
@@ -251,9 +252,9 @@ template hashes. They cover the two-rank two-template experiment, concurrent
 multi-context scheduling, segmented eager islands, and crossed compute/HCCL
 lanes. The crossed split profile recovers the same two-stream template with
 three compute and fourteen communication tasks. Split profiles deliberately do
-not invoke the legacy capture-cardinality projector: without an exact H/L/T
-candidate, they retain launch/body evidence rather than manufacture coarse
-ReplayUnits.
+not invoke the legacy capture-cardinality projector: without an exact
+structural candidate, they retain launch/body evidence rather than manufacture
+coarse ReplayUnits.
 
 The retained TP2 ranks also exposed a report-granularity mismatch: split input
 initially promoted all `3,655` HCCL device tasks as primary anchors because it

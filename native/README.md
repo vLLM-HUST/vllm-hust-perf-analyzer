@@ -253,5 +253,13 @@ An explicit ruleset override that fails to load exits non-zero; it never
 silently falls back. `TRACELOOM_IDLE_EVIDENCE_RULES` selects the default
 ruleset path. The E2 productive-timeline library
 (`build_productive_timelines`) consumes these roles to build per-device
-productive timelines and visible gaps; the main Ascend CLI uses the same
-classification for idle evidence, JSON lineage, and unknown-operator audit.
+productive timelines and visible gaps. E3
+(`build_stream_state_timelines`) builds the observed per-stream partition,
+and E4 (`build_idle_explanations`) slices each visible gap into conservative,
+mutually exclusive device-evidence categories. The authoritative E1-to-E4
+composition is `run_idle_evidence_pipeline`; its results feed the CLI, SQL
+sidecar, anchor/node attribution, and Loop Tree summaries. Host correlation
+remains a separate later stage that requires calibrated clocks and validated
+host/device links.
+The main Ascend CLI uses the same classification for idle evidence, JSON
+lineage, and unknown-operator audit.

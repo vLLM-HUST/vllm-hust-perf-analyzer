@@ -250,6 +250,8 @@ const char* replay_composition_slot_role_name(
       return "graph";
     case ReplayCompositionSlotRole::kCudaGraph:
       return "cuda_graph";
+    case ReplayCompositionSlotRole::kGeneric:
+      return "generic_slot";
   }
   return "unclassified";
 }

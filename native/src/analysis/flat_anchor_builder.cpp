@@ -529,7 +529,7 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
           ir.replay_composition_slots.row(
               member.replay_composition_slot_id);
       AnchorKind kind = AnchorKind::kUnknown;
-      const char* symbol = nullptr;
+      std::string symbol;
       switch (slot.role) {
         case ReplayCompositionSlotRole::kHead:
           kind = AnchorKind::kGraphH;
@@ -550,6 +550,12 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
         case ReplayCompositionSlotRole::kCudaGraph:
           kind = AnchorKind::kGraphReplayUnit;
           symbol = "CUDAGraph";
+          break;
+        case ReplayCompositionSlotRole::kGeneric:
+          kind = AnchorKind::kGraphReplayUnit;
+          symbol = members.size() == 1
+                       ? "ACLG"
+                       : "ACLG" + std::to_string(slot.slot_order + 1);
           break;
         case ReplayCompositionSlotRole::kUnclassified:
           throw std::logic_error(
