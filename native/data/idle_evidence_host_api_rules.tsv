@@ -1,0 +1,10 @@
+# ruleset_version: idle-evidence-host-api-v1
+api_pattern	family	note
+aclrtLaunchKernel*	enqueue	Asynchronous kernel submission family
+aclrtMemcpyAsync*	enqueue	Asynchronous data movement submission family
+aclrtSynchronizeStream*	host_sync	Host-side stream synchronization family
+aclrtSynchronizeDevice*	host_sync	Host-side device synchronization family
+aclrtSynchronizeEvent*	host_sync	Host-side event synchronization family
+StreamSynchronize*	host_sync	Runtime stream synchronization spelling
+DeviceSynchronize*	host_sync	Runtime device synchronization spelling
+EventSynchronize*	host_sync	Runtime event synchronization spelling

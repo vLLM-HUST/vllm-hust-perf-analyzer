@@ -17,12 +17,14 @@
 #include <vector>
 
 #include "traceloom/adapters/ascend_sqlite_adapter.h"
+#include "traceloom/adapters/clock_marker_tsv.h"
 #include "traceloom/adapters/cuda_nsys_sqlite_adapter.h"
 #include "traceloom/adapters/hygon_sqlite_adapter.h"
 #include "traceloom/analysis/flat_anchor_builder.h"
 #include "traceloom/analysis/idle_explanation.h"
 #include "traceloom/analysis/idle_evidence_pipeline.h"
 #include "traceloom/analysis/idle_evidence_semantic_rules.h"
+#include "traceloom/analysis/host_api_rules.h"
 #include "traceloom/analysis/native_pipeline.h"
 #include "traceloom/compat/idle_explanation_rows.h"
 #include "traceloom/compat/native_sidecar_materializer.h"
@@ -82,6 +84,10 @@ struct CliOptions {
   std::string classification_rules_path;
   std::string extend_classification_rules_path;
   std::string idle_evidence_rules_path;
+  std::string host_api_rules_path;
+  std::string clock_markers_path;
+  std::string clock_marker_brackets_path;
+  bool clock_markers_synthetic = false;
 };
 
 std::vector<std::string> discover_profile_dbs(const std::string& input,
@@ -128,6 +134,9 @@ void print_advanced_usage(const char* argv0) {
                " [--classification-rules PATH]"
                " [--extend-classification-rules PATH]"
                " [--idle-evidence-rules PATH]"
+               " [--host-api-rules PATH]"
+               " [--clock-markers PATH|--clock-marker-brackets PATH]"
+               " [--clock-markers-synthetic]"
                " [--timings]\n";
 }
 
@@ -199,6 +208,14 @@ CliOptions parse_args(int argc, char** argv) {
       options.extend_classification_rules_path = require_value(arg);
     } else if (arg == "--idle-evidence-rules") {
       options.idle_evidence_rules_path = require_value(arg);
+    } else if (arg == "--host-api-rules") {
+      options.host_api_rules_path = require_value(arg);
+    } else if (arg == "--clock-markers") {
+      options.clock_markers_path = require_value(arg);
+    } else if (arg == "--clock-marker-brackets") {
+      options.clock_marker_brackets_path = require_value(arg);
+    } else if (arg == "--clock-markers-synthetic") {
+      options.clock_markers_synthetic = true;
     } else if (arg == "--sidecar-only") {
       options.sidecar_only = true;
     } else if (arg == "--timings") {
@@ -240,6 +257,18 @@ CliOptions parse_args(int argc, char** argv) {
     throw std::invalid_argument("no supported msprof, Hygon, or CUDA/Nsight "
                                 "profile DB found under input path: " +
                                 options.source_input);
+  }
+  if (!options.clock_markers_path.empty() &&
+      !options.clock_marker_brackets_path.empty()) {
+    throw std::invalid_argument(
+        "--clock-markers and --clock-marker-brackets are mutually exclusive");
+  }
+  if ((!options.clock_markers_path.empty() ||
+       !options.clock_marker_brackets_path.empty()) &&
+      options.source_dbs.size() != 1) {
+    throw std::invalid_argument(
+        "clock marker input currently requires one resolved source DB; analyze "
+        "multi-rank captures separately with their matching marker files");
   }
   if (options.source_dbs.size() > 1 &&
       (options.out_path_set || !options.grammar_debug_out_path.empty() ||
@@ -557,6 +586,24 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
       const traceloom::AscendSQLiteAdapter adapter(std::move(adapter_options));
       ir = adapter.load();
     }
+    if (!cli.clock_markers_path.empty() ||
+        !cli.clock_marker_brackets_path.empty()) {
+      if (is_cuda || is_hygon) {
+        throw std::invalid_argument(
+            "clock marker input is currently validated only for Ascend inputs");
+      }
+      const traceloom::ClockMarkerTsvLoadResult marker_result =
+          cli.clock_marker_brackets_path.empty()
+              ? traceloom::load_clock_marker_tsv(cli.clock_markers_path, ir)
+              : traceloom::resolve_ascend_clock_marker_bracket_tsv(
+                    cli.clock_marker_brackets_path, ir);
+      if (cli.timings) {
+        std::cerr << "timing clock_marker_count="
+                  << marker_result.marker_count << "\n"
+                  << "timing rejected_clock_marker_count="
+                  << marker_result.rejected_marker_count << "\n";
+      }
+    }
     const double load_ms = load_watch.elapsed_ms();
     if (cli.timings) {
       std::cerr << "timing load_ms=" << load_ms << "\n";
@@ -642,11 +689,21 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
         (!cli.compat_sidecar_out_path.empty() ||
          cli.augmented_db_enabled || cli.loop_tree_out_path_set)) {
       const Stopwatch idle_evidence_watch;
+      const traceloom::HostApiRuleset host_api_ruleset =
+          cli.host_api_rules_path.empty()
+              ? traceloom::load_default_idle_evidence_host_api_ruleset(
+                    cli.executable_path)
+              : traceloom::load_idle_evidence_host_api_ruleset(
+                    cli.host_api_rules_path);
       // Trace contents cannot attest collection completeness. The main CLI
       // keeps the default kUnknown and never upgrades observed emptiness into
       // an absence claim without external collection evidence.
-      idle_pipeline.emplace(
-          traceloom::run_idle_evidence_pipeline(ir, *idle_ruleset));
+      traceloom::IdleEvidencePipelineOptions idle_options;
+      idle_options.host_api_rules = &host_api_ruleset;
+      idle_options.clock_alignment.synthetic_fixture =
+          cli.clock_markers_synthetic;
+      idle_pipeline.emplace(traceloom::run_idle_evidence_pipeline(
+          ir, *idle_ruleset, idle_options));
       if (cli.timings) {
         std::cerr << "timing idle_evidence_pipeline_ms="
                   << idle_evidence_watch.elapsed_ms() << "\n";
@@ -819,6 +876,48 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
             cli.has_loop_tree_device_id
                 ? cli.loop_tree_device_id
                 : (report_device_ids.empty() ? 0 : *report_device_ids.begin());
+        std::set<std::string> alignment_statuses;
+        for (const traceloom::ClockModel& model :
+             idle_pipeline->clock_alignment.models) {
+          if (!filter_idle_device || model.device_id == idle_device_id) {
+            alignment_statuses.insert(std::string(
+                traceloom::alignment_status_name(model.alignment_status)));
+          }
+        }
+        if (alignment_statuses.size() == 1) {
+          markdown_options.idle_alignment_status =
+              *alignment_statuses.begin();
+        } else if (alignment_statuses.size() > 1) {
+          markdown_options.idle_alignment_status = "mixed";
+        }
+        if (filter_idle_device) {
+          const traceloom::ClockModel* clock_model =
+              idle_pipeline->clock_alignment.find_device(idle_device_id);
+          if (clock_model != nullptr) {
+            markdown_options.has_idle_clock_model_summary = true;
+            markdown_options.idle_clock_scale = clock_model->scale;
+            markdown_options.idle_clock_drift_ppm = clock_model->drift_ppm;
+            markdown_options.idle_clock_input_marker_count =
+                clock_model->input_marker_count;
+            markdown_options.idle_clock_inlier_marker_count =
+                clock_model->inlier_marker_count;
+            markdown_options.idle_clock_rejected_marker_count =
+                clock_model->rejected_marker_count;
+            markdown_options.idle_clock_fit_marker_count =
+                clock_model->fit_marker_count;
+            markdown_options.idle_clock_validation_marker_count =
+                clock_model->validation_marker_count;
+            markdown_options.idle_clock_absolute_residual_p50_ns =
+                clock_model->absolute_residual_p50_ns;
+            markdown_options.idle_clock_absolute_residual_p95_ns =
+                clock_model->absolute_residual_p95_ns;
+            markdown_options.idle_clock_absolute_residual_max_ns =
+                clock_model->absolute_residual_max_ns;
+            markdown_options.idle_clock_bracket_uncertainty_p95_ns =
+                clock_model->bracket_uncertainty_p95_ns;
+            markdown_options.idle_clock_epsilon_ns = clock_model->epsilon_ns;
+          }
+        }
         for (const traceloom::IdleExplanationDeviceResult& device :
              idle_explanations.devices) {
           if (filter_idle_device && device.device_id != idle_device_id) {
@@ -835,6 +934,9 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
             markdown_options.visible_productive_idle_ns += duration_ns;
             if (row.evidence_level == traceloom::IdleEvidenceLevel::kDirect) {
               markdown_options.direct_explained_idle_ns += duration_ns;
+            } else if (row.evidence_level ==
+                       traceloom::IdleEvidenceLevel::kCorrelated) {
+              markdown_options.correlated_explained_idle_ns += duration_ns;
             }
           }
         }
@@ -891,6 +993,8 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
           hotspot.attributed_ns += row.duration_ns;
           if (row.evidence_level == "direct") {
             hotspot.direct_ns += row.duration_ns;
+          } else if (row.evidence_level == "correlated") {
+            hotspot.correlated_ns += row.duration_ns;
           }
           if (row.category == "blocked_by_visible_wait") {
             hotspot.wait_ns += row.duration_ns;
@@ -898,6 +1002,10 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
             hotspot.capture_control_ns += row.duration_ns;
           } else if (row.category == "runtime_control_present") {
             hotspot.runtime_control_ns += row.duration_ns;
+          } else if (row.category == "queued_visible_task_delay") {
+            hotspot.queued_delay_ns += row.duration_ns;
+          } else if (row.category == "host_sync_api_present") {
+            hotspot.host_sync_ns += row.duration_ns;
           } else if (row.category == "no_observed_device_work") {
             hotspot.no_observed_work_ns += row.duration_ns;
           } else if (row.category == "unattributed_visible_idle") {

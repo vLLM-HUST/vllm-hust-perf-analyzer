@@ -1,0 +1,339 @@
+#include "traceloom/analysis/clock_alignment.h"
+
+#include <algorithm>
+#include <cmath>
+#include <limits>
+#include <map>
+#include <set>
+#include <string>
+#include <utility>
+#include <vector>
+
+namespace traceloom {
+namespace {
+
+struct Observation {
+  const ClockMarkerRow* marker = nullptr;
+  long double host_ns = 0.0L;
+  long double device_ns = 0.0L;
+  long double half_bracket_ns = 0.0L;
+};
+
+long double median(std::vector<long double> values) {
+  if (values.empty()) {
+    return 0.0L;
+  }
+  std::sort(values.begin(), values.end());
+  const std::size_t middle = values.size() / 2;
+  if ((values.size() & 1u) != 0u) {
+    return values[middle];
+  }
+  return (values[middle - 1] + values[middle]) / 2.0L;
+}
+
+long double nearest_rank_percentile(std::vector<long double> values,
+                                    long double probability) {
+  if (values.empty()) {
+    return 0.0L;
+  }
+  std::sort(values.begin(), values.end());
+  const long double rank_value =
+      std::ceil(probability * static_cast<long double>(values.size()));
+  const std::size_t rank = static_cast<std::size_t>(
+      std::max(1.0L, std::min(rank_value,
+                              static_cast<long double>(values.size()))));
+  return values[rank - 1];
+}
+
+long double host_midpoint(const ClockMarkerRow& marker) {
+  // Accepted timestamps are non-negative and ordered, making this exact
+  // contract form overflow-safe: the difference cannot overflow and the
+  // result cannot exceed host_after_ns.
+  return static_cast<long double>(
+      marker.host_before_ns +
+      (marker.host_after_ns - marker.host_before_ns) / 2);
+}
+
+bool observation_less(const Observation& lhs, const Observation& rhs) {
+  if (lhs.host_ns != rhs.host_ns) {
+    return lhs.host_ns < rhs.host_ns;
+  }
+  if (lhs.device_ns != rhs.device_ns) {
+    return lhs.device_ns < rhs.device_ns;
+  }
+  return lhs.marker->id < rhs.marker->id;
+}
+
+std::optional<std::int64_t> round_half_to_even(long double value) {
+  if (!std::isfinite(value)) {
+    return std::nullopt;
+  }
+  long double integer = 0.0L;
+  const long double fraction = std::modf(value, &integer);
+  const long double magnitude = std::fabs(fraction);
+  long double rounded = integer;
+  if (magnitude > 0.5L) {
+    rounded += std::copysign(1.0L, fraction);
+  } else if (magnitude == 0.5L) {
+    const long double parity = std::fmod(std::fabs(integer), 2.0L);
+    if (parity == 1.0L) {
+      rounded += std::copysign(1.0L, fraction);
+    }
+  }
+  if (rounded <
+          static_cast<long double>(std::numeric_limits<std::int64_t>::min()) ||
+      rounded >
+          static_cast<long double>(std::numeric_limits<std::int64_t>::max())) {
+    return std::nullopt;
+  }
+  return static_cast<std::int64_t>(rounded);
+}
+
+ClockModel fit_device(std::uint32_t device_id,
+                      const std::vector<const ClockMarkerRow*>& markers,
+                      const std::set<std::uint32_t>& duplicate_marker_symbols,
+                      bool synthetic_fixture) {
+  ClockModel model;
+  model.device_id = device_id;
+  model.input_marker_count = markers.size();
+  model.input_markers.reserve(markers.size());
+  for (const ClockMarkerRow* marker : markers) {
+    model.input_markers.push_back(marker->id);
+  }
+  if (markers.empty()) {
+    model.alignment_status = AlignmentStatus::kUncalibrated;
+    model.reason = "no clock markers were supplied for the device";
+    return model;
+  }
+
+  std::set<std::uint32_t> seen_marker_symbols;
+  std::vector<Observation> observations;
+  observations.reserve(markers.size());
+  bool duplicate_marker_id = false;
+  bool missing_marker_id = false;
+  for (const ClockMarkerRow* marker : markers) {
+    const bool missing = !marker->marker_symbol_id.valid();
+    const bool duplicate =
+        !missing &&
+        (duplicate_marker_symbols.count(marker->marker_symbol_id.value()) != 0 ||
+         !seen_marker_symbols.insert(marker->marker_symbol_id.value()).second);
+    missing_marker_id = missing_marker_id || missing;
+    duplicate_marker_id = duplicate_marker_id || duplicate;
+    if (marker->return_status != 0 || marker->host_before_ns < 0 ||
+        marker->device_timestamp_ns < 0 ||
+        marker->host_after_ns < marker->host_before_ns || missing || duplicate) {
+      model.rejected_markers.push_back(marker->id);
+      continue;
+    }
+    const std::uint64_t width = static_cast<std::uint64_t>(
+        marker->host_after_ns - marker->host_before_ns);
+    observations.push_back(Observation{
+        marker, host_midpoint(*marker),
+        static_cast<long double>(marker->device_timestamp_ns),
+        static_cast<long double>(width) / 2.0L});
+  }
+  model.inlier_marker_count = observations.size();
+  model.rejected_marker_count = model.rejected_markers.size();
+  if (missing_marker_id) {
+    model.alignment_status = AlignmentStatus::kInvalid;
+    model.reason = "empty marker_id violates the calibration contract";
+    return model;
+  }
+  if (duplicate_marker_id) {
+    model.alignment_status = AlignmentStatus::kInvalid;
+    model.reason = "duplicate marker_id violates the calibration contract";
+    return model;
+  }
+  if (observations.size() < 6) {
+    model.alignment_status = AlignmentStatus::kInvalid;
+    model.reason = "calibration requires at least six valid markers";
+    return model;
+  }
+  std::sort(observations.begin(), observations.end(), observation_less);
+
+  std::vector<const Observation*> fit;
+  std::vector<const Observation*> validation;
+  for (std::size_t index = 0; index < observations.size(); ++index) {
+    const bool every_fifth = ((index + 1u) % 5u) == 0u;
+    const bool endpoint = index == 0 || index + 1u == observations.size();
+    if (every_fifth && !endpoint) {
+      validation.push_back(&observations[index]);
+      model.validation_markers.push_back(observations[index].marker->id);
+    } else {
+      fit.push_back(&observations[index]);
+      model.fit_markers.push_back(observations[index].marker->id);
+    }
+  }
+  model.fit_marker_count = fit.size();
+  model.validation_marker_count = validation.size();
+  if (validation.empty()) {
+    model.alignment_status = AlignmentStatus::kInvalid;
+    model.reason = "calibration holdout set is empty";
+    return model;
+  }
+
+  std::vector<long double> slopes;
+  slopes.reserve(fit.size() * (fit.size() - 1u) / 2u);
+  for (std::size_t first = 0; first < fit.size(); ++first) {
+    for (std::size_t second = first + 1; second < fit.size(); ++second) {
+      const long double host_delta =
+          fit[second]->host_ns - fit[first]->host_ns;
+      if (host_delta == 0.0L) {
+        continue;
+      }
+      slopes.push_back((fit[second]->device_ns - fit[first]->device_ns) /
+                       host_delta);
+    }
+  }
+  if (slopes.empty()) {
+    model.alignment_status = AlignmentStatus::kInvalid;
+    model.reason = "fit markers do not contain two distinct host times";
+    return model;
+  }
+  model.scale = median(std::move(slopes));
+  if (!std::isfinite(model.scale) || model.scale <= 0.0L) {
+    model.alignment_status = AlignmentStatus::kInvalid;
+    model.reason = "Theil-Sen fit produced a non-positive clock scale";
+    return model;
+  }
+
+  std::vector<long double> fit_host_times;
+  fit_host_times.reserve(fit.size());
+  for (const Observation* item : fit) {
+    fit_host_times.push_back(item->host_ns);
+  }
+  model.reference_host_ns = median(std::move(fit_host_times));
+  std::vector<long double> reference_device_candidates;
+  reference_device_candidates.reserve(fit.size());
+  for (const Observation* item : fit) {
+    reference_device_candidates.push_back(
+        item->device_ns -
+        model.scale * (item->host_ns - model.reference_host_ns));
+  }
+  model.reference_device_ns =
+      median(std::move(reference_device_candidates));
+  model.offset_ns = model.reference_device_ns - model.reference_host_ns;
+  model.drift_ppm = (model.scale - 1.0L) * 1000000.0L;
+
+  std::vector<long double> validation_residuals;
+  validation_residuals.reserve(validation.size());
+  for (const Observation* item : validation) {
+    const long double mapped =
+        model.reference_device_ns +
+        model.scale * (item->host_ns - model.reference_host_ns);
+    validation_residuals.push_back(std::fabs(item->device_ns - mapped));
+  }
+  model.absolute_residual_p50_ns =
+      nearest_rank_percentile(validation_residuals, 0.50L);
+  model.absolute_residual_p95_ns =
+      nearest_rank_percentile(validation_residuals, 0.95L);
+  model.absolute_residual_max_ns =
+      *std::max_element(validation_residuals.begin(),
+                        validation_residuals.end());
+
+  std::vector<long double> bracket_uncertainties;
+  bracket_uncertainties.reserve(observations.size());
+  for (const Observation& item : observations) {
+    bracket_uncertainties.push_back(
+        std::fabs(model.scale) * item.half_bracket_ns);
+  }
+  model.bracket_uncertainty_p95_ns =
+      nearest_rank_percentile(std::move(bracket_uncertainties), 0.95L);
+  const long double epsilon = model.absolute_residual_p95_ns +
+                              model.bracket_uncertainty_p95_ns;
+  if (!std::isfinite(epsilon) || epsilon < 0.0L ||
+      epsilon > static_cast<long double>(
+                    std::numeric_limits<std::uint64_t>::max())) {
+    model.alignment_status = AlignmentStatus::kInvalid;
+    model.reason = "calibration uncertainty is outside the supported range";
+    return model;
+  }
+  model.epsilon_ns = static_cast<std::uint64_t>(std::ceil(epsilon));
+  model.alignment_status = synthetic_fixture
+                               ? AlignmentStatus::kSyntheticOnly
+                               : AlignmentStatus::kCalibrated;
+  model.reason = synthetic_fixture
+                     ? "controlled synthetic marker calibration"
+                     : "validated holdout marker calibration";
+  return model;
+}
+
+}  // namespace
+
+std::string_view alignment_status_name(AlignmentStatus status) {
+  switch (status) {
+    case AlignmentStatus::kCalibrated:
+      return "calibrated";
+    case AlignmentStatus::kSyntheticOnly:
+      return "synthetic_only";
+    case AlignmentStatus::kUncalibrated:
+      return "uncalibrated";
+    case AlignmentStatus::kInvalid:
+      return "invalid";
+  }
+  return "invalid";
+}
+
+bool alignment_supports_cross_clock_evidence(AlignmentStatus status) {
+  return status == AlignmentStatus::kCalibrated ||
+         status == AlignmentStatus::kSyntheticOnly;
+}
+
+const ClockModel* ClockAlignmentRunResult::find_device(
+    std::uint32_t device_id) const {
+  const auto found = std::lower_bound(
+      models.begin(), models.end(), device_id,
+      [](const ClockModel& model, std::uint32_t value) {
+        return model.device_id < value;
+      });
+  return found != models.end() && found->device_id == device_id ? &*found
+                                                                : nullptr;
+}
+
+ClockAlignmentRunResult fit_host_device_clock_models(
+    const NativeIr& ir,
+    const ClockAlignmentOptions& options) {
+  std::map<std::uint32_t, std::vector<const ClockMarkerRow*>> by_device;
+  std::map<std::uint32_t, std::size_t> marker_symbol_counts;
+  for (const TaskRow& task : ir.tasks.rows()) {
+    if (task.trace_event_id.valid() &&
+        task.trace_event_id.value() < ir.trace_events.size()) {
+      by_device[ir.trace_events.row(task.trace_event_id).device_id];
+    }
+  }
+  for (const ClockMarkerRow& marker : ir.clock_markers.rows()) {
+    by_device[marker.device_id].push_back(&marker);
+    if (marker.marker_symbol_id.valid()) {
+      ++marker_symbol_counts[marker.marker_symbol_id.value()];
+    }
+  }
+  std::set<std::uint32_t> duplicate_marker_symbols;
+  for (const auto& count : marker_symbol_counts) {
+    if (count.second > 1) {
+      duplicate_marker_symbols.insert(count.first);
+    }
+  }
+  ClockAlignmentRunResult run;
+  run.models.reserve(by_device.size());
+  for (const auto& item : by_device) {
+    run.models.push_back(
+        fit_device(item.first, item.second, duplicate_marker_symbols,
+                   options.synthetic_fixture));
+  }
+  return run;
+}
+
+std::optional<std::int64_t> map_host_to_device_ns(
+    const ClockModel& model,
+    std::int64_t host_timestamp_ns) {
+  if (!alignment_supports_cross_clock_evidence(model.alignment_status)) {
+    return std::nullopt;
+  }
+  const long double mapped =
+      model.reference_device_ns +
+      model.scale * (static_cast<long double>(host_timestamp_ns) -
+                     model.reference_host_ns);
+  return round_half_to_even(mapped);
+}
+
+}  // namespace traceloom

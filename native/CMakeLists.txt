@@ -14,9 +14,12 @@ set(TRACELOOM_NATIVE_ASCEND_SQLITE_AVAILABLE OFF)
 
 add_library(traceloom_native_core
   src/analysis/audit_report.cpp
+  src/analysis/clock_alignment.cpp
   src/analysis/exact_periodic_suffix.cpp
   src/analysis/flat_anchor_builder.cpp
   src/analysis/graph_body_cost_summary.cpp
+  src/analysis/host_api_rules.cpp
+  src/analysis/host_correlation.cpp
   src/analysis/idle_explanation.cpp
   src/analysis/idle_evidence_pipeline.cpp
   src/analysis/idle_evidence_semantic_rules.cpp
@@ -33,12 +36,14 @@ add_library(traceloom_native_core
   src/ir/anchor_table.cpp
   src/ir/capture_slot_table.cpp
   src/ir/captured_graph_instance_table.cpp
+  src/ir/clock_marker_table.cpp
   src/ir/communication_op_table.cpp
   src/ir/graph_launch_occurrence_table.cpp
   src/ir/graph_launch_activity_table.cpp
   src/ir/graph_launch_body_table.cpp
   src/ir/graph_slot_template_table.cpp
   src/ir/graph_template_table.cpp
+  src/ir/host_api_event_table.cpp
   src/ir/protected_interval_table.cpp
   src/ir/replay_composition_candidate_table.cpp
   src/ir/replay_unit_table.cpp
@@ -85,6 +90,8 @@ target_compile_definitions(
     TRACELOOM_INSTALL_DEFAULT_RULESET_PATH="${CMAKE_INSTALL_FULL_DATADIR}/traceloom/default_signal_classification_rules.tsv"
     TRACELOOM_SOURCE_DEFAULT_IDLE_RULESET_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/idle_evidence_semantic_rules.tsv"
     TRACELOOM_INSTALL_DEFAULT_IDLE_RULESET_PATH="${CMAKE_INSTALL_FULL_DATADIR}/traceloom/idle_evidence_semantic_rules.tsv"
+    TRACELOOM_SOURCE_DEFAULT_HOST_API_RULESET_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/idle_evidence_host_api_rules.tsv"
+    TRACELOOM_INSTALL_DEFAULT_HOST_API_RULESET_PATH="${CMAKE_INSTALL_FULL_DATADIR}/traceloom/idle_evidence_host_api_rules.tsv"
 )
 
 install(
@@ -97,6 +104,11 @@ install(
   DESTINATION ${CMAKE_INSTALL_DATADIR}/traceloom
 )
 
+install(
+  FILES data/idle_evidence_host_api_rules.tsv
+  DESTINATION ${CMAKE_INSTALL_DATADIR}/traceloom
+)
+
 if(MSVC)
   target_compile_options(traceloom_native_core PRIVATE /W4)
 else()
@@ -106,6 +118,7 @@ endif()
 add_library(traceloom_native_adapters
   src/adapters/aclgraph_fixture_adapter.cpp
   src/adapters/aclgraph_fixture_reader.cpp
+  src/adapters/clock_marker_tsv.cpp
   src/adapters/fixture_adapter.cpp
   src/adapters/protected_sequence_fixture_reader.cpp
 )
@@ -415,6 +428,28 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
   add_test(
     NAME traceloom_native_flat_anchor_builder_tests
     COMMAND traceloom_native_flat_anchor_builder_tests
+  )
+
+  add_executable(traceloom_native_clock_alignment_tests
+    tests/analysis/clock_alignment_tests.cpp
+  )
+  target_link_libraries(
+    traceloom_native_clock_alignment_tests PRIVATE traceloom_native_core
+  )
+  add_test(
+    NAME traceloom_native_clock_alignment_tests
+    COMMAND traceloom_native_clock_alignment_tests
+  )
+
+  add_executable(traceloom_native_host_correlation_tests
+    tests/analysis/host_correlation_tests.cpp
+  )
+  target_link_libraries(
+    traceloom_native_host_correlation_tests PRIVATE traceloom_native_core
+  )
+  add_test(
+    NAME traceloom_native_host_correlation_tests
+    COMMAND traceloom_native_host_correlation_tests
   )
 
   add_executable(traceloom_native_signal_classification_rules_tests
@@ -810,6 +845,17 @@ add_executable(traceloom_native_replay_internal_cost_map_tests
   add_test(
     NAME traceloom_native_fixture_adapter_tests
     COMMAND traceloom_native_fixture_adapter_tests
+  )
+
+  add_executable(traceloom_native_clock_marker_tsv_tests
+    tests/adapters/clock_marker_tsv_tests.cpp
+  )
+  target_link_libraries(
+    traceloom_native_clock_marker_tsv_tests PRIVATE traceloom_native_adapters
+  )
+  add_test(
+    NAME traceloom_native_clock_marker_tsv_tests
+    COMMAND traceloom_native_clock_marker_tsv_tests
   )
 
   add_executable(traceloom_native_aclgraph_fixture_reader_tests

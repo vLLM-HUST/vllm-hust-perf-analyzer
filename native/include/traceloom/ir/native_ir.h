@@ -4,12 +4,14 @@
 #include "traceloom/ir/anchor_table.h"
 #include "traceloom/ir/capture_slot_table.h"
 #include "traceloom/ir/captured_graph_instance_table.h"
+#include "traceloom/ir/clock_marker_table.h"
 #include "traceloom/ir/communication_op_table.h"
 #include "traceloom/ir/graph_launch_activity_table.h"
 #include "traceloom/ir/graph_launch_body_table.h"
 #include "traceloom/ir/graph_launch_occurrence_table.h"
 #include "traceloom/ir/graph_slot_template_table.h"
 #include "traceloom/ir/graph_template_table.h"
+#include "traceloom/ir/host_api_event_table.h"
 #include "traceloom/ir/protected_interval_table.h"
 #include "traceloom/ir/replay_composition_candidate_table.h"
 #include "traceloom/ir/replay_unit_table.h"
@@ -28,6 +30,8 @@ struct NativeIr {
   StreamTable streams;
   TraceEventTable trace_events;
   TaskTable tasks;
+  HostApiEventTable host_api_events;
+  ClockMarkerTable clock_markers;
   CommunicationOpTable communication_ops;
   AnchorTable anchors;
   TokenTable tokens;

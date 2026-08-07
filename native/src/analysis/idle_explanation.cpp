@@ -15,6 +15,8 @@ struct ActiveState {
   const StreamStateInterval* interval = nullptr;
 };
 
+using ActiveHostEvidence = const HostEvidenceInterval*;
+
 bool source_less(const IdleExplanationSourceLink& lhs,
                  const IdleExplanationSourceLink& rhs) {
   if (lhs.stream_id != rhs.stream_id) {
@@ -100,6 +102,7 @@ IdleExplanationRow explain_slice(
     std::int64_t start_ns,
     std::int64_t end_ns,
     const std::vector<ActiveState>& active,
+    const std::vector<ActiveHostEvidence>& active_host,
     bool can_attest_absence) {
   IdleExplanationRow row;
   row.start_ns = start_ns;
@@ -134,6 +137,60 @@ IdleExplanationRow explain_slice(
     return row;
   }
 
+  const auto select_host = [&](HostEvidenceCategory category) {
+    std::vector<HostEvidenceSourceLink> links;
+    for (const HostEvidenceInterval* evidence : active_host) {
+      if (evidence->category == category) {
+        links.insert(links.end(), evidence->source_links.begin(),
+                     evidence->source_links.end());
+      }
+    }
+    std::sort(links.begin(), links.end(),
+              [](const HostEvidenceSourceLink& lhs,
+                 const HostEvidenceSourceLink& rhs) {
+                if (lhs.host_api_event_id != rhs.host_api_event_id) {
+                  return lhs.host_api_event_id < rhs.host_api_event_id;
+                }
+                if (lhs.task_id != rhs.task_id) {
+                  return lhs.task_id < rhs.task_id;
+                }
+                return lhs.relation < rhs.relation;
+              });
+    links.erase(std::unique(links.begin(), links.end()), links.end());
+    return links;
+  };
+  const auto first_host = [&](HostEvidenceCategory category)
+      -> const HostEvidenceInterval* {
+    const auto found = std::find_if(
+        active_host.begin(), active_host.end(),
+        [category](const HostEvidenceInterval* evidence) {
+          return evidence->category == category;
+        });
+    return found == active_host.end() ? nullptr : *found;
+  };
+  if (const HostEvidenceInterval* evidence =
+          first_host(HostEvidenceCategory::kQueuedVisibleTaskDelay)) {
+    row.category = IdleExplanationCategory::kQueuedVisibleTaskDelay;
+    row.evidence_level = IdleEvidenceLevel::kCorrelated;
+    row.evidence_relation = IdleEvidenceRelation::kExactConnectionId;
+    row.alignment_status = alignment_status_name(evidence->alignment_status);
+    row.reason = evidence->reason;
+    row.host_source_links =
+        select_host(HostEvidenceCategory::kQueuedVisibleTaskDelay);
+    return row;
+  }
+  if (const HostEvidenceInterval* evidence =
+          first_host(HostEvidenceCategory::kHostSyncApiPresent)) {
+    row.category = IdleExplanationCategory::kHostSyncApiPresent;
+    row.evidence_level = IdleEvidenceLevel::kCorrelated;
+    row.evidence_relation = IdleEvidenceRelation::kTemporalOverlap;
+    row.alignment_status = alignment_status_name(evidence->alignment_status);
+    row.reason = evidence->reason;
+    row.host_source_links =
+        select_host(HostEvidenceCategory::kHostSyncApiPresent);
+    return row;
+  }
+
   const bool every_observed_stream_empty =
       !active.empty() &&
       std::all_of(active.begin(), active.end(), [](const ActiveState& item) {
@@ -162,7 +219,8 @@ bool same_explanation(const IdleExplanationRow& lhs,
          lhs.evidence_level == rhs.evidence_level &&
          lhs.evidence_relation == rhs.evidence_relation &&
          lhs.alignment_status == rhs.alignment_status &&
-         lhs.reason == rhs.reason && lhs.source_links == rhs.source_links;
+         lhs.reason == rhs.reason && lhs.source_links == rhs.source_links &&
+         lhs.host_source_links == rhs.host_source_links;
 }
 
 void append_or_merge(IdleExplanationRow row,
@@ -193,6 +251,7 @@ const StreamStateInterval* state_at(const StreamStateTimeline& timeline,
 
 void explain_gap(const DeviceIntervalRow& gap,
                  const StreamStateDeviceResult& stream_device,
+                 const std::vector<const HostEvidenceInterval*>& host_evidence,
                  CollectionStatus collection_status,
                  bool upstream_inputs_valid,
                  std::vector<TimelineDiagnostic>* diagnostics,
@@ -213,6 +272,12 @@ void explain_gap(const DeviceIntervalRow& gap,
       const StreamStateInterval& interval = *interval_it;
       boundaries.push_back(std::max(interval.start_ns, gap.start_ns));
       boundaries.push_back(std::min(interval.end_ns, gap.end_ns));
+    }
+  }
+  for (const HostEvidenceInterval* evidence : host_evidence) {
+    if (evidence->end_ns > gap.start_ns && evidence->start_ns < gap.end_ns) {
+      boundaries.push_back(std::max(evidence->start_ns, gap.start_ns));
+      boundaries.push_back(std::min(evidence->end_ns, gap.end_ns));
     }
   }
   std::sort(boundaries.begin(), boundaries.end());
@@ -242,6 +307,12 @@ void explain_gap(const DeviceIntervalRow& gap,
       }
       active.push_back(ActiveState{timeline.stream_id, interval});
     }
+    std::vector<ActiveHostEvidence> active_host;
+    for (const HostEvidenceInterval* evidence : host_evidence) {
+      if (evidence->start_ns <= start_ns && evidence->end_ns >= end_ns) {
+        active_host.push_back(evidence);
+      }
+    }
     // An incomplete active set can never support an absence claim.
     const bool all_streams_scanned =
         active.size() == stream_device.timelines.size();
@@ -253,7 +324,7 @@ void explain_gap(const DeviceIntervalRow& gap,
           "E2 visible gap");
     }
     append_or_merge(
-        explain_slice(start_ns, end_ns, active,
+        explain_slice(start_ns, end_ns, active, active_host,
                       can_attest_absence && all_streams_scanned),
         output);
   }
@@ -270,6 +341,10 @@ std::string_view idle_explanation_category_name(
       return "capture_control_present";
     case IdleExplanationCategory::kRuntimeControlPresent:
       return "runtime_control_present";
+    case IdleExplanationCategory::kQueuedVisibleTaskDelay:
+      return "queued_visible_task_delay";
+    case IdleExplanationCategory::kHostSyncApiPresent:
+      return "host_sync_api_present";
     case IdleExplanationCategory::kNoObservedDeviceWork:
       return "no_observed_device_work";
     case IdleExplanationCategory::kUnattributedVisibleIdle:
@@ -282,6 +357,8 @@ std::string_view idle_evidence_level_name(IdleEvidenceLevel level) {
   switch (level) {
     case IdleEvidenceLevel::kDirect:
       return "direct";
+    case IdleEvidenceLevel::kCorrelated:
+      return "correlated";
     case IdleEvidenceLevel::kNone:
       return "none";
   }
@@ -294,6 +371,10 @@ std::string_view idle_evidence_relation_name(IdleEvidenceRelation relation) {
       return "device_event_coverage";
     case IdleEvidenceRelation::kCompleteAbsenceObservation:
       return "complete_absence_observation";
+    case IdleEvidenceRelation::kExactConnectionId:
+      return "exact_connection_id";
+    case IdleEvidenceRelation::kTemporalOverlap:
+      return "temporal_overlap";
     case IdleEvidenceRelation::kNone:
       return "none";
   }
@@ -317,9 +398,13 @@ std::string_view collection_status_name(CollectionStatus status) {
 IdleExplanationRunResult build_idle_explanations(
     const ProductiveTimelineRunResult& productive,
     const StreamStateRunResult& streams,
-    const IdleExplanationOptions& options) {
+    const IdleExplanationOptions& options,
+    const HostCorrelationRunResult* host_correlation) {
   IdleExplanationRunResult run;
   run.collection_status = options.collection_status;
+  if (host_correlation != nullptr) {
+    run.attribution_rule_version = "host_device_projection_v1";
+  }
   run.status = productive.status == AnalysisStatus::kInvalidInput ||
                        streams.status == AnalysisStatus::kInvalidInput
                    ? AnalysisStatus::kInvalidInput
@@ -393,12 +478,22 @@ IdleExplanationRunResult build_idle_explanations(
     result.device_id = device.device_id;
     result.status = device.status;
     result.collection_status = options.collection_status;
+    std::vector<const HostEvidenceInterval*> host_evidence;
+    if (host_correlation != nullptr) {
+      for (const HostEvidenceInterval& evidence :
+           host_correlation->evidence_intervals) {
+        if (evidence.device_id == device.device_id) {
+          host_evidence.push_back(&evidence);
+        }
+      }
+    }
     if (device.status == AnalysisStatus::kOk) {
       for (const DeviceIntervalRow& interval : device.intervals) {
         if (interval.kind != DeviceIntervalKind::kVisibleProductiveIdle) {
           continue;
         }
-        explain_gap(interval, stream_device, options.collection_status,
+        explain_gap(interval, stream_device, host_evidence,
+                    options.collection_status,
                     upstream_inputs_valid,
                     &result.diagnostics, &result.explanations);
       }

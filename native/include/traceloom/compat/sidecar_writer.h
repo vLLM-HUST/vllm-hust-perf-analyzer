@@ -531,6 +531,119 @@ struct StreamStateSqlRow {
   std::string attribution_rule_version;
 };
 
+struct ClockMarkerSqlRow {
+  std::string clock_marker_id;
+  std::string run_id;
+  std::string clock_model_id;
+  std::uint32_t db_idx = 0;
+  std::string marker_id;
+  std::int64_t host_before_ns = 0;
+  std::int64_t host_after_ns = 0;
+  std::int64_t host_midpoint_ns = 0;
+  std::int64_t device_timestamp_ns = 0;
+  std::uint64_t host_pid = 0;
+  std::uint64_t host_tid = 0;
+  std::uint32_t device_id = 0;
+  bool has_stream_id = false;
+  std::uint64_t stream_id = 0;
+  bool has_connection_id = false;
+  std::int64_t connection_id = -1;
+  std::string call_site;
+  std::int64_t return_status = 0;
+  std::string marker_state;
+  std::string source_kind;
+  std::string source_table;
+  std::string source_key;
+  std::string contract_version;
+};
+
+struct ClockModelSqlRow {
+  std::string clock_model_id;
+  std::string run_id;
+  std::uint32_t db_idx = 0;
+  std::uint32_t device_id = 0;
+  std::string source_clock_domain;
+  std::string target_clock_domain;
+  std::string mapping_kind;
+  std::string scale;
+  std::string offset_ns;
+  std::string reference_host_ns;
+  std::string reference_device_ns;
+  double drift_ppm = 0.0;
+  std::string fit_method;
+  std::string fit_method_version;
+  std::uint64_t fit_random_seed = 0;
+  std::uint64_t input_marker_count = 0;
+  std::uint64_t inlier_marker_count = 0;
+  std::uint64_t rejected_marker_count = 0;
+  std::uint64_t fit_marker_count = 0;
+  std::uint64_t validation_marker_count = 0;
+  double absolute_residual_p50_ns = 0.0;
+  double absolute_residual_p95_ns = 0.0;
+  double absolute_residual_max_ns = 0.0;
+  double bracket_uncertainty_p95_ns = 0.0;
+  std::uint64_t epsilon_ns = 0;
+  std::string alignment_status;
+  std::string reason;
+};
+
+struct HostApiEventSqlRow {
+  std::string api_event_id;
+  std::string run_id;
+  std::uint32_t db_idx = 0;
+  std::int64_t start_ns = 0;
+  std::int64_t end_ns = 0;
+  std::uint64_t duration_ns = 0;
+  double duration_us = 0.0;
+  std::uint64_t global_tid = 0;
+  std::int64_t connection_id = -1;
+  std::string api_type;
+  std::string api_name;
+  std::string api_family;
+  bool has_device_id = false;
+  std::uint32_t device_id = 0;
+  std::string source_kind;
+  std::string source_table;
+  std::string source_key;
+  std::string clock_domain = "host";
+  std::string contract_version;
+  std::string host_api_rules_version;
+};
+
+struct TaskApiLinkSqlRow {
+  std::string task_api_link_id;
+  std::string run_id;
+  std::string api_event_id;
+  std::string trace_event_id;
+  std::uint32_t db_idx = 0;
+  bool has_device_id = false;
+  std::uint32_t device_id = 0;
+  bool has_stream_id = false;
+  std::uint64_t stream_id = 0;
+  std::int64_t connection_id = -1;
+  std::string link_status;
+  std::string api_name;
+  std::string task_type;
+};
+
+struct IdleCandidateSqlRow {
+  std::string candidate_id;
+  std::string run_id;
+  std::string gap_interval_id;
+  std::uint32_t db_idx = 0;
+  std::uint32_t device_id = 0;
+  std::uint32_t candidate_order = 0;
+  std::string candidate_category;
+  std::string candidate_level;
+  std::string candidate_relation;
+  std::string candidate_status;
+  std::string reason;
+  std::string alignment_status;
+  std::uint64_t source_count = 0;
+  std::string contract_version;
+  std::string attribution_rule_version;
+};
+
 struct IdleExplanationSqlRow {
   std::string idle_explanation_id;
   std::string run_id;
@@ -604,6 +717,11 @@ struct IdleEvidenceSqlRows {
   std::vector<RunMetadataSqlRow> run_metadata;
   std::vector<DeviceIntervalSqlRow> device_intervals;
   std::vector<StreamStateSqlRow> stream_states;
+  std::vector<ClockMarkerSqlRow> clock_markers;
+  std::vector<ClockModelSqlRow> clock_models;
+  std::vector<HostApiEventSqlRow> host_api_events;
+  std::vector<TaskApiLinkSqlRow> task_api_links;
+  std::vector<IdleCandidateSqlRow> idle_candidates;
   std::vector<IdleExplanationSqlRow> idle_explanations;
   std::vector<EvidenceLinkSqlRow> evidence_links;
   std::vector<AnchorIdleExplanationSqlRow> anchor_attribution;

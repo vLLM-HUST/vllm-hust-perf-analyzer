@@ -5,20 +5,22 @@
 #include <string_view>
 #include <vector>
 
+#include "traceloom/analysis/host_correlation.h"
 #include "traceloom/analysis/productive_timeline.h"
 #include "traceloom/analysis/stream_state_timeline.h"
 
 namespace traceloom {
 
-// E4: conservative device-only explanations for visible productive idle.
-// This module implements contract sections 5, 6, and 8 for evidence already
-// expressed in the device clock domain. Host correlation is intentionally a
-// separate, later stage: no clock alignment or causal inference occurs here.
+// E4: conservative explanations for visible productive idle. Device evidence
+// retains priority; optional host evidence has already passed calibrated
+// robust-window gating and is expressed in the device clock domain.
 
 enum class IdleExplanationCategory {
   kBlockedByVisibleWait,
   kCaptureControlPresent,
   kRuntimeControlPresent,
+  kQueuedVisibleTaskDelay,
+  kHostSyncApiPresent,
   kNoObservedDeviceWork,
   kUnattributedVisibleIdle,
 };
@@ -28,6 +30,7 @@ std::string_view idle_explanation_category_name(
 
 enum class IdleEvidenceLevel {
   kDirect,
+  kCorrelated,
   kNone,
 };
 
@@ -36,6 +39,8 @@ std::string_view idle_evidence_level_name(IdleEvidenceLevel level);
 enum class IdleEvidenceRelation {
   kDeviceEventCoverage,
   kCompleteAbsenceObservation,
+  kExactConnectionId,
+  kTemporalOverlap,
   kNone,
 };
 
@@ -76,6 +81,10 @@ struct IdleExplanationRow {
   // unknown/ambiguous visible sources are retained as diagnostic lineage even
   // though they do not constitute evidence for an explanation claim.
   std::vector<IdleExplanationSourceLink> source_links;
+  // Host links are kept separate from stream-state lineage because their
+  // source interval is in the host domain and their overlap extent is the
+  // mapped robust window in the device domain.
+  std::vector<HostEvidenceSourceLink> host_source_links;
 };
 
 struct IdleExplanationDeviceResult {
@@ -105,6 +114,7 @@ struct IdleExplanationOptions {
 IdleExplanationRunResult build_idle_explanations(
     const ProductiveTimelineRunResult& productive,
     const StreamStateRunResult& streams,
-    const IdleExplanationOptions& options = {});
+    const IdleExplanationOptions& options = {},
+    const HostCorrelationRunResult* host_correlation = nullptr);
 
 }  // namespace traceloom

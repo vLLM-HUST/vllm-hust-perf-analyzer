@@ -1163,6 +1163,82 @@ int main() {
           0);
   std::remove(idle_db_path.c_str());
 
+  // Full synthetic-only host/device path: marker fit -> host projection -> E4
+  // correlated slice -> auditable sidecar lineage. Synthetic calibration is
+  // intentionally incapable of claiming alignment_status=calibrated.
+  const std::string correlated_db_path = temp_db_path();
+  NativeIr correlated_ir = build_idle_evidence_ir();
+  constexpr std::int64_t kHostClockBase = 1000000000000000000LL;
+  const SourceRefId marker_source = correlated_ir.source_refs.append(
+      "synthetic", "clock-markers.tsv", "clock_marker", 0);
+  for (std::size_t index = 0; index < 11; ++index) {
+    const std::int64_t timestamp =
+        static_cast<std::int64_t>(index) * 1000;
+    correlated_ir.clock_markers.append(
+        marker_source, index + 1,
+        correlated_ir.symbols.intern("marker-" + std::to_string(index)),
+        kHostClockBase + timestamp, kHostClockBase + timestamp, timestamp,
+        123, 456, 0, false, 0, false, -1,
+        correlated_ir.symbols.intern("sidecar-test"), 0);
+  }
+  const SourceRefId host_source = correlated_ir.source_refs.append(
+      "synthetic", "host-api.db", "CANN_API", 0);
+  correlated_ir.host_api_events.append(
+      host_source, 21, kHostClockBase + 310, kHostClockBase + 390, 456, -1,
+      SymbolId::invalid(),
+      correlated_ir.symbols.intern("aclrtSynchronizeStream"), true, 0);
+  const HostApiRuleset host_rules =
+      load_default_idle_evidence_host_api_ruleset();
+  IdleEvidencePipelineOptions correlated_pipeline_options;
+  correlated_pipeline_options.clock_alignment.synthetic_fixture = true;
+  correlated_pipeline_options.host_api_rules = &host_rules;
+  const IdleEvidencePipelineResult correlated_pipeline =
+      run_idle_evidence_pipeline(correlated_ir, idle_rules,
+                                 correlated_pipeline_options);
+  compat::write_basic_native_compatibility_sidecar(
+      correlated_db_path, correlated_ir, idle_options, &correlated_pipeline);
+  require(run_scalar_text(correlated_db_path,
+                          "SELECT alignment_status FROM "
+                          "traceloom_clock_model") == "synthetic_only");
+  require(run_scalar_text(correlated_db_path,
+                          "SELECT reference_host_ns FROM "
+                          "traceloom_clock_model") ==
+          "1000000000000005000.000000");
+  require(run_scalar_text(correlated_db_path,
+                          "SELECT reference_device_ns FROM "
+                          "traceloom_clock_model") == "5000.000000");
+  require(run_scalar_int(correlated_db_path,
+                         "SELECT COUNT(*) FROM traceloom_clock_marker") == 11);
+  require(run_scalar_int(correlated_db_path,
+                         "SELECT COUNT(*) FROM traceloom_clock_marker "
+                         "WHERE marker_state = 'fit_marker'") == 9);
+  require(run_scalar_int(correlated_db_path,
+                         "SELECT COUNT(*) FROM traceloom_clock_marker "
+                         "WHERE marker_state = 'validation_marker'") == 2);
+  require(run_scalar_int(correlated_db_path,
+                         "SELECT COUNT(*) FROM traceloom_evidence_link "
+                         "WHERE owner_kind = 'clock_model'") == 11);
+  require(run_scalar_text(correlated_db_path,
+                          "SELECT api_family FROM traceloom_host_api_event") ==
+          "host_sync");
+  require(run_scalar_int(
+              correlated_db_path,
+              "SELECT SUM(duration_ns) FROM traceloom_idle_explanation "
+              "WHERE category = 'host_sync_api_present' AND "
+              "evidence_level = 'correlated' AND "
+              "evidence_relation = 'temporal_overlap'") == 80);
+  require(run_scalar_int(
+              correlated_db_path,
+              "SELECT COUNT(*) FROM traceloom_idle_explanation e "
+              "WHERE e.source_count != (SELECT COUNT(*) FROM "
+              "traceloom_evidence_link l WHERE l.owner_kind = 'explanation' "
+              "AND l.owner_id = e.idle_explanation_id)") == 0);
+  require(run_scalar_text(correlated_db_path,
+                          "SELECT json_extract(metadata_json, "
+                          "'$.devices[0].alignment_status') FROM "
+                          "traceloom_run_metadata") == "synthetic_only");
+  std::remove(correlated_db_path.c_str());
+
   // E3 inspects unknown intervals that E2 intentionally excludes from the
   // productive projection. A zero-duration unknown therefore makes E3/E4
   // invalid_input while E2 remains ok. This is an auditable negative result,
