@@ -51,6 +51,12 @@ std::string fmt(std::uint32_t value) {
   return std::to_string(value);
 }
 
+std::string fixed_decimal(long double value, int precision) {
+  std::ostringstream out;
+  out << std::fixed << std::setprecision(precision) << value;
+  return out.str();
+}
+
 std::string shorten(const std::string& text, std::size_t width) {
   if (text.size() <= width) {
     return text;
@@ -323,12 +329,56 @@ void write_loop_tree_markdown(std::ostream& out,
             : 100.0 *
                   static_cast<double>(options.direct_explained_idle_ns) /
                   static_cast<double>(options.visible_productive_idle_ns);
+    const double correlated_pct =
+        options.visible_productive_idle_ns == 0
+            ? 0.0
+            : 100.0 * static_cast<double>(
+                          options.correlated_explained_idle_ns) /
+                  static_cast<double>(options.visible_productive_idle_ns);
+    const std::uint64_t explained_ns =
+        options.direct_explained_idle_ns +
+        options.correlated_explained_idle_ns;
+    const std::uint64_t residual_ns =
+        options.visible_productive_idle_ns >= explained_ns
+            ? options.visible_productive_idle_ns - explained_ns
+            : 0;
     out << "\n## Visible Productive Idle Evidence\n\n";
     out << "- analysis_status: `" << options.idle_analysis_status << "`\n";
     out << "- collection_status: `" << options.idle_collection_status
         << "`\n";
     out << "- attribution_rule_version: `"
         << options.idle_attribution_rule_version << "`\n";
+    out << "- alignment_status: `" << options.idle_alignment_status << "`\n";
+    if (options.has_idle_clock_model_summary) {
+      out << "\n### Host→Device Clock Calibration\n\n";
+      out << "- scale: `" << fixed_decimal(options.idle_clock_scale, 12)
+          << "`\n";
+      out << "- drift_ppm: `"
+          << fixed_decimal(options.idle_clock_drift_ppm, 6) << "`\n";
+      out << "- input_marker_count: `"
+          << options.idle_clock_input_marker_count << "`\n";
+      out << "- inlier_marker_count: `"
+          << options.idle_clock_inlier_marker_count << "`\n";
+      out << "- rejected_marker_count: `"
+          << options.idle_clock_rejected_marker_count << "`\n";
+      out << "- fit_marker_count: `" << options.idle_clock_fit_marker_count
+          << "`\n";
+      out << "- validation_marker_count: `"
+          << options.idle_clock_validation_marker_count << "`\n";
+      out << "- absolute_residual_p50_ns: `"
+          << fixed_decimal(options.idle_clock_absolute_residual_p50_ns, 6)
+          << "`\n";
+      out << "- absolute_residual_p95_ns: `"
+          << fixed_decimal(options.idle_clock_absolute_residual_p95_ns, 6)
+          << "`\n";
+      out << "- absolute_residual_max_ns: `"
+          << fixed_decimal(options.idle_clock_absolute_residual_max_ns, 6)
+          << "`\n";
+      out << "- bracket_uncertainty_p95_ns: `"
+          << fixed_decimal(options.idle_clock_bracket_uncertainty_p95_ns, 6)
+          << "`\n";
+      out << "- epsilon_ns: `" << options.idle_clock_epsilon_ns << "`\n\n";
+    }
     out << "- visible_productive_idle_us: `"
         << fmt(static_cast<double>(options.visible_productive_idle_ns) /
                1000.0)
@@ -340,6 +390,14 @@ void write_loop_tree_markdown(std::ostream& out,
         << "` (`" << fmt(direct_pct) << "%`)\n";
     out << "- directly_explained_ns: `"
         << options.direct_explained_idle_ns << "`\n";
+    out << "- correlated_explained_us: `"
+        << fmt(static_cast<double>(options.correlated_explained_idle_ns) /
+               1000.0)
+        << "` (`" << fmt(correlated_pct) << "%`)\n";
+    out << "- correlated_explained_ns: `"
+        << options.correlated_explained_idle_ns << "`\n";
+    out << "- residual_visible_productive_idle_ns: `" << residual_ns
+        << "`\n";
     out << "- semantic_boundary: gaps in profiler-visible productive work; "
            "not proof of hardware idleness or causality\n\n";
     out << "| Category | Slices | Duration (ns) | Duration (us) | Gap % |\n";
@@ -386,9 +444,9 @@ void write_loop_tree_markdown(std::ostream& out,
     out << "- hierarchy_boundary: parent and child hotspot rows overlap by "
            "construction and are not additive\n\n";
     out << "| Node | Kind | Total (us) | Avg (us) | Wait | Capture | Runtime "
-           "| No work | Unattributed |\n";
+           "| Queue delay | Host sync | No work | Unattributed |\n";
     out << "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: "
-           "|\n";
+           "| ---: | ---: |\n";
     for (const IdleExplanationNodeHotspot& hotspot :
          options.idle_node_hotspots) {
       out << "| `" << hotspot.node_id << "` " << hotspot.label << " | `"
@@ -399,6 +457,8 @@ void write_loop_tree_markdown(std::ostream& out,
           << fmt(static_cast<double>(hotspot.capture_control_ns) / 1000.0)
           << " | "
           << fmt(static_cast<double>(hotspot.runtime_control_ns) / 1000.0)
+          << " | " << fmt(static_cast<double>(hotspot.queued_delay_ns) / 1000.0)
+          << " | " << fmt(static_cast<double>(hotspot.host_sync_ns) / 1000.0)
           << " | "
           << fmt(static_cast<double>(hotspot.no_observed_work_ns) / 1000.0)
           << " | "

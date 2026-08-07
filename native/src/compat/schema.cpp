@@ -664,6 +664,144 @@ const CompatTableSchema& stream_state_table_schema() {
   return schema;
 }
 
+const CompatTableSchema& clock_marker_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_clock_marker",
+      {
+          {"clock_marker_id", CompatColumnType::kText, false},
+          {"run_id", CompatColumnType::kText, false},
+          {"clock_model_id", CompatColumnType::kText, false},
+          {"db_idx", CompatColumnType::kInteger, false},
+          {"marker_id", CompatColumnType::kText, false},
+          {"host_before_ns", CompatColumnType::kInteger, false},
+          {"host_after_ns", CompatColumnType::kInteger, false},
+          {"host_midpoint_ns", CompatColumnType::kInteger, false},
+          {"device_timestamp_ns", CompatColumnType::kInteger, false},
+          {"host_pid", CompatColumnType::kInteger, false},
+          {"host_tid", CompatColumnType::kInteger, false},
+          {"device_id", CompatColumnType::kInteger, false},
+          {"stream_id", CompatColumnType::kInteger, true},
+          {"connection_id", CompatColumnType::kInteger, true},
+          {"call_site", CompatColumnType::kText, false},
+          {"return_status", CompatColumnType::kInteger, false},
+          {"marker_state", CompatColumnType::kText, false},
+          {"source_kind", CompatColumnType::kText, false},
+          {"source_table", CompatColumnType::kText, false},
+          {"source_key", CompatColumnType::kText, false},
+          {"contract_version", CompatColumnType::kText, false},
+      },
+  };
+  return schema;
+}
+
+const CompatTableSchema& clock_model_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_clock_model",
+      {
+          {"clock_model_id", CompatColumnType::kText, false},
+          {"run_id", CompatColumnType::kText, false},
+          {"db_idx", CompatColumnType::kInteger, false},
+          {"device_id", CompatColumnType::kInteger, false},
+          {"source_clock_domain", CompatColumnType::kText, false},
+          {"target_clock_domain", CompatColumnType::kText, false},
+          {"mapping_kind", CompatColumnType::kText, false},
+          {"scale", CompatColumnType::kText, false},
+          {"offset_ns", CompatColumnType::kText, false},
+          {"reference_host_ns", CompatColumnType::kText, false},
+          {"reference_device_ns", CompatColumnType::kText, false},
+          {"drift_ppm", CompatColumnType::kReal, false},
+          {"fit_method", CompatColumnType::kText, false},
+          {"fit_method_version", CompatColumnType::kText, false},
+          {"fit_random_seed", CompatColumnType::kInteger, false},
+          {"input_marker_count", CompatColumnType::kInteger, false},
+          {"inlier_marker_count", CompatColumnType::kInteger, false},
+          {"rejected_marker_count", CompatColumnType::kInteger, false},
+          {"fit_marker_count", CompatColumnType::kInteger, false},
+          {"validation_marker_count", CompatColumnType::kInteger, false},
+          {"absolute_residual_p50_ns", CompatColumnType::kReal, false},
+          {"absolute_residual_p95_ns", CompatColumnType::kReal, false},
+          {"absolute_residual_max_ns", CompatColumnType::kReal, false},
+          {"bracket_uncertainty_p95_ns", CompatColumnType::kReal, false},
+          {"epsilon_ns", CompatColumnType::kInteger, false},
+          {"alignment_status", CompatColumnType::kText, false},
+          {"reason", CompatColumnType::kText, false},
+      },
+  };
+  return schema;
+}
+
+const CompatTableSchema& host_api_event_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_host_api_event",
+      {
+          {"api_event_id", CompatColumnType::kText, false},
+          {"run_id", CompatColumnType::kText, false},
+          {"db_idx", CompatColumnType::kInteger, false},
+          {"start_ns", CompatColumnType::kInteger, false},
+          {"end_ns", CompatColumnType::kInteger, false},
+          {"duration_ns", CompatColumnType::kInteger, false},
+          {"duration_us", CompatColumnType::kReal, false},
+          {"global_tid", CompatColumnType::kInteger, false},
+          {"connection_id", CompatColumnType::kInteger, true},
+          {"api_type", CompatColumnType::kText, true},
+          {"api_name", CompatColumnType::kText, false},
+          {"api_family", CompatColumnType::kText, true},
+          {"device_id", CompatColumnType::kInteger, true},
+          {"source_kind", CompatColumnType::kText, false},
+          {"source_table", CompatColumnType::kText, false},
+          {"source_key", CompatColumnType::kText, false},
+          {"clock_domain", CompatColumnType::kText, false},
+          {"contract_version", CompatColumnType::kText, false},
+          {"host_api_rules_version", CompatColumnType::kText, false},
+      },
+  };
+  return schema;
+}
+
+const CompatTableSchema& task_api_link_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_task_api_link",
+      {
+          {"task_api_link_id", CompatColumnType::kText, false},
+          {"run_id", CompatColumnType::kText, false},
+          {"api_event_id", CompatColumnType::kText, false},
+          {"trace_event_id", CompatColumnType::kText, true},
+          {"db_idx", CompatColumnType::kInteger, false},
+          {"device_id", CompatColumnType::kInteger, true},
+          {"stream_id", CompatColumnType::kInteger, true},
+          {"connection_id", CompatColumnType::kInteger, true},
+          {"link_status", CompatColumnType::kText, false},
+          {"api_name", CompatColumnType::kText, false},
+          {"task_type", CompatColumnType::kText, true},
+      },
+  };
+  return schema;
+}
+
+const CompatTableSchema& idle_candidate_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_idle_candidate",
+      {
+          {"candidate_id", CompatColumnType::kText, false},
+          {"run_id", CompatColumnType::kText, false},
+          {"gap_interval_id", CompatColumnType::kText, false},
+          {"db_idx", CompatColumnType::kInteger, false},
+          {"device_id", CompatColumnType::kInteger, false},
+          {"candidate_order", CompatColumnType::kInteger, false},
+          {"candidate_category", CompatColumnType::kText, false},
+          {"candidate_level", CompatColumnType::kText, false},
+          {"candidate_relation", CompatColumnType::kText, false},
+          {"candidate_status", CompatColumnType::kText, false},
+          {"reason", CompatColumnType::kText, false},
+          {"alignment_status", CompatColumnType::kText, false},
+          {"source_count", CompatColumnType::kInteger, false},
+          {"contract_version", CompatColumnType::kText, false},
+          {"attribution_rule_version", CompatColumnType::kText, false},
+      },
+  };
+  return schema;
+}
+
 const CompatTableSchema& idle_explanation_table_schema() {
   static const CompatTableSchema schema{
       "traceloom_idle_explanation",
@@ -779,6 +917,11 @@ std::vector<CompatTableSchema> compatibility_table_schemas() {
       run_metadata_table_schema(),
       device_interval_table_schema(),
       stream_state_table_schema(),
+      clock_marker_table_schema(),
+      clock_model_table_schema(),
+      host_api_event_table_schema(),
+      task_api_link_table_schema(),
+      idle_candidate_table_schema(),
       idle_explanation_table_schema(),
       evidence_link_table_schema(),
       anchor_idle_explanation_table_schema(),

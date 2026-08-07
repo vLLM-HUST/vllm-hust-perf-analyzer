@@ -40,6 +40,20 @@ int main() {
   options.idle_analysis_status = "ok";
   options.idle_collection_status = "unknown";
   options.idle_attribution_rule_version = "device_projection_v1";
+  options.idle_alignment_status = "calibrated";
+  options.has_idle_clock_model_summary = true;
+  options.idle_clock_scale = 1.000001234567L;
+  options.idle_clock_drift_ppm = 1.234567L;
+  options.idle_clock_input_marker_count = 21;
+  options.idle_clock_inlier_marker_count = 20;
+  options.idle_clock_rejected_marker_count = 1;
+  options.idle_clock_fit_marker_count = 16;
+  options.idle_clock_validation_marker_count = 4;
+  options.idle_clock_absolute_residual_p50_ns = 101.25L;
+  options.idle_clock_absolute_residual_p95_ns = 202.5L;
+  options.idle_clock_absolute_residual_max_ns = 303.75L;
+  options.idle_clock_bracket_uncertainty_p95_ns = 404.125L;
+  options.idle_clock_epsilon_ns = 607;
   options.visible_productive_idle_ns = 10000;
   options.direct_explained_idle_ns = 4000;
   options.idle_explanation_counts = {
@@ -73,6 +87,17 @@ int main() {
           std::string::npos);
   require(markdown.find("- collection_status: `unknown`") !=
           std::string::npos);
+  require(markdown.find("### Host→Device Clock Calibration") !=
+          std::string::npos);
+  require(markdown.find("- absolute_residual_p50_ns: `101.250000`") !=
+          std::string::npos);
+  require(markdown.find("- absolute_residual_p95_ns: `202.500000`") !=
+          std::string::npos);
+  require(markdown.find("- absolute_residual_max_ns: `303.750000`") !=
+          std::string::npos);
+  require(markdown.find("- rejected_marker_count: `1`") !=
+          std::string::npos);
+  require(markdown.find("- epsilon_ns: `607`") != std::string::npos);
   require(markdown.find("- directly_explained_us: `4` (`40%`)") !=
           std::string::npos);
   require(markdown.find(

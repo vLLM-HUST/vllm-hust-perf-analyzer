@@ -194,5 +194,52 @@ and E4 (`build_idle_explanations`) slices each visible gap into conservative,
 mutually exclusive device-evidence categories. The authoritative E1-to-E4
 composition is `run_idle_evidence_pipeline`; its results feed the CLI, SQL
 sidecar, anchor/node attribution, and Loop Tree summaries. Host correlation
-remains a separate later stage that requires calibrated clocks and validated
-host/device links.
+is now the optional calibrated continuation of that same pipeline. Ascend
+production runs load the versioned `idle_evidence_host_api_rules.tsv`, retain
+all imported host API rows and connectionId link outcomes, and promote host
+evidence only when the clock model and robust-window rules permit it.
+
+### Host-to-device clock calibration
+
+The preferred real-capture input is a runtime bracket TSV produced around
+`aclrtRecordEvent` and event synchronization. It uses this exact header:
+
+```text
+marker_id\thost_before_ns\thost_after_ns\thost_pid\thost_tid\tdevice_id\tstream_id\tcall_site\treturn_status
+```
+
+Analyze the matching single-device Ascend profile with:
+
+```bash
+traceloom /path/to/PROF_... \
+  --clock-marker-brackets /path/to/clock_marker_brackets.tsv \
+  --compat-db-out /path/to/report.traceloom.db
+```
+
+For every successful bracket, the resolver normally requires non-empty overlap
+with exactly one profiled same-thread `aclrtRecordEvent` row. Real profiler host API
+timestamps can drift away from the caller's `CLOCK_REALTIME` bracket. If
+direct overlap is absent, TraceLoom requires an order-preserving bijection:
+successful bracket and same-thread record counts must match, both timestamp
+sequences must be strictly increasing, and endpoint-affine correction must
+leave every API's same-ordinal bracket uniquely nearest. Ambiguity still fails
+closed. A unique connectionId/TASK yields `TASK.startNs` as the marker device
+timestamp. A uniquely resolved API with no connectionId or TASK is retained as
+a rejected marker; multiple matching APIs/TASKs remain fatal. Raw
+`aclrtEventGetTimestamp` values are device syscnt and are never interpreted as
+profiler nanoseconds.
+
+The direct `--clock-markers PATH` option accepts the already-resolved frozen
+11-field payload from the idle-evidence contract. It is intended for trusted
+producers and controlled fixtures. `--clock-markers-synthetic` forces the
+result to `alignment_status=synthetic_only`; omitting markers yields
+`uncalibrated`, retains host rows and structural links, and emits no
+cross-clock interval or delay claim.
+
+Calibration uses the frozen Theil-Sen affine fit, deterministic every-fifth
+holdout, half-even timestamp rounding, and
+`epsilon_ns = validation_residual_p95 + scaled_bracket_uncertainty_p95`.
+Official host-sync evidence uses only the epsilon-shrunk robust overlap;
+official queued-task delay additionally requires a unique exact connectionId.
+Possible-only overlap and non-robust delay remain candidates and never replace
+an E4 explanation slice.

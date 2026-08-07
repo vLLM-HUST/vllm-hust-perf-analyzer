@@ -89,12 +89,44 @@ with interval_totals as (
     from traceloom_stream_state s
   )
   group by run_id
+), evidence_with_run as (
+  select
+    l.*,
+    coalesce(d.run_id, s.run_id, x.run_id, c.run_id, m.run_id) as run_id
+  from traceloom_evidence_link l
+  left join traceloom_device_interval d
+    on l.owner_kind = 'device_interval' and d.interval_id = l.owner_id
+  left join traceloom_stream_state s
+    on l.owner_kind = 'stream_state' and s.state_id = l.owner_id
+  left join traceloom_idle_explanation x
+    on l.owner_kind = 'explanation' and x.idle_explanation_id = l.owner_id
+  left join traceloom_idle_candidate c
+    on l.owner_kind = 'candidate' and c.candidate_id = l.owner_id
+  left join traceloom_clock_model m
+    on l.owner_kind = 'clock_model' and m.clock_model_id = l.owner_id
 ), evidence_errors as (
   select
-    sum(case when not exists (
-          select 1 from traceloom_event ev
-          where ev.event_id = l.trace_event_id
-        ) then 1 else 0 end) as source_errors,
+    l.run_id,
+    sum(case
+          when l.trace_event_id != '' and not exists (
+            select 1 from traceloom_event ev
+            where ev.event_id = l.trace_event_id
+          ) then 1
+          when l.trace_event_id = '' and not exists (
+            select 1 from traceloom_host_api_event h
+            where h.run_id = l.run_id
+              and h.source_kind = l.source_kind
+              and h.source_table = l.source_table
+              and h.source_key = l.source_key
+          ) and not exists (
+            select 1 from traceloom_clock_marker k
+            where k.run_id = l.run_id
+              and k.source_kind = l.source_kind
+              and k.source_table = l.source_table
+              and k.source_key = l.source_key
+          ) then 1
+          else 0
+        end) as source_errors,
     sum(case
           when l.relation = 'none' and
                (l.overlap_start_ns is not null or l.overlap_end_ns is not null)
@@ -102,12 +134,12 @@ with interval_totals as (
           when l.relation != 'none' and
                (l.overlap_start_ns is null or l.overlap_end_ns is null or
                 l.overlap_end_ns <= l.overlap_start_ns or
-                not exists (
+                (l.relation = 'device_event_coverage' and not exists (
                   select 1 from traceloom_event ev
                   where ev.event_id = l.trace_event_id
                     and l.overlap_start_ns >= ev.start_ns
                     and l.overlap_end_ns <= ev.end_ns
-                ) or
+                )) or
                 (l.owner_kind = 'device_interval' and not exists (
                   select 1 from traceloom_device_interval d
                   where d.interval_id = l.owner_id
@@ -125,6 +157,15 @@ with interval_totals as (
                   where x.idle_explanation_id = l.owner_id
                     and l.overlap_start_ns >= x.start_ns
                     and l.overlap_end_ns <= x.end_ns
+                )) or
+                (l.owner_kind = 'candidate' and not exists (
+                  select 1
+                  from traceloom_idle_candidate c
+                  join traceloom_device_interval g
+                    on g.interval_id = c.gap_interval_id
+                  where c.candidate_id = l.owner_id
+                    and l.overlap_start_ns >= g.start_ns
+                    and l.overlap_end_ns <= g.end_ns
                 )))
             then 1
           else 0
@@ -142,12 +183,22 @@ with interval_totals as (
             select 1 from traceloom_idle_explanation x
             where x.idle_explanation_id = l.owner_id
           ) then 1
+          when l.owner_kind = 'candidate' and not exists (
+            select 1 from traceloom_idle_candidate c
+            where c.candidate_id = l.owner_id
+          ) then 1
+          when l.owner_kind = 'clock_model' and not exists (
+            select 1 from traceloom_clock_model m
+            where m.clock_model_id = l.owner_id
+          ) then 1
           when l.owner_kind not in (
-            'device_interval', 'stream_state', 'explanation'
+            'device_interval', 'stream_state', 'explanation', 'candidate',
+            'clock_model'
           ) then 1
           else 0
         end) as owner_errors
-  from traceloom_evidence_link l
+  from evidence_with_run l
+  group by l.run_id
 ), anchor_totals as (
   select
     run_id,
@@ -225,7 +276,7 @@ left join gap_link_errors g using (run_id)
 left join gap_partition_errors gp using (run_id)
 left join explanation_overlap_errors eo using (run_id)
 left join stream_partition_errors sp using (run_id)
-left join evidence_errors v on 1 = 1
+left join evidence_errors v using (run_id)
 left join anchor_totals a using (run_id)
 left join root_totals r using (run_id)
 order by m.db_idx, m.run_id;

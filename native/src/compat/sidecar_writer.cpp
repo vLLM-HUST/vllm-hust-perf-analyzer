@@ -847,6 +847,136 @@ void insert_stream_state_row(SqliteStmt& stmt, const StreamStateSqlRow& row) {
   finish_idle_insert(stmt, "stream state");
 }
 
+void insert_clock_marker_row(SqliteStmt& stmt, const ClockMarkerSqlRow& row) {
+  bind_text(stmt, 1, row.clock_marker_id);
+  bind_text(stmt, 2, row.run_id);
+  bind_text(stmt, 3, row.clock_model_id);
+  bind_int64(stmt, 4, row.db_idx);
+  bind_text(stmt, 5, row.marker_id);
+  bind_int64(stmt, 6, row.host_before_ns);
+  bind_int64(stmt, 7, row.host_after_ns);
+  bind_int64(stmt, 8, row.host_midpoint_ns);
+  bind_int64(stmt, 9, row.device_timestamp_ns);
+  bind_int64(stmt, 10, static_cast<sqlite3_int64>(row.host_pid));
+  bind_int64(stmt, 11, static_cast<sqlite3_int64>(row.host_tid));
+  bind_int64(stmt, 12, row.device_id);
+  row.has_stream_id
+      ? bind_int64(stmt, 13, static_cast<sqlite3_int64>(row.stream_id))
+      : bind_null(stmt, 13);
+  row.has_connection_id ? bind_int64(stmt, 14, row.connection_id)
+                        : bind_null(stmt, 14);
+  bind_text(stmt, 15, row.call_site);
+  bind_int64(stmt, 16, row.return_status);
+  bind_text(stmt, 17, row.marker_state);
+  bind_text(stmt, 18, row.source_kind);
+  bind_text(stmt, 19, row.source_table);
+  bind_text(stmt, 20, row.source_key);
+  bind_text(stmt, 21, row.contract_version);
+  finish_idle_insert(stmt, "clock marker");
+}
+
+void insert_clock_model_row(SqliteStmt& stmt, const ClockModelSqlRow& row) {
+  bind_text(stmt, 1, row.clock_model_id);
+  bind_text(stmt, 2, row.run_id);
+  bind_int64(stmt, 3, row.db_idx);
+  bind_int64(stmt, 4, row.device_id);
+  bind_text(stmt, 5, row.source_clock_domain);
+  bind_text(stmt, 6, row.target_clock_domain);
+  bind_text(stmt, 7, row.mapping_kind);
+  bind_text(stmt, 8, row.scale);
+  bind_text(stmt, 9, row.offset_ns);
+  bind_text(stmt, 10, row.reference_host_ns);
+  bind_text(stmt, 11, row.reference_device_ns);
+  bind_double(stmt, 12, row.drift_ppm);
+  bind_text(stmt, 13, row.fit_method);
+  bind_text(stmt, 14, row.fit_method_version);
+  bind_int64(stmt, 15, static_cast<sqlite3_int64>(row.fit_random_seed));
+  bind_int64(stmt, 16, static_cast<sqlite3_int64>(row.input_marker_count));
+  bind_int64(stmt, 17, static_cast<sqlite3_int64>(row.inlier_marker_count));
+  bind_int64(stmt, 18, static_cast<sqlite3_int64>(row.rejected_marker_count));
+  bind_int64(stmt, 19, static_cast<sqlite3_int64>(row.fit_marker_count));
+  bind_int64(stmt, 20,
+             static_cast<sqlite3_int64>(row.validation_marker_count));
+  bind_double(stmt, 21, row.absolute_residual_p50_ns);
+  bind_double(stmt, 22, row.absolute_residual_p95_ns);
+  bind_double(stmt, 23, row.absolute_residual_max_ns);
+  bind_double(stmt, 24, row.bracket_uncertainty_p95_ns);
+  bind_int64(stmt, 25, static_cast<sqlite3_int64>(row.epsilon_ns));
+  bind_text(stmt, 26, row.alignment_status);
+  bind_text(stmt, 27, row.reason);
+  finish_idle_insert(stmt, "clock model");
+}
+
+void insert_host_api_event_row(SqliteStmt& stmt,
+                               const HostApiEventSqlRow& row) {
+  bind_text(stmt, 1, row.api_event_id);
+  bind_text(stmt, 2, row.run_id);
+  bind_int64(stmt, 3, row.db_idx);
+  bind_int64(stmt, 4, row.start_ns);
+  bind_int64(stmt, 5, row.end_ns);
+  bind_int64(stmt, 6, static_cast<sqlite3_int64>(row.duration_ns));
+  bind_double(stmt, 7, row.duration_us);
+  bind_int64(stmt, 8, static_cast<sqlite3_int64>(row.global_tid));
+  row.connection_id < 0 ? bind_null(stmt, 9)
+                        : bind_int64(stmt, 9, row.connection_id);
+  row.api_type.empty() ? bind_null(stmt, 10)
+                       : bind_text(stmt, 10, row.api_type);
+  bind_text(stmt, 11, row.api_name);
+  row.api_family.empty() ? bind_null(stmt, 12)
+                         : bind_text(stmt, 12, row.api_family);
+  row.has_device_id ? bind_int64(stmt, 13, row.device_id)
+                    : bind_null(stmt, 13);
+  bind_text(stmt, 14, row.source_kind);
+  bind_text(stmt, 15, row.source_table);
+  bind_text(stmt, 16, row.source_key);
+  bind_text(stmt, 17, row.clock_domain);
+  bind_text(stmt, 18, row.contract_version);
+  bind_text(stmt, 19, row.host_api_rules_version);
+  finish_idle_insert(stmt, "host API event");
+}
+
+void insert_task_api_link_row(SqliteStmt& stmt,
+                              const TaskApiLinkSqlRow& row) {
+  bind_text(stmt, 1, row.task_api_link_id);
+  bind_text(stmt, 2, row.run_id);
+  bind_text(stmt, 3, row.api_event_id);
+  row.trace_event_id.empty() ? bind_null(stmt, 4)
+                             : bind_text(stmt, 4, row.trace_event_id);
+  bind_int64(stmt, 5, row.db_idx);
+  row.has_device_id ? bind_int64(stmt, 6, row.device_id)
+                    : bind_null(stmt, 6);
+  row.has_stream_id
+      ? bind_int64(stmt, 7, static_cast<sqlite3_int64>(row.stream_id))
+      : bind_null(stmt, 7);
+  row.connection_id < 0 ? bind_null(stmt, 8)
+                        : bind_int64(stmt, 8, row.connection_id);
+  bind_text(stmt, 9, row.link_status);
+  bind_text(stmt, 10, row.api_name);
+  row.task_type.empty() ? bind_null(stmt, 11)
+                        : bind_text(stmt, 11, row.task_type);
+  finish_idle_insert(stmt, "task API link");
+}
+
+void insert_idle_candidate_row(SqliteStmt& stmt,
+                               const IdleCandidateSqlRow& row) {
+  bind_text(stmt, 1, row.candidate_id);
+  bind_text(stmt, 2, row.run_id);
+  bind_text(stmt, 3, row.gap_interval_id);
+  bind_int64(stmt, 4, row.db_idx);
+  bind_int64(stmt, 5, row.device_id);
+  bind_int64(stmt, 6, row.candidate_order);
+  bind_text(stmt, 7, row.candidate_category);
+  bind_text(stmt, 8, row.candidate_level);
+  bind_text(stmt, 9, row.candidate_relation);
+  bind_text(stmt, 10, row.candidate_status);
+  bind_text(stmt, 11, row.reason);
+  bind_text(stmt, 12, row.alignment_status);
+  bind_int64(stmt, 13, static_cast<sqlite3_int64>(row.source_count));
+  bind_text(stmt, 14, row.contract_version);
+  bind_text(stmt, 15, row.attribution_rule_version);
+  finish_idle_insert(stmt, "idle candidate");
+}
+
 void insert_idle_explanation_row(SqliteStmt& stmt,
                                  const IdleExplanationSqlRow& row) {
   bind_text(stmt, 1, row.idle_explanation_id);
@@ -1340,6 +1470,32 @@ void materialize_report_compatibility_indexes(SqliteDb& db) {
       "CREATE INDEX IF NOT EXISTS idx_traceloom_collective_pair "
       "ON traceloom_collective_global_link(pair_id, occurrence_idx, op_type, "
       "idx_in_occurrence)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_clock_marker_device "
+      "ON traceloom_clock_marker(run_id, device_id, host_midpoint_ns)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_clock_marker_source "
+      "ON traceloom_clock_marker(run_id, source_kind, source_table, "
+      "source_key)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_clock_model_device "
+      "ON traceloom_clock_model(run_id, device_id)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_host_api_time "
+      "ON traceloom_host_api_event(run_id, device_id, start_ns, end_ns)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_host_api_connection "
+      "ON traceloom_host_api_event(run_id, connection_id)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_host_api_source "
+      "ON traceloom_host_api_event(run_id, source_kind, source_table, "
+      "source_key)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_task_api_link_api "
+      "ON traceloom_task_api_link(run_id, api_event_id, link_status)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_idle_candidate_gap "
+      "ON traceloom_idle_candidate(run_id, gap_interval_id, candidate_order)");
   db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_device_interval_time "
       "ON traceloom_device_interval(run_id, device_id, start_ns, end_ns)");
@@ -2632,7 +2788,10 @@ void replace_idle_evidence_rows(const std::string& sqlite_path,
   materialize_compatibility_schema(
       sqlite_path,
       {run_metadata_table_schema(), device_interval_table_schema(),
-       stream_state_table_schema(), idle_explanation_table_schema(),
+       stream_state_table_schema(), clock_marker_table_schema(),
+       clock_model_table_schema(),
+       host_api_event_table_schema(), task_api_link_table_schema(),
+       idle_candidate_table_schema(), idle_explanation_table_schema(),
        evidence_link_table_schema(), anchor_idle_explanation_table_schema(),
        node_idle_explanation_table_schema()});
 
@@ -2642,7 +2801,12 @@ void replace_idle_evidence_rows(const std::string& sqlite_path,
     db.exec("DELETE FROM traceloom_node_idle_explanation");
     db.exec("DELETE FROM traceloom_anchor_idle_explanation");
     db.exec("DELETE FROM traceloom_evidence_link");
+    db.exec("DELETE FROM traceloom_idle_candidate");
     db.exec("DELETE FROM traceloom_idle_explanation");
+    db.exec("DELETE FROM traceloom_task_api_link");
+    db.exec("DELETE FROM traceloom_host_api_event");
+    db.exec("DELETE FROM traceloom_clock_model");
+    db.exec("DELETE FROM traceloom_clock_marker");
     db.exec("DELETE FROM traceloom_stream_state");
     db.exec("DELETE FROM traceloom_device_interval");
     db.exec("DELETE FROM traceloom_run_metadata");
@@ -2683,6 +2847,68 @@ void replace_idle_evidence_rows(const std::string& sqlite_path,
         "?, ?)");
     for (const StreamStateSqlRow& row : rows.stream_states) {
       insert_stream_state_row(state_stmt, row);
+    }
+
+    SqliteStmt marker_stmt(
+        db.get(),
+        "INSERT INTO traceloom_clock_marker (clock_marker_id, run_id, "
+        "clock_model_id, db_idx, marker_id, host_before_ns, host_after_ns, "
+        "host_midpoint_ns, device_timestamp_ns, host_pid, host_tid, device_id, "
+        "stream_id, connection_id, call_site, return_status, marker_state, "
+        "source_kind, source_table, source_key, contract_version) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+        "?)");
+    for (const ClockMarkerSqlRow& row : rows.clock_markers) {
+      insert_clock_marker_row(marker_stmt, row);
+    }
+
+    SqliteStmt clock_stmt(
+        db.get(),
+        "INSERT INTO traceloom_clock_model (clock_model_id, run_id, db_idx, "
+        "device_id, source_clock_domain, target_clock_domain, mapping_kind, "
+        "scale, offset_ns, reference_host_ns, reference_device_ns, drift_ppm, "
+        "fit_method, fit_method_version, fit_random_seed, input_marker_count, "
+        "inlier_marker_count, rejected_marker_count, fit_marker_count, "
+        "validation_marker_count, absolute_residual_p50_ns, "
+        "absolute_residual_p95_ns, absolute_residual_max_ns, "
+        "bracket_uncertainty_p95_ns, epsilon_ns, alignment_status, reason) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+        "?, ?, ?, ?, ?, ?, ?, ?)");
+    for (const ClockModelSqlRow& row : rows.clock_models) {
+      insert_clock_model_row(clock_stmt, row);
+    }
+
+    SqliteStmt host_api_stmt(
+        db.get(),
+        "INSERT INTO traceloom_host_api_event (api_event_id, run_id, db_idx, "
+        "start_ns, end_ns, duration_ns, duration_us, global_tid, connection_id, "
+        "api_type, api_name, api_family, device_id, source_kind, source_table, "
+        "source_key, clock_domain, contract_version, host_api_rules_version) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    for (const HostApiEventSqlRow& row : rows.host_api_events) {
+      insert_host_api_event_row(host_api_stmt, row);
+    }
+
+    SqliteStmt task_api_stmt(
+        db.get(),
+        "INSERT INTO traceloom_task_api_link (task_api_link_id, run_id, "
+        "api_event_id, trace_event_id, db_idx, device_id, stream_id, "
+        "connection_id, link_status, api_name, task_type) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    for (const TaskApiLinkSqlRow& row : rows.task_api_links) {
+      insert_task_api_link_row(task_api_stmt, row);
+    }
+
+    SqliteStmt candidate_stmt(
+        db.get(),
+        "INSERT INTO traceloom_idle_candidate (candidate_id, run_id, "
+        "gap_interval_id, db_idx, device_id, candidate_order, "
+        "candidate_category, candidate_level, candidate_relation, "
+        "candidate_status, reason, alignment_status, source_count, "
+        "contract_version, attribution_rule_version) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    for (const IdleCandidateSqlRow& row : rows.idle_candidates) {
+      insert_idle_candidate_row(candidate_stmt, row);
     }
 
     SqliteStmt explanation_stmt(
@@ -2726,6 +2952,33 @@ void replace_idle_evidence_rows(const std::string& sqlite_path,
     for (const NodeIdleExplanationSqlRow& row : rows.node_attribution) {
       insert_node_idle_row(node_stmt, row);
     }
+    db.exec(
+        "CREATE INDEX IF NOT EXISTS idx_traceloom_clock_marker_device "
+        "ON traceloom_clock_marker(run_id, device_id, host_midpoint_ns)");
+    db.exec(
+        "CREATE INDEX IF NOT EXISTS idx_traceloom_clock_marker_source "
+        "ON traceloom_clock_marker(run_id, source_kind, source_table, "
+        "source_key)");
+    db.exec(
+        "CREATE INDEX IF NOT EXISTS idx_traceloom_clock_model_device "
+        "ON traceloom_clock_model(run_id, device_id)");
+    db.exec(
+        "CREATE INDEX IF NOT EXISTS idx_traceloom_host_api_time "
+        "ON traceloom_host_api_event(run_id, device_id, start_ns, end_ns)");
+    db.exec(
+        "CREATE INDEX IF NOT EXISTS idx_traceloom_host_api_connection "
+        "ON traceloom_host_api_event(run_id, connection_id)");
+    db.exec(
+        "CREATE INDEX IF NOT EXISTS idx_traceloom_host_api_source "
+        "ON traceloom_host_api_event(run_id, source_kind, source_table, "
+        "source_key)");
+    db.exec(
+        "CREATE INDEX IF NOT EXISTS idx_traceloom_task_api_link_api "
+        "ON traceloom_task_api_link(run_id, api_event_id, link_status)");
+    db.exec(
+        "CREATE INDEX IF NOT EXISTS idx_traceloom_idle_candidate_gap "
+        "ON traceloom_idle_candidate(run_id, gap_interval_id, "
+        "candidate_order)");
     db.exec(
         "CREATE INDEX IF NOT EXISTS idx_traceloom_device_interval_time "
         "ON traceloom_device_interval(run_id, device_id, start_ns, end_ns)");

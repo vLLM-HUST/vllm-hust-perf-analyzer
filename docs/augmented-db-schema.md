@@ -125,9 +125,10 @@ ledger and the promoted replay rows into one capability row per sidecar. It
 distinguishes capability absence, contradictory/incomplete body evidence,
 missing completion evidence, exact promotion, and the explicit legacy path.
 
-## Device Idle Evidence
+## Device and Cross-Clock Idle Evidence
 
-The following tables materialize the Ascend E1→E4 device-only evidence path.
+The following tables materialize the Ascend E1→E4 evidence path and its
+optional calibrated host-correlation continuation.
 They are absent or empty for providers without a validated semantic taxonomy.
 Nanosecond columns are authoritative; `duration_us` is a readable derivative.
 
@@ -151,6 +152,30 @@ observed-universe scan completeness, and externally attested collection status
 travel with every row so an empty stream interval cannot silently become an
 absence claim.
 
+### `traceloom_clock_marker` and `traceloom_clock_model`
+
+`traceloom_clock_marker` preserves every frozen marker input, source
+provenance, fit/validation/rejected state, and the model it belongs to.
+`traceloom_clock_model` stores the affine reference-point model, fixed-scale
+serialization, drift, fit/holdout counts, residual distribution, bracket
+uncertainty, epsilon, and explicit `calibrated`, `synthetic_only`,
+`uncalibrated`, or `invalid` status. Invalid and uncalibrated rows remain
+materialized so absence of cross-clock promotion is auditable.
+
+### `traceloom_host_api_event` and `traceloom_task_api_link`
+
+All imported host API intervals remain in the host clock domain, including
+unclassified APIs. The versioned host-API ruleset assigns only allowlisted
+enqueue or host-sync families. `traceloom_task_api_link` records every
+connectionId result as `unique`, `one_to_many`, `ambiguous`, or `unresolved`;
+an unattributed API is never copied onto every device.
+
+### `traceloom_idle_candidate`
+
+Possible-only clock overlap and non-robust enqueue delay are retained as
+diagnostic candidates bound to one visible gap. Candidate intervals do not
+enter the official E4 partition.
+
 ### `traceloom_idle_explanation`
 
 The exact E4 partition of every visible productive gap. Each slice links to its
@@ -159,10 +184,13 @@ alignment status, reason, collection status, and version fields.
 
 ### `traceloom_evidence_link`
 
-Exact source-row lineage for explanation evidence and E2/E3 provenance.
-`device_event_coverage` links carry a positive overlap extent. Diagnostic
-`relation='none'` links deliberately carry null overlap fields and do not
-support an explanation claim.
+Exact source-row lineage for clock models, candidates, explanations, and E2/E3
+provenance. `device_event_coverage`, `temporal_overlap`, and
+`exact_connection_id` links carry device-domain extents appropriate to their
+owner. Diagnostic `relation='none'` links deliberately carry null overlap
+fields and do not support an explanation claim. Audit resolution distinguishes
+device trace events, host API rows, and clock marker inputs rather than
+pretending they share one source table.
 
 ### `traceloom_anchor_idle_explanation` and `traceloom_node_idle_explanation`
 
