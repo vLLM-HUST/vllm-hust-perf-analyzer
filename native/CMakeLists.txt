@@ -1049,6 +1049,40 @@ add_executable(traceloom_native_replay_internal_cost_map_tests
         $<TARGET_FILE:traceloom-native-idle-evidence-audit>
     )
 
+    # The remaining three frozen section-10 fixture classes.  The executable
+    # reads each ground_truth.json as its oracle and checks final interval,
+    # evidence, relation, alignment, lineage, and conservation fields.
+    add_executable(traceloom_native_idle_evidence_fixture_matrix_tests
+      tests/analysis/idle_evidence_fixture_matrix_tests.cpp
+    )
+    target_compile_definitions(
+      traceloom_native_idle_evidence_fixture_matrix_tests PRIVATE
+      TRACELOOM_GOLDEN_FIXTURE_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/idle_evidence"
+    )
+    target_link_libraries(
+      traceloom_native_idle_evidence_fixture_matrix_tests PRIVATE
+      traceloom_native_adapters
+    )
+    if(TARGET SQLite::SQLite3)
+      target_link_libraries(
+        traceloom_native_idle_evidence_fixture_matrix_tests PRIVATE
+        SQLite::SQLite3
+      )
+    else()
+      target_include_directories(
+        traceloom_native_idle_evidence_fixture_matrix_tests
+        PRIVATE ${SQLite3_INCLUDE_DIRS}
+      )
+      target_link_libraries(
+        traceloom_native_idle_evidence_fixture_matrix_tests
+        PRIVATE ${SQLite3_LIBRARIES}
+      )
+    endif()
+    add_test(
+      NAME traceloom_native_idle_evidence_fixture_matrix_tests
+      COMMAND traceloom_native_idle_evidence_fixture_matrix_tests
+    )
+
     add_executable(traceloom_native_sidecar_writer_tests
       tests/compat/sidecar_writer_tests.cpp
     )

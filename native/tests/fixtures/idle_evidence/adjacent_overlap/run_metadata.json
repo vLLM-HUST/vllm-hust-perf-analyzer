@@ -1,0 +1,6 @@
+{
+  "fixture_class": "adjacent_overlap",
+  "injected_perturbation": "EVENT_WAIT [2500,3500), CAPTURE_WAIT [3200,4200), EVENT_RECORD [4000,4500) inside gap [2000,5000)",
+  "ground_truth_reference": "ground_truth.json",
+  "evidence_label": "simulation/model"
+}

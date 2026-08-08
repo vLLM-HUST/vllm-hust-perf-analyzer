@@ -1,0 +1,6 @@
+{
+  "fixture_class": "event_loss",
+  "injected_perturbation": "collection_status=incomplete plus unmatched MYSTERY_EVENT [3000,4000)",
+  "ground_truth_reference": "ground_truth.json",
+  "evidence_label": "simulation/model"
+}

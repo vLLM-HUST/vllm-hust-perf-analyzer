@@ -1,0 +1,6 @@
+{
+  "fixture_class": "clock_drift",
+  "injected_perturbation": "profiler-host p to device d affine transform d=2*p+1000 with 5 ns outer brackets",
+  "ground_truth_reference": "ground_truth.json",
+  "evidence_label": "simulation/model"
+}

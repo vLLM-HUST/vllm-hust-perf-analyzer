@@ -1649,6 +1649,31 @@ int main() {
       require(valid_queued.first_row[19] == "0" &&
               valid_queued.first_row[25] == "PASS");
 
+      execute_sql(
+          db_path,
+          "INSERT INTO traceloom_host_api_event SELECT "
+          "'host-api-2', run_id, db_idx, start_ns, end_ns, duration_ns, "
+          "duration_us, global_tid, 43, api_type, api_name, api_family, "
+          "device_id, source_kind, source_table, '22', clock_domain, "
+          "contract_version, host_api_rules_version "
+          "FROM traceloom_host_api_event WHERE api_event_id = 'host-api-1'; "
+          "INSERT INTO traceloom_task_api_link SELECT "
+          "'task-api-link-2', run_id, 'host-api-2', trace_event_id, db_idx, "
+          "device_id, stream_id, 43, link_status, api_name, task_type "
+          "FROM traceloom_task_api_link "
+          "WHERE task_api_link_id = 'task-api-link-1'; "
+          "INSERT INTO traceloom_evidence_link ("
+          "owner_kind, owner_id, evidence_ordinal, source_kind, source_table, "
+          "source_key, relation, evidence_level, overlap_start_ns, "
+          "overlap_end_ns, stream_id, state, trace_event_id, matched_rule_id) "
+          "VALUES ('explanation', 'explanation-wait', 2, 'fixture', "
+          "'CANN_API', '22', 'exact_connection_id', 'correlated', 100, 150, "
+          "7, NULL, '', NULL)");
+      const QueryResult valid_multiple_queued_links =
+          run_query(db_path, query_case);
+      require(valid_multiple_queued_links.first_row[19] == "0" &&
+              valid_multiple_queued_links.first_row[25] == "PASS");
+
       execute_sql(db_path,
                   "UPDATE traceloom_host_api_event SET api_family = 'host_sync' "
                   "WHERE api_event_id = 'host-api-1'");

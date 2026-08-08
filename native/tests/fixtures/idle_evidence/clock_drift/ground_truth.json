@@ -1,0 +1,17 @@
+{
+  "fixture_id": "idle_evidence_clock_drift",
+  "fixture_class": "clock_drift",
+  "description": "A synthetic d=2p+1000 mapping proves robust host overlap is evaluated only after calibration and uncertainty erosion.",
+  "analysis_span": { "start_ns": 21000, "end_ns": 61000 },
+  "collection_status": "complete",
+  "visible_idle_total_ns": 20000,
+  "expected_alignment_status": "synthetic_only",
+  "expected_scale": 2.0,
+  "intervals": [
+    {"start_ns":21000,"end_ns":31000,"interval_kind":"productive_active","explanation_category":null,"evidence_level":null,"evidence_relation":null,"alignment_status":"not_required","expected_source_keys":["TASK:1"]},
+    {"start_ns":31000,"end_ns":33005,"interval_kind":"visible_productive_idle","explanation_category":"no_observed_device_work","evidence_level":"direct","evidence_relation":"complete_absence_observation","alignment_status":"not_required","expected_source_keys":[]},
+    {"start_ns":33005,"end_ns":48995,"interval_kind":"visible_productive_idle","explanation_category":"host_sync_api_present","evidence_level":"correlated","evidence_relation":"temporal_overlap","alignment_status":"synthetic_only","expected_source_keys":["CANN_API:1"]},
+    {"start_ns":48995,"end_ns":51000,"interval_kind":"visible_productive_idle","explanation_category":"no_observed_device_work","evidence_level":"direct","evidence_relation":"complete_absence_observation","alignment_status":"not_required","expected_source_keys":[]},
+    {"start_ns":51000,"end_ns":61000,"interval_kind":"productive_active","explanation_category":null,"evidence_level":null,"evidence_relation":null,"alignment_status":"not_required","expected_source_keys":["TASK:2"]}
+  ]
+}

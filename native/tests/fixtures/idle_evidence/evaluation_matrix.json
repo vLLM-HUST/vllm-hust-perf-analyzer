@@ -1,0 +1,52 @@
+{
+  "schema_version": "idle-evidence-evaluation-v1",
+  "experiment_id": "controlled-fixture-knob-scan-v1",
+  "evidence_label": "simulation/model",
+  "points": [
+    {
+      "point_id": "conservative",
+      "evidence_label": "simulation/model",
+      "knobs": {"epsilon_multiplier": 2.0, "minimum_evidence_duration_ns": 100, "marker_density": 0.25, "instrumentation_level": "markers_only"},
+      "overhead": {"throughput_delta_pct": -0.4, "ttft_p50_delta_pct": 0.3, "ttft_p95_delta_pct": 0.5, "itl_p50_delta_pct": 0.2, "itl_p95_delta_pct": 0.4, "iteration_p50_delta_pct": 0.3, "iteration_p95_delta_pct": 0.6, "device_productive_time_delta_pct": 0.2, "marker_count": 3},
+      "expected_metrics": {"total_gap_ns": 26000, "explained_ns": 7010, "false_attributed_ns": 0, "coverage": 0.2696153846153846, "far": 0.0},
+      "cases": [
+        {"case_id":"adjacent","ground_truth":"adjacent_overlap/ground_truth.json","prediction":[
+          {"start_ns":2000,"end_ns":2500,"category":"no_observed_device_work"},{"start_ns":2500,"end_ns":3500,"category":"blocked_by_visible_wait"},{"start_ns":3500,"end_ns":4200,"category":"capture_control_present"},{"start_ns":4200,"end_ns":4500,"category":"runtime_control_present"},{"start_ns":4500,"end_ns":5000,"category":"no_observed_device_work"}]},
+        {"case_id":"event_loss","ground_truth":"event_loss/ground_truth.json","prediction":[
+          {"start_ns":2000,"end_ns":3000,"category":"unattributed_visible_idle"},{"start_ns":3000,"end_ns":4000,"category":"unattributed_visible_idle"},{"start_ns":4000,"end_ns":5000,"category":"unattributed_visible_idle"}]},
+        {"case_id":"clock_drift","ground_truth":"clock_drift/ground_truth.json","prediction":[
+          {"start_ns":31000,"end_ns":33005,"category":"no_observed_device_work"},{"start_ns":33005,"end_ns":48995,"category":"unattributed_visible_idle"},{"start_ns":48995,"end_ns":51000,"category":"no_observed_device_work"}]}
+      ]
+    },
+    {
+      "point_id": "balanced",
+      "evidence_label": "simulation/model",
+      "knobs": {"epsilon_multiplier": 1.0, "minimum_evidence_duration_ns": 1, "marker_density": 1.0, "instrumentation_level": "markers_and_host_api"},
+      "overhead": {"throughput_delta_pct": -0.8, "ttft_p50_delta_pct": 0.6, "ttft_p95_delta_pct": 0.9, "itl_p50_delta_pct": 0.4, "itl_p95_delta_pct": 0.7, "iteration_p50_delta_pct": 0.5, "iteration_p95_delta_pct": 1.0, "device_productive_time_delta_pct": 0.4, "marker_count": 11},
+      "expected_metrics": {"total_gap_ns": 26000, "explained_ns": 23000, "false_attributed_ns": 0, "coverage": 0.8846153846153846, "far": 0.0},
+      "cases": [
+        {"case_id":"adjacent","ground_truth":"adjacent_overlap/ground_truth.json","prediction":[
+          {"start_ns":2000,"end_ns":2500,"category":"no_observed_device_work"},{"start_ns":2500,"end_ns":3500,"category":"blocked_by_visible_wait"},{"start_ns":3500,"end_ns":4200,"category":"capture_control_present"},{"start_ns":4200,"end_ns":4500,"category":"runtime_control_present"},{"start_ns":4500,"end_ns":5000,"category":"no_observed_device_work"}]},
+        {"case_id":"event_loss","ground_truth":"event_loss/ground_truth.json","prediction":[
+          {"start_ns":2000,"end_ns":3000,"category":"unattributed_visible_idle"},{"start_ns":3000,"end_ns":4000,"category":"unattributed_visible_idle"},{"start_ns":4000,"end_ns":5000,"category":"unattributed_visible_idle"}]},
+        {"case_id":"clock_drift","ground_truth":"clock_drift/ground_truth.json","prediction":[
+          {"start_ns":31000,"end_ns":33005,"category":"no_observed_device_work"},{"start_ns":33005,"end_ns":48995,"category":"host_sync_api_present"},{"start_ns":48995,"end_ns":51000,"category":"no_observed_device_work"}]}
+      ]
+    },
+    {
+      "point_id": "aggressive",
+      "evidence_label": "simulation/model",
+      "knobs": {"epsilon_multiplier": 0.25, "minimum_evidence_duration_ns": 0, "marker_density": 1.0, "instrumentation_level": "all"},
+      "overhead": {"throughput_delta_pct": -1.5, "ttft_p50_delta_pct": 1.1, "ttft_p95_delta_pct": 1.8, "itl_p50_delta_pct": 0.9, "itl_p95_delta_pct": 1.4, "iteration_p50_delta_pct": 1.0, "iteration_p95_delta_pct": 2.0, "device_productive_time_delta_pct": 0.9, "marker_count": 11},
+      "expected_metrics": {"total_gap_ns": 26000, "explained_ns": 26000, "false_attributed_ns": 3010, "coverage": 1.0, "far": 0.11576923076923077},
+      "cases": [
+        {"case_id":"adjacent","ground_truth":"adjacent_overlap/ground_truth.json","prediction":[
+          {"start_ns":2000,"end_ns":2500,"category":"no_observed_device_work"},{"start_ns":2500,"end_ns":3500,"category":"blocked_by_visible_wait"},{"start_ns":3500,"end_ns":4200,"category":"capture_control_present"},{"start_ns":4200,"end_ns":4500,"category":"runtime_control_present"},{"start_ns":4500,"end_ns":5000,"category":"no_observed_device_work"}]},
+        {"case_id":"event_loss","ground_truth":"event_loss/ground_truth.json","prediction":[
+          {"start_ns":2000,"end_ns":3000,"category":"no_observed_device_work"},{"start_ns":3000,"end_ns":4000,"category":"no_observed_device_work"},{"start_ns":4000,"end_ns":5000,"category":"no_observed_device_work"}]},
+        {"case_id":"clock_drift","ground_truth":"clock_drift/ground_truth.json","prediction":[
+          {"start_ns":31000,"end_ns":33000,"category":"no_observed_device_work"},{"start_ns":33000,"end_ns":49000,"category":"host_sync_api_present"},{"start_ns":49000,"end_ns":51000,"category":"no_observed_device_work"}]}
+      ]
+    }
+  ]
+}
