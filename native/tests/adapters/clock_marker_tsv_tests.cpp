@@ -61,10 +61,11 @@ int main() {
     const std::string path = temp_path("clock_marker_brackets");
     write_text(
         path,
-        "marker_id\thost_before_ns\thost_after_ns\thost_pid\thost_tid\t"
+        "marker_id\thost_before_ns\trecord_after_ns\thost_after_ns\t"
+        "host_pid\thost_tid\t"
         "device_id\tstream_id\tcall_site\treturn_status\n"
-        "marker-0\t100\t200\t123\t456\t0\t7\tunit-test\t0\n"
-        "marker-failed\t300\t310\t123\t456\t0\t\tunit-test\t507000\n");
+        "marker-0\t100\t140\t200\t123\t456\t0\t7\tunit-test\t0\n"
+        "marker-failed\t300\t305\t310\t123\t456\t0\t\tunit-test\t507000\n");
     const ClockMarkerTsvLoadResult result =
         resolve_ascend_clock_marker_bracket_tsv(path, ir);
     require(result.marker_count == 2 && result.rejected_marker_count == 1,
@@ -79,6 +80,8 @@ int main() {
                 resolved.has_profiler_host_interval &&
                 resolved.profiler_host_start_ns == 95 &&
                 resolved.profiler_host_end_ns == 130 &&
+                resolved.has_record_host_bracket &&
+                resolved.record_after_ns == 140 &&
                 resolved.resolution_method ==
                     ClockMarkerResolutionMethod::kDirectOverlap &&
                 !resolved.has_resolution_residual,
@@ -88,6 +91,25 @@ int main() {
                 failed.device_timestamp_ns == -1 &&
                 !failed.has_connection_id,
             "failed collection is retained but cannot enter calibration");
+    std::remove(path.c_str());
+  }
+
+  {
+    NativeIr ir = resolvable_ir();
+    const std::string path = temp_path("clock_marker_legacy_bracket");
+    write_text(
+        path,
+        "marker_id\thost_before_ns\thost_after_ns\thost_pid\thost_tid\t"
+        "device_id\tstream_id\tcall_site\treturn_status\n"
+        "legacy-0\t100\t200\t123\t456\t0\t7\tunit-test\t0\n");
+    bool rejected = false;
+    try {
+      (void)resolve_ascend_clock_marker_bracket_tsv(path, ir);
+    } catch (const std::invalid_argument& error) {
+      rejected = std::string(error.what()).find("header") != std::string::npos;
+    }
+    require(rejected,
+            "legacy bracket without record_after_ns fails v4.4 closed");
     std::remove(path.c_str());
   }
 
@@ -116,10 +138,11 @@ int main() {
     const std::string path = temp_path("clock_marker_ordered_bijection");
     write_text(
         path,
-        "marker_id\thost_before_ns\thost_after_ns\thost_pid\thost_tid\t"
+        "marker_id\thost_before_ns\trecord_after_ns\thost_after_ns\t"
+        "host_pid\thost_tid\t"
         "device_id\tstream_id\tcall_site\treturn_status\n"
-        "marker-0\t100\t200\t123\t456\t0\t7\tunit-test\t0\n"
-        "marker-1\t300\t400\t123\t456\t0\t7\tunit-test\t0\n");
+        "marker-0\t100\t120\t200\t123\t456\t0\t7\tunit-test\t0\n"
+        "marker-1\t300\t320\t400\t123\t456\t0\t7\tunit-test\t0\n");
     const ClockMarkerTsvLoadResult result =
         resolve_ascend_clock_marker_bracket_tsv(path, ir);
     require(result.marker_count == 2 &&
@@ -145,7 +168,8 @@ int main() {
         ir.source_refs.append("synthetic", "fixture.db", "CANN_API", 0);
     const SymbolId event_record = ir.symbols.intern("EVENT_RECORD");
     std::string payload =
-        "marker_id\thost_before_ns\thost_after_ns\thost_pid\thost_tid\t"
+        "marker_id\thost_before_ns\trecord_after_ns\thost_after_ns\t"
+        "host_pid\thost_tid\t"
         "device_id\tstream_id\tcall_site\treturn_status\n";
     for (std::int64_t index = 0; index < 6; ++index) {
       const std::int64_t connection_id = 42 + index;
@@ -162,6 +186,7 @@ int main() {
           SymbolId::invalid(), ir.symbols.intern("aclrtRecordEvent"), false, 0);
       payload += "marker-" + std::to_string(index) + "\t" +
                  std::to_string(1000 + index * 100) + "\t" +
+                 std::to_string(1020 + index * 100) + "\t" +
                  std::to_string(1050 + index * 100) + "\t123\t" +
                  std::to_string(host_tid) +
                  "\t0\t7\tunit-test\t0\n";
@@ -206,11 +231,12 @@ int main() {
     const std::string path = temp_path("clock_marker_non_affine_sequence");
     write_text(
         path,
-        "marker_id\thost_before_ns\thost_after_ns\thost_pid\thost_tid\t"
+        "marker_id\thost_before_ns\trecord_after_ns\thost_after_ns\t"
+        "host_pid\thost_tid\t"
         "device_id\tstream_id\tcall_site\treturn_status\n"
-        "marker-0\t100\t200\t123\t456\t0\t7\tunit-test\t0\n"
-        "marker-1\t300\t400\t123\t456\t0\t7\tunit-test\t0\n"
-        "marker-2\t500\t600\t123\t456\t0\t7\tunit-test\t0\n");
+        "marker-0\t100\t120\t200\t123\t456\t0\t7\tunit-test\t0\n"
+        "marker-1\t300\t320\t400\t123\t456\t0\t7\tunit-test\t0\n"
+        "marker-2\t500\t520\t600\t123\t456\t0\t7\tunit-test\t0\n");
     bool rejected = false;
     try {
       (void)resolve_ascend_clock_marker_bracket_tsv(path, ir);
@@ -228,9 +254,10 @@ int main() {
     const std::string path = temp_path("clock_marker_ambiguous");
     write_text(
         path,
-        "marker_id\thost_before_ns\thost_after_ns\thost_pid\thost_tid\t"
+        "marker_id\thost_before_ns\trecord_after_ns\thost_after_ns\t"
+        "host_pid\thost_tid\t"
         "device_id\tstream_id\tcall_site\treturn_status\n"
-        "marker-0\t100\t200\t123\t456\t0\t\tunit-test\t0\n");
+        "marker-0\t100\t160\t200\t123\t456\t0\t\tunit-test\t0\n");
     bool rejected = false;
     try {
       (void)resolve_ascend_clock_marker_bracket_tsv(path, ir);
@@ -248,9 +275,10 @@ int main() {
     const std::string path = temp_path("clock_marker_missing_task");
     write_text(
         path,
-        "marker_id\thost_before_ns\thost_after_ns\thost_pid\thost_tid\t"
+        "marker_id\thost_before_ns\trecord_after_ns\thost_after_ns\t"
+        "host_pid\thost_tid\t"
         "device_id\tstream_id\tcall_site\treturn_status\n"
-        "marker-0\t100\t200\t123\t456\t0\t999\tunit-test\t0\n");
+        "marker-0\t100\t140\t200\t123\t456\t0\t999\tunit-test\t0\n");
     const ClockMarkerTsvLoadResult result =
         resolve_ascend_clock_marker_bracket_tsv(path, ir);
     const ClockMarkerRow& marker = ir.clock_markers.row(ClockMarkerId(0));

@@ -227,10 +227,11 @@ evidence only when the clock model and robust-window rules permit it.
 ### Host-to-device clock calibration
 
 The preferred real-capture input is a runtime bracket TSV produced around
-`aclrtRecordEvent` and event synchronization. It uses this exact header:
+`aclrtRecordEvent` and event synchronization. The narrow record-call bracket
+and outer device-marker bracket are distinct. It uses this exact header:
 
 ```text
-marker_id\thost_before_ns\thost_after_ns\thost_pid\thost_tid\tdevice_id\tstream_id\tcall_site\treturn_status
+marker_id\thost_before_ns\trecord_after_ns\thost_after_ns\thost_pid\thost_tid\tdevice_id\tstream_id\tcall_site\treturn_status
 ```
 
 Analyze the matching single-device Ascend profile with:
@@ -242,8 +243,10 @@ traceloom /path/to/PROF_... \
 ```
 
 For every successful bracket, the resolver normally requires non-empty overlap
-with exactly one profiled same-thread `aclrtRecordEvent` row. Real profiler host API
-timestamps can drift away from the caller's `CLOCK_REALTIME` bracket. If
+between `[host_before_ns, record_after_ns)` and exactly one profiled same-thread
+`aclrtRecordEvent` row. The outer interval through `host_after_ns` is never used
+to identify or train the host-clock leg. Real profiler host API timestamps can
+drift away from the caller's `CLOCK_REALTIME` bracket. If
 direct overlap is absent, TraceLoom requires an order-preserving bijection:
 successful bracket and same-thread record counts must match, both timestamp
 sequences must be strictly increasing, and endpoint-affine correction must
@@ -267,15 +270,20 @@ for controlled fixtures only; `--clock-markers-synthetic` forces the result to
 `uncalibrated`, retains host rows and structural links, and emits no
 cross-clock interval or delay claim.
 
-Calibration fits two explicit affine legs with the same deterministic
-every-fifth holdout: caller `CLOCK_REALTIME` marker midpoint→device TASK ns and
-profiler-host (Ascend msprof CANN_API) ns→caller `CLOCK_REALTIME`. Host API timestamps are mapped
-through their composition; they are never passed directly to the
-marker→device fit. The sidecar reports both component parameters and residuals,
-plus the end-to-end composed holdout residual distribution. Half-even timestamp
-rounding is used, and
+Calibration follows idle-evidence-contract-v4.4 and fits two explicit affine
+legs with the same deterministic every-fifth holdout. The first observation is
+the profiled `aclrtRecordEvent` midpoint paired with the midpoint of its narrow
+caller `[host_before_ns, record_after_ns]` bracket. The second observation is
+the outer caller `[host_before_ns, host_after_ns]` midpoint paired with device
+`TASK.startNs`. Host API timestamps are mapped through `F(p)=f(g(p))`; the
+outer midpoint never trains `g`. The sidecar reports both component parameters
+and residuals, the composed holdout residual as a non-independent diagnostic,
+and both bracket uncertainties. `offset_ns` is the frozen reference-coordinate
+delta; the arbitrary affine constant is emitted separately as `intercept_ns`.
+Half-even timestamp rounding is used, and
 `epsilon_ns = marker_device_residual_p95 + scaled_bracket_uncertainty_p95 +`
-`scaled_profiler_marker_residual_p95`.
+`scaled_profiler_caller_residual_p95 +`
+`scaled_record_call_bracket_uncertainty_p95`.
 Official host-sync evidence uses only the epsilon-shrunk robust overlap;
 official queued-task delay additionally requires a unique exact connectionId.
 Possible-only overlap and non-robust delay remain candidates and never replace

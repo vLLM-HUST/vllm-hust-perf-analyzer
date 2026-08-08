@@ -156,6 +156,7 @@ using ThreadKey = std::pair<std::uint64_t, std::uint64_t>;
 
 struct BracketWindow {
   std::int64_t host_before_ns = 0;
+  std::int64_t record_after_ns = 0;
   std::int64_t host_after_ns = 0;
 };
 
@@ -186,7 +187,7 @@ OrderedBijectionValidation validate_order_preserving_bijection(
   api_midpoints.reserve(apis.size());
   for (std::size_t index = 0; index < brackets.size(); ++index) {
     bracket_midpoints.push_back(interval_midpoint(
-        brackets[index].host_before_ns, brackets[index].host_after_ns));
+        brackets[index].host_before_ns, brackets[index].record_after_ns));
     api_midpoints.push_back(
         interval_midpoint(apis[index]->start_ns, apis[index]->end_ns));
     if (index > 0 &&
@@ -252,9 +253,10 @@ ClockMarkerTsvLoadResult resolve_ascend_clock_marker_bracket_tsv(
                                 path);
   }
   static const std::vector<std::string> kHeader{
-      "marker_id",      "host_before_ns", "host_after_ns",
-      "host_pid",       "host_tid",       "device_id",
-      "stream_id",      "call_site",      "return_status"};
+      "marker_id",       "host_before_ns", "record_after_ns",
+      "host_after_ns",   "host_pid",       "host_tid",
+      "device_id",       "stream_id",      "call_site",
+      "return_status"};
 
   ClockMarkerTsvLoadResult result;
   result.source_ref_id = ir.source_refs.append(
@@ -287,19 +289,21 @@ ClockMarkerTsvLoadResult resolve_ascend_clock_marker_bracket_tsv(
         throw std::invalid_argument(
             "clock marker bracket row at line " +
             std::to_string(scan_line_number) +
-            " must contain nine tab-separated fields");
+            " must contain ten tab-separated fields");
       }
-      if (parse_integer<std::int64_t>(scan_fields[8], scan_line_number,
+      if (parse_integer<std::int64_t>(scan_fields[9], scan_line_number,
                                       "return_status") == 0) {
         const ThreadKey key{
-            parse_integer<std::uint64_t>(scan_fields[3], scan_line_number,
-                                         "host_pid"),
             parse_integer<std::uint64_t>(scan_fields[4], scan_line_number,
+                                         "host_pid"),
+            parse_integer<std::uint64_t>(scan_fields[5], scan_line_number,
                                          "host_tid")};
         successful_brackets_by_thread[key].push_back(BracketWindow{
             parse_integer<std::int64_t>(scan_fields[1], scan_line_number,
                                         "host_before_ns"),
             parse_integer<std::int64_t>(scan_fields[2], scan_line_number,
+                                        "record_after_ns"),
+            parse_integer<std::int64_t>(scan_fields[3], scan_line_number,
                                         "host_after_ns")});
       }
     }
@@ -360,23 +364,31 @@ ClockMarkerTsvLoadResult resolve_ascend_clock_marker_bracket_tsv(
       throw std::invalid_argument(
           "clock marker bracket row at line " +
           std::to_string(line_number) +
-          " must contain nine tab-separated fields");
+          " must contain ten tab-separated fields");
     }
-    if (fields[0].empty() || fields[7].empty()) {
+    if (fields[0].empty() || fields[8].empty()) {
       throw std::invalid_argument(
           "clock marker bracket id/call_site is empty at line " +
           std::to_string(line_number));
     }
     const std::int64_t host_before = parse_integer<std::int64_t>(
         fields[1], line_number, "host_before_ns");
+    const std::int64_t record_after = parse_integer<std::int64_t>(
+        fields[2], line_number, "record_after_ns");
     const std::int64_t host_after = parse_integer<std::int64_t>(
-        fields[2], line_number, "host_after_ns");
+        fields[3], line_number, "host_after_ns");
+    if (host_before < 0 || record_after < host_before ||
+        host_after < record_after) {
+      throw std::invalid_argument(
+          "clock marker bracket timestamps are not ordered at line " +
+          std::to_string(line_number));
+    }
     const std::uint64_t host_pid = parse_integer<std::uint64_t>(
-        fields[3], line_number, "host_pid");
+        fields[4], line_number, "host_pid");
     const std::uint64_t host_tid = parse_integer<std::uint64_t>(
-        fields[4], line_number, "host_tid");
+        fields[5], line_number, "host_tid");
     const std::uint64_t raw_device = parse_integer<std::uint64_t>(
-        fields[5], line_number, "device_id");
+        fields[6], line_number, "device_id");
     if (raw_device > std::numeric_limits<std::uint32_t>::max()) {
       throw std::invalid_argument(
           "clock marker bracket device_id is out of range at line " +
@@ -384,13 +396,13 @@ ClockMarkerTsvLoadResult resolve_ascend_clock_marker_bracket_tsv(
     }
     const std::uint32_t device_id =
         static_cast<std::uint32_t>(raw_device);
-    const bool has_stream = !fields[6].empty();
+    const bool has_stream = !fields[7].empty();
     const std::uint64_t stream_id =
-        has_stream ? parse_integer<std::uint64_t>(fields[6], line_number,
+        has_stream ? parse_integer<std::uint64_t>(fields[7], line_number,
                                                   "stream_id")
                    : 0;
     const std::int64_t return_status = parse_integer<std::int64_t>(
-        fields[8], line_number, "return_status");
+        fields[9], line_number, "return_status");
 
     std::int64_t device_timestamp_ns = -1;
     bool has_connection = false;
@@ -409,12 +421,11 @@ ClockMarkerTsvLoadResult resolve_ascend_clock_marker_bracket_tsv(
           successful_bracket_ordinals[thread_key]++;
       std::vector<const HostApiEventRow*> record_apis;
       for (const HostApiEventRow& api : ir.host_api_events.rows()) {
-        // msprof's host API timestamps and Python CLOCK_REALTIME brackets can
-        // differ by a few microseconds even within one process. Requiring
-        // full containment therefore rejects a real record call whose start
-        // falls just before host_before. Non-empty overlap preserves bracket
-        // identity while the exact-one condition below remains fail-closed.
-        if (api.start_ns < host_after && api.end_ns > host_before &&
+        // Match against the narrow caller bracket around aclrtRecordEvent,
+        // never the outer bracket that also contains device completion and
+        // aclrtSynchronizeEvent. Non-empty overlap plus exact-one identity
+        // remains fail-closed across the two host clock domains.
+        if (api.start_ns < record_after && api.end_ns > host_before &&
             global_tid_matches(api.raw_global_tid, host_pid, host_tid) &&
             api_name(ir, api) == "aclrtRecordEvent") {
           record_apis.push_back(&api);
@@ -504,10 +515,10 @@ ClockMarkerTsvLoadResult resolve_ascend_clock_marker_bracket_tsv(
         result.source_ref_id, line_number, ir.symbols.intern(fields[0]),
         host_before, host_after, device_timestamp_ns, host_pid, host_tid,
         device_id, has_stream, stream_id, has_connection, connection_id,
-        ir.symbols.intern(fields[7]), return_status,
+        ir.symbols.intern(fields[8]), return_status,
         has_profiler_host_interval, profiler_host_start_ns,
         profiler_host_end_ns, resolution_method, has_resolution_residual,
-        resolution_residual_ns);
+        resolution_residual_ns, true, record_after);
     ++result.marker_count;
   }
   if (!saw_header) {

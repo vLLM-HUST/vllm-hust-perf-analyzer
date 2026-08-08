@@ -19,9 +19,10 @@ enum class ClockMarkerResolutionMethod {
 std::string_view clock_marker_resolution_method_name(
     ClockMarkerResolutionMethod method);
 
-// Frozen marker payload from idle-evidence-contract section 7.2. The device
-// timestamp must already use the same integer-nanosecond domain as imported
-// device tasks. A raw device syscnt value is not accepted as ns implicitly.
+// Resolved marker record from idle-evidence-contract section 7.2. Real v4.4
+// rows retain the narrow caller record-call bracket, the outer marker bracket,
+// the matched profiler-host API interval, and device TASK timestamp. A raw
+// device syscnt value is never accepted as profiler nanoseconds implicitly.
 struct ClockMarkerRow {
   ClockMarkerId id;
   SourceRefId source_ref_id;
@@ -46,6 +47,8 @@ struct ClockMarkerRow {
       ClockMarkerResolutionMethod::kPreResolved;
   bool has_resolution_residual = false;
   long double resolution_residual_ns = 0.0L;
+  bool has_record_host_bracket = false;
+  std::int64_t record_after_ns = 0;
 };
 
 class ClockMarkerTable {
@@ -71,7 +74,9 @@ class ClockMarkerTable {
                        ClockMarkerResolutionMethod resolution_method =
                            ClockMarkerResolutionMethod::kPreResolved,
                        bool has_resolution_residual = false,
-                       long double resolution_residual_ns = 0.0L);
+                       long double resolution_residual_ns = 0.0L,
+                       bool has_record_host_bracket = false,
+                       std::int64_t record_after_ns = 0);
 
   std::size_t size() const noexcept { return rows_.size(); }
   bool empty() const noexcept { return rows_.empty(); }

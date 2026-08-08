@@ -22,20 +22,24 @@ ClockMarkerTsvLoadResult load_clock_marker_tsv(const std::string& path,
 
 // Resolves runtime-collected host brackets to the profiler device domain.
 // The exact raw header is:
-// marker_id, host_before_ns, host_after_ns, host_pid, host_tid, device_id,
-// stream_id, call_site, return_status.
+// marker_id, host_before_ns, record_after_ns, host_after_ns, host_pid,
+// host_tid, device_id, stream_id, call_site, return_status.
 //
-// A successful bracket is normally identified by exactly one overlapping
-// same-thread aclrtRecordEvent host row. Non-empty overlap is intentional because
-// msprof's host timestamps can differ from a caller CLOCK_REALTIME bracket by
-// enough to remove direct overlap in long runs. In that case resolution is
+// host_before_ns/record_after_ns narrowly bracket aclrtRecordEvent and define
+// the profiler-host -> caller-clock observation. host_before_ns/host_after_ns
+// bracket the device-visible marker through synchronization. A successful
+// narrow bracket is normally identified by exactly one overlapping same-thread
+// aclrtRecordEvent host row. Non-empty overlap is intentional because msprof's
+// host timestamps can differ from caller CLOCK_REALTIME enough to remove direct
+// overlap in long runs. In that case resolution is
 // allowed only for an order-preserving bijection: successful bracket and
 // same-thread record counts must match with at least two pairs, timestamps must
 // be strictly ordered, and after an endpoint-affine host-clock correction every
 // API must have its same-ordinal bracket as the unique nearest bracket. A
 // one-bracket/one-API thread can resolve only by direct temporal overlap.
-// Resolution method, matched profiler-host interval, and fallback residual are
-// retained in ClockMarkerRow. TASK.startNs becomes device_timestamp_ns; raw
+// Resolution method, both caller brackets, matched profiler-host interval, and
+// fallback residual are retained in ClockMarkerRow. TASK.startNs becomes
+// device_timestamp_ns; raw
 // aclrtEventGetTimestamp syscnt values are never treated as profiler ns.
 // A uniquely resolved API with no connectionId, or a connectionId with no
 // matching TASK, is retained as a rejected marker because profiler device

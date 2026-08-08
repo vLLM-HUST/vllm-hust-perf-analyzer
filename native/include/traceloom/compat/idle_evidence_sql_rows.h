@@ -13,7 +13,7 @@ struct IdleEvidenceSqlRowOptions {
   std::uint32_t db_idx = 0;
   std::string source_kind = "native_ir";
   std::string source_path;
-  std::string contract_version = "idle-evidence-contract-v4.3";
+  std::string contract_version = "idle-evidence-contract-v4.4";
   std::string host_api_rules_version = "not_loaded";
   std::string host_api_rules_sha256;
 };

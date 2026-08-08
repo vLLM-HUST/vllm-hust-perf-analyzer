@@ -220,6 +220,13 @@ std::string build_metadata_json(
                            ? "0.000000"
                            : fixed_decimal(
                                  model->host_clock_uncertainty_p95_ns, 6))
+        << ",\"profiler_to_caller_bracket_uncertainty_p95_ns\":"
+        << json_string(
+               model == nullptr
+                   ? "0.000000"
+                   : fixed_decimal(
+                         model->profiler_to_caller_bracket_uncertainty_p95_ns,
+                         6))
         << ",\"has_profiler_host_mapping\":"
         << (model != nullptr && model->has_profiler_host_mapping ? "true"
                                                                  : "false")
@@ -231,6 +238,10 @@ std::string build_metadata_json(
         << json_string(model == nullptr
                            ? "0.000000"
                            : fixed_decimal(model->offset_ns, 6))
+        << ",\"intercept_ns\":"
+        << json_string(model == nullptr
+                           ? "0.000000"
+                           : fixed_decimal(model->intercept_ns, 6))
         << ",\"ordinal_affine_fallback_marker_count\":"
         << (model == nullptr ? 0
                              : model->ordinal_affine_fallback_marker_count)
@@ -243,6 +254,14 @@ std::string build_metadata_json(
         << json_string(model == nullptr
                            ? "1.000000000000"
                            : fixed_scale(model->profiler_to_marker_scale))
+        << ",\"profiler_caller_observation_kind\":"
+        << json_string(
+               model == nullptr ? "record_api_midpoint_to_record_bracket_midpoint"
+                                : model->profiler_caller_observation_kind)
+        << ",\"marker_device_observation_kind\":"
+        << json_string(
+               model == nullptr ? "record_sync_bracket_midpoint_to_task_start"
+                                : model->marker_device_observation_kind)
         << ",\"reference_device_ns\":"
         << json_string(model == nullptr
                            ? "0.000000"
@@ -598,6 +617,12 @@ IdleEvidenceSqlRows build_idle_evidence_sql_rows(
     row.source_table = source.table_name;
     row.source_key = std::to_string(input.source_row_id);
     row.contract_version = resolved_options.contract_version;
+    row.has_record_host_bracket = input.has_record_host_bracket;
+    row.record_after_ns = input.record_after_ns;
+    if (input.has_record_host_bracket) {
+      row.record_midpoint_ns =
+          midpoint_floor(input.host_before_ns, input.record_after_ns);
+    }
     out.clock_markers.push_back(std::move(row));
   }
 
@@ -616,6 +641,7 @@ IdleEvidenceSqlRows build_idle_evidence_sql_rows(
     row.mapping_kind = input.mapping_kind;
     row.scale = fixed_scale(input.scale);
     row.offset_ns = fixed_decimal(input.offset_ns, 6);
+    row.intercept_ns = fixed_decimal(input.intercept_ns, 6);
     row.reference_host_ns = fixed_decimal(input.reference_host_ns, 6);
     row.reference_device_ns = fixed_decimal(input.reference_device_ns, 6);
     row.drift_ppm = static_cast<double>(input.drift_ppm);
@@ -663,6 +689,9 @@ IdleEvidenceSqlRows build_idle_evidence_sql_rows(
         static_cast<double>(input.host_clock_absolute_residual_max_ns);
     row.host_clock_uncertainty_p95_ns =
         static_cast<double>(input.host_clock_uncertainty_p95_ns);
+    row.profiler_to_caller_bracket_uncertainty_p95_ns =
+        static_cast<double>(
+            input.profiler_to_caller_bracket_uncertainty_p95_ns);
     row.composed_absolute_residual_p50_ns =
         static_cast<double>(input.composed_absolute_residual_p50_ns);
     row.composed_absolute_residual_p95_ns =
@@ -675,6 +704,9 @@ IdleEvidenceSqlRows build_idle_evidence_sql_rows(
     row.epsilon_ns = input.epsilon_ns;
     row.alignment_status = alignment_status_name(input.alignment_status);
     row.reason = input.reason;
+    row.profiler_caller_observation_kind =
+        input.profiler_caller_observation_kind;
+    row.marker_device_observation_kind = input.marker_device_observation_kind;
     out.clock_models.push_back(row);
 
     std::uint32_t ordinal = 0;

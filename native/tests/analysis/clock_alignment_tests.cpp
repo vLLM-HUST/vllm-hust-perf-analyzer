@@ -27,7 +27,8 @@ void append_marker(NativeIr& ir,
       ir.symbols.intern("clock_alignment_test"), return_status, true,
       (profiler_host_mid_ns < 0 ? host_mid_ns : profiler_host_mid_ns) - 2,
       (profiler_host_mid_ns < 0 ? host_mid_ns : profiler_host_mid_ns) + 3,
-      ClockMarkerResolutionMethod::kDirectOverlap);
+      ClockMarkerResolutionMethod::kDirectOverlap, false, 0.0L, true,
+      host_mid_ns + 4);
 }
 
 }  // namespace
@@ -94,15 +95,55 @@ int main() {
                 model.absolute_residual_max_ns >= 6.9L &&
                 model.host_clock_absolute_residual_p95_ns == 0.0L &&
                 model.host_clock_uncertainty_p95_ns == 0.0L &&
+                model.profiler_to_caller_bracket_uncertainty_p95_ns > 4.0L &&
                 model.composed_absolute_residual_p50_ns >= 2.9L &&
                 model.composed_absolute_residual_p95_ns >= 6.9L &&
                 model.composed_absolute_residual_max_ns >= 6.9L &&
-                model.epsilon_ns == 12 && model.has_profiler_host_mapping,
+                model.epsilon_ns == 16 && model.has_profiler_host_mapping &&
+                model.offset_ns ==
+                    model.reference_device_ns - model.reference_host_ns &&
+                model.intercept_ns ==
+                    model.reference_device_ns -
+                        model.scale * model.reference_host_ns,
             "both holdout residuals and conservative epsilon are reported");
     const std::optional<std::int64_t> mapped =
         map_host_to_device_ns(model, 250000);
     require(mapped.has_value() && *mapped == 255015,
             "host timestamp maps into the device ns domain");
+  }
+
+  // With the old shared outer midpoint, a fixed record->device delay produced
+  // zero end-to-end residual while the coordinate mapping was still wrong.
+  // Separate observation brackets expose the half-delay residual and keep the
+  // resulting error inside epsilon; neither midpoint may train both legs.
+  {
+    NativeIr ir;
+    const SourceRefId source = ir.source_refs.append(
+        "synthetic", "shared_midpoint_counterexample.tsv", "clock_marker", 0);
+    constexpr std::int64_t kDelayNs = 200;
+    for (std::size_t index = 0; index < 11; ++index) {
+      const std::int64_t timestamp =
+          1000 + static_cast<std::int64_t>(index) * 1000;
+      ir.clock_markers.append(
+          source, index + 1,
+          ir.symbols.intern("counterexample-" + std::to_string(index)),
+          timestamp - 2, timestamp + kDelayNs + 2,
+          timestamp + kDelayNs, 123, 456, 0, true, 7, true,
+          static_cast<std::int64_t>(3000 + index),
+          ir.symbols.intern("clock_alignment_test"), 0, true, timestamp - 1,
+          timestamp + 1, ClockMarkerResolutionMethod::kDirectOverlap, false,
+          0.0L, true, timestamp + 2);
+    }
+    ClockAlignmentOptions options;
+    options.synthetic_fixture = true;
+    const ClockModel& model =
+        fit_host_device_clock_models(ir, options).models.front();
+    const std::optional<std::int64_t> mapped =
+        map_host_to_device_ns(model, 6000);
+    require(mapped.has_value() && *mapped == 6100 &&
+                model.composed_absolute_residual_p95_ns == 100.0L &&
+                static_cast<std::uint64_t>(*mapped - 6000) <= model.epsilon_ns,
+            "separate observation brackets bound shared-delay midpoint error");
   }
 
   // A non-identity profiler-host clock is fitted separately and composed with
@@ -178,6 +219,27 @@ int main() {
                 !model.has_profiler_host_mapping &&
                 !map_host_to_device_ns(model, 123).has_value(),
             "real markers without a profiler-host clock leg fail closed");
+  }
+  {
+    NativeIr ir;
+    const SourceRefId source = ir.source_refs.append(
+        "fixture", "missing-record-bracket.tsv", "clock_marker", 0);
+    for (std::size_t index = 0; index < 6; ++index) {
+      const std::int64_t host =
+          1000 + static_cast<std::int64_t>(index) * 100;
+      ir.clock_markers.append(
+          source, index + 1,
+          ir.symbols.intern("missing-record-" + std::to_string(index)),
+          host - 2, host + 3, host + 1000, 123, 456, 0, true, 7, true,
+          static_cast<std::int64_t>(2000 + index),
+          ir.symbols.intern("clock_alignment_test"), 0, true, host - 1,
+          host + 1, ClockMarkerResolutionMethod::kDirectOverlap);
+    }
+    const ClockModel& model = fit_host_device_clock_models(ir).models.front();
+    require(model.alignment_status == AlignmentStatus::kInvalid &&
+                model.inlier_marker_count == 0 &&
+                !model.has_profiler_host_mapping,
+            "real markers without a caller record-call bracket fail closed");
   }
   {
     NativeIr ir;

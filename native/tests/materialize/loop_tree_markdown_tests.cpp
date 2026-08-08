@@ -47,13 +47,19 @@ int main() {
   options.has_idle_explanation_summary = true;
   options.idle_analysis_status = "ok";
   options.idle_collection_status = "unknown";
-  options.idle_attribution_rule_version = "device_projection_v1";
+  options.idle_attribution_rule_version = "host_device_projection_v2";
   options.idle_alignment_status = "calibrated";
   options.has_idle_clock_model_summary = true;
   options.idle_clock_source_domain = "profiler_host";
   options.idle_clock_intermediate_domain = "caller_clock_realtime";
   options.idle_clock_mapping_kind = "composed_affine";
+  options.idle_clock_profiler_caller_observation_kind =
+      "record_api_midpoint_to_record_bracket_midpoint";
+  options.idle_clock_marker_device_observation_kind =
+      "record_sync_bracket_midpoint_to_task_start";
   options.idle_clock_scale = 1.000001234567L;
+  options.idle_clock_offset_ns = 123.5L;
+  options.idle_clock_intercept_ns = -456.25L;
   options.idle_clock_drift_ppm = 1.234567L;
   options.idle_clock_profiler_to_marker_scale = 0.999998L;
   options.idle_clock_profiler_to_marker_drift_ppm = -2.0L;
@@ -70,6 +76,7 @@ int main() {
   options.idle_clock_host_residual_p95_ns = 22.5L;
   options.idle_clock_host_residual_max_ns = 33.75L;
   options.idle_clock_host_uncertainty_p95_ns = 22.75L;
+  options.idle_clock_profiler_caller_bracket_uncertainty_p95_ns = 7.25L;
   options.idle_clock_composed_residual_p50_ns = 44.25L;
   options.idle_clock_composed_residual_p95_ns = 55.5L;
   options.idle_clock_composed_residual_max_ns = 66.75L;
@@ -123,6 +130,13 @@ int main() {
   require(markdown.find(
               "- intermediate_clock_domain: `caller_clock_realtime`") !=
           std::string::npos);
+  require(markdown.find(
+              "- profiler_caller_observation_kind: "
+              "`record_api_midpoint_to_record_bracket_midpoint`") !=
+          std::string::npos);
+  require(markdown.find("- offset_ns: `123.500000`") != std::string::npos &&
+              markdown.find("- intercept_ns: `-456.250000`") !=
+                  std::string::npos);
   require(markdown.find("- absolute_residual_p50_ns: `101.250000`") !=
           std::string::npos);
   require(markdown.find("- absolute_residual_p95_ns: `202.500000`") !=
@@ -133,6 +147,9 @@ int main() {
           std::string::npos);
   require(markdown.find(
               "- host_clock_absolute_residual_p95_ns: `22.500000`") !=
+          std::string::npos);
+  require(markdown.find(
+              "- profiler_to_caller_bracket_uncertainty_p95_ns: `7.250000`") !=
           std::string::npos);
   require(markdown.find(
               "- composed_absolute_residual_p95_ns: `55.500000`") !=

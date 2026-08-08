@@ -26,9 +26,15 @@ struct ClockModel {
   std::string intermediate_clock_domain = "caller_clock_realtime";
   std::string target_clock_domain = "device";
   std::string mapping_kind = "composed_affine";
+  std::string profiler_caller_observation_kind =
+      "record_api_midpoint_to_record_bracket_midpoint";
+  std::string marker_device_observation_kind =
+      "record_sync_bracket_midpoint_to_task_start";
   // Final profiler-host -> device affine mapping consumed by host correlation.
   long double scale = 1.0L;
+  // Frozen offset is the reference-coordinate delta, not the affine intercept.
   long double offset_ns = 0.0L;
+  long double intercept_ns = 0.0L;
   long double reference_host_ns = 0.0L;
   long double reference_device_ns = 0.0L;
   long double drift_ppm = 0.0L;
@@ -46,7 +52,7 @@ struct ClockModel {
   long double profiler_reference_marker_ns = 0.0L;
   long double profiler_to_marker_drift_ppm = 0.0L;
   std::string fit_method = "theil_sen_median";
-  std::string fit_method_version = "theil_sen_composed_host_v2";
+  std::string fit_method_version = "theil_sen_composed_host_v3";
   std::uint64_t fit_random_seed = 0;
   std::uint64_t input_marker_count = 0;
   std::uint64_t inlier_marker_count = 0;
@@ -61,6 +67,7 @@ struct ClockModel {
   long double host_clock_absolute_residual_p95_ns = 0.0L;
   long double host_clock_absolute_residual_max_ns = 0.0L;
   long double host_clock_uncertainty_p95_ns = 0.0L;
+  long double profiler_to_caller_bracket_uncertainty_p95_ns = 0.0L;
   long double composed_absolute_residual_p50_ns = 0.0L;
   long double composed_absolute_residual_p95_ns = 0.0L;
   long double composed_absolute_residual_max_ns = 0.0L;
@@ -85,7 +92,7 @@ struct ClockAlignmentOptions {
 
 struct ClockAlignmentRunResult {
   std::vector<ClockModel> models;
-  std::string model_version = "profiler_marker_device_composed_affine_v2";
+  std::string model_version = "profiler_caller_device_composed_affine_v3";
 
   const ClockModel* find_device(std::uint32_t device_id) const;
 };

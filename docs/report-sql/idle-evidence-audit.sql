@@ -205,6 +205,8 @@ with interval_totals as (
     sum(case
           when e.evidence_level != 'correlated'
             or e.alignment_status not in ('calibrated', 'synthetic_only')
+            or e.contract_version != 'idle-evidence-contract-v4.4'
+            or e.attribution_rule_version != 'host_device_projection_v2'
             or (e.category = 'host_sync_api_present' and
                 e.evidence_relation != 'temporal_overlap')
             or (e.category = 'queued_visible_task_delay' and
@@ -224,6 +226,10 @@ with interval_totals as (
               and m.intermediate_clock_domain = 'caller_clock_realtime'
               and m.target_clock_domain = 'device'
               and m.mapping_kind = 'composed_affine'
+              and m.profiler_caller_observation_kind =
+                    'record_api_midpoint_to_record_bracket_midpoint'
+              and m.marker_device_observation_kind =
+                    'record_sync_bracket_midpoint_to_task_start'
           ) then 1 else 0
         end) as fail_closed_errors,
     sum(case
@@ -240,6 +246,14 @@ with interval_totals as (
               and l.relation = e.evidence_relation
               and l.evidence_level = 'correlated'
               and h.clock_domain = 'profiler_host'
+              and h.contract_version = e.contract_version
+              and (
+                (e.category = 'host_sync_api_present'
+                  and h.api_family = 'host_sync')
+                or
+                (e.category = 'queued_visible_task_delay'
+                  and h.api_family = 'enqueue')
+              )
           ) then 1 else 0
         end) as host_source_errors,
     sum(case

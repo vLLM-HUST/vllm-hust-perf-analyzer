@@ -403,7 +403,7 @@ IdleExplanationRunResult build_idle_explanations(
   IdleExplanationRunResult run;
   run.collection_status = options.collection_status;
   if (host_correlation != nullptr) {
-    run.attribution_rule_version = "host_device_projection_v1";
+    run.attribution_rule_version = "host_device_projection_v2";
   }
   run.status = productive.status == AnalysisStatus::kInvalidInput ||
                        streams.status == AnalysisStatus::kInvalidInput

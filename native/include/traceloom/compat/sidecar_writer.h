@@ -562,6 +562,9 @@ struct ClockMarkerSqlRow {
   std::string source_table;
   std::string source_key;
   std::string contract_version;
+  bool has_record_host_bracket = false;
+  std::int64_t record_after_ns = 0;
+  std::int64_t record_midpoint_ns = 0;
 };
 
 struct ClockModelSqlRow {
@@ -613,6 +616,10 @@ struct ClockModelSqlRow {
   std::uint64_t epsilon_ns = 0;
   std::string alignment_status;
   std::string reason;
+  std::string profiler_caller_observation_kind;
+  std::string marker_device_observation_kind;
+  std::string intercept_ns;
+  double profiler_to_caller_bracket_uncertainty_p95_ns = 0.0;
 };
 
 struct HostApiEventSqlRow {
