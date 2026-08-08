@@ -351,10 +351,22 @@ void write_loop_tree_markdown(std::ostream& out,
     out << "- alignment_status: `" << options.idle_alignment_status << "`\n";
     if (options.has_idle_clock_model_summary) {
       out << "\n### Host→Device Clock Calibration\n\n";
+      out << "- source_clock_domain: `" << options.idle_clock_source_domain
+          << "`\n";
+      out << "- intermediate_clock_domain: `"
+          << options.idle_clock_intermediate_domain << "`\n";
+      out << "- mapping_kind: `" << options.idle_clock_mapping_kind << "`\n";
       out << "- scale: `" << fixed_decimal(options.idle_clock_scale, 12)
           << "`\n";
       out << "- drift_ppm: `"
           << fixed_decimal(options.idle_clock_drift_ppm, 6) << "`\n";
+      out << "- profiler_to_marker_scale: `"
+          << fixed_decimal(options.idle_clock_profiler_to_marker_scale, 12)
+          << "`\n";
+      out << "- profiler_to_marker_drift_ppm: `"
+          << fixed_decimal(
+                 options.idle_clock_profiler_to_marker_drift_ppm, 6)
+          << "`\n";
       out << "- input_marker_count: `"
           << options.idle_clock_input_marker_count << "`\n";
       out << "- inlier_marker_count: `"
@@ -377,6 +389,31 @@ void write_loop_tree_markdown(std::ostream& out,
       out << "- bracket_uncertainty_p95_ns: `"
           << fixed_decimal(options.idle_clock_bracket_uncertainty_p95_ns, 6)
           << "`\n";
+      out << "- host_clock_absolute_residual_p50_ns: `"
+          << fixed_decimal(options.idle_clock_host_residual_p50_ns, 6)
+          << "`\n";
+      out << "- host_clock_absolute_residual_p95_ns: `"
+          << fixed_decimal(options.idle_clock_host_residual_p95_ns, 6)
+          << "`\n";
+      out << "- host_clock_absolute_residual_max_ns: `"
+          << fixed_decimal(options.idle_clock_host_residual_max_ns, 6)
+          << "`\n";
+      out << "- host_clock_uncertainty_p95_ns: `"
+          << fixed_decimal(options.idle_clock_host_uncertainty_p95_ns, 6)
+          << "`\n";
+      out << "- composed_absolute_residual_p50_ns: `"
+          << fixed_decimal(options.idle_clock_composed_residual_p50_ns, 6)
+          << "`\n";
+      out << "- composed_absolute_residual_p95_ns: `"
+          << fixed_decimal(options.idle_clock_composed_residual_p95_ns, 6)
+          << "`\n";
+      out << "- composed_absolute_residual_max_ns: `"
+          << fixed_decimal(options.idle_clock_composed_residual_max_ns, 6)
+          << "`\n";
+      out << "- direct_overlap_marker_count: `"
+          << options.idle_clock_direct_overlap_marker_count << "`\n";
+      out << "- ordinal_affine_fallback_marker_count: `"
+          << options.idle_clock_ordinal_fallback_marker_count << "`\n";
       out << "- epsilon_ns: `" << options.idle_clock_epsilon_ns << "`\n\n";
     }
     out << "- visible_productive_idle_us: `"

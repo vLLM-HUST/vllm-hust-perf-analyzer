@@ -75,7 +75,13 @@ int main() {
     require(resolved.device_timestamp_ns == 1000 &&
                 resolved.has_connection_id &&
                 resolved.raw_connection_id == 42 && resolved.has_stream_id &&
-                resolved.stream_id == 7,
+                resolved.stream_id == 7 &&
+                resolved.has_profiler_host_interval &&
+                resolved.profiler_host_start_ns == 95 &&
+                resolved.profiler_host_end_ns == 130 &&
+                resolved.resolution_method ==
+                    ClockMarkerResolutionMethod::kDirectOverlap &&
+                !resolved.has_resolution_residual,
             "unique connectionId resolves bracket to TASK.startNs");
     const ClockMarkerRow& failed = ir.clock_markers.row(ClockMarkerId(1));
     require(failed.return_status == 507000 &&
@@ -120,8 +126,57 @@ int main() {
                 ir.clock_markers.row(ClockMarkerId(0)).raw_connection_id ==
                     42 &&
                 ir.clock_markers.row(ClockMarkerId(1)).raw_connection_id ==
-                    43,
+                    43 &&
+                ir.clock_markers.row(ClockMarkerId(0)).resolution_method ==
+                    ClockMarkerResolutionMethod::kOrdinalAffineFallback &&
+                ir.clock_markers.row(ClockMarkerId(1)).resolution_method ==
+                    ClockMarkerResolutionMethod::kOrdinalAffineFallback &&
+                ir.clock_markers.row(ClockMarkerId(0))
+                    .has_resolution_residual,
             "affine-validated order-preserving bijection resolves clock skew");
+    std::remove(path.c_str());
+  }
+
+  {
+    NativeIr ir;
+    const SourceRefId task_source =
+        ir.source_refs.append("synthetic", "fixture.db", "TASK", 0);
+    const SourceRefId api_source =
+        ir.source_refs.append("synthetic", "fixture.db", "CANN_API", 0);
+    const SymbolId event_record = ir.symbols.intern("EVENT_RECORD");
+    std::string payload =
+        "marker_id\thost_before_ns\thost_after_ns\thost_pid\thost_tid\t"
+        "device_id\tstream_id\tcall_site\treturn_status\n";
+    for (std::int64_t index = 0; index < 6; ++index) {
+      const std::int64_t connection_id = 42 + index;
+      const std::uint64_t host_tid = 456 + index;
+      const TraceEventId event = ir.trace_events.append(
+          task_source, static_cast<std::uint64_t>(index + 1), 0, 7,
+          2000 + index * 100, 2001 + index * 100, event_record);
+      ir.tasks.append(task_source, event, index + 1, index + 1,
+                      connection_id, event_record, event_record, event_record,
+                      event_record, SymbolId::invalid());
+      ir.host_api_events.append(
+          api_source, static_cast<std::uint64_t>(index + 10), 50 + index * 10,
+          55 + index * 10, (123ULL << 32u) | host_tid, connection_id,
+          SymbolId::invalid(), ir.symbols.intern("aclrtRecordEvent"), false, 0);
+      payload += "marker-" + std::to_string(index) + "\t" +
+                 std::to_string(1000 + index * 100) + "\t" +
+                 std::to_string(1050 + index * 100) + "\t123\t" +
+                 std::to_string(host_tid) +
+                 "\t0\t7\tunit-test\t0\n";
+    }
+    const std::string path = temp_path("clock_marker_single_distant_api");
+    write_text(path, payload);
+    bool rejected = false;
+    try {
+      (void)resolve_ascend_clock_marker_bracket_tsv(path, ir);
+    } catch (const std::invalid_argument& error) {
+      rejected = std::string(error.what()).find("no unique") !=
+                 std::string::npos;
+    }
+    require(rejected,
+            "six one-point threads cannot bootstrap affine fallback");
     std::remove(path.c_str());
   }
 

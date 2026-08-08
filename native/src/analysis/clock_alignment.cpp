@@ -15,6 +15,7 @@ namespace {
 struct Observation {
   const ClockMarkerRow* marker = nullptr;
   long double host_ns = 0.0L;
+  long double profiler_host_ns = 0.0L;
   long double device_ns = 0.0L;
   long double half_bracket_ns = 0.0L;
 };
@@ -52,6 +53,12 @@ long double host_midpoint(const ClockMarkerRow& marker) {
   return static_cast<long double>(
       marker.host_before_ns +
       (marker.host_after_ns - marker.host_before_ns) / 2);
+}
+
+long double profiler_host_midpoint(const ClockMarkerRow& marker) {
+  return static_cast<long double>(
+      marker.profiler_host_start_ns +
+      (marker.profiler_host_end_ns - marker.profiler_host_start_ns) / 2);
 }
 
 bool observation_less(const Observation& lhs, const Observation& rhs) {
@@ -119,9 +126,17 @@ ClockModel fit_device(std::uint32_t device_id,
          !seen_marker_symbols.insert(marker->marker_symbol_id.value()).second);
     missing_marker_id = missing_marker_id || missing;
     duplicate_marker_id = duplicate_marker_id || duplicate;
+    const bool invalid_profiler_interval =
+        marker->has_profiler_host_interval &&
+        (marker->profiler_host_start_ns < 0 ||
+         marker->profiler_host_end_ns < marker->profiler_host_start_ns);
+    const bool missing_real_profiler_interval =
+        !synthetic_fixture && !marker->has_profiler_host_interval;
     if (marker->return_status != 0 || marker->host_before_ns < 0 ||
         marker->device_timestamp_ns < 0 ||
-        marker->host_after_ns < marker->host_before_ns || missing || duplicate) {
+        marker->host_after_ns < marker->host_before_ns ||
+        invalid_profiler_interval || missing_real_profiler_interval || missing ||
+        duplicate) {
       model.rejected_markers.push_back(marker->id);
       continue;
     }
@@ -129,8 +144,18 @@ ClockModel fit_device(std::uint32_t device_id,
         marker->host_after_ns - marker->host_before_ns);
     observations.push_back(Observation{
         marker, host_midpoint(*marker),
+        marker->has_profiler_host_interval
+            ? profiler_host_midpoint(*marker)
+            : host_midpoint(*marker),
         static_cast<long double>(marker->device_timestamp_ns),
         static_cast<long double>(width) / 2.0L});
+    if (marker->resolution_method ==
+        ClockMarkerResolutionMethod::kDirectOverlap) {
+      ++model.direct_overlap_marker_count;
+    } else if (marker->resolution_method ==
+               ClockMarkerResolutionMethod::kOrdinalAffineFallback) {
+      ++model.ordinal_affine_fallback_marker_count;
+    }
   }
   model.inlier_marker_count = observations.size();
   model.rejected_marker_count = model.rejected_markers.size();
@@ -212,8 +237,14 @@ ClockModel fit_device(std::uint32_t device_id,
   }
   model.reference_device_ns =
       median(std::move(reference_device_candidates));
-  model.offset_ns = model.reference_device_ns - model.reference_host_ns;
+  model.offset_ns =
+      model.reference_device_ns - model.scale * model.reference_host_ns;
   model.drift_ppm = (model.scale - 1.0L) * 1000000.0L;
+  model.marker_to_device_scale = model.scale;
+  model.marker_to_device_offset_ns = model.offset_ns;
+  model.reference_marker_host_ns = model.reference_host_ns;
+  model.marker_reference_device_ns = model.reference_device_ns;
+  model.marker_to_device_drift_ppm = model.drift_ppm;
 
   std::vector<long double> validation_residuals;
   validation_residuals.reserve(validation.size());
@@ -231,16 +262,124 @@ ClockModel fit_device(std::uint32_t device_id,
       *std::max_element(validation_residuals.begin(),
                         validation_residuals.end());
 
+  // Fit the missing first leg explicitly: profiler CANN_API host timestamps
+  // into the caller CLOCK_REALTIME domain used by marker brackets. The same
+  // deterministic fit/holdout partition is used so this uncertainty is not
+  // hidden behind marker->device validation.
+  std::vector<long double> host_clock_slopes;
+  host_clock_slopes.reserve(fit.size() * (fit.size() - 1u) / 2u);
+  for (std::size_t first = 0; first < fit.size(); ++first) {
+    for (std::size_t second = first + 1; second < fit.size(); ++second) {
+      const long double profiler_delta =
+          fit[second]->profiler_host_ns - fit[first]->profiler_host_ns;
+      if (profiler_delta == 0.0L) {
+        continue;
+      }
+      host_clock_slopes.push_back(
+          (fit[second]->host_ns - fit[first]->host_ns) / profiler_delta);
+    }
+  }
+  if (host_clock_slopes.empty()) {
+    model.alignment_status = AlignmentStatus::kInvalid;
+    model.reason =
+        "fit markers do not contain two distinct profiler host times";
+    return model;
+  }
+  model.profiler_to_marker_scale = median(std::move(host_clock_slopes));
+  if (!std::isfinite(model.profiler_to_marker_scale) ||
+      model.profiler_to_marker_scale <= 0.0L) {
+    model.alignment_status = AlignmentStatus::kInvalid;
+    model.reason =
+        "profiler-host Theil-Sen fit produced a non-positive clock scale";
+    return model;
+  }
+  std::vector<long double> fit_profiler_times;
+  fit_profiler_times.reserve(fit.size());
+  for (const Observation* item : fit) {
+    fit_profiler_times.push_back(item->profiler_host_ns);
+  }
+  model.reference_profiler_host_ns = median(std::move(fit_profiler_times));
+  std::vector<long double> marker_reference_candidates;
+  marker_reference_candidates.reserve(fit.size());
+  for (const Observation* item : fit) {
+    marker_reference_candidates.push_back(
+        item->host_ns -
+        model.profiler_to_marker_scale *
+            (item->profiler_host_ns - model.reference_profiler_host_ns));
+  }
+  model.profiler_reference_marker_ns =
+      median(std::move(marker_reference_candidates));
+  model.profiler_to_marker_offset_ns =
+      model.profiler_reference_marker_ns -
+      model.profiler_to_marker_scale * model.reference_profiler_host_ns;
+  model.profiler_to_marker_drift_ppm =
+      (model.profiler_to_marker_scale - 1.0L) * 1000000.0L;
+
+  std::vector<long double> host_clock_validation_residuals;
+  host_clock_validation_residuals.reserve(validation.size());
+  for (const Observation* item : validation) {
+    const long double mapped_marker_host =
+        model.profiler_reference_marker_ns +
+        model.profiler_to_marker_scale *
+            (item->profiler_host_ns - model.reference_profiler_host_ns);
+    host_clock_validation_residuals.push_back(
+        std::fabs(item->host_ns - mapped_marker_host));
+  }
+  model.host_clock_absolute_residual_p50_ns =
+      nearest_rank_percentile(host_clock_validation_residuals, 0.50L);
+  model.host_clock_absolute_residual_p95_ns =
+      nearest_rank_percentile(host_clock_validation_residuals, 0.95L);
+  model.host_clock_absolute_residual_max_ns =
+      *std::max_element(host_clock_validation_residuals.begin(),
+                        host_clock_validation_residuals.end());
+  model.host_clock_uncertainty_p95_ns =
+      std::fabs(model.marker_to_device_scale) *
+      model.host_clock_absolute_residual_p95_ns;
+
+  // Publish the composed profiler-host -> device model consumed by E4. Keep the
+  // component parameters above so reviewers can audit both coordinate changes.
+  model.scale =
+      model.marker_to_device_scale * model.profiler_to_marker_scale;
+  model.reference_host_ns = model.reference_profiler_host_ns;
+  const long double marker_at_profiler_reference =
+      model.profiler_reference_marker_ns;
+  model.reference_device_ns =
+      model.marker_reference_device_ns +
+      model.marker_to_device_scale *
+          (marker_at_profiler_reference - model.reference_marker_host_ns);
+  model.offset_ns =
+      model.reference_device_ns - model.scale * model.reference_host_ns;
+  model.drift_ppm = (model.scale - 1.0L) * 1000000.0L;
+  model.has_profiler_host_mapping = true;
+
+  std::vector<long double> composed_validation_residuals;
+  composed_validation_residuals.reserve(validation.size());
+  for (const Observation* item : validation) {
+    const long double mapped_device =
+        model.reference_device_ns +
+        model.scale * (item->profiler_host_ns - model.reference_host_ns);
+    composed_validation_residuals.push_back(
+        std::fabs(item->device_ns - mapped_device));
+  }
+  model.composed_absolute_residual_p50_ns =
+      nearest_rank_percentile(composed_validation_residuals, 0.50L);
+  model.composed_absolute_residual_p95_ns =
+      nearest_rank_percentile(composed_validation_residuals, 0.95L);
+  model.composed_absolute_residual_max_ns =
+      *std::max_element(composed_validation_residuals.begin(),
+                        composed_validation_residuals.end());
+
   std::vector<long double> bracket_uncertainties;
   bracket_uncertainties.reserve(observations.size());
   for (const Observation& item : observations) {
     bracket_uncertainties.push_back(
-        std::fabs(model.scale) * item.half_bracket_ns);
+        std::fabs(model.marker_to_device_scale) * item.half_bracket_ns);
   }
   model.bracket_uncertainty_p95_ns =
       nearest_rank_percentile(std::move(bracket_uncertainties), 0.95L);
   const long double epsilon = model.absolute_residual_p95_ns +
-                              model.bracket_uncertainty_p95_ns;
+                              model.bracket_uncertainty_p95_ns +
+                              model.host_clock_uncertainty_p95_ns;
   if (!std::isfinite(epsilon) || epsilon < 0.0L ||
       epsilon > static_cast<long double>(
                     std::numeric_limits<std::uint64_t>::max())) {
@@ -253,8 +392,9 @@ ClockModel fit_device(std::uint32_t device_id,
                                ? AlignmentStatus::kSyntheticOnly
                                : AlignmentStatus::kCalibrated;
   model.reason = synthetic_fixture
-                     ? "controlled synthetic marker calibration"
-                     : "validated holdout marker calibration";
+                     ? "controlled synthetic composed clock calibration"
+                     : "validated profiler-host, marker-host, and device "
+                       "holdout calibration";
   return model;
 }
 
@@ -277,6 +417,11 @@ std::string_view alignment_status_name(AlignmentStatus status) {
 bool alignment_supports_cross_clock_evidence(AlignmentStatus status) {
   return status == AlignmentStatus::kCalibrated ||
          status == AlignmentStatus::kSyntheticOnly;
+}
+
+bool clock_model_supports_cross_clock_evidence(const ClockModel& model) {
+  return alignment_supports_cross_clock_evidence(model.alignment_status) &&
+         model.has_profiler_host_mapping;
 }
 
 const ClockModel* ClockAlignmentRunResult::find_device(
@@ -326,7 +471,7 @@ ClockAlignmentRunResult fit_host_device_clock_models(
 std::optional<std::int64_t> map_host_to_device_ns(
     const ClockModel& model,
     std::int64_t host_timestamp_ns) {
-  if (!alignment_supports_cross_clock_evidence(model.alignment_status)) {
+  if (!clock_model_supports_cross_clock_evidence(model)) {
     return std::nullopt;
   }
   const long double mapped =

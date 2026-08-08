@@ -16,14 +16,18 @@ void append_marker(NativeIr& ir,
                    std::int64_t host_mid_ns,
                    std::int64_t device_ns,
                    std::int64_t return_status = 0,
-                   const std::string& marker_id = "") {
+                   const std::string& marker_id = "",
+                   std::int64_t profiler_host_mid_ns = -1) {
   const SymbolId id = ir.symbols.intern(
       marker_id.empty() ? "marker-" + std::to_string(index) : marker_id);
   ir.clock_markers.append(
       source, index + 1, id, host_mid_ns - 4, host_mid_ns + 5, device_ns,
       123, 456, device_id, true, 7, true,
       static_cast<std::int64_t>(1000 + index),
-      ir.symbols.intern("clock_alignment_test"), return_status);
+      ir.symbols.intern("clock_alignment_test"), return_status, true,
+      (profiler_host_mid_ns < 0 ? host_mid_ns : profiler_host_mid_ns) - 2,
+      (profiler_host_mid_ns < 0 ? host_mid_ns : profiler_host_mid_ns) + 3,
+      ClockMarkerResolutionMethod::kDirectOverlap);
 }
 
 }  // namespace
@@ -88,12 +92,57 @@ int main() {
                 model.absolute_residual_p95_ns >= 6.9L &&
                 model.absolute_residual_p95_ns <= 7.1L &&
                 model.absolute_residual_max_ns >= 6.9L &&
-                model.epsilon_ns == 12,
-            "holdout residual and conservative epsilon are reported");
+                model.host_clock_absolute_residual_p95_ns == 0.0L &&
+                model.host_clock_uncertainty_p95_ns == 0.0L &&
+                model.composed_absolute_residual_p50_ns >= 2.9L &&
+                model.composed_absolute_residual_p95_ns >= 6.9L &&
+                model.composed_absolute_residual_max_ns >= 6.9L &&
+                model.epsilon_ns == 12 && model.has_profiler_host_mapping,
+            "both holdout residuals and conservative epsilon are reported");
     const std::optional<std::int64_t> mapped =
         map_host_to_device_ns(model, 250000);
     require(mapped.has_value() && *mapped == 255015,
             "host timestamp maps into the device ns domain");
+  }
+
+  // A non-identity profiler-host clock is fitted separately and composed with
+  // caller CLOCK_REALTIME -> device. Its holdout error contributes to epsilon.
+  {
+    NativeIr ir;
+    const SourceRefId source = ir.source_refs.append(
+        "synthetic", "composed_clock.tsv", "clock_marker", 0);
+    for (std::size_t index = 0; index < 11; ++index) {
+      const std::int64_t profiler_host =
+          1000 + static_cast<std::int64_t>(index) * 100;
+      const std::int64_t true_marker_host = 2 * profiler_host + 100;
+      std::int64_t observed_marker_host = true_marker_host;
+      if (index == 4) {
+        observed_marker_host += 5;
+      } else if (index == 9) {
+        observed_marker_host -= 3;
+      }
+      const std::int64_t device = 3 * true_marker_host + 500;
+      append_marker(ir, source, 0, index, observed_marker_host, device, 0, "",
+                    profiler_host);
+    }
+    ClockAlignmentOptions options;
+    options.synthetic_fixture = true;
+    const ClockModel& model =
+        fit_host_device_clock_models(ir, options).models.front();
+    require(model.alignment_status == AlignmentStatus::kSyntheticOnly &&
+                model.profiler_to_marker_scale == 2.0L &&
+                model.marker_to_device_scale == 3.0L && model.scale == 6.0L &&
+                model.host_clock_absolute_residual_p50_ns == 3.0L &&
+                model.host_clock_absolute_residual_p95_ns == 5.0L &&
+                model.host_clock_absolute_residual_max_ns == 5.0L &&
+                model.host_clock_uncertainty_p95_ns == 15.0L &&
+                model.composed_absolute_residual_p50_ns == 0.0L &&
+                model.composed_absolute_residual_p95_ns == 0.0L &&
+                model.composed_absolute_residual_max_ns == 0.0L &&
+                model.epsilon_ns >= 15,
+            "profiler-host holdout uncertainty is explicit in composed model");
+    require(map_host_to_device_ns(model, 2500) == 15800,
+            "CANN_API time maps through both fitted clock domains");
   }
 
   // Fewer than six valid markers and duplicate marker ids are contract
@@ -109,6 +158,26 @@ int main() {
     require(model.alignment_status == AlignmentStatus::kInvalid &&
                 !map_host_to_device_ns(model, 123).has_value(),
             "short calibration is invalid and unmappable");
+  }
+  {
+    NativeIr ir;
+    const SourceRefId source = ir.source_refs.append(
+        "fixture", "missing-profiler-clock.tsv", "clock_marker", 0);
+    for (std::size_t index = 0; index < 6; ++index) {
+      const std::int64_t host = 1000 + static_cast<std::int64_t>(index) * 100;
+      ir.clock_markers.append(
+          source, index + 1,
+          ir.symbols.intern("missing-profiler-" + std::to_string(index)),
+          host - 2, host + 3, host + 1000, 123, 456, 0, true, 7, true,
+          static_cast<std::int64_t>(2000 + index),
+          ir.symbols.intern("clock_alignment_test"), 0);
+    }
+    const ClockModel& model = fit_host_device_clock_models(ir).models.front();
+    require(model.alignment_status == AlignmentStatus::kInvalid &&
+                model.inlier_marker_count == 0 &&
+                !model.has_profiler_host_mapping &&
+                !map_host_to_device_ns(model, 123).has_value(),
+            "real markers without a profiler-host clock leg fail closed");
   }
   {
     NativeIr ir;
@@ -151,6 +220,7 @@ int main() {
   {
     ClockModel model;
     model.alignment_status = AlignmentStatus::kCalibrated;
+    model.has_profiler_host_mapping = true;
     model.reference_host_ns = 0;
     model.reference_device_ns = 0;
     model.scale = 0.5L;

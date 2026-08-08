@@ -93,7 +93,15 @@ std::string clock_marker_sha256(const NativeIr& ir) {
             << marker.host_tid << ';' << marker.device_id << ';'
             << marker.has_stream_id << ';' << marker.stream_id << ';'
             << marker.has_connection_id << ';' << marker.raw_connection_id
-            << ';';
+            << ';' << marker.has_profiler_host_interval << ';'
+            << marker.profiler_host_start_ns << ';'
+            << marker.profiler_host_end_ns << ';';
+    append_digest_string(
+        payload,
+        std::string(clock_marker_resolution_method_name(
+            marker.resolution_method)));
+    payload << marker.has_resolution_residual << ';'
+            << fixed_decimal(marker.resolution_residual_ns, 6) << ';';
     append_digest_string(payload,
                          symbol_text(ir, marker.call_site_symbol_id));
     payload << marker.return_status << '\n';
@@ -167,7 +175,24 @@ std::string build_metadata_json(
                            ? "0.000000"
                            : fixed_decimal(
                                  model->bracket_uncertainty_p95_ns, 6))
+        << ",\"composed_absolute_residual_max_ns\":"
+        << json_string(model == nullptr
+                           ? "0.000000"
+                           : fixed_decimal(
+                                 model->composed_absolute_residual_max_ns, 6))
+        << ",\"composed_absolute_residual_p50_ns\":"
+        << json_string(model == nullptr
+                           ? "0.000000"
+                           : fixed_decimal(
+                                 model->composed_absolute_residual_p50_ns, 6))
+        << ",\"composed_absolute_residual_p95_ns\":"
+        << json_string(model == nullptr
+                           ? "0.000000"
+                           : fixed_decimal(
+                                 model->composed_absolute_residual_p95_ns, 6))
         << ",\"device_id\":" << device.device_id
+        << ",\"direct_overlap_marker_count\":"
+        << (model == nullptr ? 0 : model->direct_overlap_marker_count)
         << ",\"drift_ppm\":"
         << json_string(model == nullptr
                            ? "0.000000"
@@ -175,6 +200,29 @@ std::string build_metadata_json(
         << ",\"epsilon_ns\":" << (model == nullptr ? 0 : model->epsilon_ns)
         << ",\"fit_marker_count\":"
         << (model == nullptr ? 0 : model->fit_marker_count)
+        << ",\"host_clock_absolute_residual_max_ns\":"
+        << json_string(model == nullptr
+                           ? "0.000000"
+                           : fixed_decimal(
+                                 model->host_clock_absolute_residual_max_ns, 6))
+        << ",\"host_clock_absolute_residual_p50_ns\":"
+        << json_string(model == nullptr
+                           ? "0.000000"
+                           : fixed_decimal(
+                                 model->host_clock_absolute_residual_p50_ns, 6))
+        << ",\"host_clock_absolute_residual_p95_ns\":"
+        << json_string(model == nullptr
+                           ? "0.000000"
+                           : fixed_decimal(
+                                 model->host_clock_absolute_residual_p95_ns, 6))
+        << ",\"host_clock_uncertainty_p95_ns\":"
+        << json_string(model == nullptr
+                           ? "0.000000"
+                           : fixed_decimal(
+                                 model->host_clock_uncertainty_p95_ns, 6))
+        << ",\"has_profiler_host_mapping\":"
+        << (model != nullptr && model->has_profiler_host_mapping ? "true"
+                                                                 : "false")
         << ",\"inlier_marker_count\":"
         << (model == nullptr ? 0 : model->inlier_marker_count)
         << ",\"input_marker_count\":"
@@ -183,6 +231,18 @@ std::string build_metadata_json(
         << json_string(model == nullptr
                            ? "0.000000"
                            : fixed_decimal(model->offset_ns, 6))
+        << ",\"ordinal_affine_fallback_marker_count\":"
+        << (model == nullptr ? 0
+                             : model->ordinal_affine_fallback_marker_count)
+        << ",\"profiler_to_marker_drift_ppm\":"
+        << json_string(model == nullptr
+                           ? "0.000000"
+                           : fixed_decimal(
+                                 model->profiler_to_marker_drift_ppm, 6))
+        << ",\"profiler_to_marker_scale\":"
+        << json_string(model == nullptr
+                           ? "1.000000000000"
+                           : fixed_scale(model->profiler_to_marker_scale))
         << ",\"reference_device_ns\":"
         << json_string(model == nullptr
                            ? "0.000000"
@@ -196,6 +256,9 @@ std::string build_metadata_json(
         << ",\"scale\":"
         << json_string(model == nullptr ? "1.000000000000"
                                         : fixed_scale(model->scale))
+        << ",\"source_clock_domain\":"
+        << json_string(model == nullptr ? "profiler_host"
+                                        : model->source_clock_domain)
         << ",\"span_end_ns\":" << nullable_integer(device.span_end_ns)
         << ",\"span_start_ns\":" << nullable_integer(device.span_start_ns)
         << ",\"status\":"
@@ -506,6 +569,13 @@ IdleEvidenceSqlRows build_idle_evidence_sql_rows(
     row.host_after_ns = input.host_after_ns;
     row.host_midpoint_ns =
         midpoint_floor(input.host_before_ns, input.host_after_ns);
+    row.has_profiler_host_interval = input.has_profiler_host_interval;
+    row.profiler_host_start_ns = input.profiler_host_start_ns;
+    row.profiler_host_end_ns = input.profiler_host_end_ns;
+    if (input.has_profiler_host_interval) {
+      row.profiler_host_midpoint_ns = midpoint_floor(
+          input.profiler_host_start_ns, input.profiler_host_end_ns);
+    }
     row.device_timestamp_ns = input.device_timestamp_ns;
     row.host_pid = input.host_pid;
     row.host_tid = input.host_tid;
@@ -519,6 +589,11 @@ IdleEvidenceSqlRows build_idle_evidence_sql_rows(
     row.marker_state = usage == marker_usage.end()
                            ? "unassigned"
                            : usage->second.second;
+    row.resolution_method =
+        clock_marker_resolution_method_name(input.resolution_method);
+    row.has_resolution_residual = input.has_resolution_residual;
+    row.resolution_residual_ns =
+        static_cast<double>(input.resolution_residual_ns);
     row.source_kind = source.source_kind;
     row.source_table = source.table_name;
     row.source_key = std::to_string(input.source_row_id);
@@ -536,6 +611,7 @@ IdleEvidenceSqlRows build_idle_evidence_sql_rows(
     row.db_idx = options.db_idx;
     row.device_id = input.device_id;
     row.source_clock_domain = input.source_clock_domain;
+    row.intermediate_clock_domain = input.intermediate_clock_domain;
     row.target_clock_domain = input.target_clock_domain;
     row.mapping_kind = input.mapping_kind;
     row.scale = fixed_scale(input.scale);
@@ -543,6 +619,26 @@ IdleEvidenceSqlRows build_idle_evidence_sql_rows(
     row.reference_host_ns = fixed_decimal(input.reference_host_ns, 6);
     row.reference_device_ns = fixed_decimal(input.reference_device_ns, 6);
     row.drift_ppm = static_cast<double>(input.drift_ppm);
+    row.has_profiler_host_mapping = input.has_profiler_host_mapping;
+    row.marker_to_device_scale = fixed_scale(input.marker_to_device_scale);
+    row.marker_to_device_offset_ns =
+        fixed_decimal(input.marker_to_device_offset_ns, 6);
+    row.reference_marker_host_ns =
+        fixed_decimal(input.reference_marker_host_ns, 6);
+    row.marker_reference_device_ns =
+        fixed_decimal(input.marker_reference_device_ns, 6);
+    row.marker_to_device_drift_ppm =
+        static_cast<double>(input.marker_to_device_drift_ppm);
+    row.profiler_to_marker_scale =
+        fixed_scale(input.profiler_to_marker_scale);
+    row.profiler_to_marker_offset_ns =
+        fixed_decimal(input.profiler_to_marker_offset_ns, 6);
+    row.reference_profiler_host_ns =
+        fixed_decimal(input.reference_profiler_host_ns, 6);
+    row.profiler_reference_marker_ns =
+        fixed_decimal(input.profiler_reference_marker_ns, 6);
+    row.profiler_to_marker_drift_ppm =
+        static_cast<double>(input.profiler_to_marker_drift_ppm);
     row.fit_method = input.fit_method;
     row.fit_method_version = input.fit_method_version;
     row.fit_random_seed = input.fit_random_seed;
@@ -559,6 +655,23 @@ IdleEvidenceSqlRows build_idle_evidence_sql_rows(
         static_cast<double>(input.absolute_residual_max_ns);
     row.bracket_uncertainty_p95_ns =
         static_cast<double>(input.bracket_uncertainty_p95_ns);
+    row.host_clock_absolute_residual_p50_ns =
+        static_cast<double>(input.host_clock_absolute_residual_p50_ns);
+    row.host_clock_absolute_residual_p95_ns =
+        static_cast<double>(input.host_clock_absolute_residual_p95_ns);
+    row.host_clock_absolute_residual_max_ns =
+        static_cast<double>(input.host_clock_absolute_residual_max_ns);
+    row.host_clock_uncertainty_p95_ns =
+        static_cast<double>(input.host_clock_uncertainty_p95_ns);
+    row.composed_absolute_residual_p50_ns =
+        static_cast<double>(input.composed_absolute_residual_p50_ns);
+    row.composed_absolute_residual_p95_ns =
+        static_cast<double>(input.composed_absolute_residual_p95_ns);
+    row.composed_absolute_residual_max_ns =
+        static_cast<double>(input.composed_absolute_residual_max_ns);
+    row.direct_overlap_marker_count = input.direct_overlap_marker_count;
+    row.ordinal_affine_fallback_marker_count =
+        input.ordinal_affine_fallback_marker_count;
     row.epsilon_ns = input.epsilon_ns;
     row.alignment_status = alignment_status_name(input.alignment_status);
     row.reason = input.reason;

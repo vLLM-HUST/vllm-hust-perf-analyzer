@@ -100,7 +100,7 @@ struct HostCorrelationRunResult {
   std::vector<HostIdleCandidateRow> candidates;
   std::string host_api_rules_version = "not_loaded";
   std::string host_api_rules_sha256;
-  std::string correlation_rule_version = "robust_host_correlation_v1";
+  std::string correlation_rule_version = "robust_host_correlation_v2";
 };
 
 HostCorrelationRunResult build_host_correlation(

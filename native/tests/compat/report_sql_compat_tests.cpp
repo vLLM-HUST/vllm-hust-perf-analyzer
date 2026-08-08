@@ -890,6 +890,54 @@ void seed_idle_evidence_fixture(const std::string& db_path) {
   evidence.matched_rule_id = "wait.event_wait";
   idle.evidence_links.push_back(std::move(evidence));
 
+  ClockModelSqlRow clock_model;
+  clock_model.clock_model_id = "clock-model-0";
+  clock_model.run_id = metadata.run_id;
+  clock_model.device_id = 0;
+  clock_model.source_clock_domain = "profiler_host";
+  clock_model.intermediate_clock_domain = "caller_clock_realtime";
+  clock_model.target_clock_domain = "device";
+  clock_model.mapping_kind = "composed_affine";
+  clock_model.has_profiler_host_mapping = true;
+  clock_model.alignment_status = "calibrated";
+  clock_model.reason = "audit fixture";
+  idle.clock_models.push_back(std::move(clock_model));
+
+  HostApiEventSqlRow host_api;
+  host_api.api_event_id = "host-api-1";
+  host_api.run_id = metadata.run_id;
+  host_api.start_ns = 90;
+  host_api.end_ns = 100;
+  host_api.duration_ns = 10;
+  host_api.duration_us = 0.01;
+  host_api.global_tid = 456;
+  host_api.connection_id = 42;
+  host_api.api_name = "aclrtLaunchKernel";
+  host_api.api_family = "enqueue";
+  host_api.has_device_id = true;
+  host_api.device_id = 0;
+  host_api.source_kind = "fixture";
+  host_api.source_table = "CANN_API";
+  host_api.source_key = "21";
+  host_api.contract_version = metadata.contract_version;
+  host_api.host_api_rules_version = "audit-host-rules-v1";
+  idle.host_api_events.push_back(std::move(host_api));
+
+  TaskApiLinkSqlRow task_api_link;
+  task_api_link.task_api_link_id = "task-api-link-1";
+  task_api_link.run_id = metadata.run_id;
+  task_api_link.api_event_id = "host-api-1";
+  task_api_link.trace_event_id = wait_event.event_id;
+  task_api_link.has_device_id = true;
+  task_api_link.device_id = 0;
+  task_api_link.has_stream_id = true;
+  task_api_link.stream_id = 7;
+  task_api_link.connection_id = 42;
+  task_api_link.link_status = "unique";
+  task_api_link.api_name = "aclrtLaunchKernel";
+  task_api_link.task_type = "EVENT_WAIT";
+  idle.task_api_links.push_back(std::move(task_api_link));
+
   const auto add_anchor_idle = [&](const std::string& category,
                                    const std::string& level,
                                    std::uint64_t duration_ns) {
@@ -1052,6 +1100,10 @@ std::vector<QueryCase> active_query_cases() {
               "evidence_source_errors",
               "evidence_extent_errors",
               "evidence_owner_errors",
+              "host_explanation_contract_errors",
+              "cross_clock_fail_closed_errors",
+              "host_evidence_source_errors",
+              "queued_task_link_errors",
               "anchor_orphan_errors",
               "node_orphan_errors",
               "anchor_attributed_ns",
@@ -1336,13 +1388,13 @@ int main() {
       require(result.first_row[5] == "200");
       require(result.first_row[6] == "2");
       require(result.first_row[7] == "200");
-      for (std::size_t index = 8; index <= 17; ++index) {
+      for (std::size_t index = 8; index <= 21; ++index) {
         require(result.first_row[index] == "0");
       }
-      require(result.first_row[18] == "200");
-      require(result.first_row[19] == "200");
-      require(result.first_row[20] == "0");
-      require(result.first_row[21] == "PASS");
+      require(result.first_row[22] == "200");
+      require(result.first_row[23] == "200");
+      require(result.first_row[24] == "0");
+      require(result.first_row[25] == "PASS");
 
       execute_sql(db_path,
                   "UPDATE traceloom_idle_explanation "
@@ -1350,7 +1402,7 @@ int main() {
                   "WHERE idle_explanation_id = 'explanation-wait'");
       const QueryResult corrupted = run_query(db_path, query_case);
       require(corrupted.row_count == 1);
-      require(corrupted.first_row[21] == "FAIL");
+      require(corrupted.first_row[25] == "FAIL");
 
       execute_sql(db_path,
                   "UPDATE traceloom_idle_explanation "
@@ -1362,7 +1414,76 @@ int main() {
       const QueryResult escaped_extent = run_query(db_path, query_case);
       require(escaped_extent.row_count == 1);
       require(escaped_extent.first_row[14] == "1");
-      require(escaped_extent.first_row[21] == "FAIL");
+      require(escaped_extent.first_row[25] == "FAIL");
+
+      execute_sql(
+          db_path,
+          "UPDATE traceloom_evidence_link SET overlap_end_ns = 150, "
+          "source_table = 'CANN_API', source_key = '21', "
+          "trace_event_id = '', relation = 'temporal_overlap', "
+          "evidence_level = 'correlated' "
+          "WHERE owner_id = 'explanation-wait'; "
+          "UPDATE traceloom_idle_explanation SET "
+          "category = 'host_sync_api_present', "
+          "evidence_level = 'correlated', "
+          "evidence_relation = 'temporal_overlap', "
+          "alignment_status = 'calibrated' "
+          "WHERE idle_explanation_id = 'explanation-wait'");
+      const QueryResult valid_host_sync = run_query(db_path, query_case);
+      require(valid_host_sync.first_row[16] == "0" &&
+              valid_host_sync.first_row[17] == "0" &&
+              valid_host_sync.first_row[18] == "0" &&
+              valid_host_sync.first_row[25] == "PASS");
+
+      execute_sql(db_path,
+                  "UPDATE traceloom_clock_model "
+                  "SET alignment_status = 'invalid'");
+      const QueryResult invalid_clock = run_query(db_path, query_case);
+      require(invalid_clock.first_row[17] == "1" &&
+              invalid_clock.first_row[25] == "FAIL");
+
+      execute_sql(
+          db_path,
+          "UPDATE traceloom_clock_model SET alignment_status = 'calibrated'; "
+          "UPDATE traceloom_idle_explanation SET "
+          "category = 'queued_visible_task_delay', "
+          "evidence_relation = 'exact_connection_id' "
+          "WHERE idle_explanation_id = 'explanation-wait'; "
+          "UPDATE traceloom_evidence_link SET "
+          "relation = 'exact_connection_id' "
+          "WHERE owner_id = 'explanation-wait'; "
+          "INSERT INTO traceloom_evidence_link ("
+          "owner_kind, owner_id, evidence_ordinal, source_kind, source_table, "
+          "source_key, relation, evidence_level, overlap_start_ns, "
+          "overlap_end_ns, stream_id, state, trace_event_id, matched_rule_id) "
+          "VALUES ('explanation', 'explanation-wait', 1, 'fixture', 'TASK', "
+          "'17', 'exact_connection_id', 'correlated', 100, 150, 7, NULL, "
+          "'event-wait-1', NULL)");
+      const QueryResult valid_queued = run_query(db_path, query_case);
+      require(valid_queued.first_row[19] == "0" &&
+              valid_queued.first_row[25] == "PASS");
+
+      execute_sql(
+          db_path,
+          "INSERT INTO traceloom_task_api_link ("
+          "task_api_link_id, run_id, api_event_id, trace_event_id, db_idx, "
+          "device_id, stream_id, connection_id, link_status, api_name, "
+          "task_type) SELECT 'task-api-link-duplicate', run_id, api_event_id, "
+          "trace_event_id, db_idx, device_id, stream_id, connection_id, "
+          "link_status, api_name, task_type FROM traceloom_task_api_link "
+          "WHERE task_api_link_id = 'task-api-link-1'");
+      const QueryResult duplicate_queued = run_query(db_path, query_case);
+      require(duplicate_queued.first_row[19] == "1" &&
+              duplicate_queued.first_row[25] == "FAIL");
+
+      execute_sql(db_path,
+                  "DELETE FROM traceloom_task_api_link "
+                  "WHERE task_api_link_id = 'task-api-link-duplicate'; "
+                  "UPDATE traceloom_task_api_link "
+                  "SET link_status = 'ambiguous'");
+      const QueryResult ambiguous_queued = run_query(db_path, query_case);
+      require(ambiguous_queued.first_row[19] == "1" &&
+              ambiguous_queued.first_row[25] == "FAIL");
     } else if (query_case.filename == "idle-evidence-summary.sql") {
       require(result.row_count == 2);
       require(result.first_row[0] == "golden-run");

@@ -199,6 +199,82 @@ with interval_totals as (
         end) as owner_errors
   from evidence_with_run l
   group by l.run_id
+), cross_clock_errors as (
+  select
+    e.run_id,
+    sum(case
+          when e.evidence_level != 'correlated'
+            or e.alignment_status not in ('calibrated', 'synthetic_only')
+            or (e.category = 'host_sync_api_present' and
+                e.evidence_relation != 'temporal_overlap')
+            or (e.category = 'queued_visible_task_delay' and
+                e.evidence_relation != 'exact_connection_id')
+            then 1 else 0
+        end) as explanation_contract_errors,
+    sum(case
+          when 1 != (
+            select count(*)
+            from traceloom_clock_model m
+            where m.run_id = e.run_id
+              and m.device_id = e.device_id
+              and m.alignment_status = e.alignment_status
+              and m.alignment_status in ('calibrated', 'synthetic_only')
+              and m.has_profiler_host_mapping = 1
+              and m.source_clock_domain = 'profiler_host'
+              and m.intermediate_clock_domain = 'caller_clock_realtime'
+              and m.target_clock_domain = 'device'
+              and m.mapping_kind = 'composed_affine'
+          ) then 1 else 0
+        end) as fail_closed_errors,
+    sum(case
+          when not exists (
+            select 1
+            from traceloom_evidence_link l
+            join traceloom_host_api_event h
+              on h.run_id = e.run_id
+             and h.source_kind = l.source_kind
+             and h.source_table = l.source_table
+             and h.source_key = l.source_key
+            where l.owner_kind = 'explanation'
+              and l.owner_id = e.idle_explanation_id
+              and l.relation = e.evidence_relation
+              and l.evidence_level = 'correlated'
+              and h.clock_domain = 'profiler_host'
+          ) then 1 else 0
+        end) as host_source_errors,
+    sum(case
+          when e.category = 'queued_visible_task_delay' and 1 != (
+            select count(*)
+            from traceloom_evidence_link host_link
+            join traceloom_host_api_event h
+              on h.run_id = e.run_id
+             and h.source_kind = host_link.source_kind
+             and h.source_table = host_link.source_table
+             and h.source_key = host_link.source_key
+            join traceloom_task_api_link t
+              on t.run_id = e.run_id
+             and t.api_event_id = h.api_event_id
+             and t.device_id = e.device_id
+             and t.link_status = 'unique'
+             and t.connection_id = h.connection_id
+            join traceloom_evidence_link task_link
+              on task_link.owner_kind = 'explanation'
+             and task_link.owner_id = e.idle_explanation_id
+             and task_link.trace_event_id = t.trace_event_id
+             and task_link.relation = 'exact_connection_id'
+             and task_link.evidence_level = 'correlated'
+            where host_link.owner_kind = 'explanation'
+              and host_link.owner_id = e.idle_explanation_id
+              and host_link.relation = 'exact_connection_id'
+              and host_link.evidence_level = 'correlated'
+              and h.connection_id is not null
+          ) then 1 else 0
+        end) as queued_task_link_errors
+  from traceloom_idle_explanation e
+  where e.category in (
+    'host_sync_api_present', 'queued_visible_task_delay'
+  )
+  group by e.run_id
 ), anchor_totals as (
   select
     run_id,
@@ -242,6 +318,11 @@ select
   coalesce(v.source_errors, 0) as evidence_source_errors,
   coalesce(v.extent_errors, 0) as evidence_extent_errors,
   coalesce(v.owner_errors, 0) as evidence_owner_errors,
+  coalesce(c.explanation_contract_errors, 0) as
+    host_explanation_contract_errors,
+  coalesce(c.fail_closed_errors, 0) as cross_clock_fail_closed_errors,
+  coalesce(c.host_source_errors, 0) as host_evidence_source_errors,
+  coalesce(c.queued_task_link_errors, 0) as queued_task_link_errors,
   coalesce(a.orphan_rows, 0) as anchor_orphan_errors,
   coalesce(r.orphan_rows, 0) as node_orphan_errors,
   coalesce(a.anchor_attributed_ns, 0) as anchor_attributed_ns,
@@ -260,6 +341,10 @@ select
       or coalesce(v.source_errors, 0) != 0
       or coalesce(v.extent_errors, 0) != 0
       or coalesce(v.owner_errors, 0) != 0
+      or coalesce(c.explanation_contract_errors, 0) != 0
+      or coalesce(c.fail_closed_errors, 0) != 0
+      or coalesce(c.host_source_errors, 0) != 0
+      or coalesce(c.queued_task_link_errors, 0) != 0
       or coalesce(a.orphan_rows, 0) != 0
       or coalesce(r.orphan_rows, 0) != 0
       or coalesce(a.anchor_attributed_ns, 0) >
@@ -277,6 +362,7 @@ left join gap_partition_errors gp using (run_id)
 left join explanation_overlap_errors eo using (run_id)
 left join stream_partition_errors sp using (run_id)
 left join evidence_errors v using (run_id)
+left join cross_clock_errors c using (run_id)
 left join anchor_totals a using (run_id)
 left join root_totals r using (run_id)
 order by m.db_idx, m.run_id;

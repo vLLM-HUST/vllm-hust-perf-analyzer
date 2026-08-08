@@ -856,22 +856,34 @@ void insert_clock_marker_row(SqliteStmt& stmt, const ClockMarkerSqlRow& row) {
   bind_int64(stmt, 6, row.host_before_ns);
   bind_int64(stmt, 7, row.host_after_ns);
   bind_int64(stmt, 8, row.host_midpoint_ns);
-  bind_int64(stmt, 9, row.device_timestamp_ns);
-  bind_int64(stmt, 10, static_cast<sqlite3_int64>(row.host_pid));
-  bind_int64(stmt, 11, static_cast<sqlite3_int64>(row.host_tid));
-  bind_int64(stmt, 12, row.device_id);
+  row.has_profiler_host_interval
+      ? bind_int64(stmt, 9, row.profiler_host_start_ns)
+      : bind_null(stmt, 9);
+  row.has_profiler_host_interval
+      ? bind_int64(stmt, 10, row.profiler_host_end_ns)
+      : bind_null(stmt, 10);
+  row.has_profiler_host_interval
+      ? bind_int64(stmt, 11, row.profiler_host_midpoint_ns)
+      : bind_null(stmt, 11);
+  bind_int64(stmt, 12, row.device_timestamp_ns);
+  bind_int64(stmt, 13, static_cast<sqlite3_int64>(row.host_pid));
+  bind_int64(stmt, 14, static_cast<sqlite3_int64>(row.host_tid));
+  bind_int64(stmt, 15, row.device_id);
   row.has_stream_id
-      ? bind_int64(stmt, 13, static_cast<sqlite3_int64>(row.stream_id))
-      : bind_null(stmt, 13);
-  row.has_connection_id ? bind_int64(stmt, 14, row.connection_id)
-                        : bind_null(stmt, 14);
-  bind_text(stmt, 15, row.call_site);
-  bind_int64(stmt, 16, row.return_status);
-  bind_text(stmt, 17, row.marker_state);
-  bind_text(stmt, 18, row.source_kind);
-  bind_text(stmt, 19, row.source_table);
-  bind_text(stmt, 20, row.source_key);
-  bind_text(stmt, 21, row.contract_version);
+      ? bind_int64(stmt, 16, static_cast<sqlite3_int64>(row.stream_id))
+      : bind_null(stmt, 16);
+  row.has_connection_id ? bind_int64(stmt, 17, row.connection_id)
+                        : bind_null(stmt, 17);
+  bind_text(stmt, 18, row.call_site);
+  bind_int64(stmt, 19, row.return_status);
+  bind_text(stmt, 20, row.marker_state);
+  bind_text(stmt, 21, row.resolution_method);
+  row.has_resolution_residual ? bind_double(stmt, 22, row.resolution_residual_ns)
+                              : bind_null(stmt, 22);
+  bind_text(stmt, 23, row.source_kind);
+  bind_text(stmt, 24, row.source_table);
+  bind_text(stmt, 25, row.source_key);
+  bind_text(stmt, 26, row.contract_version);
   finish_idle_insert(stmt, "clock marker");
 }
 
@@ -881,29 +893,53 @@ void insert_clock_model_row(SqliteStmt& stmt, const ClockModelSqlRow& row) {
   bind_int64(stmt, 3, row.db_idx);
   bind_int64(stmt, 4, row.device_id);
   bind_text(stmt, 5, row.source_clock_domain);
-  bind_text(stmt, 6, row.target_clock_domain);
-  bind_text(stmt, 7, row.mapping_kind);
-  bind_text(stmt, 8, row.scale);
-  bind_text(stmt, 9, row.offset_ns);
-  bind_text(stmt, 10, row.reference_host_ns);
-  bind_text(stmt, 11, row.reference_device_ns);
-  bind_double(stmt, 12, row.drift_ppm);
-  bind_text(stmt, 13, row.fit_method);
-  bind_text(stmt, 14, row.fit_method_version);
-  bind_int64(stmt, 15, static_cast<sqlite3_int64>(row.fit_random_seed));
-  bind_int64(stmt, 16, static_cast<sqlite3_int64>(row.input_marker_count));
-  bind_int64(stmt, 17, static_cast<sqlite3_int64>(row.inlier_marker_count));
-  bind_int64(stmt, 18, static_cast<sqlite3_int64>(row.rejected_marker_count));
-  bind_int64(stmt, 19, static_cast<sqlite3_int64>(row.fit_marker_count));
-  bind_int64(stmt, 20,
+  bind_text(stmt, 6, row.intermediate_clock_domain);
+  bind_text(stmt, 7, row.target_clock_domain);
+  bind_text(stmt, 8, row.mapping_kind);
+  bind_text(stmt, 9, row.scale);
+  bind_text(stmt, 10, row.offset_ns);
+  bind_text(stmt, 11, row.reference_host_ns);
+  bind_text(stmt, 12, row.reference_device_ns);
+  bind_double(stmt, 13, row.drift_ppm);
+  bind_int64(stmt, 14, row.has_profiler_host_mapping ? 1 : 0);
+  bind_text(stmt, 15, row.marker_to_device_scale);
+  bind_text(stmt, 16, row.marker_to_device_offset_ns);
+  bind_text(stmt, 17, row.reference_marker_host_ns);
+  bind_text(stmt, 18, row.marker_reference_device_ns);
+  bind_double(stmt, 19, row.marker_to_device_drift_ppm);
+  bind_text(stmt, 20, row.profiler_to_marker_scale);
+  bind_text(stmt, 21, row.profiler_to_marker_offset_ns);
+  bind_text(stmt, 22, row.reference_profiler_host_ns);
+  bind_text(stmt, 23, row.profiler_reference_marker_ns);
+  bind_double(stmt, 24, row.profiler_to_marker_drift_ppm);
+  bind_text(stmt, 25, row.fit_method);
+  bind_text(stmt, 26, row.fit_method_version);
+  bind_int64(stmt, 27, static_cast<sqlite3_int64>(row.fit_random_seed));
+  bind_int64(stmt, 28, static_cast<sqlite3_int64>(row.input_marker_count));
+  bind_int64(stmt, 29, static_cast<sqlite3_int64>(row.inlier_marker_count));
+  bind_int64(stmt, 30, static_cast<sqlite3_int64>(row.rejected_marker_count));
+  bind_int64(stmt, 31, static_cast<sqlite3_int64>(row.fit_marker_count));
+  bind_int64(stmt, 32,
              static_cast<sqlite3_int64>(row.validation_marker_count));
-  bind_double(stmt, 21, row.absolute_residual_p50_ns);
-  bind_double(stmt, 22, row.absolute_residual_p95_ns);
-  bind_double(stmt, 23, row.absolute_residual_max_ns);
-  bind_double(stmt, 24, row.bracket_uncertainty_p95_ns);
-  bind_int64(stmt, 25, static_cast<sqlite3_int64>(row.epsilon_ns));
-  bind_text(stmt, 26, row.alignment_status);
-  bind_text(stmt, 27, row.reason);
+  bind_double(stmt, 33, row.absolute_residual_p50_ns);
+  bind_double(stmt, 34, row.absolute_residual_p95_ns);
+  bind_double(stmt, 35, row.absolute_residual_max_ns);
+  bind_double(stmt, 36, row.bracket_uncertainty_p95_ns);
+  bind_double(stmt, 37, row.host_clock_absolute_residual_p50_ns);
+  bind_double(stmt, 38, row.host_clock_absolute_residual_p95_ns);
+  bind_double(stmt, 39, row.host_clock_absolute_residual_max_ns);
+  bind_double(stmt, 40, row.host_clock_uncertainty_p95_ns);
+  bind_double(stmt, 41, row.composed_absolute_residual_p50_ns);
+  bind_double(stmt, 42, row.composed_absolute_residual_p95_ns);
+  bind_double(stmt, 43, row.composed_absolute_residual_max_ns);
+  bind_int64(stmt, 44,
+             static_cast<sqlite3_int64>(row.direct_overlap_marker_count));
+  bind_int64(
+      stmt, 45,
+      static_cast<sqlite3_int64>(row.ordinal_affine_fallback_marker_count));
+  bind_int64(stmt, 46, static_cast<sqlite3_int64>(row.epsilon_ns));
+  bind_text(stmt, 47, row.alignment_status);
+  bind_text(stmt, 48, row.reason);
   finish_idle_insert(stmt, "clock model");
 }
 
@@ -2853,11 +2889,13 @@ void replace_idle_evidence_rows(const std::string& sqlite_path,
         db.get(),
         "INSERT INTO traceloom_clock_marker (clock_marker_id, run_id, "
         "clock_model_id, db_idx, marker_id, host_before_ns, host_after_ns, "
-        "host_midpoint_ns, device_timestamp_ns, host_pid, host_tid, device_id, "
-        "stream_id, connection_id, call_site, return_status, marker_state, "
-        "source_kind, source_table, source_key, contract_version) "
+        "host_midpoint_ns, profiler_host_start_ns, profiler_host_end_ns, "
+        "profiler_host_midpoint_ns, device_timestamp_ns, host_pid, host_tid, "
+        "device_id, stream_id, connection_id, call_site, return_status, "
+        "marker_state, resolution_method, resolution_residual_ns, source_kind, "
+        "source_table, source_key, contract_version) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
-        "?)");
+        "?, ?, ?, ?, ?, ?)");
     for (const ClockMarkerSqlRow& row : rows.clock_markers) {
       insert_clock_marker_row(marker_stmt, row);
     }
@@ -2865,15 +2903,29 @@ void replace_idle_evidence_rows(const std::string& sqlite_path,
     SqliteStmt clock_stmt(
         db.get(),
         "INSERT INTO traceloom_clock_model (clock_model_id, run_id, db_idx, "
-        "device_id, source_clock_domain, target_clock_domain, mapping_kind, "
-        "scale, offset_ns, reference_host_ns, reference_device_ns, drift_ppm, "
-        "fit_method, fit_method_version, fit_random_seed, input_marker_count, "
+        "device_id, source_clock_domain, intermediate_clock_domain, "
+        "target_clock_domain, mapping_kind, scale, offset_ns, reference_host_ns, "
+        "reference_device_ns, drift_ppm, has_profiler_host_mapping, "
+        "marker_to_device_scale, marker_to_device_offset_ns, "
+        "reference_marker_host_ns, marker_reference_device_ns, "
+        "marker_to_device_drift_ppm, profiler_to_marker_scale, "
+        "profiler_to_marker_offset_ns, reference_profiler_host_ns, "
+        "profiler_reference_marker_ns, profiler_to_marker_drift_ppm, fit_method, "
+        "fit_method_version, fit_random_seed, input_marker_count, "
         "inlier_marker_count, rejected_marker_count, fit_marker_count, "
         "validation_marker_count, absolute_residual_p50_ns, "
         "absolute_residual_p95_ns, absolute_residual_max_ns, "
-        "bracket_uncertainty_p95_ns, epsilon_ns, alignment_status, reason) "
+        "bracket_uncertainty_p95_ns, host_clock_absolute_residual_p50_ns, "
+        "host_clock_absolute_residual_p95_ns, "
+        "host_clock_absolute_residual_max_ns, host_clock_uncertainty_p95_ns, "
+        "composed_absolute_residual_p50_ns, "
+        "composed_absolute_residual_p95_ns, "
+        "composed_absolute_residual_max_ns, "
+        "direct_overlap_marker_count, ordinal_affine_fallback_marker_count, "
+        "epsilon_ns, alignment_status, reason) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
-        "?, ?, ?, ?, ?, ?, ?, ?)");
+        "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+        "?, ?, ?, ?, ?, ?, ?)");
     for (const ClockModelSqlRow& row : rows.clock_models) {
       insert_clock_model_row(clock_stmt, row);
     }

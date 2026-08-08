@@ -387,8 +387,7 @@ HostCorrelationRunResult build_host_correlation(
       continue;
     }
     const ClockModel* model = alignment.find_device(device_id);
-    if (model == nullptr ||
-        !alignment_supports_cross_clock_evidence(model->alignment_status)) {
+    if (model == nullptr || !clock_model_supports_cross_clock_evidence(*model)) {
       continue;
     }
     if (match->family == HostApiFamily::kHostSync) {
