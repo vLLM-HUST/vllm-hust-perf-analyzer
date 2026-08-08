@@ -157,14 +157,17 @@ absence claim.
 `traceloom_clock_marker` preserves every frozen marker input, source
 provenance, fit/validation/rejected state, and the model it belongs to. Runtime
 resolved rows additionally retain the matched profiler-host start/end/midpoint,
+the caller `record_after_ns` and narrow record-call midpoint,
 `resolution_method` (`direct_overlap` or `ordinal_affine_fallback`), and the
 fallback residual when applicable.
 `traceloom_clock_model` stores the composed profiler-host→caller-realtime→device
 reference-point model, both affine component parameter sets, fixed-scale
 serialization, component drift, fit/holdout counts, marker→device and
-profiler→marker residual distributions, the composed profiler→device holdout
-distribution, bracket uncertainty, the converted host-clock uncertainty
-contribution, epsilon, and explicit `calibrated`, `synthetic_only`,
+profiler→caller residual distributions, the composed profiler→device holdout
+distribution (diagnostic, not an independent correctness check), the outer
+device-marker and narrow record-call bracket uncertainties, the converted
+host-clock uncertainty contribution, reference-coordinate `offset_ns`, separate
+affine `intercept_ns`, epsilon, and explicit `calibrated`, `synthetic_only`,
 `uncalibrated`, or `invalid` status. Invalid and uncalibrated rows remain
 materialized so absence of cross-clock promotion is auditable.
 

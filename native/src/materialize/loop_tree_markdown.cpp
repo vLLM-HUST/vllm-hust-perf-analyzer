@@ -356,8 +356,16 @@ void write_loop_tree_markdown(std::ostream& out,
       out << "- intermediate_clock_domain: `"
           << options.idle_clock_intermediate_domain << "`\n";
       out << "- mapping_kind: `" << options.idle_clock_mapping_kind << "`\n";
+      out << "- profiler_caller_observation_kind: `"
+          << options.idle_clock_profiler_caller_observation_kind << "`\n";
+      out << "- marker_device_observation_kind: `"
+          << options.idle_clock_marker_device_observation_kind << "`\n";
       out << "- scale: `" << fixed_decimal(options.idle_clock_scale, 12)
           << "`\n";
+      out << "- offset_ns: `"
+          << fixed_decimal(options.idle_clock_offset_ns, 6) << "`\n";
+      out << "- intercept_ns: `"
+          << fixed_decimal(options.idle_clock_intercept_ns, 6) << "`\n";
       out << "- drift_ppm: `"
           << fixed_decimal(options.idle_clock_drift_ppm, 6) << "`\n";
       out << "- profiler_to_marker_scale: `"
@@ -400,6 +408,11 @@ void write_loop_tree_markdown(std::ostream& out,
           << "`\n";
       out << "- host_clock_uncertainty_p95_ns: `"
           << fixed_decimal(options.idle_clock_host_uncertainty_p95_ns, 6)
+          << "`\n";
+      out << "- profiler_to_caller_bracket_uncertainty_p95_ns: `"
+          << fixed_decimal(
+                 options.idle_clock_profiler_caller_bracket_uncertainty_p95_ns,
+                 6)
           << "`\n";
       out << "- composed_absolute_residual_p50_ns: `"
           << fixed_decimal(options.idle_clock_composed_residual_p50_ns, 6)

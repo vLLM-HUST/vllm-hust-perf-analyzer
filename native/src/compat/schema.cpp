@@ -694,6 +694,8 @@ const CompatTableSchema& clock_marker_table_schema() {
           {"source_table", CompatColumnType::kText, false},
           {"source_key", CompatColumnType::kText, false},
           {"contract_version", CompatColumnType::kText, false},
+          {"record_after_ns", CompatColumnType::kInteger, true},
+          {"record_midpoint_ns", CompatColumnType::kInteger, true},
       },
   };
   return schema;
@@ -758,6 +760,11 @@ const CompatTableSchema& clock_model_table_schema() {
           {"epsilon_ns", CompatColumnType::kInteger, false},
           {"alignment_status", CompatColumnType::kText, false},
           {"reason", CompatColumnType::kText, false},
+          {"profiler_caller_observation_kind", CompatColumnType::kText, false},
+          {"marker_device_observation_kind", CompatColumnType::kText, false},
+          {"intercept_ns", CompatColumnType::kText, false},
+          {"profiler_to_caller_bracket_uncertainty_p95_ns",
+           CompatColumnType::kReal, false},
       },
   };
   return schema;

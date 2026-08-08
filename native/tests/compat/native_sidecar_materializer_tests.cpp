@@ -647,7 +647,7 @@ int main() {
         correlated_ir.symbols.intern("sidecar-test"), 0, true,
         kHostClockBase + timestamp, kHostClockBase + timestamp,
         ClockMarkerResolutionMethod::kOrdinalAffineFallback, true,
-        static_cast<long double>(index));
+        static_cast<long double>(index), true, kHostClockBase + timestamp);
   }
   const SourceRefId host_source = correlated_ir.source_refs.append(
       "synthetic", "host-api.db", "CANN_API", 0);
@@ -673,6 +673,12 @@ int main() {
                           "intermediate_clock_domain || ':' || mapping_kind "
                           "FROM traceloom_clock_model") ==
           "profiler_host:caller_clock_realtime:composed_affine");
+  require(run_scalar_text(
+              correlated_db_path,
+              "SELECT profiler_caller_observation_kind || ':' || "
+              "marker_device_observation_kind FROM traceloom_clock_model") ==
+          "record_api_midpoint_to_record_bracket_midpoint:"
+          "record_sync_bracket_midpoint_to_task_start");
   require(run_scalar_int(correlated_db_path,
                          "SELECT has_profiler_host_mapping FROM "
                          "traceloom_clock_model") == 1);
@@ -691,6 +697,11 @@ int main() {
                           "traceloom_clock_model") == "5000.000000");
   require(run_scalar_int(correlated_db_path,
                          "SELECT COUNT(*) FROM traceloom_clock_marker") == 11);
+  require(run_scalar_int(
+              correlated_db_path,
+              "SELECT COUNT(*) FROM traceloom_clock_marker "
+              "WHERE record_after_ns IS NOT NULL "
+              "AND record_midpoint_ns IS NOT NULL") == 11);
   require(run_scalar_int(correlated_db_path,
                          "SELECT COUNT(*) FROM traceloom_clock_marker "
                          "WHERE marker_state = 'fit_marker'") == 9);
@@ -725,6 +736,11 @@ int main() {
                           "SELECT json_extract(metadata_json, "
                           "'$.devices[0].alignment_status') FROM "
                           "traceloom_run_metadata") == "synthetic_only");
+  require(run_scalar_text(correlated_db_path,
+                          "SELECT contract_version || ':' || "
+                          "attribution_rule_version FROM "
+                          "traceloom_run_metadata") ==
+          "idle-evidence-contract-v4.4:host_device_projection_v2");
   std::remove(correlated_db_path.c_str());
 
   // E3 inspects unknown intervals that E2 intentionally excludes from the

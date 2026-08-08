@@ -803,10 +803,10 @@ void seed_idle_evidence_fixture(const std::string& db_path) {
   metadata.has_span = true;
   metadata.span_start_ns = 0;
   metadata.span_end_ns = 400;
-  metadata.contract_version = "idle-evidence-contract-v4.3";
+  metadata.contract_version = "idle-evidence-contract-v4.4";
   metadata.semantic_rules_version = "idle-evidence-semantic-v1";
   metadata.semantic_rules_sha256 = "golden-semantic-sha";
-  metadata.attribution_rule_version = "device_projection_v1";
+  metadata.attribution_rule_version = "host_device_projection_v2";
   metadata.host_api_rules_version = "not_loaded";
   metadata.collection_status = "unknown";
   metadata.source_kind = "fixture";
@@ -898,6 +898,10 @@ void seed_idle_evidence_fixture(const std::string& db_path) {
   clock_model.intermediate_clock_domain = "caller_clock_realtime";
   clock_model.target_clock_domain = "device";
   clock_model.mapping_kind = "composed_affine";
+  clock_model.profiler_caller_observation_kind =
+      "record_api_midpoint_to_record_bracket_midpoint";
+  clock_model.marker_device_observation_kind =
+      "record_sync_bracket_midpoint_to_task_start";
   clock_model.has_profiler_host_mapping = true;
   clock_model.alignment_status = "calibrated";
   clock_model.reason = "audit fixture";
@@ -1428,12 +1432,21 @@ int main() {
           "evidence_level = 'correlated', "
           "evidence_relation = 'temporal_overlap', "
           "alignment_status = 'calibrated' "
-          "WHERE idle_explanation_id = 'explanation-wait'");
+          "WHERE idle_explanation_id = 'explanation-wait'; "
+          "UPDATE traceloom_host_api_event SET api_family = 'host_sync' "
+          "WHERE api_event_id = 'host-api-1'");
       const QueryResult valid_host_sync = run_query(db_path, query_case);
       require(valid_host_sync.first_row[16] == "0" &&
               valid_host_sync.first_row[17] == "0" &&
               valid_host_sync.first_row[18] == "0" &&
               valid_host_sync.first_row[25] == "PASS");
+
+      execute_sql(db_path,
+                  "UPDATE traceloom_host_api_event SET api_family = 'enqueue' "
+                  "WHERE api_event_id = 'host-api-1'");
+      const QueryResult wrong_sync_family = run_query(db_path, query_case);
+      require(wrong_sync_family.first_row[18] == "1" &&
+              wrong_sync_family.first_row[25] == "FAIL");
 
       execute_sql(db_path,
                   "UPDATE traceloom_clock_model "
@@ -1445,6 +1458,8 @@ int main() {
       execute_sql(
           db_path,
           "UPDATE traceloom_clock_model SET alignment_status = 'calibrated'; "
+          "UPDATE traceloom_host_api_event SET api_family = 'enqueue' "
+          "WHERE api_event_id = 'host-api-1'; "
           "UPDATE traceloom_idle_explanation SET "
           "category = 'queued_visible_task_delay', "
           "evidence_relation = 'exact_connection_id' "
@@ -1462,6 +1477,16 @@ int main() {
       const QueryResult valid_queued = run_query(db_path, query_case);
       require(valid_queued.first_row[19] == "0" &&
               valid_queued.first_row[25] == "PASS");
+
+      execute_sql(db_path,
+                  "UPDATE traceloom_host_api_event SET api_family = 'host_sync' "
+                  "WHERE api_event_id = 'host-api-1'");
+      const QueryResult wrong_queued_family = run_query(db_path, query_case);
+      require(wrong_queued_family.first_row[18] == "1" &&
+              wrong_queued_family.first_row[25] == "FAIL");
+      execute_sql(db_path,
+                  "UPDATE traceloom_host_api_event SET api_family = 'enqueue' "
+                  "WHERE api_event_id = 'host-api-1'");
 
       execute_sql(
           db_path,

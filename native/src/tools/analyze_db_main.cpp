@@ -780,7 +780,14 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
                 clock_model->intermediate_clock_domain;
             markdown_options.idle_clock_mapping_kind =
                 clock_model->mapping_kind;
+            markdown_options.idle_clock_profiler_caller_observation_kind =
+                clock_model->profiler_caller_observation_kind;
+            markdown_options.idle_clock_marker_device_observation_kind =
+                clock_model->marker_device_observation_kind;
             markdown_options.idle_clock_scale = clock_model->scale;
+            markdown_options.idle_clock_offset_ns = clock_model->offset_ns;
+            markdown_options.idle_clock_intercept_ns =
+                clock_model->intercept_ns;
             markdown_options.idle_clock_drift_ppm = clock_model->drift_ppm;
             markdown_options.idle_clock_profiler_to_marker_scale =
                 clock_model->profiler_to_marker_scale;
@@ -812,6 +819,9 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
                 clock_model->host_clock_absolute_residual_max_ns;
             markdown_options.idle_clock_host_uncertainty_p95_ns =
                 clock_model->host_clock_uncertainty_p95_ns;
+            markdown_options
+                .idle_clock_profiler_caller_bracket_uncertainty_p95_ns =
+                clock_model->profiler_to_caller_bracket_uncertainty_p95_ns;
             markdown_options.idle_clock_composed_residual_p50_ns =
                 clock_model->composed_absolute_residual_p50_ns;
             markdown_options.idle_clock_composed_residual_p95_ns =

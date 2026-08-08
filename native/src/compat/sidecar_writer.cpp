@@ -884,6 +884,10 @@ void insert_clock_marker_row(SqliteStmt& stmt, const ClockMarkerSqlRow& row) {
   bind_text(stmt, 24, row.source_table);
   bind_text(stmt, 25, row.source_key);
   bind_text(stmt, 26, row.contract_version);
+  row.has_record_host_bracket ? bind_int64(stmt, 27, row.record_after_ns)
+                              : bind_null(stmt, 27);
+  row.has_record_host_bracket ? bind_int64(stmt, 28, row.record_midpoint_ns)
+                              : bind_null(stmt, 28);
   finish_idle_insert(stmt, "clock marker");
 }
 
@@ -940,6 +944,11 @@ void insert_clock_model_row(SqliteStmt& stmt, const ClockModelSqlRow& row) {
   bind_int64(stmt, 46, static_cast<sqlite3_int64>(row.epsilon_ns));
   bind_text(stmt, 47, row.alignment_status);
   bind_text(stmt, 48, row.reason);
+  bind_text(stmt, 49, row.profiler_caller_observation_kind);
+  bind_text(stmt, 50, row.marker_device_observation_kind);
+  bind_text(stmt, 51, row.intercept_ns);
+  bind_double(stmt, 52,
+              row.profiler_to_caller_bracket_uncertainty_p95_ns);
   finish_idle_insert(stmt, "clock model");
 }
 
@@ -2893,9 +2902,10 @@ void replace_idle_evidence_rows(const std::string& sqlite_path,
         "profiler_host_midpoint_ns, device_timestamp_ns, host_pid, host_tid, "
         "device_id, stream_id, connection_id, call_site, return_status, "
         "marker_state, resolution_method, resolution_residual_ns, source_kind, "
-        "source_table, source_key, contract_version) "
+        "source_table, source_key, contract_version, record_after_ns, "
+        "record_midpoint_ns) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
-        "?, ?, ?, ?, ?, ?)");
+        "?, ?, ?, ?, ?, ?, ?, ?)");
     for (const ClockMarkerSqlRow& row : rows.clock_markers) {
       insert_clock_marker_row(marker_stmt, row);
     }
@@ -2922,10 +2932,12 @@ void replace_idle_evidence_rows(const std::string& sqlite_path,
         "composed_absolute_residual_p95_ns, "
         "composed_absolute_residual_max_ns, "
         "direct_overlap_marker_count, ordinal_affine_fallback_marker_count, "
-        "epsilon_ns, alignment_status, reason) "
+        "epsilon_ns, alignment_status, reason, "
+        "profiler_caller_observation_kind, marker_device_observation_kind, "
+        "intercept_ns, profiler_to_caller_bracket_uncertainty_p95_ns) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
         "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
-        "?, ?, ?, ?, ?, ?, ?)");
+        "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     for (const ClockModelSqlRow& row : rows.clock_models) {
       insert_clock_model_row(clock_stmt, row);
     }

@@ -61,7 +61,11 @@ struct LoopTreeMarkdownOptions {
   std::string idle_clock_source_domain = "profiler_host";
   std::string idle_clock_intermediate_domain = "caller_clock_realtime";
   std::string idle_clock_mapping_kind = "composed_affine";
+  std::string idle_clock_profiler_caller_observation_kind;
+  std::string idle_clock_marker_device_observation_kind;
   long double idle_clock_scale = 1.0L;
+  long double idle_clock_offset_ns = 0.0L;
+  long double idle_clock_intercept_ns = 0.0L;
   long double idle_clock_drift_ppm = 0.0L;
   long double idle_clock_profiler_to_marker_scale = 1.0L;
   long double idle_clock_profiler_to_marker_drift_ppm = 0.0L;
@@ -78,6 +82,7 @@ struct LoopTreeMarkdownOptions {
   long double idle_clock_host_residual_p95_ns = 0.0L;
   long double idle_clock_host_residual_max_ns = 0.0L;
   long double idle_clock_host_uncertainty_p95_ns = 0.0L;
+  long double idle_clock_profiler_caller_bracket_uncertainty_p95_ns = 0.0L;
   long double idle_clock_composed_residual_p50_ns = 0.0L;
   long double idle_clock_composed_residual_p95_ns = 0.0L;
   long double idle_clock_composed_residual_max_ns = 0.0L;

@@ -40,7 +40,9 @@ ClockMarkerId ClockMarkerTable::append(
     std::int64_t profiler_host_end_ns,
     ClockMarkerResolutionMethod resolution_method,
     bool has_resolution_residual,
-    long double resolution_residual_ns) {
+    long double resolution_residual_ns,
+    bool has_record_host_bracket,
+    std::int64_t record_after_ns) {
   const ClockMarkerId id = checked_next_id<ClockMarkerId>(rows_.size());
   rows_.push_back(ClockMarkerRow{
       id, source_ref_id, source_row_id, marker_symbol_id, host_before_ns,
@@ -48,7 +50,8 @@ ClockMarkerId ClockMarkerTable::append(
       has_stream_id, stream_id, has_connection_id, raw_connection_id,
       call_site_symbol_id, return_status, has_profiler_host_interval,
       profiler_host_start_ns, profiler_host_end_ns, resolution_method,
-      has_resolution_residual, resolution_residual_ns});
+      has_resolution_residual, resolution_residual_ns,
+      has_record_host_bracket, record_after_ns});
   return id;
 }
 
