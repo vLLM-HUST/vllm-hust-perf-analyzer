@@ -34,14 +34,20 @@ NativeIr resolvable_ir(bool duplicate_record_api = false) {
   const SourceRefId api_source =
       ir.source_refs.append("synthetic", "fixture.db", "CANN_API", 0);
   const SymbolId event_record = ir.symbols.intern("EVENT_RECORD");
-  const TraceEventId event = ir.trace_events.append(
-      task_source, 1, 0, 7, 1000, 1001, event_record);
-  ir.tasks.append(task_source, event, 1, 1, 42, event_record, event_record,
-                  event_record, event_record, SymbolId::invalid());
   const std::uint64_t global_tid = (123ULL << 32u) | 456ULL;
-  ir.host_api_events.append(
-      api_source, 10, 95, 130, global_tid, 42, SymbolId::invalid(),
-      ir.symbols.intern("aclrtRecordEvent"), false, 0);
+  for (std::int64_t index = 0; index < 2; ++index) {
+    const std::int64_t connection_id = 42 + index;
+    const TraceEventId event = ir.trace_events.append(
+        task_source, static_cast<std::uint64_t>(index + 1), 0, 7,
+        1000 + index * 1000, 1001 + index * 1000, event_record);
+    ir.tasks.append(task_source, event, index + 1, index + 1, connection_id,
+                    event_record, event_record, event_record, event_record,
+                    SymbolId::invalid());
+    ir.host_api_events.append(
+        api_source, static_cast<std::uint64_t>(index + 10), 95 + index * 200,
+        130 + index * 200, global_tid, connection_id, SymbolId::invalid(),
+        ir.symbols.intern("aclrtRecordEvent"), false, 0);
+  }
   if (duplicate_record_api) {
     ir.host_api_events.append(
         api_source, 11, 140, 150, global_tid, 43, SymbolId::invalid(),
@@ -65,12 +71,13 @@ int main() {
         "host_pid\thost_tid\t"
         "device_id\tstream_id\tcall_site\treturn_status\n"
         "marker-0\t100\t140\t200\t123\t456\t0\t7\tunit-test\t0\n"
+        "marker-1\t300\t340\t400\t123\t456\t0\t7\tunit-test\t0\n"
         "marker-failed\t300\t305\t310\t123\t456\t0\t\tunit-test\t507000\n");
     const ClockMarkerTsvLoadResult result =
         resolve_ascend_clock_marker_bracket_tsv(path, ir);
-    require(result.marker_count == 2 && result.rejected_marker_count == 1,
+    require(result.marker_count == 3 && result.rejected_marker_count == 1,
             "bracket resolver reports successful and failed markers");
-    require(ir.clock_markers.size() == 2,
+    require(ir.clock_markers.size() == 3,
             "every bracket remains auditable in the marker table");
     const ClockMarkerRow& resolved = ir.clock_markers.row(ClockMarkerId(0));
     require(resolved.device_timestamp_ns == 1000 &&
@@ -83,14 +90,75 @@ int main() {
                 resolved.has_record_host_bracket &&
                 resolved.record_after_ns == 140 &&
                 resolved.resolution_method ==
-                    ClockMarkerResolutionMethod::kDirectOverlap &&
-                !resolved.has_resolution_residual,
-            "unique connectionId resolves bracket to TASK.startNs");
-    const ClockMarkerRow& failed = ir.clock_markers.row(ClockMarkerId(1));
+                    ClockMarkerResolutionMethod::kOrdinalAffineFallback &&
+                resolved.has_resolution_residual,
+            "validated sequence resolves bracket to TASK.startNs");
+    const ClockMarkerRow& failed = ir.clock_markers.row(ClockMarkerId(2));
     require(failed.return_status == 507000 &&
                 failed.device_timestamp_ns == -1 &&
                 !failed.has_connection_id,
             "failed collection is retained but cannot enter calibration");
+    std::remove(path.c_str());
+  }
+
+  {
+    NativeIr ir;
+    const SourceRefId task_source =
+        ir.source_refs.append("synthetic", "fixture.db", "TASK", 0);
+    const SourceRefId api_source =
+        ir.source_refs.append("synthetic", "fixture.db", "CANN_API", 0);
+    const SymbolId event_record = ir.symbols.intern("EVENT_RECORD");
+    const std::uint64_t global_tid = (123ULL << 32u) | 456ULL;
+    for (std::int64_t index = 0; index < 2; ++index) {
+      const std::int64_t connection_id = 42 + index;
+      const TraceEventId event = ir.trace_events.append(
+          task_source, static_cast<std::uint64_t>(index + 1), 0, 7,
+          1000 + index * 1000, 1001 + index * 1000, event_record);
+      ir.tasks.append(task_source, event, index + 1, index + 1,
+                      connection_id, event_record, event_record, event_record,
+                      event_record, SymbolId::invalid());
+      ir.host_api_events.append(
+          api_source, static_cast<std::uint64_t>(index + 10),
+          100 + index * 200, 110 + index * 200, global_tid, connection_id,
+          SymbolId::invalid(), ir.symbols.intern("aclrtRecordEvent"), false,
+          0);
+    }
+    const std::string path = temp_path("clock_marker_cross_domain_overlap");
+    write_text(
+        path,
+        "marker_id\thost_before_ns\trecord_after_ns\thost_after_ns\t"
+        "host_pid\thost_tid\t"
+        "device_id\tstream_id\tcall_site\treturn_status\n"
+        // In raw numeric coordinates marker 0 overlaps API 1, not API 0.
+        // That cross-domain overlap must not override sequence identity.
+        "marker-0\t295\t315\t350\t123\t456\t0\t7\tunit-test\t0\n"
+        "marker-1\t495\t515\t550\t123\t456\t0\t7\tunit-test\t0\n");
+    (void)resolve_ascend_clock_marker_bracket_tsv(path, ir);
+    require(ir.clock_markers.row(ClockMarkerId(0)).raw_connection_id == 42 &&
+                ir.clock_markers.row(ClockMarkerId(1)).raw_connection_id ==
+                    43,
+            "raw cross-domain overlap cannot select marker identity");
+    std::remove(path.c_str());
+  }
+
+  {
+    NativeIr ir;
+    const std::string path = temp_path("clock_marker_capacity_exhausted");
+    write_text(
+        path,
+        "marker_id\thost_before_ns\trecord_after_ns\thost_after_ns\t"
+        "host_pid\thost_tid\t"
+        "device_id\tstream_id\tcall_site\treturn_status\n"
+        "capacity-exhausted-123-456\t100\t100\t100\t123\t456\t0\t"
+        "\tunit-test\t-900001\n");
+    bool rejected = false;
+    try {
+      (void)resolve_ascend_clock_marker_bracket_tsv(path, ir);
+    } catch (const std::invalid_argument& error) {
+      rejected = std::string(error.what()).find("exceeded") !=
+                 std::string::npos;
+    }
+    require(rejected, "capacity sentinel fails real calibration closed");
     std::remove(path.c_str());
   }
 
@@ -197,7 +265,7 @@ int main() {
     try {
       (void)resolve_ascend_clock_marker_bracket_tsv(path, ir);
     } catch (const std::invalid_argument& error) {
-      rejected = std::string(error.what()).find("no unique") !=
+      rejected = std::string(error.what()).find("no validated") !=
                  std::string::npos;
     }
     require(rejected,
@@ -241,7 +309,7 @@ int main() {
     try {
       (void)resolve_ascend_clock_marker_bracket_tsv(path, ir);
     } catch (const std::invalid_argument& error) {
-      rejected = std::string(error.what()).find("no unique") !=
+      rejected = std::string(error.what()).find("no validated") !=
                  std::string::npos;
     }
     require(rejected,
@@ -257,12 +325,13 @@ int main() {
         "marker_id\thost_before_ns\trecord_after_ns\thost_after_ns\t"
         "host_pid\thost_tid\t"
         "device_id\tstream_id\tcall_site\treturn_status\n"
-        "marker-0\t100\t160\t200\t123\t456\t0\t\tunit-test\t0\n");
+        "marker-0\t100\t160\t200\t123\t456\t0\t\tunit-test\t0\n"
+        "marker-1\t300\t360\t400\t123\t456\t0\t\tunit-test\t0\n");
     bool rejected = false;
     try {
       (void)resolve_ascend_clock_marker_bracket_tsv(path, ir);
     } catch (const std::invalid_argument& error) {
-      rejected = std::string(error.what()).find("no unique") !=
+      rejected = std::string(error.what()).find("no validated") !=
                  std::string::npos;
     }
     require(rejected,
@@ -278,11 +347,12 @@ int main() {
         "marker_id\thost_before_ns\trecord_after_ns\thost_after_ns\t"
         "host_pid\thost_tid\t"
         "device_id\tstream_id\tcall_site\treturn_status\n"
-        "marker-0\t100\t140\t200\t123\t456\t0\t999\tunit-test\t0\n");
+        "marker-0\t100\t140\t200\t123\t456\t0\t999\tunit-test\t0\n"
+        "marker-1\t300\t340\t400\t123\t456\t0\t999\tunit-test\t0\n");
     const ClockMarkerTsvLoadResult result =
         resolve_ascend_clock_marker_bracket_tsv(path, ir);
     const ClockMarkerRow& marker = ir.clock_markers.row(ClockMarkerId(0));
-    require(result.marker_count == 1 && result.rejected_marker_count == 1 &&
+    require(result.marker_count == 2 && result.rejected_marker_count == 2 &&
                 marker.return_status == 0 && marker.has_connection_id &&
                 marker.raw_connection_id == 42 &&
                 marker.device_timestamp_ns == -1,

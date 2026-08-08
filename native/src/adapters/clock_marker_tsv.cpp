@@ -16,6 +16,8 @@
 namespace traceloom {
 namespace {
 
+constexpr std::int64_t kClockMarkerCapacityExhaustedStatus = -900001;
+
 std::vector<std::string> split_tsv(const std::string& line) {
   std::vector<std::string> fields;
   std::size_t start = 0;
@@ -403,6 +405,11 @@ ClockMarkerTsvLoadResult resolve_ascend_clock_marker_bracket_tsv(
                    : 0;
     const std::int64_t return_status = parse_integer<std::int64_t>(
         fields[9], line_number, "return_status");
+    if (return_status == kClockMarkerCapacityExhaustedStatus) {
+      throw std::invalid_argument(
+          "clock marker capture exceeded its configured capacity at line " +
+          std::to_string(line_number));
+    }
 
     std::int64_t device_timestamp_ns = -1;
     bool has_connection = false;
@@ -419,18 +426,6 @@ ClockMarkerTsvLoadResult resolve_ascend_clock_marker_bracket_tsv(
       const ThreadKey thread_key{host_pid, host_tid};
       const std::size_t bracket_ordinal =
           successful_bracket_ordinals[thread_key]++;
-      std::vector<const HostApiEventRow*> record_apis;
-      for (const HostApiEventRow& api : ir.host_api_events.rows()) {
-        // Match against the narrow caller bracket around aclrtRecordEvent,
-        // never the outer bracket that also contains device completion and
-        // aclrtSynchronizeEvent. Non-empty overlap plus exact-one identity
-        // remains fail-closed across the two host clock domains.
-        if (api.start_ns < record_after && api.end_ns > host_before &&
-            global_tid_matches(api.raw_global_tid, host_pid, host_tid) &&
-            api_name(ir, api) == "aclrtRecordEvent") {
-          record_apis.push_back(&api);
-        }
-      }
       const std::vector<const HostApiEventRow*>& thread_apis =
           record_apis_by_thread[thread_key];
       const OrderedBijectionValidation& ordered_validation =
@@ -440,31 +435,23 @@ ClockMarkerTsvLoadResult resolve_ascend_clock_marker_bracket_tsv(
           bracket_ordinal < thread_apis.size();
       const HostApiEventRow* ordered_api =
           has_ordered_bijection ? thread_apis[bracket_ordinal] : nullptr;
-      const HostApiEventRow* resolved_api = nullptr;
-      if (record_apis.size() == 1) {
-        if (ordered_api != nullptr && record_apis.front() != ordered_api) {
-          throw std::invalid_argument(
-              "clock marker bracket at line " +
-              std::to_string(line_number) +
-              " has overlap/order disagreement for aclrtRecordEvent");
-        }
-        resolved_api = record_apis.front();
-        resolution_method = ClockMarkerResolutionMethod::kDirectOverlap;
-      } else if (record_apis.empty() && ordered_api != nullptr) {
-        resolved_api = ordered_api;
-        resolution_method =
-            ClockMarkerResolutionMethod::kOrdinalAffineFallback;
-        has_resolution_residual = true;
-        resolution_residual_ns =
-            ordered_validation.residuals_ns[bracket_ordinal];
-      } else {
+      if (ordered_api == nullptr) {
         throw std::invalid_argument(
             "clock marker bracket at line " +
-            std::to_string(line_number) + " overlaps " +
-            std::to_string(record_apis.size()) +
-            " matching aclrtRecordEvent rows and has no unique "
-            "order-preserving fallback");
+            std::to_string(line_number) +
+            " has no validated same-thread order-preserving "
+            "aclrtRecordEvent bijection");
       }
+      // Caller CLOCK_REALTIME and profiler-host timestamps are distinct until
+      // calibration. Raw interval overlap across those domains is therefore
+      // never identity evidence. The validated same-thread sequence bijection
+      // is the only real-bracket bootstrap path.
+      const HostApiEventRow* resolved_api = ordered_api;
+      resolution_method =
+          ClockMarkerResolutionMethod::kOrdinalAffineFallback;
+      has_resolution_residual = true;
+      resolution_residual_ns =
+          ordered_validation.residuals_ns[bracket_ordinal];
       has_profiler_host_interval = true;
       profiler_host_start_ns = resolved_api->start_ns;
       profiler_host_end_ns = resolved_api->end_ns;

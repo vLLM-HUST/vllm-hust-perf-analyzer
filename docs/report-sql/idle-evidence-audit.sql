@@ -289,6 +289,23 @@ with interval_totals as (
     'host_sync_api_present', 'queued_visible_task_delay'
   )
   group by e.run_id
+), clock_model_identity_errors as (
+  select
+    model.run_id,
+    sum(case
+          when model.alignment_status = 'calibrated' and (
+            model.direct_overlap_marker_count != 0
+            or exists (
+              select 1
+              from traceloom_clock_marker marker
+              where marker.clock_model_id = model.clock_model_id
+                and marker.marker_state in ('fit_marker', 'validation_marker')
+                and marker.resolution_method != 'ordinal_affine_fallback'
+            )
+          ) then 1 else 0
+        end) as count
+  from traceloom_clock_model model
+  group by model.run_id
 ), anchor_totals as (
   select
     run_id,
@@ -334,7 +351,8 @@ select
   coalesce(v.owner_errors, 0) as evidence_owner_errors,
   coalesce(c.explanation_contract_errors, 0) as
     host_explanation_contract_errors,
-  coalesce(c.fail_closed_errors, 0) as cross_clock_fail_closed_errors,
+  coalesce(c.fail_closed_errors, 0) + coalesce(cm.count, 0) as
+    cross_clock_fail_closed_errors,
   coalesce(c.host_source_errors, 0) as host_evidence_source_errors,
   coalesce(c.queued_task_link_errors, 0) as queued_task_link_errors,
   coalesce(a.orphan_rows, 0) as anchor_orphan_errors,
@@ -357,6 +375,7 @@ select
       or coalesce(v.owner_errors, 0) != 0
       or coalesce(c.explanation_contract_errors, 0) != 0
       or coalesce(c.fail_closed_errors, 0) != 0
+      or coalesce(cm.count, 0) != 0
       or coalesce(c.host_source_errors, 0) != 0
       or coalesce(c.queued_task_link_errors, 0) != 0
       or coalesce(a.orphan_rows, 0) != 0
@@ -377,6 +396,7 @@ left join explanation_overlap_errors eo using (run_id)
 left join stream_partition_errors sp using (run_id)
 left join evidence_errors v using (run_id)
 left join cross_clock_errors c using (run_id)
+left join clock_model_identity_errors cm using (run_id)
 left join anchor_totals a using (run_id)
 left join root_totals r using (run_id)
 order by m.db_idx, m.run_id;

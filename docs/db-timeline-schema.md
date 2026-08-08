@@ -311,8 +311,10 @@ absence claim.
 provenance, fit/validation/rejected state, and the model it belongs to. Runtime
 resolved rows additionally retain the matched profiler-host start/end/midpoint,
 the caller `record_after_ns` and narrow record-call midpoint,
-`resolution_method` (`direct_overlap` or `ordinal_affine_fallback`), and the
-fallback residual when applicable.
+`resolution_method` and affine-sequence residual. Real v4.4 bracket resolution
+uses only the validated same-thread `ordinal_affine_fallback` sequence
+bijection; `direct_overlap` is retained as a historical/synthetic enum value
+and is not valid real-capture identity evidence.
 `traceloom_clock_model` stores the composed profiler-host→caller-realtime→device
 reference-point model, both affine component parameter sets, fixed-scale
 serialization, component drift, fit/holdout counts, marker→device and
