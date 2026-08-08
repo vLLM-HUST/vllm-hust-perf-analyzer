@@ -164,14 +164,20 @@ long double interval_midpoint(std::int64_t start_ns, std::int64_t end_ns) {
          static_cast<long double>(end_ns - start_ns) / 2.0L;
 }
 
-bool is_valid_order_preserving_bijection(
+struct OrderedBijectionValidation {
+  bool valid = false;
+  std::vector<long double> residuals_ns;
+};
+
+OrderedBijectionValidation validate_order_preserving_bijection(
     const std::vector<BracketWindow>& brackets,
     const std::vector<const HostApiEventRow*>& apis) {
-  if (brackets.empty() || brackets.size() != apis.size()) {
-    return false;
-  }
-  if (brackets.size() == 1) {
-    return true;
+  OrderedBijectionValidation validation;
+  // One point cannot identify an affine clock relation. A single bracket may
+  // still resolve through direct temporal overlap, but never through ordinal
+  // fallback alone.
+  if (brackets.size() < 2 || brackets.size() != apis.size()) {
+    return validation;
   }
 
   std::vector<long double> bracket_midpoints;
@@ -186,7 +192,7 @@ bool is_valid_order_preserving_bijection(
     if (index > 0 &&
         (bracket_midpoints[index] <= bracket_midpoints[index - 1] ||
          api_midpoints[index] <= api_midpoints[index - 1])) {
-      return false;
+      return validation;
     }
   }
 
@@ -199,9 +205,10 @@ bool is_valid_order_preserving_bijection(
   const long double bracket_span =
       bracket_midpoints.back() - bracket_midpoints.front();
   if (api_span <= 0.0L || bracket_span <= 0.0L) {
-    return false;
+    return validation;
   }
   const long double scale = bracket_span / api_span;
+  validation.residuals_ns.reserve(api_midpoints.size());
   for (std::size_t api_index = 0; api_index < api_midpoints.size();
        ++api_index) {
     const long double mapped_api_midpoint =
@@ -224,10 +231,14 @@ bool is_valid_order_preserving_bijection(
       }
     }
     if (tied || nearest_index != api_index) {
-      return false;
+      validation.residuals_ns.clear();
+      return validation;
     }
+    validation.residuals_ns.push_back(std::fabs(
+        bracket_midpoints[api_index] - mapped_api_midpoint));
   }
-  return true;
+  validation.valid = true;
+  return validation;
 }
 
 }  // namespace
@@ -319,9 +330,9 @@ ClockMarkerTsvLoadResult resolve_ascend_clock_marker_bracket_tsv(
                        return lhs->id < rhs->id;
                      });
   }
-  std::map<ThreadKey, bool> valid_ordered_bijections;
+  std::map<ThreadKey, OrderedBijectionValidation> ordered_bijections;
   for (const auto& item : successful_brackets_by_thread) {
-    valid_ordered_bijections[item.first] = is_valid_order_preserving_bijection(
+    ordered_bijections[item.first] = validate_order_preserving_bijection(
         item.second, record_apis_by_thread[item.first]);
   }
   std::map<ThreadKey, std::size_t> successful_bracket_ordinals;
@@ -385,6 +396,13 @@ ClockMarkerTsvLoadResult resolve_ascend_clock_marker_bracket_tsv(
     bool has_connection = false;
     std::int64_t connection_id = -1;
     bool resolution_rejected = false;
+    bool has_profiler_host_interval = false;
+    std::int64_t profiler_host_start_ns = 0;
+    std::int64_t profiler_host_end_ns = 0;
+    ClockMarkerResolutionMethod resolution_method =
+        ClockMarkerResolutionMethod::kUnresolved;
+    bool has_resolution_residual = false;
+    long double resolution_residual_ns = 0.0L;
     if (return_status == 0) {
       const ThreadKey thread_key{host_pid, host_tid};
       const std::size_t bracket_ordinal =
@@ -404,8 +422,10 @@ ClockMarkerTsvLoadResult resolve_ascend_clock_marker_bracket_tsv(
       }
       const std::vector<const HostApiEventRow*>& thread_apis =
           record_apis_by_thread[thread_key];
+      const OrderedBijectionValidation& ordered_validation =
+          ordered_bijections[thread_key];
       const bool has_ordered_bijection =
-          valid_ordered_bijections[thread_key] &&
+          ordered_validation.valid &&
           bracket_ordinal < thread_apis.size();
       const HostApiEventRow* ordered_api =
           has_ordered_bijection ? thread_apis[bracket_ordinal] : nullptr;
@@ -418,8 +438,14 @@ ClockMarkerTsvLoadResult resolve_ascend_clock_marker_bracket_tsv(
               " has overlap/order disagreement for aclrtRecordEvent");
         }
         resolved_api = record_apis.front();
+        resolution_method = ClockMarkerResolutionMethod::kDirectOverlap;
       } else if (record_apis.empty() && ordered_api != nullptr) {
         resolved_api = ordered_api;
+        resolution_method =
+            ClockMarkerResolutionMethod::kOrdinalAffineFallback;
+        has_resolution_residual = true;
+        resolution_residual_ns =
+            ordered_validation.residuals_ns[bracket_ordinal];
       } else {
         throw std::invalid_argument(
             "clock marker bracket at line " +
@@ -428,6 +454,9 @@ ClockMarkerTsvLoadResult resolve_ascend_clock_marker_bracket_tsv(
             " matching aclrtRecordEvent rows and has no unique "
             "order-preserving fallback");
       }
+      has_profiler_host_interval = true;
+      profiler_host_start_ns = resolved_api->start_ns;
+      profiler_host_end_ns = resolved_api->end_ns;
       connection_id = resolved_api->raw_connection_id;
       if (connection_id < 0) {
         resolution_rejected = true;
@@ -475,7 +504,10 @@ ClockMarkerTsvLoadResult resolve_ascend_clock_marker_bracket_tsv(
         result.source_ref_id, line_number, ir.symbols.intern(fields[0]),
         host_before, host_after, device_timestamp_ns, host_pid, host_tid,
         device_id, has_stream, stream_id, has_connection, connection_id,
-        ir.symbols.intern(fields[7]), return_status);
+        ir.symbols.intern(fields[7]), return_status,
+        has_profiler_host_interval, profiler_host_start_ns,
+        profiler_host_end_ns, resolution_method, has_resolution_residual,
+        resolution_residual_ns);
     ++result.marker_count;
   }
   if (!saw_header) {

@@ -1179,7 +1179,10 @@ int main() {
         correlated_ir.symbols.intern("marker-" + std::to_string(index)),
         kHostClockBase + timestamp, kHostClockBase + timestamp, timestamp,
         123, 456, 0, false, 0, false, -1,
-        correlated_ir.symbols.intern("sidecar-test"), 0);
+        correlated_ir.symbols.intern("sidecar-test"), 0, true,
+        kHostClockBase + timestamp, kHostClockBase + timestamp,
+        ClockMarkerResolutionMethod::kOrdinalAffineFallback, true,
+        static_cast<long double>(index));
   }
   const SourceRefId host_source = correlated_ir.source_refs.append(
       "synthetic", "host-api.db", "CANN_API", 0);
@@ -1201,6 +1204,20 @@ int main() {
                           "SELECT alignment_status FROM "
                           "traceloom_clock_model") == "synthetic_only");
   require(run_scalar_text(correlated_db_path,
+                          "SELECT source_clock_domain || ':' || "
+                          "intermediate_clock_domain || ':' || mapping_kind "
+                          "FROM traceloom_clock_model") ==
+          "profiler_host:caller_clock_realtime:composed_affine");
+  require(run_scalar_int(correlated_db_path,
+                         "SELECT has_profiler_host_mapping FROM "
+                         "traceloom_clock_model") == 1);
+  require(run_scalar_int(
+              correlated_db_path,
+              "SELECT composed_absolute_residual_p50_ns = 0 AND "
+              "composed_absolute_residual_p95_ns = 0 AND "
+              "composed_absolute_residual_max_ns = 0 "
+              "FROM traceloom_clock_model") == 1);
+  require(run_scalar_text(correlated_db_path,
                           "SELECT reference_host_ns FROM "
                           "traceloom_clock_model") ==
           "1000000000000005000.000000");
@@ -1215,6 +1232,12 @@ int main() {
   require(run_scalar_int(correlated_db_path,
                          "SELECT COUNT(*) FROM traceloom_clock_marker "
                          "WHERE marker_state = 'validation_marker'") == 2);
+  require(run_scalar_int(
+              correlated_db_path,
+              "SELECT COUNT(*) FROM traceloom_clock_marker "
+              "WHERE resolution_method = 'ordinal_affine_fallback' "
+              "AND profiler_host_midpoint_ns IS NOT NULL "
+              "AND resolution_residual_ns IS NOT NULL") == 11);
   require(run_scalar_int(correlated_db_path,
                          "SELECT COUNT(*) FROM traceloom_evidence_link "
                          "WHERE owner_kind = 'clock_model'") == 11);

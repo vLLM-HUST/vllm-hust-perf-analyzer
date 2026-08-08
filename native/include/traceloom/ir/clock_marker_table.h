@@ -2,11 +2,22 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string_view>
 #include <vector>
 
 #include "traceloom/core/ids.h"
 
 namespace traceloom {
+
+enum class ClockMarkerResolutionMethod {
+  kPreResolved,
+  kDirectOverlap,
+  kOrdinalAffineFallback,
+  kUnresolved,
+};
+
+std::string_view clock_marker_resolution_method_name(
+    ClockMarkerResolutionMethod method);
 
 // Frozen marker payload from idle-evidence-contract section 7.2. The device
 // timestamp must already use the same integer-nanosecond domain as imported
@@ -28,6 +39,13 @@ struct ClockMarkerRow {
   std::int64_t raw_connection_id = -1;
   SymbolId call_site_symbol_id;
   std::int64_t return_status = 0;
+  bool has_profiler_host_interval = false;
+  std::int64_t profiler_host_start_ns = 0;
+  std::int64_t profiler_host_end_ns = 0;
+  ClockMarkerResolutionMethod resolution_method =
+      ClockMarkerResolutionMethod::kPreResolved;
+  bool has_resolution_residual = false;
+  long double resolution_residual_ns = 0.0L;
 };
 
 class ClockMarkerTable {
@@ -46,7 +64,14 @@ class ClockMarkerTable {
                        bool has_connection_id,
                        std::int64_t raw_connection_id,
                        SymbolId call_site_symbol_id,
-                       std::int64_t return_status);
+                       std::int64_t return_status,
+                       bool has_profiler_host_interval = false,
+                       std::int64_t profiler_host_start_ns = 0,
+                       std::int64_t profiler_host_end_ns = 0,
+                       ClockMarkerResolutionMethod resolution_method =
+                           ClockMarkerResolutionMethod::kPreResolved,
+                       bool has_resolution_residual = false,
+                       long double resolution_residual_ns = 0.0L);
 
   std::size_t size() const noexcept { return rows_.size(); }
   bool empty() const noexcept { return rows_.empty(); }

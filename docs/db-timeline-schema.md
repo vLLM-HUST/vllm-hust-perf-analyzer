@@ -308,16 +308,22 @@ absence claim.
 ### `traceloom_clock_marker` and `traceloom_clock_model`
 
 `traceloom_clock_marker` preserves every frozen marker input, source
-provenance, fit/validation/rejected state, and the model it belongs to.
-`traceloom_clock_model` stores the affine reference-point model, fixed-scale
-serialization, drift, fit/holdout counts, residual distribution, bracket
-uncertainty, epsilon, and explicit `calibrated`, `synthetic_only`,
+provenance, fit/validation/rejected state, and the model it belongs to. Runtime
+resolved rows additionally retain the matched profiler-host start/end/midpoint,
+`resolution_method` (`direct_overlap` or `ordinal_affine_fallback`), and the
+fallback residual when applicable.
+`traceloom_clock_model` stores the composed profiler-host→caller-realtime→device
+reference-point model, both affine component parameter sets, fixed-scale
+serialization, component drift, fit/holdout counts, marker→device and
+profiler→marker residual distributions, the composed profiler→device holdout
+distribution, bracket uncertainty, the converted host-clock uncertainty
+contribution, epsilon, and explicit `calibrated`, `synthetic_only`,
 `uncalibrated`, or `invalid` status. Invalid and uncalibrated rows remain
 materialized so absence of cross-clock promotion is auditable.
 
 ### `traceloom_host_api_event` and `traceloom_task_api_link`
 
-All imported host API intervals remain in the host clock domain, including
+All imported host API intervals remain in the `profiler_host` clock domain, including
 unclassified APIs. The versioned host-API ruleset assigns only allowlisted
 enqueue or host-sync families. `traceloom_task_api_link` records every
 connectionId result as `unique`, `one_to_many`, `ambiguous`, or `unresolved`;
@@ -358,7 +364,10 @@ Two checked-in report queries form the golden audit surface:
   evidence, exact duration, and visible-gap share rows.
 - `docs/report-sql/idle-evidence-audit.sql` checks interval/explanation
   arithmetic, per-gap coverage, non-overlap, stream adjacency, lineage,
-  evidence extents, anchor/node references, and root conservation. Its final
+  evidence extents, anchor/node references, root conservation, calibrated
+  composed-clock requirements for every host explanation, host source
+  identity, and unique exact connectionId/TASK linkage for queued-delay
+  evidence. Its final
   `audit_status` is `PASS` only when every checked invariant holds.
 
 `audit_status` and `analysis_status` answer different questions. `PASS` means

@@ -8,9 +8,10 @@
 
 namespace traceloom {
 
-// A profiler host API interval. Times remain in the host clock domain until
-// ClockAlignment maps them; adapters must never copy these values into a
-// device-domain TraceEventRow.
+// A profiler host API interval. Times remain in the profiler host clock domain
+// until ClockAlignment applies its explicit profiler-host -> caller-realtime ->
+// device composition; adapters must never copy these values into a
+// device-domain TraceEventRow or assume they equal caller CLOCK_REALTIME.
 struct HostApiEventRow {
   HostApiEventId id;
   SourceRefId source_ref_id;

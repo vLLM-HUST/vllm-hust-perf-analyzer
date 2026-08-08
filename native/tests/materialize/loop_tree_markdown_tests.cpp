@@ -50,8 +50,13 @@ int main() {
   options.idle_attribution_rule_version = "device_projection_v1";
   options.idle_alignment_status = "calibrated";
   options.has_idle_clock_model_summary = true;
+  options.idle_clock_source_domain = "profiler_host";
+  options.idle_clock_intermediate_domain = "caller_clock_realtime";
+  options.idle_clock_mapping_kind = "composed_affine";
   options.idle_clock_scale = 1.000001234567L;
   options.idle_clock_drift_ppm = 1.234567L;
+  options.idle_clock_profiler_to_marker_scale = 0.999998L;
+  options.idle_clock_profiler_to_marker_drift_ppm = -2.0L;
   options.idle_clock_input_marker_count = 21;
   options.idle_clock_inlier_marker_count = 20;
   options.idle_clock_rejected_marker_count = 1;
@@ -61,7 +66,16 @@ int main() {
   options.idle_clock_absolute_residual_p95_ns = 202.5L;
   options.idle_clock_absolute_residual_max_ns = 303.75L;
   options.idle_clock_bracket_uncertainty_p95_ns = 404.125L;
-  options.idle_clock_epsilon_ns = 607;
+  options.idle_clock_host_residual_p50_ns = 11.25L;
+  options.idle_clock_host_residual_p95_ns = 22.5L;
+  options.idle_clock_host_residual_max_ns = 33.75L;
+  options.idle_clock_host_uncertainty_p95_ns = 22.75L;
+  options.idle_clock_composed_residual_p50_ns = 44.25L;
+  options.idle_clock_composed_residual_p95_ns = 55.5L;
+  options.idle_clock_composed_residual_max_ns = 66.75L;
+  options.idle_clock_direct_overlap_marker_count = 5;
+  options.idle_clock_ordinal_fallback_marker_count = 15;
+  options.idle_clock_epsilon_ns = 630;
   options.visible_productive_idle_ns = 10000;
   options.direct_explained_idle_ns = 4000;
   options.idle_explanation_counts = {
@@ -104,6 +118,11 @@ int main() {
           std::string::npos);
   require(markdown.find("### Host→Device Clock Calibration") !=
           std::string::npos);
+  require(markdown.find("- source_clock_domain: `profiler_host`") !=
+          std::string::npos);
+  require(markdown.find(
+              "- intermediate_clock_domain: `caller_clock_realtime`") !=
+          std::string::npos);
   require(markdown.find("- absolute_residual_p50_ns: `101.250000`") !=
           std::string::npos);
   require(markdown.find("- absolute_residual_p95_ns: `202.500000`") !=
@@ -112,7 +131,15 @@ int main() {
           std::string::npos);
   require(markdown.find("- rejected_marker_count: `1`") !=
           std::string::npos);
-  require(markdown.find("- epsilon_ns: `607`") != std::string::npos);
+  require(markdown.find(
+              "- host_clock_absolute_residual_p95_ns: `22.500000`") !=
+          std::string::npos);
+  require(markdown.find(
+              "- composed_absolute_residual_p95_ns: `55.500000`") !=
+          std::string::npos);
+  require(markdown.find("- ordinal_affine_fallback_marker_count: `15`") !=
+          std::string::npos);
+  require(markdown.find("- epsilon_ns: `630`") != std::string::npos);
   require(markdown.find("- directly_explained_us: `4` (`40%`)") !=
           std::string::npos);
   require(markdown.find(

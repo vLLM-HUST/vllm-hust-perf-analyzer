@@ -895,8 +895,18 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
               idle_pipeline->clock_alignment.find_device(idle_device_id);
           if (clock_model != nullptr) {
             markdown_options.has_idle_clock_model_summary = true;
+            markdown_options.idle_clock_source_domain =
+                clock_model->source_clock_domain;
+            markdown_options.idle_clock_intermediate_domain =
+                clock_model->intermediate_clock_domain;
+            markdown_options.idle_clock_mapping_kind =
+                clock_model->mapping_kind;
             markdown_options.idle_clock_scale = clock_model->scale;
             markdown_options.idle_clock_drift_ppm = clock_model->drift_ppm;
+            markdown_options.idle_clock_profiler_to_marker_scale =
+                clock_model->profiler_to_marker_scale;
+            markdown_options.idle_clock_profiler_to_marker_drift_ppm =
+                clock_model->profiler_to_marker_drift_ppm;
             markdown_options.idle_clock_input_marker_count =
                 clock_model->input_marker_count;
             markdown_options.idle_clock_inlier_marker_count =
@@ -915,6 +925,24 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
                 clock_model->absolute_residual_max_ns;
             markdown_options.idle_clock_bracket_uncertainty_p95_ns =
                 clock_model->bracket_uncertainty_p95_ns;
+            markdown_options.idle_clock_host_residual_p50_ns =
+                clock_model->host_clock_absolute_residual_p50_ns;
+            markdown_options.idle_clock_host_residual_p95_ns =
+                clock_model->host_clock_absolute_residual_p95_ns;
+            markdown_options.idle_clock_host_residual_max_ns =
+                clock_model->host_clock_absolute_residual_max_ns;
+            markdown_options.idle_clock_host_uncertainty_p95_ns =
+                clock_model->host_clock_uncertainty_p95_ns;
+            markdown_options.idle_clock_composed_residual_p50_ns =
+                clock_model->composed_absolute_residual_p50_ns;
+            markdown_options.idle_clock_composed_residual_p95_ns =
+                clock_model->composed_absolute_residual_p95_ns;
+            markdown_options.idle_clock_composed_residual_max_ns =
+                clock_model->composed_absolute_residual_max_ns;
+            markdown_options.idle_clock_direct_overlap_marker_count =
+                clock_model->direct_overlap_marker_count;
+            markdown_options.idle_clock_ordinal_fallback_marker_count =
+                clock_model->ordinal_affine_fallback_marker_count;
             markdown_options.idle_clock_epsilon_ns = clock_model->epsilon_ns;
           }
         }

@@ -88,6 +88,7 @@ ClockAlignmentRunResult identity_alignment(AlignmentStatus status) {
   model.scale = 1.0L;
   model.reference_host_ns = 0.0L;
   model.reference_device_ns = 0.0L;
+  model.has_profiler_host_mapping = true;
   model.epsilon_ns = 10;
   model.alignment_status = status;
   run.models.push_back(model);
@@ -247,6 +248,17 @@ int main() {
               uncalibrated.candidates.empty() &&
               !uncalibrated.task_api_links.empty(),
           "uncalibrated traces retain links but compute no time coverage");
+
+  ClockAlignmentRunResult missing_profiler_leg =
+      identity_alignment(AlignmentStatus::kCalibrated);
+  missing_profiler_leg.models.front().has_profiler_host_mapping = false;
+  const HostCorrelationRunResult incomplete_clock = build_host_correlation(
+      ir, productive, missing_profiler_leg, ruleset());
+  require(incomplete_clock.evidence_intervals.empty() &&
+              incomplete_clock.candidates.empty() &&
+              !incomplete_clock.task_api_links.empty(),
+          "calibrated marker/device fit without profiler-host leg cannot "
+          "promote host evidence");
 
   return 0;
 }
