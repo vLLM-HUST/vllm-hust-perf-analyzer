@@ -218,24 +218,23 @@ traceloom /path/to/PROF_... \
   --compat-db-out /path/to/report.traceloom.db
 ```
 
-For every successful bracket, the resolver normally requires non-empty overlap
-between `[host_before_ns, record_after_ns)` and exactly one profiled same-thread
-`aclrtRecordEvent` row. The outer interval through `host_after_ns` is never used
-to identify or train the host-clock leg. Real profiler host API timestamps can
-drift away from the caller's `CLOCK_REALTIME` bracket. If
-direct overlap is absent, TraceLoom requires an order-preserving bijection:
-successful bracket and same-thread record counts must match, both timestamp
-sequences must be strictly increasing, and endpoint-affine correction must
-leave every API's same-ordinal bracket uniquely nearest. Ambiguity still fails
-closed. At least two same-thread pairs are required for this fallback; one
-distant bracket plus one API is never enough to identify an affine clock
-relation. A unique connectionId/TASK yields `TASK.startNs` as the marker device
+The narrow caller bracket and profiled `aclrtRecordEvent` interval use
+different, not-yet-calibrated host clocks. TraceLoom therefore never uses raw
+cross-domain overlap as identity evidence. It requires a validated same-thread
+order-preserving bijection: successful bracket and record counts must match,
+both timestamp sequences must be strictly increasing, and endpoint-affine
+correction must leave every API's same-ordinal bracket uniquely nearest.
+Ambiguity fails closed. At least two same-thread pairs are required; one
+bracket plus one API is never enough to identify an affine clock relation. The
+outer interval through `host_after_ns` is never used to identify or train the
+host-clock leg. A unique connectionId/TASK yields `TASK.startNs` as the marker device
 timestamp. A uniquely resolved API with no connectionId or TASK is retained as
 a rejected marker; multiple matching APIs/TASKs remain fatal. Raw
 `aclrtEventGetTimestamp` values are device syscnt and are never interpreted as
 profiler nanoseconds. Every resolved marker retains the matched CANN_API host
-interval, `direct_overlap` or `ordinal_affine_fallback` resolution method, and
-the fallback residual when applicable.
+interval, the historical serialized method name `ordinal_affine_fallback`, and
+the affine-sequence residual. `direct_overlap` is not emitted for real bracket
+resolution.
 
 The direct `--clock-markers PATH` option accepts the already-resolved frozen
 11-field payload from the idle-evidence contract. Because that payload does not

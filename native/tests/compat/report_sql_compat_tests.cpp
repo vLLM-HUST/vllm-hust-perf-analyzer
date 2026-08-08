@@ -1442,6 +1442,16 @@ int main() {
               valid_host_sync.first_row[25] == "PASS");
 
       execute_sql(db_path,
+                  "UPDATE traceloom_clock_model "
+                  "SET direct_overlap_marker_count = 1");
+      const QueryResult forbidden_direct_identity =
+          run_query(db_path, query_case);
+      require(forbidden_direct_identity.first_row[17] == "1" &&
+              forbidden_direct_identity.first_row[25] == "FAIL");
+
+      execute_sql(db_path,
+                  "UPDATE traceloom_clock_model "
+                  "SET direct_overlap_marker_count = 0; "
                   "UPDATE traceloom_host_api_event SET api_family = 'enqueue' "
                   "WHERE api_event_id = 'host-api-1'");
       const QueryResult wrong_sync_family = run_query(db_path, query_case);

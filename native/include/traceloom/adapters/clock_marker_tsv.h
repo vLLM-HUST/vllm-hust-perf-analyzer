@@ -28,17 +28,18 @@ ClockMarkerTsvLoadResult load_clock_marker_tsv(const std::string& path,
 // host_before_ns/record_after_ns narrowly bracket aclrtRecordEvent and define
 // the profiler-host -> caller-clock observation. host_before_ns/host_after_ns
 // bracket the device-visible marker through synchronization. A successful
-// narrow bracket is normally identified by exactly one overlapping same-thread
-// aclrtRecordEvent host row. Non-empty overlap is intentional because msprof's
-// host timestamps can differ from caller CLOCK_REALTIME enough to remove direct
-// overlap in long runs. In that case resolution is
-// allowed only for an order-preserving bijection: successful bracket and
+// narrow bracket and the profiled aclrtRecordEvent live in different,
+// not-yet-calibrated host clock domains. Raw interval overlap between them is
+// forbidden as identity evidence. Resolution is allowed only for a validated
+// order-preserving bijection: successful bracket and
 // same-thread record counts must match with at least two pairs, timestamps must
 // be strictly ordered, and after an endpoint-affine host-clock correction every
 // API must have its same-ordinal bracket as the unique nearest bracket. A
-// one-bracket/one-API thread can resolve only by direct temporal overlap.
+// one-bracket/one-API thread cannot resolve.
 // Resolution method, both caller brackets, matched profiler-host interval, and
-// fallback residual are retained in ClockMarkerRow. TASK.startNs becomes
+// affine residual are retained in ClockMarkerRow. The historical serialized
+// method name is ordinal_affine_fallback; direct_overlap is never emitted by
+// this real-bracket resolver. TASK.startNs becomes
 // device_timestamp_ns; raw
 // aclrtEventGetTimestamp syscnt values are never treated as profiler ns.
 // A uniquely resolved API with no connectionId, or a connectionId with no
