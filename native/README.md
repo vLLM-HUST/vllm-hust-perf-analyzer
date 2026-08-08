@@ -194,7 +194,8 @@ and E4 (`build_idle_explanations`) slices each visible gap into conservative,
 mutually exclusive device-evidence categories. The authoritative E1-to-E4
 composition is `run_idle_evidence_pipeline`; its results feed the CLI, SQL
 sidecar, anchor/node attribution, and Loop Tree summaries. Host correlation
-is now the optional calibrated continuation of that same pipeline. Ascend
+remains a separate optional calibrated continuation of that same pipeline.
+Ascend
 production runs load the versioned `idle_evidence_host_api_rules.tsv`, retain
 all imported host API rows and connectionId link outcomes, and promote host
 evidence only when the clock model and robust-window rules permit it.
