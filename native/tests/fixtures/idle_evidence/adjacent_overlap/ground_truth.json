@@ -1,0 +1,17 @@
+{
+  "fixture_id": "idle_evidence_adjacent_overlap",
+  "fixture_class": "adjacent_overlap",
+  "description": "Overlapping wait, capture, and record tasks split one visible gap using the frozen device-evidence priority.",
+  "analysis_span": { "start_ns": 1000, "end_ns": 6000 },
+  "collection_status": "complete",
+  "visible_idle_total_ns": 3000,
+  "intervals": [
+    {"start_ns":1000,"end_ns":2000,"interval_kind":"productive_active","explanation_category":null,"evidence_level":null,"evidence_relation":null,"alignment_status":"not_required","expected_source_keys":["TASK:1"]},
+    {"start_ns":2000,"end_ns":2500,"interval_kind":"visible_productive_idle","explanation_category":"no_observed_device_work","evidence_level":"direct","evidence_relation":"complete_absence_observation","alignment_status":"not_required","expected_source_keys":[]},
+    {"start_ns":2500,"end_ns":3500,"interval_kind":"visible_productive_idle","explanation_category":"blocked_by_visible_wait","evidence_level":"direct","evidence_relation":"device_event_coverage","alignment_status":"not_required","expected_source_keys":["TASK:2"]},
+    {"start_ns":3500,"end_ns":4200,"interval_kind":"visible_productive_idle","explanation_category":"capture_control_present","evidence_level":"direct","evidence_relation":"device_event_coverage","alignment_status":"not_required","expected_source_keys":["TASK:3"]},
+    {"start_ns":4200,"end_ns":4500,"interval_kind":"visible_productive_idle","explanation_category":"runtime_control_present","evidence_level":"direct","evidence_relation":"device_event_coverage","alignment_status":"not_required","expected_source_keys":["TASK:4"]},
+    {"start_ns":4500,"end_ns":5000,"interval_kind":"visible_productive_idle","explanation_category":"no_observed_device_work","evidence_level":"direct","evidence_relation":"complete_absence_observation","alignment_status":"not_required","expected_source_keys":[]},
+    {"start_ns":5000,"end_ns":6000,"interval_kind":"productive_active","explanation_category":null,"evidence_level":null,"evidence_relation":null,"alignment_status":"not_required","expected_source_keys":["TASK:5"]}
+  ]
+}

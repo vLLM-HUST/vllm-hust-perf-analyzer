@@ -5,12 +5,16 @@ on:
     paths:
       - "native/**"
       - "packaging/**"
+      - "tools/idle_evidence_evaluation.py"
+      - "docs/idle-evidence-evaluation.md"
       - ".github/workflows/native-deb.yml"
   push:
     branches: [main]
     paths:
       - "native/**"
       - "packaging/**"
+      - "tools/idle_evidence_evaluation.py"
+      - "docs/idle-evidence-evaluation.md"
       - ".github/workflows/native-deb.yml"
 
 jobs:

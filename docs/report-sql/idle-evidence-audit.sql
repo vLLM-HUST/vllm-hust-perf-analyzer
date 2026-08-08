@@ -254,34 +254,79 @@ with interval_totals as (
                 (e.category = 'queued_visible_task_delay'
                   and h.api_family = 'enqueue')
               )
+          ) or exists (
+            -- Finding one valid host row is insufficient when an explanation
+            -- carries several independent links: every linked host row must
+            -- obey the category's clock, contract, and API-family invariant.
+            select 1
+            from traceloom_evidence_link l
+            join traceloom_host_api_event h
+              on h.run_id = e.run_id
+             and h.source_kind = l.source_kind
+             and h.source_table = l.source_table
+             and h.source_key = l.source_key
+            where l.owner_kind = 'explanation'
+              and l.owner_id = e.idle_explanation_id
+              and l.relation = e.evidence_relation
+              and l.evidence_level = 'correlated'
+              and (
+                h.clock_domain != 'profiler_host'
+                or h.contract_version != e.contract_version
+                or (e.category = 'host_sync_api_present'
+                    and h.api_family != 'host_sync')
+                or (e.category = 'queued_visible_task_delay'
+                    and h.api_family != 'enqueue')
+              )
           ) then 1 else 0
         end) as host_source_errors,
     sum(case
-          when e.category = 'queued_visible_task_delay' and 1 != (
-            select count(*)
-            from traceloom_evidence_link host_link
-            join traceloom_host_api_event h
-              on h.run_id = e.run_id
-             and h.source_kind = host_link.source_kind
-             and h.source_table = host_link.source_table
-             and h.source_key = host_link.source_key
-            join traceloom_task_api_link t
-              on t.run_id = e.run_id
-             and t.api_event_id = h.api_event_id
-             and t.device_id = e.device_id
-             and t.link_status = 'unique'
-             and t.connection_id = h.connection_id
-            join traceloom_evidence_link task_link
-              on task_link.owner_kind = 'explanation'
-             and task_link.owner_id = e.idle_explanation_id
-             and task_link.trace_event_id = t.trace_event_id
-             and task_link.relation = 'exact_connection_id'
-             and task_link.evidence_level = 'correlated'
-            where host_link.owner_kind = 'explanation'
-              and host_link.owner_id = e.idle_explanation_id
-              and host_link.relation = 'exact_connection_id'
-              and host_link.evidence_level = 'correlated'
-              and h.connection_id is not null
+          when e.category = 'queued_visible_task_delay' and (
+            not exists (
+              select 1
+              from traceloom_evidence_link host_link
+              join traceloom_host_api_event h
+                on h.run_id = e.run_id
+               and h.source_kind = host_link.source_kind
+               and h.source_table = host_link.source_table
+               and h.source_key = host_link.source_key
+              where host_link.owner_kind = 'explanation'
+                and host_link.owner_id = e.idle_explanation_id
+                and host_link.relation = 'exact_connection_id'
+                and host_link.evidence_level = 'correlated'
+                and h.connection_id is not null
+            )
+            or exists (
+              -- Multiple independent enqueue-delay intervals may cover one
+              -- explanation. Every host link must resolve to exactly one
+              -- unique TASK link; the explanation is not limited to one pair.
+              select 1
+              from traceloom_evidence_link host_link
+              join traceloom_host_api_event h
+                on h.run_id = e.run_id
+               and h.source_kind = host_link.source_kind
+               and h.source_table = host_link.source_table
+               and h.source_key = host_link.source_key
+              where host_link.owner_kind = 'explanation'
+                and host_link.owner_id = e.idle_explanation_id
+                and host_link.relation = 'exact_connection_id'
+                and host_link.evidence_level = 'correlated'
+                and h.connection_id is not null
+                and 1 != (
+                  select count(*)
+                  from traceloom_task_api_link t
+                  join traceloom_evidence_link task_link
+                    on task_link.owner_kind = 'explanation'
+                   and task_link.owner_id = e.idle_explanation_id
+                   and task_link.trace_event_id = t.trace_event_id
+                   and task_link.relation = 'exact_connection_id'
+                   and task_link.evidence_level = 'correlated'
+                  where t.run_id = e.run_id
+                    and t.api_event_id = h.api_event_id
+                    and t.device_id = e.device_id
+                    and t.link_status = 'unique'
+                    and t.connection_id = h.connection_id
+                )
+            )
           ) then 1 else 0
         end) as queued_task_link_errors
   from traceloom_idle_explanation e
