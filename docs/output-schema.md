@@ -55,6 +55,13 @@ Use `traceloom --help-advanced` for non-default outputs:
 Only one output may target stdout at a time, and explicit output paths require
 a single input database.
 
+Native JSON also emits `replay_internal_cost_map`, the replay-internal
+query surface: ReplayUnit -> ordered launch/composition slots -> body
+template -> per-stream ordered members -> fine-grained costs and provenance.
+See [replay-internal-cost-map.md](replay-internal-cost-map.md) for the
+result contract, aligned aggregation scope, cost-lens boundaries, and the
+fail-closed support/reason model.
+
 The checked-in SQL audit surfaces are:
 
 - `docs/report-sql/reconstruction-capability-matrix.sql` for exact, typed

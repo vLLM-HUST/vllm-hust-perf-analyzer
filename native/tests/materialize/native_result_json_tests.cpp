@@ -19,13 +19,13 @@ int main() {
   const TraceEventId event1 = ir.trace_events.append(source, 2, 0, 0, 10, 20, b);
   const TraceEventId event2 = ir.trace_events.append(source, 3, 0, 0, 20, 30, a);
   const TraceEventId event3 = ir.trace_events.append(source, 4, 0, 0, 30, 40, b);
-  ir.tasks.append(source, event0, 1, 1001, -1, a, SymbolId::invalid(), a,
+  ir.tasks.append(source, event0, 1, 1001, -1, a, a, a,
                   SymbolId::invalid(), SymbolId::invalid());
-  ir.tasks.append(source, event1, 2, 1002, -1, b, SymbolId::invalid(), b,
+  ir.tasks.append(source, event1, 2, 1002, -1, b, b, b,
                   SymbolId::invalid(), SymbolId::invalid());
-  ir.tasks.append(source, event2, 3, 1003, -1, a, SymbolId::invalid(), a,
+  ir.tasks.append(source, event2, 3, 1003, -1, a, a, a,
                   SymbolId::invalid(), SymbolId::invalid());
-  ir.tasks.append(source, event3, 4, 1004, -1, b, SymbolId::invalid(), b,
+  ir.tasks.append(source, event3, 4, 1004, -1, b, b, b,
                   SymbolId::invalid(), SymbolId::invalid());
   const GraphSlotTemplateId slot_template = ir.graph_slot_templates.append(
       source, 12345, ir.symbols.intern("aclnnMuls\naclnnAdds\n"));
@@ -265,6 +265,37 @@ int main() {
           std::string::npos);
   require(json.find("\"replay_unit_launch_members\": [") !=
           std::string::npos);
+  require(json.find("\"replay_internal_cost_map\": {") !=
+              std::string::npos,
+          "replay_internal_cost_map section");
+  require(json.find("\"resolved_launch_count\": 1") !=
+              std::string::npos,
+          "resolved_launch_count");
+  require(json.find("\"unsupported_launch_count\": 0") !=
+              std::string::npos,
+          "unsupported_launch_count");
+  require(json.find("\"fully_supported_unit_count\": 1") !=
+              std::string::npos,
+          "fully_supported_unit_count");
+  require(json.find("\"slot_role\": \"generic_slot\"") !=
+              std::string::npos,
+          "slot_role generic_slot");
+  require(json.find("\"reason_code\": null") != std::string::npos,
+          "reason_code null");
+  require(json.find("\"aligned_aggregates\": [") !=
+              std::string::npos,
+          "aligned_aggregates");
+  require(json.find("\"distribution_supported\": true") !=
+              std::string::npos,
+          "distribution_supported true");
+  require(json.find("\"duration_median_ns\": 10") !=
+              std::string::npos,
+          "duration_median_ns 10");
+  require(json.find("\"identity\": \"A\"") != std::string::npos,
+          "identity A");
+  require(json.find("\"graph_launch_body_member_id\": 0") !=
+              std::string::npos,
+          "graph_launch_body_member_id");
   require(json.find("\"full_repeat_count\": 4") != std::string::npos);
   require(json.find("\"candidate_distinct_count\"") != std::string::npos);
   require(json.find("\"anchor_internal_cost_breakdown\"") !=
@@ -288,6 +319,12 @@ int main() {
               "\"device_id\": null, \"stream_id\": null, "
               "\"start_ns\": null, \"end_ns\": null") !=
           std::string::npos);
+  require(fixture_json.find("\"empty_replay_unit\"") !=
+              std::string::npos,
+          "fixture empty_replay_unit");
+  require(fixture_json.find("\"unsupported_unit_count\": 1") !=
+              std::string::npos,
+          "fixture unsupported_unit_count");
   require(json.find("\"anchor_kind\": \"graph_l\"") != std::string::npos);
   require(json.find("\"graph_child_ns\": 100") != std::string::npos);
   require(json.find("\"raw_child_task_count\": 20") != std::string::npos);
