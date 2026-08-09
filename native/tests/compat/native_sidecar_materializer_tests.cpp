@@ -394,10 +394,13 @@ NativeIr build_exact_cuda_graph_replay_ir() {
       launch, region);
   const ReplayUnitLaunchMemberId launch_member =
       ir.replay_unit_launch_members.append(unit, 0, occurrence, slot);
-  ir.anchors.append(source, TraceEventId::invalid(), unit,
-                    AnchorKind::kGraphReplayUnit,
-                    ir.symbols.intern("CUDAGraph"), 0, 11, 1000, 2000,
-                    launch_member);
+  const AnchorId graph_anchor = ir.anchors.append(
+      source, TraceEventId::invalid(), unit, AnchorKind::kGraphReplayUnit,
+      ir.symbols.intern("CUDAGraph"), 0, 11, 1000, 2000, launch_member);
+  // Token drives the report-tree node coverage so the exact anchor gets a
+  // real traceloom_viz_node_anchor occurrence for the node-view join.
+  ir.tokens.append(graph_anchor, ir.symbols.intern("CUDAGraph"), 0, 0, 1000,
+                   2000);
   return ir;
 }
 
@@ -493,12 +496,16 @@ NativeIr build_ascend_multi_slot_exact_graph_sql_ir() {
                                            tail_slot);
   const SymbolId head_symbol = ir.symbols.intern("ACLH");
   const SymbolId tail_symbol = ir.symbols.intern("ACLT");
-  ir.anchors.append(source, TraceEventId::invalid(), unit,
-                    AnchorKind::kGraphH, head_symbol, 0, 7, 1000, 2000,
-                    head_member);
-  ir.anchors.append(source, TraceEventId::invalid(), unit,
-                    AnchorKind::kGraphT, tail_symbol, 0, 7, 2000, 3000,
-                    tail_member);
+  const AnchorId head_anchor = ir.anchors.append(
+      source, TraceEventId::invalid(), unit, AnchorKind::kGraphH, head_symbol,
+      0, 7, 1000, 2000, head_member);
+  const AnchorId tail_anchor = ir.anchors.append(
+      source, TraceEventId::invalid(), unit, AnchorKind::kGraphT, tail_symbol,
+      0, 7, 2000, 3000, tail_member);
+  // Tokens drive the report-tree node coverage so both exact anchors get
+  // real traceloom_viz_node_anchor occurrences for the node-view join.
+  ir.tokens.append(head_anchor, head_symbol, 0, 0, 1000, 2000);
+  ir.tokens.append(tail_anchor, tail_symbol, 0, 1, 2000, 3000);
   return ir;
 }
 
@@ -710,6 +717,18 @@ int main() {
               "SELECT value FROM traceloom_metadata "
               "WHERE key = 'unrecognized_replay_composition_region_count'") ==
           "6");
+  // Exact launch without a tree anchor stays in the base table with a NULL
+  // anchor_id and must not masquerade as a node-view row.
+  require(run_scalar_int(exact_graph_db_path,
+                         "SELECT COUNT(*) FROM traceloom_graph_launch") == 1);
+  require(run_scalar_int(
+              exact_graph_db_path,
+              "SELECT COUNT(*) FROM traceloom_graph_launch "
+              "WHERE anchor_id IS NULL") == 1);
+  require(run_scalar_int(
+              exact_graph_db_path,
+              "SELECT COUNT(*) FROM "
+              "traceloom_v_node_graph_body_member") == 0);
   std::remove(exact_graph_db_path.c_str());
 
   const std::string exact_cuda_graph_db_path = temp_db_path();
@@ -789,12 +808,14 @@ int main() {
   require(run_scalar_int(
               exact_cuda_graph_db_path,
               "SELECT COUNT(*) FROM traceloom_v_node_graph_body_member "
-              "WHERE node_event_id = 'event-0'") == 3);
+              "WHERE node_event_id = 'event-0' AND coverage_kind = 'self'") ==
+          3);
   require(run_scalar_text(
               exact_cuda_graph_db_path,
               "SELECT node_event_id FROM "
               "traceloom_v_node_graph_body_member "
-              "WHERE event_id = 'event-1'") == "event-0");
+              "WHERE event_id = 'event-1' AND coverage_kind = 'self'") ==
+          "event-0");
   require(run_scalar_int(
               exact_cuda_graph_db_path,
               "SELECT COUNT(DISTINCT node_launch_id) FROM "
@@ -803,7 +824,8 @@ int main() {
   require(run_scalar_text(
               exact_cuda_graph_db_path,
               "SELECT kind FROM traceloom_v_node_graph_body_member "
-              "WHERE event_id = 'event-3'") == "data_move");
+              "WHERE event_id = 'event-3' AND coverage_kind = 'self'") ==
+          "data_move");
   require(run_scalar_text(
               exact_cuda_graph_db_path,
               "SELECT source_table FROM traceloom_graph_body_member "
@@ -820,6 +842,31 @@ int main() {
               "LEFT JOIN traceloom_graph_launch l "
               "ON l.launch_id = m.launch_id "
               "WHERE l.launch_id IS NULL") == 0);
+  // Forward: tree node occurrence -> exact ordered members. The view joins
+  // traceloom_viz_node_anchor on explicit anchor_id + db_idx/device_id, so
+  // node_id + occurrence_idx identify the containing tree occurrence.
+  require(run_scalar_int(
+              exact_cuda_graph_db_path,
+              "SELECT COUNT(*) FROM traceloom_v_node_graph_body_member v "
+              "WHERE v.node_id = (SELECT node_id FROM "
+              "traceloom_viz_node_anchor WHERE anchor_id = 'anchor-0' "
+              "AND coverage_kind = 'self') "
+              "AND v.occurrence_idx = 1") == 3);
+  require(run_scalar_int(
+              exact_cuda_graph_db_path,
+              "SELECT COUNT(*) FROM traceloom_v_node_graph_body_member v "
+              "WHERE v.event_id = 'event-1' AND v.occurrence_idx = 1 "
+              "AND v.idx_in_occurrence = 0 AND v.anchor_order = 1 "
+              "AND v.view_name = 'native_report_tree' "
+              "AND v.node_anchor_id = 'anchor-0' "
+              "AND v.coverage_kind = 'self'") == 1);
+  // Reverse: member event -> containing tree occurrence.
+  require(run_scalar_int(
+              exact_cuda_graph_db_path,
+              "SELECT COUNT(*) FROM traceloom_v_node_graph_body_member v "
+              "WHERE v.event_id = 'event-1' AND v.node_id = "
+              "(SELECT node_id FROM traceloom_viz_node_anchor WHERE "
+              "anchor_id = 'anchor-0' AND coverage_kind = 'self')") == 1);
   require(run_scalar_int(
               exact_cuda_graph_db_path,
               "SELECT COUNT(*) FROM traceloom_graph_body_member m "
@@ -897,12 +944,14 @@ int main() {
               multi_slot_db_path,
               "SELECT COUNT(*) FROM traceloom_v_node_graph_body_member "
               "WHERE node_event_id = 'event-0' AND node_member_order = 0 "
-              "AND lane_ordinal = 0 AND task_ordinal = 0") == 1);
+              "AND lane_ordinal = 0 AND task_ordinal = 0 "
+              "AND coverage_kind = 'self'") == 1);
   require(run_scalar_text(
               multi_slot_db_path,
               "SELECT node_anchor_id FROM "
               "traceloom_v_node_graph_body_member "
-              "WHERE node_member_order = 1") == "anchor-1");
+              "WHERE node_member_order = 1 AND coverage_kind = 'self'") ==
+          "anchor-1");
   require(run_scalar_int(
               multi_slot_db_path,
               "SELECT COUNT(DISTINCT node_launch_id) FROM "
@@ -911,8 +960,9 @@ int main() {
   require(run_scalar_text(
               multi_slot_db_path,
               "SELECT node_event_id FROM "
-              "traceloom_v_node_graph_body_member WHERE event_id = 'event-2'")
-              == "event-0");
+              "traceloom_v_node_graph_body_member "
+              "WHERE event_id = 'event-2' AND coverage_kind = 'self'") ==
+          "event-0");
   require(run_scalar_int(
               multi_slot_db_path,
               "SELECT COUNT(*) FROM traceloom_graph_launch l "
@@ -924,6 +974,24 @@ int main() {
               "LEFT JOIN traceloom_graph_body_member m "
               "ON m.launch_id = l.launch_id "
               "WHERE m.member_id IS NULL") == 0);
+  // Both anchored exact launches appear under their promoted tree node
+  // occurrences, one member each, at index 0 of their occurrence.
+  require(run_scalar_int(
+              multi_slot_db_path,
+              "SELECT COUNT(*) FROM traceloom_v_node_graph_body_member v "
+              "WHERE v.node_id = (SELECT node_id FROM "
+              "traceloom_viz_node_anchor WHERE anchor_id = 'anchor-0' "
+              "AND coverage_kind = 'self') "
+              "AND v.occurrence_idx = 1 AND v.idx_in_occurrence = 0 "
+              "AND v.node_anchor_id = 'anchor-0'") == 1);
+  require(run_scalar_int(
+              multi_slot_db_path,
+              "SELECT COUNT(*) FROM traceloom_v_node_graph_body_member v "
+              "WHERE v.node_id = (SELECT node_id FROM "
+              "traceloom_viz_node_anchor WHERE anchor_id = 'anchor-1' "
+              "AND coverage_kind = 'self') "
+              "AND v.occurrence_idx = 1 AND v.idx_in_occurrence = 0 "
+              "AND v.node_anchor_id = 'anchor-1'") == 1);
   std::remove(multi_slot_db_path.c_str());
 
   const std::string collective_db_path = temp_db_path();

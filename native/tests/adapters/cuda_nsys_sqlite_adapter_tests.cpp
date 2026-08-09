@@ -61,6 +61,7 @@ enum class GraphFixtureVariant {
   kIncompleteMemcpyCapability,
   kBodyMismatch,
   kAmbiguousOriginalGraphNode,
+  kMissingOriginalGraphNodeColumn,
 };
 
 void create_graph_node_db(const std::string& path,
@@ -84,10 +85,15 @@ void create_graph_node_db(const std::string& path,
   if (variant != GraphFixtureVariant::kIncompleteMemcpyCapability) {
     sql << ", copyKind INTEGER";
   }
-  sql << ");"
-         "CREATE TABLE CUDA_GRAPH_NODE_EVENTS("
-         "start INTEGER, end INTEGER, graphNodeId INTEGER NOT NULL,"
-         "originalGraphNodeId INTEGER);";
+  sql << ");";
+  if (variant == GraphFixtureVariant::kMissingOriginalGraphNodeColumn) {
+    sql << "CREATE TABLE CUDA_GRAPH_NODE_EVENTS("
+           "start INTEGER, end INTEGER, graphNodeId INTEGER NOT NULL);";
+  } else {
+    sql << "CREATE TABLE CUDA_GRAPH_NODE_EVENTS("
+           "start INTEGER, end INTEGER, graphNodeId INTEGER NOT NULL,"
+           "originalGraphNodeId INTEGER);";
+  }
 
   const std::int64_t graph_a = 8589934592LL;
   const std::int64_t graph_b = 21474836480LL;
@@ -138,13 +144,24 @@ void create_graph_node_db(const std::string& path,
       sql << ");";
     }
   }
-  for (int node = 0; node < 4; ++node) {
-    sql << "INSERT INTO CUDA_GRAPH_NODE_EVENTS VALUES(" << 100 + node
-        << ',' << 100 + node << ',' << graph_a + node << ','
-        << 5000 + node << ");"
-        << "INSERT INTO CUDA_GRAPH_NODE_EVENTS VALUES(" << 200 + node
-        << ',' << 200 + node << ',' << graph_b + node << ','
-        << 6000 + node << ");";
+  if (variant == GraphFixtureVariant::kMissingOriginalGraphNodeColumn) {
+    // The table stays non-empty so graph-node reconstruction runs; only the
+    // optional originalGraphNodeId column is absent.
+    for (int node = 0; node < 4; ++node) {
+      sql << "INSERT INTO CUDA_GRAPH_NODE_EVENTS VALUES(" << 100 + node
+          << ',' << 100 + node << ',' << graph_a + node << ");"
+          << "INSERT INTO CUDA_GRAPH_NODE_EVENTS VALUES(" << 200 + node
+          << ',' << 200 + node << ',' << graph_b + node << ");";
+    }
+  } else {
+    for (int node = 0; node < 4; ++node) {
+      sql << "INSERT INTO CUDA_GRAPH_NODE_EVENTS VALUES(" << 100 + node
+          << ',' << 100 + node << ',' << graph_a + node << ','
+          << 5000 + node << ");"
+          << "INSERT INTO CUDA_GRAPH_NODE_EVENTS VALUES(" << 200 + node
+          << ',' << 200 + node << ',' << graph_b + node << ','
+          << 6000 + node << ");";
+    }
   }
   if (variant == GraphFixtureVariant::kAmbiguousOriginalGraphNode) {
     // graph_a+1 now maps to two distinct originals: ambiguous, so the
@@ -622,6 +639,7 @@ int main(int argc, char** argv) {
               graph_exact_ir.graph_launch_body_members.size(),
           "ambiguous original mapping changed exact body membership");
   const std::int64_t graph_a_node_id = 8589934592LL;
+  const std::int64_t graph_b_node_id = 21474836480LL;
   std::size_t ambiguous_member_count = 0;
   for (const GraphLaunchBodyMemberRow& member :
        graph_ambiguous_original_ir.graph_launch_body_members.rows()) {
@@ -637,6 +655,37 @@ int main(int argc, char** argv) {
   }
   require(ambiguous_member_count > 0,
           "ambiguous original mapping fixture did not exercise the node");
+
+  const std::string graph_missing_original_column_path =
+      temp_db_path("_graph_missing_original_column");
+  create_graph_node_db(graph_missing_original_column_path,
+                       GraphFixtureVariant::kMissingOriginalGraphNodeColumn);
+  const NativeIr graph_missing_original_column_ir =
+      CudaNsightSQLiteAdapter(graph_missing_original_column_path).load();
+  require(graph_missing_original_column_ir.replay_units.size() ==
+                  graph_exact_ir.replay_units.size() &&
+              graph_missing_original_column_ir.graph_launch_bodies.size() ==
+                  graph_exact_ir.graph_launch_bodies.size(),
+          "missing originalGraphNodeId column regressed exact replay "
+          "reconstruction");
+  require(graph_missing_original_column_ir.graph_launch_body_members.size() ==
+              graph_exact_ir.graph_launch_body_members.size(),
+          "missing originalGraphNodeId column changed exact body membership");
+  std::size_t missing_original_member_count = 0;
+  for (const GraphLaunchBodyMemberRow& member :
+       graph_missing_original_column_ir.graph_launch_body_members.rows()) {
+    if (member.raw_graph_node_id >= graph_a_node_id &&
+        member.raw_graph_node_id < graph_b_node_id + 4) {
+      ++missing_original_member_count;
+    }
+    require(member.original_graph_node_id == -1,
+            "missing originalGraphNodeId column was guessed instead of "
+            "left unmapped");
+  }
+  require(missing_original_member_count ==
+              graph_exact_ir.graph_launch_body_members.size(),
+          "missing originalGraphNodeId fixture lost raw graphNodeId "
+          "evidence");
 
   const std::string malformed_path = temp_db_path("_malformed");
   create_db(malformed_path,

@@ -130,10 +130,15 @@ ExactGraphSqlRows build_exact_graph_sql_rows(const NativeIr& ir,
         anchor.replay_unit_id.value() >= ir.replay_units.size()) {
       continue;
     }
-    anchor_by_member.emplace(
+    const auto inserted = anchor_by_member.emplace(
         std::make_pair(anchor.replay_unit_id.value(),
                        anchor.replay_unit_launch_member_id.value()),
         anchor.id);
+    if (!inserted.second) {
+      throw std::invalid_argument(
+          "exact graph SQL: multiple anchors map to the same replay unit "
+          "launch member");
+    }
   }
 
   for (const ReplayUnitRow& replay_unit : ir.replay_units.rows()) {
@@ -205,6 +210,18 @@ ExactGraphSqlRows build_exact_graph_sql_rows(const NativeIr& ir,
       const GraphLaunchBodyId body_id =
           require_single_body_for_occurrence(ir, member.graph_launch_occurrence_id);
       const GraphLaunchBodyRow& body = ir.graph_launch_bodies.row(body_id);
+      if (!slot.replay_body_template_id.valid() ||
+          slot.replay_body_template_id.value() >=
+              ir.replay_body_templates.size()) {
+        throw std::invalid_argument(
+            "exact graph SQL: ReplayCompositionSlotRow "
+            "replay_body_template_id is out of range");
+      }
+      if (slot.replay_body_template_id != body.replay_body_template_id) {
+        throw std::invalid_argument(
+            "exact graph SQL: composition slot replay_body_template_id does "
+            "not match the launch body template");
+      }
 
       GraphLaunchSqlRow launch_row;
       launch_row.launch_id = "graph-launch-" +

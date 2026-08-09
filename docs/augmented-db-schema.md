@@ -145,13 +145,16 @@ launch occurrence:
 - `graph_event_id`: node-occurrence event (the replay unit's launch event).
 - `anchor_id`: promoted tree anchor when the exact member has one; `NULL` for
   launches with no anchor (anchor mapping is exact via the anchor's
-  `ReplayUnitLaunchMemberId`, never time-inferred).
+  `ReplayUnitLaunchMemberId`, never time-inferred). Empty values materialize
+  as SQL `NULL`.
 - `replay_unit_id`, `graph_template_id`, `graph_launch_occurrence_id`,
   `replay_body_template_id`, `body_id`: native identity of the exact chain.
 - `member_order`, `slot_order`: ordered position inside the replay unit.
 - `correlation_id`: raw launch connection id (`raw_launch_connection_id`)
   rendered as text when deterministically available; for CUDA exact launches
   this is the runtime `correlationId` preserved from adapter evidence.
+  Absent/undeterministic values materialize as SQL `NULL` (query with
+  `IS NULL`, not `= ''`).
 - `match_policy`, `association_policy`: direct-correlation evidence semantics.
 - `start_ns`, `end_ns`, `dur_us`, `evidence_level` (`exact_direct`).
 
@@ -168,7 +171,9 @@ timing, correlation, and raw graph-node identity:
   providers without graph-node identity (Ascend).
 - `original_graph_node_id`: `CUDA_GRAPH_NODE_EVENTS.originalGraphNodeId` when
   exactly one non-null original maps to the raw node; `NULL` when the mapping
-  is missing or ambiguous (never guessed).
+  is missing or ambiguous, and also when the optional
+  `originalGraphNodeId` column is absent from the raw schema (never
+  guessed; exact graphNodeId/correlation reconstruction is unaffected).
 - `correlation_id`, `match_policy`, `association_policy`, `evidence_level`.
 
 Both relations fail closed: an exact launch member without a body, an
@@ -181,11 +186,31 @@ evidence remain in `traceloom_cuda_graph_envelope` /
 
 ### `traceloom_v_node_graph_body_member`
 
-Canonical view over the two base relations joined to `traceloom_event`.
-Filtering `node_event_id` walks a node occurrence to its exact ordered members
-and events; filtering `event_id` walks a member event back to the node
-occurrence(s) that contain it. Indexes cover `graph_event_id`, `anchor_id`,
-`launch_id`, `event_id`, and `graph_node_id`.
+Canonical **tree-occurrence** view over the exact graph relations. It joins
+`traceloom_graph_launch` to `traceloom_viz_node_anchor` on the explicit
+`anchor_id` plus composite `db_idx`/`device_id`, and joins launch to member and
+member to event with composite keys (`id` + `db_idx` + `device_id`) rather than
+bare IDs. Each row is one exact body member of an anchored launch inside a real
+tree node occurrence, exposing:
+
+- `node_id`, `view_name`, `occurrence_idx`, `idx_in_occurrence`: the
+  containing tree occurrence and the launch anchor's index within it.
+- `anchor_order`, `coverage_kind`, `repeat_context`, and `anchor_*` cost
+  fields: the promoted anchor's coverage evidence.
+- `node_event_id` / `node_launch_id`: the replay unit's launch event and the
+  exact launch key.
+- all `traceloom_graph_body_member` fields plus the member event's symbol,
+  label, task type, and semantic role.
+
+Filtering by `node_id` + `occurrence_idx` (or `node_event_id`) walks a tree
+node occurrence to its exact ordered members/events; filtering by `event_id`
+walks a member event back to the containing tree occurrences. Exact launches
+without a promoted tree anchor remain in `traceloom_graph_launch` /
+`traceloom_graph_body_member` only and never appear as node-view rows. The
+view is part of the centralized report-view drop/recreate lifecycle
+(`materialize_report_compatibility_views`), so definitions cannot go stale.
+Indexes cover `graph_event_id`, `anchor_id`, `launch_id`, `event_id`, and
+`graph_node_id`.
 
 ## Device Idle Evidence
 

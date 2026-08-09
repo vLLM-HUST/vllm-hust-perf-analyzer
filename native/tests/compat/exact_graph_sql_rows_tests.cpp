@@ -170,6 +170,44 @@ NativeIr build_member_without_body_ir() {
   return ir;
 }
 
+NativeIr build_duplicate_anchor_mapping_ir() {
+  NativeIr ir = build_multi_slot_exact_ir();
+  // A second anchor claiming the same (replay unit, launch member) as the
+  // fixture's head anchor: the exact anchor mapping becomes ambiguous.
+  const ReplayUnitId unit = ir.replay_units.rows().front().id;
+  const ReplayUnitLaunchMemberId head_member =
+      ir.replay_unit_launch_members.rows().front().id;
+  ir.anchors.append(ir.source_refs.rows().front().id,
+                    TraceEventId::invalid(), unit, AnchorKind::kGraphH,
+                    ir.symbols.intern("ACLH2"), 0, 7, 1000, 2000,
+                    head_member);
+  return ir;
+}
+
+NativeIr build_slot_template_mismatch_ir() {
+  NativeIr ir = build_multi_slot_exact_ir();
+  // Rewrite the slots so the head slot claims a body template that does not
+  // match the unique body of its launch occurrence.
+  const ReplayCompositionCandidateId composition =
+      ir.replay_composition_candidates.rows().front().id;
+  const ReplayBodyTemplateId other_template =
+      ir.replay_body_templates.append(
+          ir.source_refs.rows().front().id, 99,
+          ir.symbols.intern("OtherOp"), 2, 0, 1,
+          ReplayBodyTopologyPolicy::kSingleModelStream);
+  ir.replay_composition_slots = ReplayCompositionSlotTable{};
+  ir.replay_composition_slots.append(
+      composition, 0, CapturedGraphInstanceId::invalid(),
+      GraphSlotTemplateId::invalid(), other_template,
+      ReplayCompositionSlotRole::kHead, 9001);
+  ir.replay_composition_slots.append(
+      composition, 1, CapturedGraphInstanceId::invalid(),
+      GraphSlotTemplateId::invalid(),
+      ir.replay_body_templates.rows()[1].id,
+      ReplayCompositionSlotRole::kTail, 9002);
+  return ir;
+}
+
 NativeIr build_non_contiguous_order_ir() {
   NativeIr ir = build_multi_slot_exact_ir();
   // Rewrite the unit membership to a non-contiguous order {0, 2}; the two
@@ -285,6 +323,28 @@ int main() {
   {
     const NativeIr ir = build_non_contiguous_order_ir();
     require_throws_with("not contiguous", [&]() {
+      (void)compat::build_exact_graph_sql_rows(ir, "ascend", 3);
+    });
+  }
+
+  // Fail closed: two anchors mapping the same (replay unit, launch member)
+  // make the exact anchor mapping ambiguous.
+  {
+    const NativeIr ir = build_duplicate_anchor_mapping_ir();
+    require_throws_with("multiple anchors map to the same replay unit "
+                        "launch member",
+                        [&]() {
+                          (void)compat::build_exact_graph_sql_rows(ir,
+                                                                   "ascend",
+                                                                   3);
+                        });
+  }
+
+  // Fail closed: a composition slot whose replay_body_template_id is not the
+  // unique body's template is invalid exact evidence.
+  {
+    const NativeIr ir = build_slot_template_mismatch_ir();
+    require_throws_with("does not match the launch body template", [&]() {
       (void)compat::build_exact_graph_sql_rows(ir, "ascend", 3);
     });
   }

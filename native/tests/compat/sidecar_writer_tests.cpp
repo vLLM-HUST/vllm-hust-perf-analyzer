@@ -640,6 +640,26 @@ int main() {
               "SELECT COUNT(*) FROM sqlite_master "
               "WHERE type = 'view' AND name = "
               "'traceloom_v_node_graph_body_member'") == 1);
+  // Empty anchor_id / correlation_id materialize as SQL NULL (the schema
+  // declares both nullable and the docs promise NULL for absent values).
+  traceloom::compat::GraphLaunchSqlRow unanchored_launch = exact_launch;
+  unanchored_launch.launch_id = "graph-launch-1";
+  unanchored_launch.anchor_id.clear();
+  unanchored_launch.correlation_id.clear();
+  exact_rows.launches.push_back(unanchored_launch);
+  traceloom::compat::replace_exact_graph_rows(db_path, exact_rows);
+  require(run_scalar_int(db_path,
+                         "SELECT COUNT(*) FROM traceloom_graph_launch") == 2);
+  require(run_scalar_int(
+              db_path,
+              "SELECT COUNT(*) FROM traceloom_graph_launch "
+              "WHERE launch_id = 'graph-launch-1' AND anchor_id IS NULL "
+              "AND correlation_id IS NULL") == 1);
+  require(run_scalar_int(
+              db_path,
+              "SELECT COUNT(*) FROM traceloom_graph_launch "
+              "WHERE launch_id = 'graph-launch-0' AND anchor_id = 'anchor-0' "
+              "AND correlation_id = '101'") == 1);
   traceloom::compat::replace_exact_graph_rows(
       db_path, traceloom::compat::ExactGraphSqlRows{});
   require(run_scalar_int(db_path,
