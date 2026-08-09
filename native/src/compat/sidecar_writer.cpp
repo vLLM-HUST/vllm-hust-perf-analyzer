@@ -1480,6 +1480,9 @@ void materialize_report_compatibility_indexes(SqliteDb& db) {
       "CREATE INDEX IF NOT EXISTS idx_traceloom_event_id "
       "ON traceloom_event(event_id)");
   db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_event_identity "
+      "ON traceloom_event(event_id, db_idx, device_id)");
+  db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_event_source_lookup "
       "ON traceloom_event_source(source_table, source_key)");
   db.exec(
@@ -1511,11 +1514,25 @@ void materialize_report_compatibility_indexes(SqliteDb& db) {
       "CREATE INDEX IF NOT EXISTS idx_traceloom_graph_launch_anchor "
       "ON traceloom_graph_launch(anchor_id)");
   db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_graph_launch_identity "
+      "ON traceloom_graph_launch(launch_id, db_idx, device_id)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_graph_launch_anchor_identity "
+      "ON traceloom_graph_launch(anchor_id, db_idx, device_id)");
+  db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_graph_body_member_launch "
       "ON traceloom_graph_body_member(launch_id)");
   db.exec(
+      "CREATE INDEX IF NOT EXISTS "
+      "idx_traceloom_graph_body_member_launch_identity "
+      "ON traceloom_graph_body_member(launch_id, db_idx, device_id)");
+  db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_graph_body_member_event "
       "ON traceloom_graph_body_member(event_id)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS "
+      "idx_traceloom_graph_body_member_event_identity "
+      "ON traceloom_graph_body_member(event_id, db_idx, device_id)");
   db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_graph_body_member_node "
       "ON traceloom_graph_body_member(graph_node_id)");

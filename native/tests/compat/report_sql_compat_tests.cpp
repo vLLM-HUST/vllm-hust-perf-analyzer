@@ -545,6 +545,56 @@ void seed_node_event_fixture(const std::string& db_path) {
   write_node_coverage_fixture_via_asset_writers(db_path, rows);
 }
 
+void seed_exact_graph_query_fixture(const std::string& db_path) {
+  traceloom::compat::ExactGraphSqlRows rows;
+
+  traceloom::compat::GraphLaunchSqlRow launch;
+  launch.launch_id = "graph-launch-query-1";
+  launch.graph_provider = "cuda";
+  launch.graph_event_id = "event-graph-query-1";
+  launch.anchor_id = "anchor-1";
+  launch.replay_unit_id = 1;
+  launch.graph_template_id = 2;
+  launch.graph_launch_occurrence_id = 3;
+  launch.replay_body_template_id = 4;
+  launch.body_id = 5;
+  launch.correlation_id = "101";
+  launch.match_policy = "cuda_runtime_correlation";
+  launch.association_policy = "cuda_graph_node_set";
+  launch.start_ns = 1000;
+  launch.end_ns = 6000;
+  launch.dur_us = 5.0;
+  rows.launches.push_back(launch);
+
+  traceloom::compat::GraphBodyMemberSqlRow member;
+  member.member_id = "graph-body-member-query-1";
+  member.launch_id = launch.launch_id;
+  member.graph_provider = launch.graph_provider;
+  member.graph_event_id = launch.graph_event_id;
+  member.replay_unit_id = launch.replay_unit_id;
+  member.graph_template_id = launch.graph_template_id;
+  member.graph_launch_occurrence_id = launch.graph_launch_occurrence_id;
+  member.body_id = launch.body_id;
+  member.replay_body_template_id = launch.replay_body_template_id;
+  member.kind = "compute";
+  member.event_id = "event-anchor-1";
+  member.task_id = 10;
+  member.source_table = "TASK";
+  member.source_row_id = 10;
+  member.raw_task_id = 10;
+  member.start_ns = launch.start_ns;
+  member.end_ns = launch.end_ns;
+  member.dur_us = launch.dur_us;
+  member.correlation_id = launch.correlation_id;
+  member.graph_node_id = 8589934592LL;
+  member.original_graph_node_id = 4294967296LL;
+  member.match_policy = launch.match_policy;
+  member.association_policy = launch.association_policy;
+  rows.members.push_back(member);
+
+  traceloom::compat::replace_exact_graph_rows(db_path, rows);
+}
+
 void seed_graph_replay_fixture(const std::string& db_path) {
   traceloom::compat::GraphReplaySqlRows rows;
 
@@ -1078,6 +1128,24 @@ std::vector<QueryCase> active_query_cases() {
           1,
       },
       QueryCase{
+          "event-graph-node-occurrences.sql",
+          {
+              "event_id",
+              "member_symbol",
+              "graph_node_id",
+              "original_graph_node_id",
+              "node_id",
+              "occurrence_idx",
+              "anchor_id",
+              "node_member_order",
+              "node_slot_order",
+              "correlation_id",
+              "source_table",
+              "source_row_id",
+          },
+          1,
+      },
+      QueryCase{
           "node-events.sql",
           {
               "node",
@@ -1094,6 +1162,26 @@ std::vector<QueryCase> active_query_cases() {
               "dur_us",
               "role",
               "semantic_role",
+          },
+          1,
+      },
+      QueryCase{
+          "node-graph-body-members.sql",
+          {
+              "node_id",
+              "occurrence_idx",
+              "anchor_id",
+              "correlation_id",
+              "lane_ordinal",
+              "task_ordinal",
+              "kind",
+              "event_id",
+              "member_symbol",
+              "graph_node_id",
+              "original_graph_node_id",
+              "source_table",
+              "source_row_id",
+              "dur_us",
           },
           1,
       },
@@ -1284,12 +1372,18 @@ int main() {
       seed_reconstruction_capability_fixture(db_path);
     } else if (query_case.filename == "node-events.sql" ||
                query_case.filename == "node-occurrences.sql" ||
+               query_case.filename == "node-graph-body-members.sql" ||
+               query_case.filename == "event-graph-node-occurrences.sql" ||
                query_case.filename == "repeat-overview.sql" ||
                query_case.filename == "repeat-children.sql" ||
                query_case.filename == "tree-map.sql" ||
                query_case.filename == "node-cost-breakdown.sql") {
       seed_anchor_aux_fixture(db_path);
       seed_node_event_fixture(db_path);
+      if (query_case.filename == "node-graph-body-members.sql" ||
+          query_case.filename == "event-graph-node-occurrences.sql") {
+        seed_exact_graph_query_fixture(db_path);
+      }
       require_anchor_aux_invariants(db_path);
       require_node_coverage_invariants(db_path);
     } else if (query_case.filename == "semantic-tree-readable.sql") {
@@ -1401,6 +1495,26 @@ int main() {
       require(result.first_row[7] == "task-10");
       require(result.first_row[12] == "compute");
       require(result.first_row[13] == "anchor");
+    } else if (query_case.filename == "node-graph-body-members.sql") {
+      require(result.row_count == 1);
+      require(result.first_row[0] == "node-1");
+      require(result.first_row[1] == "0");
+      require(result.first_row[2] == "anchor-1");
+      require(result.first_row[3] == "101");
+      require(result.first_row[7] == "event-anchor-1");
+      require(result.first_row[8] == "MatMul");
+      require(result.first_row[9] == "8589934592");
+      require(result.first_row[10] == "4294967296");
+    } else if (query_case.filename ==
+               "event-graph-node-occurrences.sql") {
+      require(result.row_count == 2);
+      require(result.first_row[0] == "event-anchor-1");
+      require(result.first_row[1] == "MatMul");
+      require(result.first_row[2] == "8589934592");
+      require(result.first_row[3] == "4294967296");
+      require(result.first_row[4] == "node-1");
+      require(result.first_row[6] == "anchor-1");
+      require(result.first_row[9] == "101");
     } else if (query_case.filename == "node-occurrences.sql") {
       require(result.row_count == 1);
       require(result.first_row[0] == "N027");
