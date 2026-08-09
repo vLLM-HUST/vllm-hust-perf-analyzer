@@ -755,6 +755,74 @@ const CompatTableSchema& node_idle_explanation_table_schema() {
   return schema;
 }
 
+const CompatTableSchema& graph_launch_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_graph_launch",
+      {
+          {"launch_id", CompatColumnType::kText, false},
+          {"db_idx", CompatColumnType::kInteger, false},
+          {"device_id", CompatColumnType::kInteger, false},
+          {"graph_provider", CompatColumnType::kText, false},
+          {"graph_event_id", CompatColumnType::kText, false},
+          {"anchor_id", CompatColumnType::kText, true},
+          {"replay_unit_id", CompatColumnType::kInteger, false},
+          {"graph_template_id", CompatColumnType::kInteger, false},
+          {"graph_launch_occurrence_id", CompatColumnType::kInteger, false},
+          {"replay_body_template_id", CompatColumnType::kInteger, false},
+          {"body_id", CompatColumnType::kInteger, false},
+          {"member_order", CompatColumnType::kInteger, false},
+          {"slot_order", CompatColumnType::kInteger, true},
+          {"correlation_id", CompatColumnType::kText, true},
+          {"match_policy", CompatColumnType::kText, true},
+          {"association_policy", CompatColumnType::kText, true},
+          {"start_ns", CompatColumnType::kInteger, true},
+          {"end_ns", CompatColumnType::kInteger, true},
+          {"dur_us", CompatColumnType::kReal, true},
+          {"evidence_level", CompatColumnType::kText, false},
+      },
+  };
+  return schema;
+}
+
+const CompatTableSchema& graph_body_member_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_graph_body_member",
+      {
+          {"member_id", CompatColumnType::kText, false},
+          {"launch_id", CompatColumnType::kText, false},
+          {"db_idx", CompatColumnType::kInteger, false},
+          {"device_id", CompatColumnType::kInteger, false},
+          {"graph_provider", CompatColumnType::kText, false},
+          {"graph_event_id", CompatColumnType::kText, false},
+          {"replay_unit_id", CompatColumnType::kInteger, false},
+          {"graph_template_id", CompatColumnType::kInteger, false},
+          {"graph_launch_occurrence_id", CompatColumnType::kInteger, false},
+          {"body_id", CompatColumnType::kInteger, false},
+          {"replay_body_template_id", CompatColumnType::kInteger, false},
+          {"member_order", CompatColumnType::kInteger, false},
+          {"slot_order", CompatColumnType::kInteger, true},
+          {"lane_ordinal", CompatColumnType::kInteger, false},
+          {"task_ordinal", CompatColumnType::kInteger, false},
+          {"kind", CompatColumnType::kText, false},
+          {"event_id", CompatColumnType::kText, false},
+          {"task_id", CompatColumnType::kInteger, false},
+          {"source_table", CompatColumnType::kText, true},
+          {"source_row_id", CompatColumnType::kInteger, true},
+          {"raw_task_id", CompatColumnType::kInteger, true},
+          {"start_ns", CompatColumnType::kInteger, true},
+          {"end_ns", CompatColumnType::kInteger, true},
+          {"dur_us", CompatColumnType::kReal, true},
+          {"correlation_id", CompatColumnType::kText, true},
+          {"graph_node_id", CompatColumnType::kInteger, true},
+          {"original_graph_node_id", CompatColumnType::kInteger, true},
+          {"match_policy", CompatColumnType::kText, true},
+          {"association_policy", CompatColumnType::kText, true},
+          {"evidence_level", CompatColumnType::kText, false},
+      },
+  };
+  return schema;
+}
+
 std::vector<CompatTableSchema> compatibility_table_schemas() {
   return {
       metadata_table_schema(),
@@ -766,6 +834,8 @@ std::vector<CompatTableSchema> compatibility_table_schemas() {
       cuda_graph_replay_table_schema(),
       cuda_graph_envelope_table_schema(),
       aclgraph_reconstruction_region_table_schema(),
+      graph_launch_table_schema(),
+      graph_body_member_table_schema(),
       viz_node_table_schema(),
       viz_edge_table_schema(),
       viz_node_anchor_table_schema(),

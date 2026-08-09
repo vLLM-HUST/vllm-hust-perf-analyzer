@@ -270,6 +270,19 @@ NativeIr build_exact_graph_replay_ir() {
               kUnrecognizedMissingBodyCapability);
   ir.replay_composition_region_members.append(
       missing_capability_region, 0, missing_body_occurrence, -1);
+  const SourceRefId task_source =
+      ir.source_refs.append("fixture", "exact-graph", "TASK", 0);
+  const SymbolId ai_core = ir.symbols.intern("AI_CORE");
+  const SymbolId matmul = ir.symbols.intern("MatMul");
+  const TraceEventId member_event =
+      ir.trace_events.append(task_source, 21, 0, 7, 1050, 1600, ai_core);
+  const TaskId member_task = ir.tasks.append(
+      task_source, member_event, 21, 21, -1, ai_core, matmul, matmul,
+      ai_core, SymbolId::invalid());
+  const GraphLaunchBodyId body_id = ir.graph_launch_bodies.append(
+      occurrence, body, member_task, member_task, 1, 0, 1);
+  ir.graph_launch_body_members.append(
+      body_id, member_task, 0, 0, GraphLaunchBodyMemberRow::Kind::kCompute);
   const GraphTemplateId graph_template =
       ir.graph_templates.append(source, 33, 1);
   const ReplayUnitId unit = ir.replay_units.append(
@@ -294,8 +307,32 @@ NativeIr build_exact_cuda_graph_replay_ir() {
           2000, -1, GraphLaunchMatchPolicy::kCudaRuntimeCorrelation,
           GraphLaunchInstanceAssociationPolicy::kCudaGraphNodeSet);
   const ReplayBodyTemplateId body = ir.replay_body_templates.append(
-      source, 11, ir.symbols.intern("lane 0:\nkernel"), 1, 0, 1,
-      ReplayBodyTopologyPolicy::kObservedStreamSetUnordered);
+      source, 11, ir.symbols.intern("lane 0:\nkernel"), 2, 0, 1,
+      ReplayBodyTopologyPolicy::kObservedStreamSetUnordered, 1);
+  const SourceRefId kernel_source = ir.source_refs.append(
+      "cuda_nsys_sqlite", "cuda-exact-graph", "CUPTI_ACTIVITY_KIND_KERNEL",
+      0);
+  const SourceRefId memcpy_source = ir.source_refs.append(
+      "cuda_nsys_sqlite", "cuda-exact-graph", "CUPTI_ACTIVITY_KIND_MEMCPY",
+      0);
+  const SymbolId ai_core = ir.symbols.intern("AI_CORE");
+  const SymbolId gemm = ir.symbols.intern("graph_a_gemm");
+  const SymbolId memcpy = ir.symbols.intern("CudaMemcpy kind=8 bytes=1048576");
+  const TraceEventId gemm_event = ir.trace_events.append(
+      kernel_source, 101, 0, 11, 1010, 1020, gemm);
+  const TaskId gemm_task = ir.tasks.append(
+      kernel_source, gemm_event, 101, 101, -1, ai_core, gemm, gemm, ai_core,
+      SymbolId::invalid());
+  const TraceEventId gemm2_event = ir.trace_events.append(
+      kernel_source, 102, 0, 11, 1030, 1040, gemm);
+  const TaskId gemm2_task = ir.tasks.append(
+      kernel_source, gemm2_event, 102, 102, -1, ai_core, gemm, gemm, ai_core,
+      SymbolId::invalid());
+  const TraceEventId memcpy_event = ir.trace_events.append(
+      memcpy_source, 201, 0, 11, 1050, 1060, memcpy);
+  const TaskId memcpy_task = ir.tasks.append(
+      memcpy_source, memcpy_event, 201, 201, -1, ai_core, memcpy, memcpy,
+      ai_core, SymbolId::invalid());
   const ReplayCompositionCandidateId composition =
       ir.replay_composition_candidates.append(
           source, 0, occurrence, occurrence, 1, 0, 1, 1, 0, 22,
@@ -313,12 +350,130 @@ NativeIr build_exact_cuda_graph_replay_ir() {
           composition, 0, occurrence, occurrence, 1000, 2000, 1, 1,
           ReplayCompositionRegionStatus::kRecognizedCompletePattern);
   ir.replay_composition_region_members.append(region, 0, occurrence, 0);
+  const GraphLaunchBodyId body_id = ir.graph_launch_bodies.append(
+      occurrence, body, gemm_task, memcpy_task, 2, 0, 1, 1);
+  const std::int64_t graph_node_base = 8589934592LL;
+  ir.graph_launch_body_members.append(
+      body_id, gemm_task, 0, 0, GraphLaunchBodyMemberRow::Kind::kCompute,
+      graph_node_base, 5000);
+  ir.graph_launch_body_members.append(
+      body_id, gemm2_task, 0, 1, GraphLaunchBodyMemberRow::Kind::kCompute,
+      graph_node_base + 1, 5001);
+  ir.graph_launch_body_members.append(
+      body_id, memcpy_task, 0, 2, GraphLaunchBodyMemberRow::Kind::kDataMove,
+      graph_node_base + 2, 5002);
   const GraphTemplateId graph_template =
       ir.graph_templates.append(source, 33, 1);
   const ReplayUnitId unit = ir.replay_units.append(
       graph_template, source, AnchorId::invalid(), AnchorId::invalid(),
       launch, region);
-  ir.replay_unit_launch_members.append(unit, 0, occurrence, slot);
+  const ReplayUnitLaunchMemberId launch_member =
+      ir.replay_unit_launch_members.append(unit, 0, occurrence, slot);
+  ir.anchors.append(source, TraceEventId::invalid(), unit,
+                    AnchorKind::kGraphReplayUnit,
+                    ir.symbols.intern("CUDAGraph"), 0, 11, 1000, 2000,
+                    launch_member);
+  return ir;
+}
+
+// Ascend-style exact ReplayUnit with two ordered slots, each mapping its own
+// anchor to its own launch/body members. Provider-neutrality proof: the exact
+// SQL surface must keep both launches and both bodies distinct without any
+// temporal inference.
+NativeIr build_ascend_multi_slot_exact_graph_sql_ir() {
+  NativeIr ir;
+  const SourceRefId source = ir.source_refs.append(
+      "ascend", "acl-exact-graph", "ACLGRAPH_REPLAY_UNIT", 0);
+  const SourceRefId task_source =
+      ir.source_refs.append("ascend", "acl-exact-graph", "TASK", 0);
+  const SymbolId ai_core = ir.symbols.intern("AI_CORE");
+  const SymbolId head = ir.symbols.intern("HeadOp");
+  const SymbolId tail = ir.symbols.intern("TailOp");
+  const SymbolId graph = ir.symbols.intern("GraphReplayUnit ExactT1");
+
+  const TraceEventId launch =
+      ir.trace_events.append(source, 1, 0, 7, 1000, 3000, graph);
+  const GraphLaunchOccurrenceId head_occurrence =
+      ir.graph_launch_occurrences.append(
+          source, source, 0, 1, 100, 9001, -1, StreamId::invalid(),
+          StreamId::invalid(), CapturedGraphInstanceId::invalid(),
+          TaskId::invalid(), TaskId::invalid(), TaskId::invalid(), 1000,
+          2000, -1, GraphLaunchMatchPolicy::kNotifyCompletionAdjacent);
+  const GraphLaunchOccurrenceId tail_occurrence =
+      ir.graph_launch_occurrences.append(
+          source, source, 0, 1, 101, 9001, -1, StreamId::invalid(),
+          StreamId::invalid(), CapturedGraphInstanceId::invalid(),
+          TaskId::invalid(), TaskId::invalid(), TaskId::invalid(), 2000,
+          3000, -1, GraphLaunchMatchPolicy::kNotifyCompletionAdjacent);
+
+  const TraceEventId head_event =
+      ir.trace_events.append(task_source, 31, 0, 7, 1050, 1600, head);
+  const TaskId head_task = ir.tasks.append(
+      task_source, head_event, 31, 31, -1, ai_core, head, head, ai_core,
+      SymbolId::invalid());
+  const TraceEventId tail_event =
+      ir.trace_events.append(task_source, 32, 0, 7, 2050, 2600, tail);
+  const TaskId tail_task = ir.tasks.append(
+      task_source, tail_event, 32, 32, -1, ai_core, tail, tail, ai_core,
+      SymbolId::invalid());
+
+  const ReplayBodyTemplateId head_template = ir.replay_body_templates.append(
+      source, 11, ir.symbols.intern("HeadOp"), 1, 0, 1,
+      ReplayBodyTopologyPolicy::kSingleModelStream);
+  const ReplayBodyTemplateId tail_template = ir.replay_body_templates.append(
+      source, 12, ir.symbols.intern("TailOp"), 1, 0, 1,
+      ReplayBodyTopologyPolicy::kSingleModelStream);
+  const GraphLaunchBodyId head_body = ir.graph_launch_bodies.append(
+      head_occurrence, head_template, head_task, head_task, 1, 0, 1);
+  ir.graph_launch_body_members.append(
+      head_body, head_task, 0, 0, GraphLaunchBodyMemberRow::Kind::kCompute);
+  const GraphLaunchBodyId tail_body = ir.graph_launch_bodies.append(
+      tail_occurrence, tail_template, tail_task, tail_task, 1, 0, 1);
+  ir.graph_launch_body_members.append(
+      tail_body, tail_task, 0, 0, GraphLaunchBodyMemberRow::Kind::kCompute);
+
+  const ReplayCompositionCandidateId composition =
+      ir.replay_composition_candidates.append(
+          source, 0, head_occurrence, tail_occurrence, 2, 0, 2, 1, 0, 22,
+          ReplayCompositionIdentityPolicy::kGraphConnection,
+          ReplayCompositionOrderPolicy::kHostSubmissionOrder,
+          ReplayCompositionShapePolicy::kHeadRepeatedLayerTail,
+          ReplayCompositionBoundaryPolicy::kExactPeriodicSuffix);
+  const ReplayCompositionSlotId head_slot =
+      ir.replay_composition_slots.append(
+          composition, 0, CapturedGraphInstanceId::invalid(),
+          GraphSlotTemplateId::invalid(), head_template,
+          ReplayCompositionSlotRole::kHead, 9001);
+  const ReplayCompositionSlotId tail_slot =
+      ir.replay_composition_slots.append(
+          composition, 1, CapturedGraphInstanceId::invalid(),
+          GraphSlotTemplateId::invalid(), tail_template,
+          ReplayCompositionSlotRole::kTail, 9002);
+  const ReplayCompositionRegionId region =
+      ir.replay_composition_regions.append(
+          composition, 0, head_occurrence, tail_occurrence, 1000, 3000, 2, 2,
+          ReplayCompositionRegionStatus::kRecognizedCompletePattern);
+  ir.replay_composition_region_members.append(region, 0, head_occurrence, 0);
+  ir.replay_composition_region_members.append(region, 1, tail_occurrence, 1);
+  const GraphTemplateId graph_template =
+      ir.graph_templates.append(source, 33, 2);
+  const ReplayUnitId unit = ir.replay_units.append(
+      graph_template, source, AnchorId::invalid(), AnchorId::invalid(),
+      launch, region);
+  const ReplayUnitLaunchMemberId head_member =
+      ir.replay_unit_launch_members.append(unit, 0, head_occurrence,
+                                           head_slot);
+  const ReplayUnitLaunchMemberId tail_member =
+      ir.replay_unit_launch_members.append(unit, 1, tail_occurrence,
+                                           tail_slot);
+  const SymbolId head_symbol = ir.symbols.intern("ACLH");
+  const SymbolId tail_symbol = ir.symbols.intern("ACLT");
+  ir.anchors.append(source, TraceEventId::invalid(), unit,
+                    AnchorKind::kGraphH, head_symbol, 0, 7, 1000, 2000,
+                    head_member);
+  ir.anchors.append(source, TraceEventId::invalid(), unit,
+                    AnchorKind::kGraphT, tail_symbol, 0, 7, 2000, 3000,
+                    tail_member);
   return ir;
 }
 
@@ -454,6 +609,11 @@ int main() {
   require(run_scalar_text(graph_db_path,
                           "SELECT value FROM traceloom_metadata "
                           "WHERE key = 'replay_unit_count'") == "1");
+  require(run_scalar_int(graph_db_path,
+                         "SELECT COUNT(*) FROM traceloom_graph_launch") == 0);
+  require(run_scalar_int(graph_db_path,
+                         "SELECT COUNT(*) FROM traceloom_graph_body_member") ==
+          0);
   std::remove(graph_db_path.c_str());
 
   const std::string exact_graph_db_path = temp_db_path();
@@ -559,7 +719,157 @@ int main() {
               "SELECT identity_policy FROM "
               "traceloom_aclgraph_reconstruction_region") ==
           "cuda_graph_node_set");
+  require(run_scalar_text(exact_cuda_graph_db_path,
+                          "SELECT correlation_id FROM "
+                          "traceloom_cuda_graph_replay") == "101");
+  require(run_scalar_int(exact_cuda_graph_db_path,
+                         "SELECT COUNT(*) FROM traceloom_graph_launch") == 1);
+  require(run_scalar_int(exact_cuda_graph_db_path,
+                         "SELECT COUNT(*) FROM traceloom_graph_body_member") ==
+          3);
+  require(run_scalar_text(exact_cuda_graph_db_path,
+                          "SELECT correlation_id FROM traceloom_graph_launch") ==
+          "101");
+  require(run_scalar_text(exact_cuda_graph_db_path,
+                          "SELECT anchor_id FROM traceloom_graph_launch") ==
+          "anchor-0");
+  require(run_scalar_int(
+              exact_cuda_graph_db_path,
+              "SELECT COUNT(*) FROM traceloom_graph_body_member "
+              "WHERE kind = 'compute'") == 2);
+  require(run_scalar_int(
+              exact_cuda_graph_db_path,
+              "SELECT COUNT(*) FROM traceloom_graph_body_member "
+              "WHERE kind = 'data_move'") == 1);
+  require(run_scalar_int(
+              exact_cuda_graph_db_path,
+              "SELECT COUNT(*) FROM traceloom_graph_body_member "
+              "WHERE member_id = 'graph-body-member-0' "
+              "AND graph_node_id = 8589934592") == 1);
+  require(run_scalar_int(
+              exact_cuda_graph_db_path,
+              "SELECT original_graph_node_id FROM "
+              "traceloom_graph_body_member "
+              "WHERE member_id = 'graph-body-member-0'") == 5000);
+  require(run_scalar_text(
+              exact_cuda_graph_db_path,
+              "SELECT match_policy FROM traceloom_graph_body_member "
+              "WHERE member_id = 'graph-body-member-0'") ==
+          "cuda_runtime_correlation");
+  require(run_scalar_text(
+              exact_cuda_graph_db_path,
+              "SELECT association_policy FROM traceloom_graph_body_member "
+              "WHERE member_id = 'graph-body-member-0'") ==
+          "cuda_graph_node_set");
+  require(run_scalar_int(
+              exact_cuda_graph_db_path,
+              "SELECT COUNT(*) FROM traceloom_v_node_graph_body_member "
+              "WHERE node_event_id = 'event-0'") == 3);
+  require(run_scalar_text(
+              exact_cuda_graph_db_path,
+              "SELECT node_event_id FROM "
+              "traceloom_v_node_graph_body_member "
+              "WHERE event_id = 'event-1'") == "event-0");
+  require(run_scalar_int(
+              exact_cuda_graph_db_path,
+              "SELECT COUNT(DISTINCT node_launch_id) FROM "
+              "traceloom_v_node_graph_body_member "
+              "WHERE event_id = 'event-3'") == 1);
+  require(run_scalar_text(
+              exact_cuda_graph_db_path,
+              "SELECT kind FROM traceloom_v_node_graph_body_member "
+              "WHERE event_id = 'event-3'") == "data_move");
+  require(run_scalar_text(
+              exact_cuda_graph_db_path,
+              "SELECT source_table FROM traceloom_graph_body_member "
+              "WHERE event_id = 'event-3'") ==
+          "CUPTI_ACTIVITY_KIND_MEMCPY");
+  require(run_scalar_int(
+              exact_cuda_graph_db_path,
+              "SELECT COUNT(*) FROM traceloom_graph_launch l "
+              "LEFT JOIN traceloom_anchor a ON a.anchor_id = l.anchor_id "
+              "WHERE l.anchor_id != '' AND a.anchor_id IS NULL") == 0);
+  require(run_scalar_int(
+              exact_cuda_graph_db_path,
+              "SELECT COUNT(*) FROM traceloom_graph_body_member m "
+              "LEFT JOIN traceloom_graph_launch l "
+              "ON l.launch_id = m.launch_id "
+              "WHERE l.launch_id IS NULL") == 0);
+  require(run_scalar_int(
+              exact_cuda_graph_db_path,
+              "SELECT COUNT(*) FROM traceloom_graph_body_member m "
+              "LEFT JOIN traceloom_event e ON e.event_id = m.event_id "
+              "WHERE e.event_id IS NULL") == 0);
+  require(run_scalar_int(
+              exact_cuda_graph_db_path,
+              "SELECT COUNT(*) FROM traceloom_graph_body_member m "
+              "LEFT JOIN traceloom_event_source s "
+              "ON s.event_id = m.event_id "
+              "WHERE s.event_id IS NULL") == 0);
   std::remove(exact_cuda_graph_db_path.c_str());
+
+  const std::string multi_slot_db_path = temp_db_path();
+  compat::NativeCompatibilitySidecarOptions multi_slot_options;
+  multi_slot_options.db_idx = 7;
+  multi_slot_options.source_kind = "ascend";
+  multi_slot_options.source_path = "acl-multi-slot-exact";
+  compat::write_basic_native_compatibility_sidecar(
+      multi_slot_db_path, build_ascend_multi_slot_exact_graph_sql_ir(),
+      multi_slot_options);
+  require(run_scalar_int(multi_slot_db_path,
+                         "SELECT COUNT(*) FROM traceloom_graph_launch") == 2);
+  require(run_scalar_int(multi_slot_db_path,
+                         "SELECT COUNT(*) FROM traceloom_graph_body_member") ==
+          2);
+  require(run_scalar_text(
+              multi_slot_db_path,
+              "SELECT anchor_id FROM traceloom_graph_launch "
+              "WHERE member_order = 0") == "anchor-0");
+  require(run_scalar_text(
+              multi_slot_db_path,
+              "SELECT anchor_id FROM traceloom_graph_launch "
+              "WHERE member_order = 1") == "anchor-1");
+  require(run_scalar_int(
+              multi_slot_db_path,
+              "SELECT COUNT(DISTINCT body_id) FROM "
+              "traceloom_graph_launch") == 2);
+  require(run_scalar_text(
+              multi_slot_db_path,
+              "SELECT graph_provider FROM traceloom_graph_launch LIMIT 1") ==
+          "aclgraph");
+  require(run_scalar_int(
+              multi_slot_db_path,
+              "SELECT COUNT(*) FROM traceloom_v_node_graph_body_member "
+              "WHERE node_event_id = 'event-0' AND node_member_order = 0 "
+              "AND lane_ordinal = 0 AND task_ordinal = 0") == 1);
+  require(run_scalar_text(
+              multi_slot_db_path,
+              "SELECT node_anchor_id FROM "
+              "traceloom_v_node_graph_body_member "
+              "WHERE node_member_order = 1") == "anchor-1");
+  require(run_scalar_int(
+              multi_slot_db_path,
+              "SELECT COUNT(DISTINCT node_launch_id) FROM "
+              "traceloom_v_node_graph_body_member WHERE event_id = 'event-2'")
+              == 1);
+  require(run_scalar_text(
+              multi_slot_db_path,
+              "SELECT node_event_id FROM "
+              "traceloom_v_node_graph_body_member WHERE event_id = 'event-2'")
+              == "event-0");
+  require(run_scalar_int(
+              multi_slot_db_path,
+              "SELECT COUNT(*) FROM traceloom_graph_launch l "
+              "LEFT JOIN traceloom_anchor a ON a.anchor_id = l.anchor_id "
+              "WHERE l.anchor_id != '' AND a.anchor_id IS NULL") == 0);
+  require(run_scalar_int(
+              multi_slot_db_path,
+              "SELECT COUNT(*) FROM traceloom_graph_launch l "
+              "LEFT JOIN traceloom_graph_body_member m "
+              "ON m.launch_id = l.launch_id "
+              "WHERE m.member_id IS NULL") == 0);
+  std::remove(multi_slot_db_path.c_str());
+
 
   const std::string collective_db_path = temp_db_path();
   compat::NativeCompatibilitySidecarOptions collective_options;

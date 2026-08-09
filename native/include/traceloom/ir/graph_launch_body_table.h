@@ -96,6 +96,13 @@ struct GraphLaunchBodyMemberRow {
   std::uint32_t task_ordinal = 0;
   enum class Kind : std::uint8_t { kCompute, kCommunication, kDataMove };
   Kind kind = Kind::kCompute;
+  // Raw CUDA graph-node identity of the activity backing this member.
+  // -1 means the provider does not expose graph-node identity (e.g. Ascend).
+  std::int64_t raw_graph_node_id = -1;
+  // CUDA_GRAPH_NODE_EVENTS.originalGraphNodeId for the raw graph node when
+  // exactly one non-null original is mapped; -1 when the provider has no
+  // original identity or the mapping is missing/ambiguous (never guessed).
+  std::int64_t original_graph_node_id = -1;
 };
 
 class GraphLaunchBodyMemberTable {
@@ -104,7 +111,9 @@ class GraphLaunchBodyMemberTable {
                                  TaskId task_id,
                                  std::uint32_t lane_ordinal,
                                  std::uint32_t task_ordinal,
-                                 GraphLaunchBodyMemberRow::Kind kind);
+                                 GraphLaunchBodyMemberRow::Kind kind,
+                                 std::int64_t raw_graph_node_id = -1,
+                                 std::int64_t original_graph_node_id = -1);
 
   std::size_t size() const noexcept { return rows_.size(); }
   bool empty() const noexcept { return rows_.empty(); }

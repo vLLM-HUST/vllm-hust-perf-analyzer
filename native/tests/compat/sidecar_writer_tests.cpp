@@ -296,6 +296,8 @@ int main() {
               "traceloom_event",
               "traceloom_event_source",
               "traceloom_evidence_link",
+              "traceloom_graph_body_member",
+              "traceloom_graph_launch",
               "traceloom_idle_explanation",
               "traceloom_loop_node",
               "traceloom_metadata",
@@ -560,6 +562,94 @@ int main() {
               db_path,
               "SELECT COUNT(*) FROM "
               "traceloom_aclgraph_reconstruction_region") == 0);
+
+  traceloom::compat::GraphLaunchSqlRow exact_launch;
+  exact_launch.launch_id = "graph-launch-0";
+  exact_launch.db_idx = 1;
+  exact_launch.device_id = 0;
+  exact_launch.graph_provider = "cuda";
+  exact_launch.graph_event_id = "event-0";
+  exact_launch.anchor_id = "anchor-0";
+  exact_launch.replay_unit_id = 0;
+  exact_launch.graph_template_id = 0;
+  exact_launch.graph_launch_occurrence_id = 0;
+  exact_launch.replay_body_template_id = 0;
+  exact_launch.body_id = 0;
+  exact_launch.member_order = 0;
+  exact_launch.correlation_id = "101";
+  exact_launch.match_policy = "cuda_runtime_correlation";
+  exact_launch.association_policy = "cuda_graph_node_set";
+  exact_launch.start_ns = 1000;
+  exact_launch.end_ns = 2000;
+  exact_launch.dur_us = 1.0;
+  traceloom::compat::GraphBodyMemberSqlRow exact_member;
+  exact_member.member_id = "graph-body-member-0";
+  exact_member.launch_id = exact_launch.launch_id;
+  exact_member.db_idx = exact_launch.db_idx;
+  exact_member.device_id = exact_launch.device_id;
+  exact_member.graph_provider = exact_launch.graph_provider;
+  exact_member.graph_event_id = exact_launch.graph_event_id;
+  exact_member.replay_unit_id = exact_launch.replay_unit_id;
+  exact_member.graph_template_id = exact_launch.graph_template_id;
+  exact_member.graph_launch_occurrence_id =
+      exact_launch.graph_launch_occurrence_id;
+  exact_member.body_id = exact_launch.body_id;
+  exact_member.replay_body_template_id =
+      exact_launch.replay_body_template_id;
+  exact_member.member_order = exact_launch.member_order;
+  exact_member.lane_ordinal = 0;
+  exact_member.task_ordinal = 0;
+  exact_member.kind = "compute";
+  exact_member.event_id = "event-1";
+  exact_member.task_id = 0;
+  exact_member.source_table = "CUPTI_ACTIVITY_KIND_KERNEL";
+  exact_member.source_row_id = 101;
+  exact_member.raw_task_id = 101;
+  exact_member.start_ns = 1010;
+  exact_member.end_ns = 1020;
+  exact_member.dur_us = 0.01;
+  exact_member.correlation_id = exact_launch.correlation_id;
+  exact_member.graph_node_id = 8589934592LL;
+  exact_member.original_graph_node_id = 5000;
+  exact_member.match_policy = exact_launch.match_policy;
+  exact_member.association_policy = exact_launch.association_policy;
+  traceloom::compat::ExactGraphSqlRows exact_rows;
+  exact_rows.launches.push_back(exact_launch);
+  exact_rows.members.push_back(exact_member);
+  traceloom::compat::replace_exact_graph_rows(db_path, exact_rows);
+  require(run_scalar_int(db_path,
+                         "SELECT COUNT(*) FROM traceloom_graph_launch") == 1);
+  require(run_scalar_int(db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_graph_body_member") == 1);
+  require(run_scalar_text(db_path,
+                          "SELECT correlation_id FROM traceloom_graph_launch") ==
+          "101");
+  require(run_scalar_int(
+              db_path,
+              "SELECT COUNT(*) FROM traceloom_graph_body_member "
+              "WHERE graph_node_id = 8589934592") == 1);
+  require(run_scalar_int(
+              db_path,
+              "SELECT COUNT(*) FROM traceloom_graph_body_member "
+              "WHERE original_graph_node_id = 5000") == 1);
+  require(run_scalar_int(
+              db_path,
+              "SELECT COUNT(*) FROM sqlite_master "
+              "WHERE type = 'view' AND name = "
+              "'traceloom_v_node_graph_body_member'") == 1);
+  traceloom::compat::replace_exact_graph_rows(
+      db_path, traceloom::compat::ExactGraphSqlRows{});
+  require(run_scalar_int(db_path,
+                         "SELECT COUNT(*) FROM traceloom_graph_launch") == 0);
+  require(run_scalar_int(db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_graph_body_member") == 0);
+  require(run_scalar_int(
+              db_path,
+              "SELECT COUNT(*) FROM sqlite_master "
+              "WHERE type = 'view' AND name = "
+              "'traceloom_v_node_graph_body_member'") == 1);
 
   traceloom::compat::LoopTreeSqlRows loop_tree_rows;
   traceloom::compat::VizNodeSqlRow parent_node;
@@ -871,6 +961,7 @@ int main() {
               "traceloom_v_node_aux_cost",
               "traceloom_v_node_children",
               "traceloom_v_node_cost",
+              "traceloom_v_node_graph_body_member",
               "traceloom_v_semantic_tree_node",
               "traceloom_v_semantic_tree_readable",
               "traceloom_v_tree_node",
@@ -898,6 +989,11 @@ int main() {
               "idx_traceloom_event_id",
               "idx_traceloom_event_source_lookup",
               "idx_traceloom_evidence_owner",
+              "idx_traceloom_graph_body_member_event",
+              "idx_traceloom_graph_body_member_launch",
+              "idx_traceloom_graph_body_member_node",
+              "idx_traceloom_graph_launch_anchor",
+              "idx_traceloom_graph_launch_node",
               "idx_traceloom_idle_explanation_category",
               "idx_traceloom_idle_explanation_gap",
               "idx_traceloom_idle_explanation_id",

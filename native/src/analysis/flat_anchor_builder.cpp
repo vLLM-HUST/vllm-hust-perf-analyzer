@@ -14,6 +14,8 @@ namespace {
 struct AnchorCandidate {
   TraceEventId trace_event_id;
   ReplayUnitId replay_unit_id = ReplayUnitId::invalid();
+  ReplayUnitLaunchMemberId replay_unit_launch_member_id =
+      ReplayUnitLaunchMemberId::invalid();
   AnchorKind kind = AnchorKind::kUnknown;
   SymbolId symbol_id;
   SourceRefId source_ref_id;
@@ -33,6 +35,7 @@ AnchorCandidate anchor_candidate_from_event(
   const TraceEventRow& event = ir.trace_events.row(trace_event_id);
   return AnchorCandidate{trace_event_id,
                          replay_unit_id,
+                         ReplayUnitLaunchMemberId::invalid(),
                          kind,
                          symbol_id,
                          event.source_ref_id,
@@ -570,9 +573,10 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
             ir.streams.row(stream_id).raw_stream_id);
       }
       candidates.push_back(AnchorCandidate{
-          TraceEventId::invalid(), replay.id, kind, ir.symbols.intern(symbol),
-          replay.source_ref_id, member.id.value() + 1, launch.device_id,
-          raw_stream_id, launch.start_ns, launch.end_ns});
+          TraceEventId::invalid(), replay.id, member.id, kind,
+          ir.symbols.intern(symbol), replay.source_ref_id,
+          member.id.value() + 1, launch.device_id, raw_stream_id,
+          launch.start_ns, launch.end_ns});
     }
   }
 
@@ -608,7 +612,7 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
         candidate.source_ref_id, candidate.trace_event_id,
         candidate.replay_unit_id, candidate.kind, candidate.symbol_id,
         candidate.device_id, candidate.stream_id, candidate.start_ns,
-        candidate.end_ns);
+        candidate.end_ns, candidate.replay_unit_launch_member_id);
     const TokenId token = ir.tokens.append(
         anchor, candidate.symbol_id, candidate.device_id, sequence_index++,
         candidate.start_ns, candidate.end_ns);

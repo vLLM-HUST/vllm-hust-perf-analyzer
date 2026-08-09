@@ -11,6 +11,7 @@
 #include "traceloom/compat/anchor_sequence_rows.h"
 #include "traceloom/compat/aux_attribution_rows.h"
 #include "traceloom/compat/collective_tag_rows.h"
+#include "traceloom/compat/exact_graph_sql_rows.h"
 #include "traceloom/compat/idle_evidence_sql_rows.h"
 #include "traceloom/compat/idle_explanation_rows.h"
 #include "traceloom/compat/native_graph_replay_rows.h"
@@ -180,6 +181,9 @@ void write_basic_native_compatibility_sidecar(
       sqlite_path,
       build_native_graph_replay_evidence_sql_rows(
           ir, options.source_kind, options.db_idx));
+  replace_exact_graph_rows(
+      sqlite_path,
+      build_exact_graph_sql_rows(ir, options.source_kind, options.db_idx));
   const std::vector<AnchorSqlRow> anchor_rows =
       build_anchor_sequence_sql_rows(ir, options.db_idx);
   replace_anchor_rows(sqlite_path, anchor_rows);
