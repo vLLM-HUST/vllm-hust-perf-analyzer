@@ -102,8 +102,10 @@ compatibility sidecar / augmented database.
 
 ## Cost lenses and epistemic boundaries
 
-Body-level lenses are reused from the existing overlap-aware
-`build_graph_body_cost_summary`:
+Body-level lenses are computed locally from the map's own pre-validated
+body membership with the same overlap-aware interval arithmetic as the
+shared `build_graph_body_cost_summary` (which keeps its strict base
+contract):
 
 - `task_sum_ns`: sum of member durations — scheduled-work evidence. Members
   may overlap, so this is not a wall-clock duration.
@@ -176,7 +178,6 @@ an explicit `reason_code`:
 | `missing_body_member_evidence` | body membership has invalid task/event references |
 | `duplicate_within_stream_position` | body repeats a (stream, position) key; no partial aggregates |
 | `stream_lane_inconsistency` | a stream maps to multiple lane ordinals; per-stream sequence ambiguous |
-| `missing_occurrence_cost_evidence` | body exists but cost summary row is absent |
 
 Issue-only codes (do not by themselves revoke support, but are reported
 explicitly):
@@ -189,9 +190,10 @@ explicitly):
 
 Structural foreign keys/ranges are validated before use: invalid sentinels or
 out-of-range ids never enter aggregate keys. Malformed IR never raises an
-exception from this analyzer (the shared `build_graph_body_cost_summary` is
-equally fail-closed: invalid member references are skipped, with
-byte-identical results on valid IR).
+exception from this analyzer: whole-body lenses are computed only from the
+pre-validated membership of supported bodies, so partial evidence can never
+masquerade as complete cost. The shared `build_graph_body_cost_summary`
+keeps its strict base behavior unchanged.
 
 A unit is `supported` only when every launch member is supported; units with
 zero launch members are explicit `empty_replay_unit` results.

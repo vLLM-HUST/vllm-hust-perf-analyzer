@@ -114,8 +114,10 @@ struct ReplayStreamCostRow {
 };
 
 // One ordered launch member of a ReplayUnit with its resolved composition
-// slot, body template, graph-launch body, and whole-body cost lenses reused
-// from GraphBodyCostSummary: `task_sum_ns` preserves scheduled work,
+// slot, body template, graph-launch body, and whole-body cost lenses
+// computed locally from the pre-validated body membership with the same
+// overlap-aware interval arithmetic as GraphBodyCostSummary: `task_sum_ns`
+// preserves scheduled work,
 // `busy_union_ns` removes cross-stream double counting, `envelope_ns` retains
 // the observed wall span, and compute/communication/data_move are kind
 // lenses. Kind lenses partition the body's scheduled task_sum when every
