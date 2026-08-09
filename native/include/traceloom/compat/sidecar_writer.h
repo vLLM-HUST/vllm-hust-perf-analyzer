@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "traceloom/compat/anchor_cost_breakdown_rows.h"
+#include "traceloom/compat/exact_graph_sql_rows.h"
 #include "traceloom/compat/schema.h"
 
 namespace traceloom::compat {
@@ -702,6 +703,12 @@ void replace_node_coverage_rows(const std::string& sqlite_path,
 void replace_graph_replay_evidence_rows(
     const std::string& sqlite_path,
     const GraphReplayEvidenceSqlRows& rows);
+
+// Replaces the provider-neutral exact graph SQL relations
+// (traceloom_graph_launch, traceloom_graph_body_member) and recreates the
+// canonical traceloom_v_node_graph_body_member view over them.
+void replace_exact_graph_rows(const std::string& sqlite_path,
+                              const ExactGraphSqlRows& rows);
 
 void replace_graph_replay_rows(const std::string& sqlite_path,
                                const GraphReplaySqlRows& rows);

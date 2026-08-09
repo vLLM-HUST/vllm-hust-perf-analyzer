@@ -60,11 +60,13 @@ GraphLaunchBodyMemberId GraphLaunchBodyMemberTable::append(
     TaskId task_id,
     std::uint32_t lane_ordinal,
     std::uint32_t task_ordinal,
-    GraphLaunchBodyMemberRow::Kind kind) {
+    GraphLaunchBodyMemberRow::Kind kind,
+    std::int64_t raw_graph_node_id,
+    std::int64_t original_graph_node_id) {
   const auto id = checked_next_id<GraphLaunchBodyMemberId>(rows_.size());
   rows_.push_back(GraphLaunchBodyMemberRow{
       id, graph_launch_body_id, task_id, lane_ordinal, task_ordinal,
-      kind});
+      kind, raw_graph_node_id, original_graph_node_id});
   return id;
 }
 

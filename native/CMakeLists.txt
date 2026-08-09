@@ -123,6 +123,7 @@ add_library(traceloom_native_materialize
   src/compat/anchor_cost_breakdown_rows.cpp
   src/compat/aux_attribution_rows.cpp
   src/compat/collective_tag_rows.cpp
+  src/compat/exact_graph_sql_rows.cpp
   src/compat/idle_explanation_rows.cpp
   src/compat/idle_evidence_sql_rows.cpp
   src/compat/native_graph_replay_rows.cpp
@@ -768,6 +769,18 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
   add_test(
     NAME traceloom_native_timeline_rows_tests
     COMMAND traceloom_native_timeline_rows_tests
+  )
+
+  add_executable(traceloom_native_exact_graph_sql_rows_tests
+    tests/compat/exact_graph_sql_rows_tests.cpp
+  )
+  target_link_libraries(
+    traceloom_native_exact_graph_sql_rows_tests PRIVATE
+    traceloom_native_materialize
+  )
+  add_test(
+    NAME traceloom_native_exact_graph_sql_rows_tests
+    COMMAND traceloom_native_exact_graph_sql_rows_tests
   )
 
   add_executable(traceloom_native_grammar_debug_json_tests

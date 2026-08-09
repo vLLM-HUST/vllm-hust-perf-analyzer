@@ -78,7 +78,9 @@ Important columns:
 - `graph_kind`: provider-specific replay kind.
 - `correlation_id`, `graph_id`, `graph_exec_id`, `context_id`: parsed Nsight
   graph identity fields; for ACLGraph these are best-effort synthetic graph
-  identifiers.
+  identifiers. For exact CUDA replay rows, `correlation_id` is filled from the
+  launch occurrence's `raw_launch_connection_id` when exactly one launch
+  member is correlated deterministically.
 - `start_ns`, `end_ns`, `dur_us`.
 - `enclosed_event_count`, `enclosed_kernel_count`: best-effort envelope counts.
 
@@ -124,6 +126,66 @@ Use `docs/report-sql/reconstruction-capability-matrix.sql` to reduce this
 ledger and the promoted replay rows into one capability row per sidecar. It
 distinguishes capability absence, contradictory/incomplete body evidence,
 missing completion evidence, exact promotion, and the explicit legacy path.
+
+### `traceloom_graph_launch` and `traceloom_graph_body_member`
+
+The provider-neutral **exact graph SQL surface**. These two normalized base
+relations materialize the exact NativeIr chain
+`ReplayUnit -> ordered ReplayUnitLaunchMember -> slot -> GraphLaunchOccurrence
+-> GraphLaunchBody -> GraphLaunchBodyMember -> Task -> TraceEvent -> SourceRef`
+for both CUDA node-level and Ascend exact replay units. Membership is exact:
+every row comes from a `ReplayUnitLaunchMember`, never from timestamp
+containment. `traceloom_cuda_graph_envelope` remains the explicitly
+temporal/best-effort surface and is not relabeled.
+
+`traceloom_graph_launch` is the launch/anchor relation, one row per exact
+launch occurrence:
+
+- `launch_id`: stable key (`graph-launch-<member id>`).
+- `graph_event_id`: node-occurrence event (the replay unit's launch event).
+- `anchor_id`: promoted tree anchor when the exact member has one; `NULL` for
+  launches with no anchor (anchor mapping is exact via the anchor's
+  `ReplayUnitLaunchMemberId`, never time-inferred).
+- `replay_unit_id`, `graph_template_id`, `graph_launch_occurrence_id`,
+  `replay_body_template_id`, `body_id`: native identity of the exact chain.
+- `member_order`, `slot_order`: ordered position inside the replay unit.
+- `correlation_id`: raw launch connection id (`raw_launch_connection_id`)
+  rendered as text when deterministically available; for CUDA exact launches
+  this is the runtime `correlationId` preserved from adapter evidence.
+- `match_policy`, `association_policy`: direct-correlation evidence semantics.
+- `start_ns`, `end_ns`, `dur_us`, `evidence_level` (`exact_direct`).
+
+`traceloom_graph_body_member` is the ordered member relation, one row per
+exact body member with lane/task order, kind, event/task/source provenance,
+timing, correlation, and raw graph-node identity:
+
+- `member_id`, `launch_id`: stable keys linking to the launch relation.
+- `lane_ordinal`, `task_ordinal`, `kind` (`compute`/`communication`/
+  `data_move`): exact per-lane order inside the body.
+- `event_id`, `task_id`, `source_table`, `source_row_id`, `raw_task_id`:
+  provenance back to normalized events and raw profiler rows.
+- `graph_node_id`: raw CUDA `graphNodeId` of the activity; `NULL` for
+  providers without graph-node identity (Ascend).
+- `original_graph_node_id`: `CUDA_GRAPH_NODE_EVENTS.originalGraphNodeId` when
+  exactly one non-null original maps to the raw node; `NULL` when the mapping
+  is missing or ambiguous (never guessed).
+- `correlation_id`, `match_policy`, `association_policy`, `evidence_level`.
+
+Both relations fail closed: an exact launch member without a body, an
+out-of-range id, or a non-contiguous member order throws during
+materialization instead of emitting guessed rows. Best-effort replay units
+(graph-trace overlap, capture-stream task overlap) and unrecognized/graph-trace
+only cases emit no rows here; their temporal envelopes and reconstruction
+evidence remain in `traceloom_cuda_graph_envelope` /
+`traceloom_aclgraph_reconstruction_region`.
+
+### `traceloom_v_node_graph_body_member`
+
+Canonical view over the two base relations joined to `traceloom_event`.
+Filtering `node_event_id` walks a node occurrence to its exact ordered members
+and events; filtering `event_id` walks a member event back to the node
+occurrence(s) that contain it. Indexes cover `graph_event_id`, `anchor_id`,
+`launch_id`, `event_id`, and `graph_node_id`.
 
 ## Device Idle Evidence
 
