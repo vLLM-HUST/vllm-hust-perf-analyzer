@@ -189,6 +189,68 @@ def verify_sidecar(sidecar: Path) -> None:
             "FROM traceloom_aclgraph_reconstruction_region "
             "GROUP BY 1,2,3,4,5,6"
         ).fetchall()
+        assert db.execute(
+            "SELECT count(*) FROM traceloom_graph_launch"
+        ).fetchone()[0] == 5
+        assert db.execute(
+            "SELECT count(*) FROM traceloom_graph_body_member"
+        ).fetchone()[0] == 49_405
+        assert [
+            int(row[0])
+            for row in db.execute(
+                "SELECT count(*) FROM traceloom_graph_body_member "
+                "GROUP BY launch_id ORDER BY launch_id"
+            )
+        ] == [9_881] * 5
+        assert db.execute(
+            "SELECT count(DISTINCT correlation_id) "
+            "FROM traceloom_graph_launch WHERE correlation_id IS NOT NULL"
+        ).fetchone()[0] == 5
+        assert db.execute(
+            "SELECT count(DISTINCT graph_node_id), "
+            "sum(original_graph_node_id IS NULL) "
+            "FROM traceloom_graph_body_member"
+        ).fetchone() == (9_881, 0)
+        assert db.execute(
+            "SELECT count(*) FROM traceloom_v_node_graph_body_member "
+            "WHERE coverage_kind = 'self'"
+        ).fetchone()[0] == 49_405
+        assert db.execute(
+            "SELECT count(DISTINCT node_launch_id) "
+            "FROM traceloom_v_node_graph_body_member "
+            "WHERE coverage_kind = 'self'"
+        ).fetchone()[0] == 5
+        first_event = str(
+            db.execute(
+                "SELECT event_id FROM traceloom_graph_body_member "
+                "ORDER BY start_ns LIMIT 1"
+            ).fetchone()[0]
+        )
+        assert db.execute(
+            "SELECT count(*) FROM traceloom_v_node_graph_body_member "
+            "WHERE coverage_kind = 'self' AND event_id = ?",
+            (first_event,),
+        ).fetchone()[0] == 1
+        assert db.execute(
+            "SELECT "
+            "(SELECT count(*) FROM traceloom_graph_body_member m "
+            " LEFT JOIN traceloom_graph_launch l "
+            " ON l.launch_id=m.launch_id AND l.db_idx=m.db_idx "
+            " AND l.device_id=m.device_id WHERE l.launch_id IS NULL), "
+            "(SELECT count(*) FROM traceloom_graph_body_member m "
+            " LEFT JOIN traceloom_event e "
+            " ON e.event_id=m.event_id AND e.db_idx=m.db_idx "
+            " AND e.device_id=m.device_id WHERE e.event_id IS NULL), "
+            "(SELECT count(*) FROM traceloom_graph_body_member m "
+            " LEFT JOIN traceloom_event_source s "
+            " ON s.event_id=m.event_id AND s.db_idx=m.db_idx "
+            " AND s.device_id=m.device_id WHERE s.event_id IS NULL), "
+            "(SELECT count(*) FROM traceloom_graph_launch l "
+            " LEFT JOIN traceloom_anchor a "
+            " ON a.anchor_id=l.anchor_id AND a.db_idx=l.db_idx "
+            " AND a.device_id=l.device_id "
+            " WHERE l.anchor_id IS NOT NULL AND a.anchor_id IS NULL)"
+        ).fetchone() == (0, 0, 0, 0)
     assert rows == [
         (
             "cuda",

@@ -212,6 +212,10 @@ view is part of the centralized report-view drop/recreate lifecycle
 Indexes cover `graph_event_id`, `anchor_id`, `launch_id`, `event_id`, and
 `graph_node_id`.
 
+Canonical queries in `docs/report-sql/node-graph-body-members.sql` and
+`docs/report-sql/event-graph-node-occurrences.sql` demonstrate the forward
+tree-occurrence drill-down and the reverse event-to-tree navigation.
+
 ## Device Idle Evidence
 
 The following tables materialize the Ascend E1→E4 device-only evidence path.
