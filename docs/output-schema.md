@@ -59,8 +59,13 @@ Native JSON also emits `replay_internal_cost_map`, the replay-internal
 query surface: ReplayUnit -> ordered launch/composition slots -> body
 template -> per-stream ordered members -> fine-grained costs and provenance.
 See [replay-internal-cost-map.md](replay-internal-cost-map.md) for the
-result contract, aligned aggregation scope, cost-lens boundaries, and the
-fail-closed support/reason model.
+result contract, the role-collapsed aligned-aggregate key (repeated slot
+roles merge with `launch_member_count` multiplicity; exact member rows retain
+slot id/`slot_order` as the drill-down contract), the cost-lens boundaries
+(kind sums partition scheduled `task_sum` but are not an additive wall-clock
+decomposition), scheduled-work-share denominators, and the fail-closed
+support/reason model.
+
 
 The checked-in SQL audit surfaces are:
 
