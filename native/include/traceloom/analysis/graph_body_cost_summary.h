@@ -52,6 +52,10 @@ struct GraphBodyCostSummary {
 // membership. `task_sum_ns` preserves scheduled work, `busy_union_ns` removes
 // cross-stream double counting, and `envelope_ns` retains the observed wall
 // span. Exact-replay distributions may have unequal sample counts across runs.
+// Fail-closed: body members whose body id or task/event references are
+// invalid or out of range are skipped (never dereferenced, never thrown), so
+// malformed IR yields zero-cost/partial rows instead of an exception; valid
+// IR produces byte-identical results to strict membership.
 GraphBodyCostSummary build_graph_body_cost_summary(const NativeIr& ir);
 
 }  // namespace traceloom

@@ -62,7 +62,13 @@ examples/paper_artifacts/tools/verify_cuda_real_model_graph.py \
 The verifier checks hashes and privacy, analyzes all three SQLite files,
 repeats the primary analysis, compares Loop Tree and sidecar determinism,
 validates all 49,405 exact body-member source rows, checks the direct-evidence
-policy ledger, and requires the graph-level companion to remain non-exact.
+policy ledger, and requires the graph-level companion to remain non-exact. It
+also asserts the replay-internal cost map receipt on the primary and repeat
+captures: 5 fully supported units, 5 resolved launches, zero unsupported
+launches, 49,405 member rows, and 9,881 role-collapsed aligned aggregates
+(all distributions and scheduled-work shares supported), with every replay
+member traceable to the verified body-member source rows (48,865 CUPTI
+kernels, 540 memcpy rows).
 
 To recheck full-to-reduced equivalence when the external bundle is available:
 

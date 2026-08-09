@@ -358,6 +358,22 @@ int main() {
   require(json.find("\"graph_launch_body_member_id\": 0") !=
               std::string::npos,
           "graph_launch_body_member_id");
+  require(json.find("\"aggregation_scope\": \"role_collapsed\"") !=
+              std::string::npos,
+          "aggregation_scope role_collapsed");
+  require(json.find("\"scheduled_work_share_ppm\": 1000000") !=
+              std::string::npos,
+          "scheduled_work_share_ppm");
+  require(json.find("\"scheduled_work_share_supported\": true") !=
+              std::string::npos,
+          "scheduled_work_share_supported");
+  require(json.find(
+              "\"scheduled_work_denominator_body_task_sum_ns\": 10") !=
+              std::string::npos,
+          "scheduled_work_denominator_body_task_sum_ns");
+  require(json.find("\"scheduled_work_share_ppm\": 1000000") !=
+              std::string::npos,
+          "aggregate scheduled_work_share_ppm");
   require(json.find("\"full_repeat_count\": 4") != std::string::npos);
   require(json.find("\"candidate_distinct_count\"") != std::string::npos);
   require(json.find("\"anchor_internal_cost_breakdown\"") !=

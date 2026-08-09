@@ -39,7 +39,20 @@
       },
       "root_node_count": 543,
       "root_tree_sha256": "03aa897e80dd6d7e32c94a5bb5d568b8a79bb77855bdd67744c75d201dbf2175",
-      "exact_evidence_sha256": "bbb34d101f987806c2d3b50f00b7038c83dd8d003573f840edffa493110a55f9"
+      "exact_evidence_sha256": "bbb34d101f987806c2d3b50f00b7038c83dd8d003573f840edffa493110a55f9",
+      "replay_internal_cost_map": {
+        "unit_count": 30,
+        "resolved_launch_count": 1110,
+        "unsupported_launch_count": 0,
+        "fully_supported_unit_count": 30,
+        "partially_supported_unit_count": 0,
+        "unsupported_unit_count": 0,
+        "member_count": 10170,
+        "aligned_aggregate_count": 339,
+        "aggregation_scope": [
+          "role_collapsed"
+        ]
+      }
     },
     "device3": {
       "device_id": 3,
@@ -79,7 +92,20 @@
       },
       "root_node_count": 519,
       "root_tree_sha256": "9f5b5b8acbaafdafe0908b3e2bf9f2d19909ddd6b2ba587b1a342829246aa91f",
-      "exact_evidence_sha256": "f0b23e15d25b04fec15a65507e36ca6a19810fdb5a4230e2da3d15870ca62c58"
+      "exact_evidence_sha256": "f0b23e15d25b04fec15a65507e36ca6a19810fdb5a4230e2da3d15870ca62c58",
+      "replay_internal_cost_map": {
+        "unit_count": 30,
+        "resolved_launch_count": 1110,
+        "unsupported_launch_count": 0,
+        "fully_supported_unit_count": 30,
+        "partially_supported_unit_count": 0,
+        "unsupported_unit_count": 0,
+        "member_count": 10170,
+        "aligned_aggregate_count": 339,
+        "aggregation_scope": [
+          "role_collapsed"
+        ]
+      }
     }
   }
 }

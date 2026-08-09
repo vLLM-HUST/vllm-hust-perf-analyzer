@@ -1013,8 +1013,19 @@ void write_replay_internal_cost_map(std::ostream& out,
          "\"ReplayUnit -> ordered launch/composition slots -> body template "
          "-> per-stream ordered members -> fine-grained costs/provenance. "
          "task_sum preserves scheduled work, busy_union removes cross-stream "
-         "overlap, envelope retains the observed wall span; kind lenses are "
-         "not additive or interchangeable.\",\n";
+         "overlap, envelope retains the observed wall span; kind lenses "
+         "partition the scheduled task_sum when members are classified and "
+         "are additive in that scheduled-work sense only, not as an additive "
+         "wall-clock decomposition and not interchangeable with busy_union or "
+         "envelope. scheduled_work_share_ppm is a member's integer ppm share "
+         "of its owning body task_sum (denominator "
+         "scheduled_work_denominator_body_task_sum_ns; unsupported when the "
+         "denominator is zero) and is never wall-clock or overlap-safe "
+         "attribution. Aligned aggregates use the explicit role_collapsed "
+         "scope (repeated slot roles merge, launch_member_count preserves "
+         "multiplicity); exact member rows retain replay-unit occurrence, "
+         "slot id, slot_order, body and provenance as the drill-down "
+         "contract.\",\n";
   out << "    \"resolved_launch_count\": " << map.resolved_launch_count
       << ",\n";
   out << "    \"unsupported_launch_count\": " << map.unsupported_launch_count
@@ -1064,7 +1075,8 @@ void write_replay_internal_cost_map(std::ostream& out,
     out << "      {\"replay_unit_id\": " << block.replay_unit_id.value()
         << ", \"graph_template_id\": " << block.graph_template_id.value()
         << ", \"source_table\": ";
-    if (block.source_ref_id.valid()) {
+    if (block.source_ref_id.valid() &&
+        block.source_ref_id.value() < ir->source_refs.size()) {
       write_json_string(
           out, ir->source_refs.row(block.source_ref_id).table_name);
     } else {
@@ -1183,14 +1195,16 @@ void write_replay_internal_cost_map(std::ostream& out,
     out << ", \"task_id\": " << member.task_id.value()
         << ", \"trace_event_id\": " << member.trace_event_id.value()
         << ", \"source_table\": ";
-    if (member.source_ref_id.valid()) {
+    if (member.source_ref_id.valid() &&
+        member.source_ref_id.value() < ir->source_refs.size()) {
       write_json_string(
           out, ir->source_refs.row(member.source_ref_id).table_name);
     } else {
       out << "null";
     }
     out << ", \"source_row_id\": ";
-    if (member.source_ref_id.valid()) {
+    if (member.source_ref_id.valid() &&
+        member.source_ref_id.value() < ir->source_refs.size()) {
       out << ir->source_refs.row(member.source_ref_id).row_id;
     } else {
       out << "null";
@@ -1206,7 +1220,13 @@ void write_replay_internal_cost_map(std::ostream& out,
         << ", \"end_ns\": " << member.end_ns
         << ", \"duration_ns\": " << member.duration_ns
         << ", \"relative_start_ns\": " << member.relative_start_ns
-        << ", \"relative_end_ns\": " << member.relative_end_ns << "}";
+        << ", \"relative_end_ns\": " << member.relative_end_ns
+        << ", \"scheduled_work_share_ppm\": "
+        << member.scheduled_work_share_ppm
+        << ", \"scheduled_work_share_supported\": "
+        << (member.scheduled_work_share_supported ? "true" : "false")
+        << ", \"scheduled_work_denominator_body_task_sum_ns\": "
+        << member.scheduled_work_denominator_body_task_sum_ns << "}";
     if (index + 1 < map.members.size()) {
       out << ",";
     }
@@ -1221,6 +1241,10 @@ void write_replay_internal_cost_map(std::ostream& out,
         << ", \"device_id\": " << aggregate.device_id << ", \"slot_role\": ";
     write_json_string(
         out, replay_composition_slot_role_name(aggregate.slot_role));
+    out << ", \"aggregation_scope\": ";
+    write_json_string(
+        out, replay_internal_cost_map_aggregation_scope_name(
+                 aggregate.aggregation_scope));
     out << ", \"replay_body_template_id\": "
         << aggregate.replay_body_template_id.value()
         << ", \"stream_id\": " << aggregate.stream_id
@@ -1247,7 +1271,13 @@ void write_replay_internal_cost_map(std::ostream& out,
         << (aggregate.distribution_supported ? "true" : "false")
         << ", \"duration_p25_ns\": " << aggregate.duration_p25_ns
         << ", \"duration_median_ns\": " << aggregate.duration_median_ns
-        << ", \"duration_p75_ns\": " << aggregate.duration_p75_ns << "}";
+        << ", \"duration_p75_ns\": " << aggregate.duration_p75_ns
+        << ", \"scheduled_work_share_ppm\": "
+        << aggregate.scheduled_work_share_ppm
+        << ", \"scheduled_work_share_supported\": "
+        << (aggregate.scheduled_work_share_supported ? "true" : "false")
+        << ", \"scheduled_work_denominator_body_task_sum_ns\": "
+        << aggregate.scheduled_work_denominator_body_task_sum_ns << "}";
     if (index + 1 < map.aggregates.size()) {
       out << ",";
     }

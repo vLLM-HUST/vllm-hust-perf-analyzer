@@ -477,6 +477,71 @@ void test_full_multi_launch_map() {
               tail_move->duration_median_ns == 40 &&
               tail_move->kind == GraphLaunchBodyMemberRow::Kind::kDataMove,
           "tail data-move aggregate keeps kind lens");
+
+  // Role-collapsed aggregation scope: repeated layer slots merge at the map
+  // surface with multiplicity preserved, and the scope is explicit.
+  require(layer_relu != nullptr &&
+              layer_relu->aggregation_scope ==
+                  ReplayAggregationScope::kRoleCollapsed &&
+              layer_relu->member_occurrence_count == 4 &&
+              layer_relu->replay_unit_count == 2 &&
+              layer_relu->launch_member_count == 4,
+          "role-collapsed layer family keeps multiplicity");
+  for (const ReplayAlignedCostAggregateRow& row : map.aggregates) {
+    require(row.aggregation_scope == ReplayAggregationScope::kRoleCollapsed,
+            "every aggregate carries the explicit role_collapsed scope");
+  }
+
+  // Drill-down contract: exact member rows retain replay-unit occurrence,
+  // slot id and slot_order for every slot, so a particular L position is
+  // always recoverable from the map surface.
+  require(map.members[2].replay_composition_slot_id == test.layer1_slot &&
+              map.members[2].slot_order == 1 &&
+              map.members[5].replay_composition_slot_id == test.layer2_slot &&
+              map.members[5].slot_order == 2 &&
+              map.members[15].replay_unit_id == ReplayUnitId(1) &&
+              map.members[15].replay_composition_slot_id ==
+                  test.layer2_slot &&
+              map.members[15].slot_order == 2,
+          "member rows keep exact slot ids and slot_order for drill-down");
+
+  // Scheduled-work share contract: integer ppm of the owning body task_sum
+  // with the exact denominator recorded; shares partition the body's
+  // task_sum (sum over one body is 1,000,000 within truncation).
+  require(map.members[0].scheduled_work_share_supported &&
+              map.members[0].scheduled_work_share_ppm == 400000 &&
+              map.members[0].scheduled_work_denominator_body_task_sum_ns ==
+                  50 &&
+              map.members[1].scheduled_work_share_ppm == 600000 &&
+              map.members[1].scheduled_work_denominator_body_task_sum_ns ==
+                  50,
+          "head member shares partition head task_sum 50");
+  require(map.members[2].scheduled_work_share_ppm == 190476 &&
+              map.members[3].scheduled_work_share_ppm == 333333 &&
+              map.members[4].scheduled_work_share_ppm == 476190 &&
+              map.members[4].scheduled_work_denominator_body_task_sum_ns ==
+                  105,
+          "layer member shares partition layer task_sum 105");
+  require(map.members[8].scheduled_work_share_ppm == 500000 &&
+              map.members[9].scheduled_work_share_ppm == 500000 &&
+              map.members[9].scheduled_work_denominator_body_task_sum_ns ==
+                  80,
+          "tail member shares partition tail task_sum 80");
+  require(head_compute->scheduled_work_share_supported &&
+              head_compute->scheduled_work_share_ppm == 400000 &&
+              head_compute->scheduled_work_denominator_body_task_sum_ns ==
+                  100 &&
+              head_comm->scheduled_work_share_ppm == 600000,
+          "head aggregate shares over summed owning-body task_sums");
+  require(layer_relu->scheduled_work_share_ppm == 190476 &&
+              layer_relu->scheduled_work_denominator_body_task_sum_ns == 420 &&
+              layer_matmul->scheduled_work_share_ppm == 333333 &&
+              layer_comm->scheduled_work_share_ppm == 476190,
+          "layer aggregate shares preserve role-collapsed multiplicity");
+  require(tail_compute->scheduled_work_share_ppm == 500000 &&
+              tail_move->scheduled_work_share_ppm == 500000 &&
+              tail_move->scheduled_work_denominator_body_task_sum_ns == 160,
+          "tail aggregate shares");
 }
 
 struct MinimalIr {
@@ -499,7 +564,17 @@ MinimalIr build_minimal_ir(bool with_body = true,
                            bool slot_valid = true,
                            bool slot_template_valid = true,
                            bool member_identity_valid = true,
-                           std::vector<std::uint32_t> member_orders = {0}) {
+                           std::vector<std::uint32_t> member_orders = {0},
+                           bool with_body_member = true,
+                           bool invalid_task_ref = false,
+                           bool invalid_event_ref = false,
+                           bool duplicate_position = false,
+                           bool lane_inconsistent = false,
+                           bool invalid_unit_template = false,
+                           bool invalid_occurrence = false,
+                           bool slot_template_out_of_range = false,
+                           bool body_template_out_of_range = false,
+                           bool identity_out_of_range = false) {
   MinimalIr out;
   out.source = out.ir.source_refs.append("fixture", "memory", "TASK", 0);
   const SymbolId compute = out.ir.symbols.intern("MatMul");
@@ -510,7 +585,9 @@ MinimalIr build_minimal_ir(bool with_body = true,
       out.source, 2, out.ir.symbols.intern("Relu"), 1, 0, 1,
       ReplayBodyTopologyPolicy::kSingleModelStream);
   const GraphTemplateId graph_template =
-      out.ir.graph_templates.append(out.source, 7, 1);
+      invalid_unit_template
+          ? GraphTemplateId::invalid()
+          : out.ir.graph_templates.append(out.source, 7, 1);
   const ReplayCompositionCandidateId composition =
       out.ir.replay_composition_candidates.append(
           out.source, 0, GraphLaunchOccurrenceId::invalid(),
@@ -521,40 +598,64 @@ MinimalIr build_minimal_ir(bool with_body = true,
           ReplayCompositionShapePolicy::kSingleGraph,
           ReplayCompositionBoundaryPolicy::kExactPeriodicSuffix);
   if (slot_valid) {
+    ReplayBodyTemplateId slot_template = out.body_template;
+    if (!slot_template_valid) {
+      slot_template = ReplayBodyTemplateId::invalid();
+    } else if (slot_template_out_of_range) {
+      slot_template = ReplayBodyTemplateId(99);
+    }
     out.slot = out.ir.replay_composition_slots.append(
         composition, 0, CapturedGraphInstanceId::invalid(),
-        GraphSlotTemplateId::invalid(),
-        slot_template_valid ? out.body_template
-                            : ReplayBodyTemplateId::invalid(),
+        GraphSlotTemplateId::invalid(), slot_template,
         ReplayCompositionSlotRole::kGraph, -1);
   }
   out.unit = out.ir.replay_units.append(
       graph_template, out.source, AnchorId::invalid(), AnchorId::invalid(),
       TraceEventId::invalid());
-  const TraceEventId event = out.ir.trace_events.append(
-      out.source, 1, 0, 0, 0, 10, compute);
+  const TraceEventId event =
+      invalid_event_ref
+          ? TraceEventId::invalid()
+          : out.ir.trace_events.append(out.source, 1, 0, 0, 0, 10, compute);
+  SymbolId op_name = member_identity_valid ? compute : SymbolId::invalid();
+  if (identity_out_of_range) {
+    op_name = SymbolId(99);
+  }
   out.task = out.ir.tasks.append(
-      out.source, event, 1, 1, -1, compute,
-      member_identity_valid ? compute : SymbolId::invalid(),
-      member_identity_valid ? compute : SymbolId::invalid(),
+      out.source, event, 1, 1, -1, op_name, op_name, op_name,
       SymbolId::invalid(), SymbolId::invalid());
   for (std::uint32_t order = 0;
        order < static_cast<std::uint32_t>(member_orders.size()); ++order) {
     const GraphLaunchOccurrenceId occurrence =
-        out.ir.graph_launch_occurrences.append(
-            out.source, out.source, 0, 1, 1, 1, 1, StreamId::invalid(),
-            StreamId::invalid(), CapturedGraphInstanceId::invalid(),
-            TaskId::invalid(), TaskId::invalid(), TaskId::invalid(),
-            order * 20, order * 20 + 10, 0,
-            GraphLaunchMatchPolicy::kNotifyCompletionAdjacent,
-            GraphLaunchInstanceAssociationPolicy::kRecordModelId);
+        invalid_occurrence
+            ? GraphLaunchOccurrenceId::invalid()
+            : out.ir.graph_launch_occurrences.append(
+                  out.source, out.source, 0, 1, 1, 1, 1, StreamId::invalid(),
+                  StreamId::invalid(), CapturedGraphInstanceId::invalid(),
+                  TaskId::invalid(), TaskId::invalid(), TaskId::invalid(),
+                  order * 20, order * 20 + 10, 0,
+                  GraphLaunchMatchPolicy::kNotifyCompletionAdjacent,
+                  GraphLaunchInstanceAssociationPolicy::kRecordModelId);
     if (with_body) {
       const ReplayBodyTemplateId template_id =
-          observed_template.valid() ? observed_template : out.body_template;
+          body_template_out_of_range
+              ? ReplayBodyTemplateId(99)
+              : (observed_template.valid() ? observed_template
+                                           : out.body_template);
       const GraphLaunchBodyId body = out.ir.graph_launch_bodies.append(
           occurrence, template_id, out.task, out.task, 1, 0, 1);
-      out.ir.graph_launch_body_members.append(
-          body, out.task, 0, 0, GraphLaunchBodyMemberRow::Kind::kCompute);
+      if (with_body_member) {
+        out.ir.graph_launch_body_members.append(
+            body, invalid_task_ref ? TaskId::invalid() : out.task, 0, 0,
+            GraphLaunchBodyMemberRow::Kind::kCompute);
+        if (duplicate_position) {
+          out.ir.graph_launch_body_members.append(
+              body, out.task, 0, 0, GraphLaunchBodyMemberRow::Kind::kCompute);
+        }
+        if (lane_inconsistent) {
+          out.ir.graph_launch_body_members.append(
+              body, out.task, 1, 1, GraphLaunchBodyMemberRow::Kind::kCompute);
+        }
+      }
       if (second_body) {
         out.ir.graph_launch_bodies.append(occurrence, out.other_template,
                                           out.task, out.task, 1, 0, 1);
@@ -635,6 +736,283 @@ void test_fail_closed_slot_without_template() {
           "slot without body template fails closed");
 }
 
+void test_fail_closed_empty_body() {
+  const MinimalIr minimal = build_minimal_ir(
+      /*with_body=*/true, /*second_body=*/false,
+      ReplayBodyTemplateId::invalid(), /*slot_valid=*/true,
+      /*slot_template_valid=*/true, /*member_identity_valid=*/true,
+      /*member_orders=*/std::vector<std::uint32_t>{0},
+      /*with_body_member=*/false);
+  const ReplayInternalCostMapResult map =
+      build_replay_internal_cost_map(minimal.ir);
+  require(map.units[0].launch_members[0].reason_code ==
+              "empty_graph_launch_body" &&
+              !map.units[0].launch_members[0].supported,
+          "empty body fails closed with explicit reason");
+  require(map.members.empty() && map.aggregates.empty() &&
+              map.resolved_launch_count == 0 &&
+              map.unsupported_launch_count == 1,
+          "empty body emits no member or aggregate rows");
+}
+
+void test_fail_closed_invalid_member_reference() {
+  // Invalid task reference on a body member: launch unsupported, no partial
+  // rows, no exception.
+  const MinimalIr bad_task = build_minimal_ir(
+      /*with_body=*/true, /*second_body=*/false,
+      ReplayBodyTemplateId::invalid(), /*slot_valid=*/true,
+      /*slot_template_valid=*/true, /*member_identity_valid=*/true,
+      /*member_orders=*/std::vector<std::uint32_t>{0},
+      /*with_body_member=*/true, /*invalid_task_ref=*/true);
+  const ReplayInternalCostMapResult task_map =
+      build_replay_internal_cost_map(bad_task.ir);
+  require(task_map.units[0].launch_members[0].reason_code ==
+              "missing_body_member_evidence" &&
+              !task_map.units[0].launch_members[0].supported,
+          "invalid member task reference fails closed");
+  require(task_map.members.empty() && task_map.aggregates.empty(),
+          "invalid member task reference suppresses partial rows");
+
+  // Invalid trace-event reference through the task row.
+  const MinimalIr bad_event = build_minimal_ir(
+      /*with_body=*/true, /*second_body=*/false,
+      ReplayBodyTemplateId::invalid(), /*slot_valid=*/true,
+      /*slot_template_valid=*/true, /*member_identity_valid=*/true,
+      /*member_orders=*/std::vector<std::uint32_t>{0},
+      /*with_body_member=*/true, /*invalid_task_ref=*/false,
+      /*invalid_event_ref=*/true);
+  const ReplayInternalCostMapResult event_map =
+      build_replay_internal_cost_map(bad_event.ir);
+  require(event_map.units[0].launch_members[0].reason_code ==
+              "missing_body_member_evidence" &&
+              !event_map.units[0].launch_members[0].supported &&
+              event_map.members.empty() && event_map.aggregates.empty(),
+          "invalid member event reference fails closed");
+
+  // Orphaned member row (invalid body id) is excluded from every body and
+  // reported; the valid body remains supported with complete evidence.
+  MinimalIr orphan = build_minimal_ir();
+  orphan.ir.graph_launch_body_members.append(
+      GraphLaunchBodyId(99), orphan.task, 0, 0,
+      GraphLaunchBodyMemberRow::Kind::kCompute);
+  const ReplayInternalCostMapResult orphan_map =
+      build_replay_internal_cost_map(orphan.ir);
+  require(orphan_map.units[0].launch_members[0].supported &&
+              orphan_map.members.size() == 1 &&
+              orphan_map.aggregates.size() == 1,
+          "orphan member row never enters body membership or aggregates");
+  bool orphan_issue = false;
+  for (const ReplayInternalCostIssue& issue : orphan_map.issues) {
+    if (issue.code == "invalid_body_member_reference" &&
+        !issue.replay_unit_id.valid()) {
+      orphan_issue = true;
+    }
+  }
+  require(orphan_issue, "orphan member reference is an explicit issue");
+}
+
+void test_fail_closed_duplicate_position() {
+  const MinimalIr minimal = build_minimal_ir(
+      /*with_body=*/true, /*second_body=*/false,
+      ReplayBodyTemplateId::invalid(), /*slot_valid=*/true,
+      /*slot_template_valid=*/true, /*member_identity_valid=*/true,
+      /*member_orders=*/std::vector<std::uint32_t>{0},
+      /*with_body_member=*/true, /*invalid_task_ref=*/false,
+      /*invalid_event_ref=*/false, /*duplicate_position=*/true);
+  const ReplayInternalCostMapResult map =
+      build_replay_internal_cost_map(minimal.ir);
+  require(map.units[0].launch_members[0].reason_code ==
+              "duplicate_within_stream_position" &&
+              !map.units[0].launch_members[0].supported &&
+              map.members.empty() && map.aggregates.empty() &&
+              map.unsupported_launch_count == 1,
+          "duplicate (stream, position) is unsupported with no partial "
+          "aggregates");
+}
+
+void test_fail_closed_lane_inconsistency() {
+  const MinimalIr minimal = build_minimal_ir(
+      /*with_body=*/true, /*second_body=*/false,
+      ReplayBodyTemplateId::invalid(), /*slot_valid=*/true,
+      /*slot_template_valid=*/true, /*member_identity_valid=*/true,
+      /*member_orders=*/std::vector<std::uint32_t>{0},
+      /*with_body_member=*/true, /*invalid_task_ref=*/false,
+      /*invalid_event_ref=*/false, /*duplicate_position=*/false,
+      /*lane_inconsistent=*/true);
+  const ReplayInternalCostMapResult map =
+      build_replay_internal_cost_map(minimal.ir);
+  require(map.units[0].launch_members[0].reason_code ==
+              "stream_lane_inconsistency" &&
+              !map.units[0].launch_members[0].supported &&
+              map.members.empty() && map.aggregates.empty(),
+          "lane-inconsistent stream is unsupported (per-stream sequence "
+          "ambiguous)");
+}
+
+void test_fail_closed_invalid_foreign_keys() {
+  // Unit graph template invalid.
+  const MinimalIr bad_template = build_minimal_ir(
+      /*with_body=*/true, /*second_body=*/false,
+      ReplayBodyTemplateId::invalid(), /*slot_valid=*/true,
+      /*slot_template_valid=*/true, /*member_identity_valid=*/true,
+      /*member_orders=*/std::vector<std::uint32_t>{0},
+      /*with_body_member=*/true, /*invalid_task_ref=*/false,
+      /*invalid_event_ref=*/false, /*duplicate_position=*/false,
+      /*lane_inconsistent=*/false, /*invalid_unit_template=*/true);
+  const ReplayInternalCostMapResult template_map =
+      build_replay_internal_cost_map(bad_template.ir);
+  require(template_map.units[0].launch_members[0].reason_code ==
+              "invalid_unit_graph_template" &&
+              !template_map.units[0].launch_members[0].supported &&
+              template_map.members.empty() && template_map.aggregates.empty(),
+          "invalid unit graph template never enters aggregate keys");
+
+  // Launch member occurrence invalid.
+  const MinimalIr bad_occurrence = build_minimal_ir(
+      /*with_body=*/true, /*second_body=*/false,
+      ReplayBodyTemplateId::invalid(), /*slot_valid=*/true,
+      /*slot_template_valid=*/true, /*member_identity_valid=*/true,
+      /*member_orders=*/std::vector<std::uint32_t>{0},
+      /*with_body_member=*/true, /*invalid_task_ref=*/false,
+      /*invalid_event_ref=*/false, /*duplicate_position=*/false,
+      /*lane_inconsistent=*/false, /*invalid_unit_template=*/false,
+      /*invalid_occurrence=*/true);
+  const ReplayInternalCostMapResult occurrence_map =
+      build_replay_internal_cost_map(bad_occurrence.ir);
+  require(occurrence_map.units[0].launch_members[0].reason_code ==
+              "invalid_launch_occurrence" &&
+              !occurrence_map.units[0].launch_members[0].supported &&
+              occurrence_map.members.empty() &&
+              occurrence_map.aggregates.empty(),
+          "invalid launch occurrence fails closed");
+
+  // Slot body template out of range.
+  const MinimalIr bad_slot_template = build_minimal_ir(
+      /*with_body=*/true, /*second_body=*/false,
+      ReplayBodyTemplateId::invalid(), /*slot_valid=*/true,
+      /*slot_template_valid=*/true, /*member_identity_valid=*/true,
+      /*member_orders=*/std::vector<std::uint32_t>{0},
+      /*with_body_member=*/true, /*invalid_task_ref=*/false,
+      /*invalid_event_ref=*/false, /*duplicate_position=*/false,
+      /*lane_inconsistent=*/false, /*invalid_unit_template=*/false,
+      /*invalid_occurrence=*/false, /*slot_template_out_of_range=*/true);
+  const ReplayInternalCostMapResult slot_template_map =
+      build_replay_internal_cost_map(bad_slot_template.ir);
+  require(slot_template_map.units[0].launch_members[0].reason_code ==
+              "slot_missing_body_template" &&
+              !slot_template_map.units[0].launch_members[0].supported,
+          "out-of-range slot body template fails closed");
+
+  // Observed body template out of range.
+  const MinimalIr bad_body_template = build_minimal_ir(
+      /*with_body=*/true, /*second_body=*/false,
+      ReplayBodyTemplateId::invalid(), /*slot_valid=*/true,
+      /*slot_template_valid=*/true, /*member_identity_valid=*/true,
+      /*member_orders=*/std::vector<std::uint32_t>{0},
+      /*with_body_member=*/true, /*invalid_task_ref=*/false,
+      /*invalid_event_ref=*/false, /*duplicate_position=*/false,
+      /*lane_inconsistent=*/false, /*invalid_unit_template=*/false,
+      /*invalid_occurrence=*/false, /*slot_template_out_of_range=*/false,
+      /*body_template_out_of_range=*/true);
+  const ReplayInternalCostMapResult body_template_map =
+      build_replay_internal_cost_map(bad_body_template.ir);
+  require(body_template_map.units[0].launch_members[0].reason_code ==
+              "body_template_mismatch" &&
+              !body_template_map.units[0].launch_members[0].supported,
+          "out-of-range observed body template fails closed");
+
+  // Identity symbol out of range never enters aggregate keys.
+  const MinimalIr bad_identity = build_minimal_ir(
+      /*with_body=*/true, /*second_body=*/false,
+      ReplayBodyTemplateId::invalid(), /*slot_valid=*/true,
+      /*slot_template_valid=*/true, /*member_identity_valid=*/true,
+      /*member_orders=*/std::vector<std::uint32_t>{0},
+      /*with_body_member=*/true, /*invalid_task_ref=*/false,
+      /*invalid_event_ref=*/false, /*duplicate_position=*/false,
+      /*lane_inconsistent=*/false, /*invalid_unit_template=*/false,
+      /*invalid_occurrence=*/false, /*slot_template_out_of_range=*/false,
+      /*body_template_out_of_range=*/false, /*identity_out_of_range=*/true);
+  const ReplayInternalCostMapResult identity_map =
+      build_replay_internal_cost_map(bad_identity.ir);
+  require(identity_map.units[0].launch_members[0].supported &&
+              identity_map.members.size() == 1 &&
+              !identity_map.members[0].identity_symbol_id.valid() &&
+              identity_map.aggregates.empty(),
+          "out-of-range identity never enters aggregate keys");
+  bool identity_issue = false;
+  for (const ReplayInternalCostIssue& issue : identity_map.issues) {
+    if (issue.code == "invalid_member_identity") {
+      identity_issue = true;
+    }
+  }
+  require(identity_issue, "out-of-range identity is an explicit issue");
+}
+
+void test_scheduled_work_share_zero_denominator() {
+  // A body with a nonempty membership but zero total duration has a zero
+  // task_sum: the launch keeps cost evidence, but no share value is
+  // manufactured (supported = false, share = 0).
+  MinimalIr zero;
+  zero.source = zero.ir.source_refs.append("fixture", "memory", "TASK", 0);
+  const SymbolId compute = zero.ir.symbols.intern("MatMul");
+  const ReplayBodyTemplateId body_template =
+      zero.ir.replay_body_templates.append(
+          zero.source, 1, zero.ir.symbols.intern("MatMul"), 1, 0, 1,
+          ReplayBodyTopologyPolicy::kSingleModelStream);
+  const GraphTemplateId graph_template =
+      zero.ir.graph_templates.append(zero.source, 7, 1);
+  const ReplayCompositionCandidateId composition =
+      zero.ir.replay_composition_candidates.append(
+          zero.source, 0, GraphLaunchOccurrenceId::invalid(),
+          GraphLaunchOccurrenceId::invalid(), 1, 0, 1, 1, 0, 1,
+          ReplayCompositionIdentityPolicy::kGraphConnection,
+          ReplayCompositionOrderPolicy::kDeviceExecutionOrder,
+          ReplayCompositionShapePolicy::kSingleGraph,
+          ReplayCompositionBoundaryPolicy::kExactPeriodicSuffix);
+  zero.slot = zero.ir.replay_composition_slots.append(
+      composition, 0, CapturedGraphInstanceId::invalid(),
+      GraphSlotTemplateId::invalid(), body_template,
+      ReplayCompositionSlotRole::kGraph, -1);
+  zero.unit = zero.ir.replay_units.append(
+      graph_template, zero.source, AnchorId::invalid(), AnchorId::invalid(),
+      TraceEventId::invalid());
+  const TraceEventId event =
+      zero.ir.trace_events.append(zero.source, 1, 0, 0, 5, 5, compute);
+  zero.task = zero.ir.tasks.append(
+      zero.source, event, 1, 1, -1, compute, compute, compute,
+      SymbolId::invalid(), SymbolId::invalid());
+  const GraphLaunchOccurrenceId occurrence =
+      zero.ir.graph_launch_occurrences.append(
+          zero.source, zero.source, 0, 1, 1, 1, 1, StreamId::invalid(),
+          StreamId::invalid(), CapturedGraphInstanceId::invalid(),
+          TaskId::invalid(), TaskId::invalid(), TaskId::invalid(), 0, 10, 0,
+          GraphLaunchMatchPolicy::kNotifyCompletionAdjacent,
+          GraphLaunchInstanceAssociationPolicy::kRecordModelId);
+  const GraphLaunchBodyId body = zero.ir.graph_launch_bodies.append(
+      occurrence, body_template, zero.task, zero.task, 1, 0, 1);
+  zero.ir.graph_launch_body_members.append(
+      body, zero.task, 0, 0, GraphLaunchBodyMemberRow::Kind::kCompute);
+  zero.ir.replay_unit_launch_members.append(
+      zero.unit, 0, occurrence, zero.slot);
+
+  const ReplayInternalCostMapResult map =
+      build_replay_internal_cost_map(zero.ir);
+  require(map.units[0].launch_members[0].supported &&
+              map.units[0].launch_members[0].task_sum_ns == 0 &&
+              map.members.size() == 1 &&
+              !map.members[0].scheduled_work_share_supported &&
+              map.members[0].scheduled_work_share_ppm == 0 &&
+              map.members[0].scheduled_work_denominator_body_task_sum_ns == 0,
+          "zero denominator never manufactures a share");
+  require(map.aggregates.size() == 1 &&
+              !map.aggregates[0].scheduled_work_share_supported &&
+              map.aggregates[0].scheduled_work_share_ppm == 0 &&
+              map.aggregates[0].scheduled_work_denominator_body_task_sum_ns ==
+                  0,
+          "aggregate share unsupported when every owning body task_sum is "
+          "zero");
+}
+
 void test_missing_identity_member() {
   const MinimalIr minimal = build_minimal_ir(
       /*with_body=*/true, /*second_body=*/false,
@@ -712,6 +1090,12 @@ int main() {
   test_fail_closed_template_mismatch();
   test_fail_closed_missing_slot();
   test_fail_closed_slot_without_template();
+  test_fail_closed_empty_body();
+  test_fail_closed_invalid_member_reference();
+  test_fail_closed_duplicate_position();
+  test_fail_closed_lane_inconsistency();
+  test_fail_closed_invalid_foreign_keys();
+  test_scheduled_work_share_zero_denominator();
   test_missing_identity_member();
   test_no_replay_units();
   test_member_order_gap_and_empty_unit();

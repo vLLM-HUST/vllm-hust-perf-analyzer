@@ -100,9 +100,15 @@ Native JSON also emits `replay_internal_cost_map`, the replay-internal
 query surface: ReplayUnit -> ordered launch/composition slots -> body
 template -> per-stream ordered members -> fine-grained costs and provenance.
 See [replay-internal-cost-map.md](replay-internal-cost-map.md) for the
-result contract, the aligned-aggregate structural key, the cost-lens
-boundaries (task_sum/busy_union/envelope/kind lenses are not additive or
-interchangeable), and the fail-closed support/reason model.
+result contract, the role-collapsed aligned-aggregate key (repeated slot
+roles merge with `launch_member_count` multiplicity; exact member rows retain
+slot id/`slot_order` as the drill-down contract), the cost-lens boundaries
+(kind sums partition the scheduled task_sum and are additive in that
+scheduled-work sense only, not as a wall-clock decomposition and not
+interchangeable with busy_union/envelope), the member/family
+`scheduled_work_share_ppm` contract (denominator = owning body task_sum,
+unsupported on a zero denominator), and the fail-closed support/reason
+model.
 
 Native JSON also emits `structural_units` whenever native JSON is requested.
 Its rows use the same IDs, fingerprints, token bounds, costs, evidence status,

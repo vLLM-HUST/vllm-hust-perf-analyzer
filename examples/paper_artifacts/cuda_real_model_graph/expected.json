@@ -10,7 +10,7 @@
     "torch": "2.5.1+cu121"
   },
   "graph_level": {
-    "canonical_observation_sha256": "6455c46d69ed53bb025ae91e52a60bdb49a818278e8bef2486f29c06744c1591",
+    "canonical_observation_sha256": "5694084c97cfd7b5a6db83d8e894462bc5126f8c40f97eb1f04dbbcfa30bf8ee",
     "database": "real_model_graph_graph.sqlite",
     "loop_tree_sha256": "01223f49fbbebde87a45faaf950a509ffcb0c5256e5a8e7db7238fc7667b555f",
     "reduction_manifest": "real_model_graph_graph-reduction.json"
@@ -19,7 +19,7 @@
     "anchors": 9,
     "body_members": 49405,
     "body_templates": 1,
-    "canonical_observation_sha256": "d62e64cc064c3d5128acb73ea5b8946bea02e40baa242a821bb8cb2952fddd56",
+    "canonical_observation_sha256": "f002502376249f87c301abdbcb6d892aa0804bf7298182d2dd5821df7433af41",
     "compute_members_per_body": 9773,
     "data_move_members_per_body": 108,
     "database": "real_model_graph_node.sqlite",
@@ -31,13 +31,39 @@
     "reduction_manifest": "real_model_graph_node-reduction.json",
     "template_hash": 9267402908908985375,
     "template_sequence": [0, 0, 0, 0, 0],
-    "unknown_regions": 0
+    "unknown_regions": 0,
+    "replay_internal_cost_map": {
+      "unit_count": 5,
+      "resolved_launch_count": 5,
+      "unsupported_launch_count": 0,
+      "fully_supported_unit_count": 5,
+      "partially_supported_unit_count": 0,
+      "unsupported_unit_count": 0,
+      "member_count": 49405,
+      "aligned_aggregate_count": 9881,
+      "aggregation_scope": [
+        "role_collapsed"
+      ]
+    }
   },
   "repeat": {
-    "canonical_observation_sha256": "73450d119c2e7e73f75aa7bcfafacbd9220eed41e77477aeaaf4e8440c1b9ca5",
+    "canonical_observation_sha256": "25d61bd15151c0bb08768085019d6b83b8f926171097f08ce3c6ff00cb7daafd",
     "database": "real_model_graph_node_repeat.sqlite",
     "loop_tree_sha256": "e99f07a95bde4aabb30bd00598227c0ccc765c158e0e13b779fadeb5ce5efda7",
-    "reduction_manifest": "real_model_graph_node_repeat-reduction.json"
+    "reduction_manifest": "real_model_graph_node_repeat-reduction.json",
+    "replay_internal_cost_map": {
+      "unit_count": 5,
+      "resolved_launch_count": 5,
+      "unsupported_launch_count": 0,
+      "fully_supported_unit_count": 5,
+      "partially_supported_unit_count": 0,
+      "unsupported_unit_count": 0,
+      "member_count": 49405,
+      "aligned_aggregate_count": 9881,
+      "aggregation_scope": [
+        "role_collapsed"
+      ]
+    }
   },
   "replay_oracle_sha256": "8a2f3253ccc697ad6a73c4f675161bb984852db7b629fc6775a59a6a001360d8"
 }

@@ -202,6 +202,65 @@ def verify_sidecar(sidecar: Path) -> None:
     ]
 
 
+def verify_replay_internal(
+    database: Path, result: dict[str, Any], expected: dict[str, Any]
+) -> None:
+    replay = result["replay_internal_cost_map"]
+    receipt = expected["replay_internal_cost_map"]
+    selected = {
+        "unit_count": len(replay["units"]),
+        "resolved_launch_count": int(replay["resolved_launch_count"]),
+        "unsupported_launch_count": int(replay["unsupported_launch_count"]),
+        "fully_supported_unit_count": int(replay["fully_supported_unit_count"]),
+        "partially_supported_unit_count": int(replay["partially_supported_unit_count"]),
+        "unsupported_unit_count": int(replay["unsupported_unit_count"]),
+        "member_count": len(replay["members"]),
+        "aligned_aggregate_count": len(replay["aligned_aggregates"]),
+        "aggregation_scope": sorted(
+            {row["aggregation_scope"] for row in replay["aligned_aggregates"]}
+        ),
+    }
+    assert selected == receipt, json.dumps(selected, indent=2, sort_keys=True)
+    assert replay["issues"] == []
+    assert all(
+        unit["supported"]
+        and unit["resolved_launch_count"] == unit["launch_member_count"]
+        and unit["launch_member_count"] == 1
+        for unit in replay["units"]
+    )
+    assert all(
+        row["aggregation_scope"] == "role_collapsed"
+        and row["distribution_supported"]
+        and row["scheduled_work_share_supported"]
+        for row in replay["aligned_aggregates"]
+    )
+    assert all(
+        member["scheduled_work_share_supported"] for member in replay["members"]
+    )
+    # Member source provenance: replay members are exactly the JSON body
+    # members, whose per-row source rows are resolved into the database below
+    # (verify_provenance); the recorded source-table distribution is exact.
+    body_members = result["graph_launch_body_members"]
+    pairs = {
+        (int(member["graph_launch_body_id"]),
+         int(member["graph_launch_body_member_id"]))
+        for member in replay["members"]
+    }
+    body_pairs = {
+        (int(member["graph_launch_body_id"]),
+         int(member["graph_launch_body_member_id"]))
+        for member in body_members
+    }
+    assert pairs == body_pairs
+    assert len(pairs) == len(body_members) == len(replay["members"])
+    tables = Counter(str(member["source_table"]) for member in replay["members"])
+    assert dict(tables) == {
+        "CUPTI_ACTIVITY_KIND_KERNEL": 48865,
+        "CUPTI_ACTIVITY_KIND_MEMCPY": 540,
+    }
+    verify_provenance(database, result)
+
+
 def verify_reference(
     executable: Path,
     artifact: Path,
@@ -299,6 +358,13 @@ def main() -> int:
             ]
 
         primary = results["node_level"]
+        verify_replay_internal(
+            databases["node_level"], primary, expected["node_level"]
+        )
+        verify_replay_internal(
+            databases["repeat"], results["repeat"], expected["repeat"]
+        )
+
         spec = expected["node_level"]
         stats = primary["stats"]
         assert stats["trace_event_count"] == spec["events"]

@@ -24,6 +24,13 @@ is invisible in replay counts alone: replay-envelope time is 817.243/848.158 ms
 position and source evidence; workload-semantic attribution remains a separate
 human or agent judgment.
 
+The replay-internal cost map receipt is asserted per rank: 30 fully supported
+multi-launch units, 1,110 ordered launches, zero unsupported launches, 10,170
+member rows, and 339 role-collapsed aligned aggregates, with the exact
+H + L×35 + T slot positions preserved in every unit (member_order 0..36 maps
+to head/layer×35/tail with slot_order 0..36) and every replay member resolved
+to the verified TASK source rows.
+
 The current unknown-first projection emits 5,669/5,645 semantic anchors and
 543/519 Loop Tree nodes. Of those anchors, 2,550/2,530 are preserved
 unclassified task events. Older paper snapshots reported 3,119/3,115 anchors

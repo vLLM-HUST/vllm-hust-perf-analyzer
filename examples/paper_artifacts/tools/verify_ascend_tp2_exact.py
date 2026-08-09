@@ -376,6 +376,66 @@ def verify_exact_shape(
     return resolved_hosts, resolved_tasks
 
 
+def verify_replay_internal(
+    result: dict[str, Any], expected: dict[str, Any]
+) -> None:
+    replay = result["replay_internal_cost_map"]
+    receipt = expected["replay_internal_cost_map"]
+    selected = {
+        "unit_count": len(replay["units"]),
+        "resolved_launch_count": int(replay["resolved_launch_count"]),
+        "unsupported_launch_count": int(replay["unsupported_launch_count"]),
+        "fully_supported_unit_count": int(replay["fully_supported_unit_count"]),
+        "partially_supported_unit_count": int(replay["partially_supported_unit_count"]),
+        "unsupported_unit_count": int(replay["unsupported_unit_count"]),
+        "member_count": len(replay["members"]),
+        "aligned_aggregate_count": len(replay["aligned_aggregates"]),
+        "aggregation_scope": sorted(
+            {row["aggregation_scope"] for row in replay["aligned_aggregates"]}
+        ),
+    }
+    assert selected == receipt, json.dumps(selected, indent=2, sort_keys=True)
+    assert replay["issues"] == []
+    # 30 fully supported multi-launch units; H/Lx35/T slot positions preserved.
+    assert len(replay["units"]) == 30
+    for unit in replay["units"]:
+        assert unit["supported"]
+        assert unit["resolved_launch_count"] == 37
+        members = unit["launch_members"]
+        assert len(members) == 37
+        assert [member["slot_role"] for member in members] == [
+            "head",
+            *(["layer"] * 35),
+            "tail",
+        ]
+        assert [member["slot_order"] for member in members] == list(range(37))
+    assert all(
+        row["aggregation_scope"] == "role_collapsed"
+        and row["distribution_supported"]
+        and row["scheduled_work_share_supported"]
+        for row in replay["aligned_aggregates"]
+    )
+    assert all(
+        member["scheduled_work_share_supported"] for member in replay["members"]
+    )
+    # Member source provenance: replay members are exactly the JSON body
+    # members, whose TASK source rows are resolved in verify_exact_shape.
+    body_members = result["graph_launch_body_members"]
+    pairs = {
+        (int(member["graph_launch_body_id"]),
+         int(member["graph_launch_body_member_id"]))
+        for member in replay["members"]
+    }
+    body_pairs = {
+        (int(member["graph_launch_body_id"]),
+         int(member["graph_launch_body_member_id"]))
+        for member in body_members
+    }
+    assert pairs == body_pairs
+    assert len(pairs) == len(body_members) == len(replay["members"])
+    assert {member["source_table"] for member in replay["members"]} == {"TASK"}
+
+
 def observation(
     result: dict[str, Any],
     report: str,
@@ -436,6 +496,7 @@ def main() -> int:
             reduced_observation = observation(
                 result, report, source, profile_expected, communication
             )
+            verify_replay_internal(result, profile_expected)
 
             reference = getattr(args, f"reference_{rank}")
             if reference is not None:
