@@ -621,6 +621,98 @@ void insert_graph_reconstruction_region_row(
   sqlite3_clear_bindings(stmt.get());
 }
 
+void insert_graph_launch_row(SqliteStmt& stmt,
+                              const GraphLaunchSqlRow& row) {
+  bind_text(stmt, 1, row.launch_id);
+  bind_int64(stmt, 2, row.db_idx);
+  bind_int64(stmt, 3, row.device_id);
+  bind_text(stmt, 4, row.graph_provider);
+  bind_text(stmt, 5, row.graph_event_id);
+  bind_text(stmt, 6, row.anchor_id);
+  bind_int64(stmt, 7, row.replay_unit_id);
+  bind_int64(stmt, 8, row.graph_template_id);
+  bind_int64(stmt, 9, row.graph_launch_occurrence_id);
+  bind_int64(stmt, 10, row.replay_body_template_id);
+  bind_int64(stmt, 11, row.body_id);
+  bind_int64(stmt, 12, row.member_order);
+  if (row.slot_order < 0) {
+    bind_null(stmt, 13);
+  } else {
+    bind_int64(stmt, 13, row.slot_order);
+  }
+  bind_text(stmt, 14, row.correlation_id);
+  bind_text(stmt, 15, row.match_policy);
+  bind_text(stmt, 16, row.association_policy);
+  bind_int64(stmt, 17, row.start_ns);
+  bind_int64(stmt, 18, row.end_ns);
+  bind_double(stmt, 19, row.dur_us);
+  bind_text(stmt, 20, row.evidence_level);
+
+  const int rc = sqlite3_step(stmt.get());
+  if (rc != SQLITE_DONE) {
+    throw std::runtime_error(
+        "failed to insert compatibility exact graph launch row: " +
+        std::string(sqlite3_errmsg(stmt.db())));
+  }
+  sqlite3_reset(stmt.get());
+  sqlite3_clear_bindings(stmt.get());
+}
+
+void insert_graph_body_member_row(SqliteStmt& stmt,
+                                  const GraphBodyMemberSqlRow& row) {
+  bind_text(stmt, 1, row.member_id);
+  bind_text(stmt, 2, row.launch_id);
+  bind_int64(stmt, 3, row.db_idx);
+  bind_int64(stmt, 4, row.device_id);
+  bind_text(stmt, 5, row.graph_provider);
+  bind_text(stmt, 6, row.graph_event_id);
+  bind_int64(stmt, 7, row.replay_unit_id);
+  bind_int64(stmt, 8, row.graph_template_id);
+  bind_int64(stmt, 9, row.graph_launch_occurrence_id);
+  bind_int64(stmt, 10, row.body_id);
+  bind_int64(stmt, 11, row.replay_body_template_id);
+  bind_int64(stmt, 12, row.member_order);
+  if (row.slot_order < 0) {
+    bind_null(stmt, 13);
+  } else {
+    bind_int64(stmt, 13, row.slot_order);
+  }
+  bind_int64(stmt, 14, row.lane_ordinal);
+  bind_int64(stmt, 15, row.task_ordinal);
+  bind_text(stmt, 16, row.kind);
+  bind_text(stmt, 17, row.event_id);
+  bind_int64(stmt, 18, row.task_id);
+  bind_text(stmt, 19, row.source_table);
+  bind_int64(stmt, 20, row.source_row_id);
+  bind_int64(stmt, 21, row.raw_task_id);
+  bind_int64(stmt, 22, row.start_ns);
+  bind_int64(stmt, 23, row.end_ns);
+  bind_double(stmt, 24, row.dur_us);
+  bind_text(stmt, 25, row.correlation_id);
+  if (row.graph_node_id < 0) {
+    bind_null(stmt, 26);
+  } else {
+    bind_int64(stmt, 26, row.graph_node_id);
+  }
+  if (row.original_graph_node_id < 0) {
+    bind_null(stmt, 27);
+  } else {
+    bind_int64(stmt, 27, row.original_graph_node_id);
+  }
+  bind_text(stmt, 28, row.match_policy);
+  bind_text(stmt, 29, row.association_policy);
+  bind_text(stmt, 30, row.evidence_level);
+
+  const int rc = sqlite3_step(stmt.get());
+  if (rc != SQLITE_DONE) {
+    throw std::runtime_error(
+        "failed to insert compatibility exact graph body member row: " +
+        std::string(sqlite3_errmsg(stmt.db())));
+  }
+  sqlite3_reset(stmt.get());
+  sqlite3_clear_bindings(stmt.get());
+}
+
 void insert_collective_global_link_row(
     SqliteStmt& stmt,
     const CollectiveGlobalLinkSqlRow& row) {
@@ -1026,6 +1118,64 @@ void materialize_cuda_graph_views(SqliteDb& db) {
       "JOIN traceloom_event child ON child.event_id = ge.child_event_id");
 }
 
+void materialize_exact_graph_views(SqliteDb& db) {
+  // Canonical node/member view over the exact graph relations. Filter by
+  // node_event_id (node occurrence -> exact members/events) or by event_id
+  // (member event -> the node occurrences that contain it).
+  db.exec(
+      "CREATE VIEW IF NOT EXISTS traceloom_v_node_graph_body_member AS "
+      "SELECT "
+      "l.launch_id AS node_launch_id, "
+      "l.graph_event_id AS node_event_id, "
+      "l.anchor_id AS node_anchor_id, "
+      "l.replay_unit_id AS node_replay_unit_id, "
+      "l.graph_template_id AS node_graph_template_id, "
+      "l.graph_launch_occurrence_id AS node_graph_launch_occurrence_id, "
+      "l.member_order AS node_member_order, "
+      "l.slot_order AS node_slot_order, "
+      "l.correlation_id AS launch_correlation_id, "
+      "l.match_policy AS launch_match_policy, "
+      "l.association_policy AS launch_association_policy, "
+      "l.start_ns AS launch_start_ns, "
+      "l.end_ns AS launch_end_ns, "
+      "l.dur_us AS launch_dur_us, "
+      "m.member_id, "
+      "m.db_idx, "
+      "m.device_id, "
+      "m.graph_provider, "
+      "m.replay_unit_id, "
+      "m.graph_template_id, "
+      "m.graph_launch_occurrence_id, "
+      "m.body_id, "
+      "m.replay_body_template_id, "
+      "m.member_order, "
+      "m.slot_order, "
+      "m.lane_ordinal, "
+      "m.task_ordinal, "
+      "m.kind, "
+      "m.event_id, "
+      "m.task_id, "
+      "m.source_table, "
+      "m.source_row_id, "
+      "m.raw_task_id, "
+      "m.start_ns, "
+      "m.end_ns, "
+      "m.dur_us, "
+      "m.correlation_id, "
+      "m.graph_node_id, "
+      "m.original_graph_node_id, "
+      "m.match_policy, "
+      "m.association_policy, "
+      "m.evidence_level, "
+      "e.symbol AS member_symbol, "
+      "e.label AS member_label, "
+      "e.task_type AS member_task_type, "
+      "e.semantic_role AS member_semantic_role "
+      "FROM traceloom_graph_launch l "
+      "JOIN traceloom_graph_body_member m ON m.launch_id = l.launch_id "
+      "JOIN traceloom_event e ON e.event_id = m.event_id");
+}
+
 void materialize_tree_node_anchor_view(SqliteDb& db) {
   db.exec(
       "CREATE VIEW IF NOT EXISTS traceloom_tree_node_anchor AS "
@@ -1371,6 +1521,21 @@ void materialize_report_compatibility_indexes(SqliteDb& db) {
       "CREATE INDEX IF NOT EXISTS idx_traceloom_aclgraph_region_status "
       "ON traceloom_aclgraph_reconstruction_region("
       "db_idx, device_id, status)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_graph_launch_node "
+      "ON traceloom_graph_launch(db_idx, device_id, graph_event_id)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_graph_launch_anchor "
+      "ON traceloom_graph_launch(anchor_id)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_graph_body_member_launch "
+      "ON traceloom_graph_body_member(launch_id)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_graph_body_member_event "
+      "ON traceloom_graph_body_member(event_id)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_graph_body_member_node "
+      "ON traceloom_graph_body_member(graph_node_id)");
   db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_node_anchor_node "
       "ON traceloom_viz_node_anchor(node_id)");
@@ -2267,7 +2432,69 @@ void replace_graph_replay_evidence_rows(
 #endif
 }
 
+void replace_exact_graph_rows(const std::string& sqlite_path,
+                                  const ExactGraphSqlRows& rows) {
+#if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
+  materialize_compatibility_schema(
+      sqlite_path,
+      {graph_launch_table_schema(), graph_body_member_table_schema()});
+
+  SqliteDb db(sqlite_path);
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.exec("DELETE FROM traceloom_graph_body_member");
+    db.exec("DELETE FROM traceloom_graph_launch");
+
+    SqliteStmt launch_stmt(
+        db.get(),
+        "INSERT INTO traceloom_graph_launch ("
+        "launch_id, db_idx, device_id, graph_provider, graph_event_id, "
+        "anchor_id, replay_unit_id, graph_template_id, "
+        "graph_launch_occurrence_id, replay_body_template_id, body_id, "
+        "member_order, slot_order, correlation_id, match_policy, "
+        "association_policy, start_ns, end_ns, dur_us, evidence_level"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+        "?, ?)");
+    for (const GraphLaunchSqlRow& row : rows.launches) {
+      insert_graph_launch_row(launch_stmt, row);
+    }
+
+    SqliteStmt member_stmt(
+        db.get(),
+        "INSERT INTO traceloom_graph_body_member ("
+        "member_id, launch_id, db_idx, device_id, graph_provider, "
+        "graph_event_id, replay_unit_id, graph_template_id, "
+        "graph_launch_occurrence_id, body_id, replay_body_template_id, "
+        "member_order, slot_order, lane_ordinal, task_ordinal, kind, "
+        "event_id, task_id, source_table, source_row_id, raw_task_id, "
+        "start_ns, end_ns, dur_us, correlation_id, graph_node_id, "
+        "original_graph_node_id, match_policy, association_policy, "
+        "evidence_level"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+        "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    for (const GraphBodyMemberSqlRow& row : rows.members) {
+      insert_graph_body_member_row(member_stmt, row);
+    }
+
+    materialize_exact_graph_views(db);
+    db.exec("COMMIT");
+  } catch (...) {
+    try {
+      db.exec("ROLLBACK");
+    } catch (...) {
+    }
+    throw;
+  }
+#else
+  (void)sqlite_path;
+  (void)rows;
+  throw std::runtime_error(
+      "compatibility sidecar writer requires SQLite support");
+#endif
+}
+
 void replace_graph_replay_rows(const std::string& sqlite_path,
+
                                const GraphReplaySqlRows& rows) {
 #if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
   materialize_compatibility_schema(

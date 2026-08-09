@@ -294,6 +294,44 @@ GraphReplayEvidenceSqlRows build_native_graph_replay_evidence_sql_rows(
     replay.dur_us = ns_to_us(graph_event.end_ns - graph_event.start_ns);
     const bool is_exact_replay =
         replay_unit.replay_composition_region_id.valid();
+    // Fill the existing replay correlation field for exact CUDA replays when
+    // deterministically available: exactly one ordered launch member whose
+    // occurrence carries a raw launch connection id. Ambiguous or missing
+    // correlation stays empty rather than being guessed.
+    if (is_exact_replay && is_cuda) {
+      std::int64_t resolved_correlation = -1;
+      bool deterministic = false;
+      for (const ReplayUnitLaunchMemberRow& member :
+           ir.replay_unit_launch_members.rows()) {
+        if (member.replay_unit_id != replay_unit.id) {
+          continue;
+        }
+        if (!member.graph_launch_occurrence_id.valid() ||
+            member.graph_launch_occurrence_id.value() >=
+                ir.graph_launch_occurrences.size()) {
+          throw std::invalid_argument(
+              "ReplayUnitLaunchMemberRow occurrence id is out of range");
+        }
+        const GraphLaunchOccurrenceRow& member_launch =
+            ir.graph_launch_occurrences.row(
+                member.graph_launch_occurrence_id);
+        if (member_launch.raw_launch_connection_id < 0) {
+          deterministic = false;
+          break;
+        }
+        if (!deterministic) {
+          resolved_correlation = member_launch.raw_launch_connection_id;
+          deterministic = true;
+        } else if (member_launch.raw_launch_connection_id !=
+                   resolved_correlation) {
+          deterministic = false;
+          break;
+        }
+      }
+      if (deterministic) {
+        replay.correlation_id = std::to_string(resolved_correlation);
+      }
+    }
     replay.raw_json =
         "{\"reconstruction\":\"" +
         std::string(is_exact_replay

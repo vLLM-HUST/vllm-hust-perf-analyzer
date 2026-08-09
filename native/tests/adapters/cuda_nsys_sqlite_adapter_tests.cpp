@@ -60,6 +60,7 @@ enum class GraphFixtureVariant {
   kUnsupportedGraphNodeActivity,
   kIncompleteMemcpyCapability,
   kBodyMismatch,
+  kAmbiguousOriginalGraphNode,
 };
 
 void create_graph_node_db(const std::string& path,
@@ -139,9 +140,17 @@ void create_graph_node_db(const std::string& path,
   }
   for (int node = 0; node < 4; ++node) {
     sql << "INSERT INTO CUDA_GRAPH_NODE_EVENTS VALUES(" << 100 + node
-        << ',' << 100 + node << ',' << graph_a + node << ",NULL);"
+        << ',' << 100 + node << ',' << graph_a + node << ','
+        << 5000 + node << ");"
         << "INSERT INTO CUDA_GRAPH_NODE_EVENTS VALUES(" << 200 + node
-        << ',' << 200 + node << ',' << graph_b + node << ",NULL);";
+        << ',' << 200 + node << ',' << graph_b + node << ','
+        << 6000 + node << ");";
+  }
+  if (variant == GraphFixtureVariant::kAmbiguousOriginalGraphNode) {
+    // graph_a+1 now maps to two distinct originals: ambiguous, so the
+    // original identity for that raw node must stay unmapped (fail closed).
+    sql << "INSERT INTO CUDA_GRAPH_NODE_EVENTS VALUES(150, 150, "
+        << graph_a + 1 << ", 777);";
   }
   if (variant == GraphFixtureVariant::kUnsupportedGraphNodeActivity) {
     sql << "CREATE TABLE CUPTI_ACTIVITY_KIND_MEMSET("
@@ -414,13 +423,19 @@ int main(int argc, char** argv) {
               graph_exact_ir.replay_units.size() == 5 &&
               graph_exact_ir.replay_unit_launch_members.size() == 5,
           "repeated CUDA graph bodies were not promoted to exact replay units");
-  for (const GraphLaunchOccurrenceRow& occurrence :
-       graph_exact_ir.graph_launch_occurrences.rows()) {
+  for (std::size_t occurrence_index = 0;
+       occurrence_index < graph_exact_ir.graph_launch_occurrences.size();
+       ++occurrence_index) {
+    const GraphLaunchOccurrenceRow& occurrence =
+        graph_exact_ir.graph_launch_occurrences.rows()[occurrence_index];
     require(occurrence.match_policy ==
                     GraphLaunchMatchPolicy::kCudaRuntimeCorrelation &&
                 occurrence.instance_association_policy ==
                     GraphLaunchInstanceAssociationPolicy::kCudaGraphNodeSet,
             "CUDA graph occurrence lost its direct correlation provenance");
+    require(occurrence.raw_launch_connection_id ==
+                101 + static_cast<std::int64_t>(occurrence_index),
+            "CUDA graph occurrence lost its runtime correlation identity");
   }
   for (const ReplayBodyTemplateRow& body :
        graph_exact_ir.replay_body_templates.rows()) {
@@ -474,6 +489,20 @@ int main(int argc, char** argv) {
                        GraphLaunchBodyMemberRow::Kind::kDataMove;
               }),
           "CUDA graph launch body members lost memcpy evidence");
+  const std::int64_t graph_a = 8589934592LL;
+  const std::int64_t graph_b = 21474836480LL;
+  for (const GraphLaunchBodyMemberRow& member :
+       graph_exact_ir.graph_launch_body_members.rows()) {
+    require(member.raw_graph_node_id >= graph_a &&
+                member.raw_graph_node_id < graph_b + 4,
+            "CUDA graph body member lost its raw graphNodeId");
+    const std::int64_t expected_original =
+        member.raw_graph_node_id < graph_b
+            ? 5000 + (member.raw_graph_node_id - graph_a)
+            : 6000 + (member.raw_graph_node_id - graph_b);
+    require(member.original_graph_node_id == expected_original,
+            "CUDA graph body member lost its unique originalGraphNodeId");
+  }
   require(exact_bodies[0].replay_body_template_id ==
                   exact_bodies[2].replay_body_template_id &&
               exact_bodies[0].replay_body_template_id ==
@@ -582,6 +611,32 @@ int main(int argc, char** argv) {
                 ReplayCompositionRegionStatus::kUnrecognizedBodyMismatch,
             "contradictory CUDA graph body lost its typed mismatch status");
   }
+
+  const std::string graph_ambiguous_original_path =
+      temp_db_path("_graph_ambiguous_original");
+  create_graph_node_db(graph_ambiguous_original_path,
+                       GraphFixtureVariant::kAmbiguousOriginalGraphNode);
+  const NativeIr graph_ambiguous_original_ir =
+      CudaNsightSQLiteAdapter(graph_ambiguous_original_path).load();
+  require(graph_ambiguous_original_ir.graph_launch_body_members.size() ==
+              graph_exact_ir.graph_launch_body_members.size(),
+          "ambiguous original mapping changed exact body membership");
+  const std::int64_t graph_a_node_id = 8589934592LL;
+  std::size_t ambiguous_member_count = 0;
+  for (const GraphLaunchBodyMemberRow& member :
+       graph_ambiguous_original_ir.graph_launch_body_members.rows()) {
+    if (member.raw_graph_node_id == graph_a_node_id + 1) {
+      require(member.original_graph_node_id == -1,
+              "ambiguous originalGraphNodeId was guessed instead of "
+              "left unmapped");
+      ++ambiguous_member_count;
+    } else if (member.raw_graph_node_id == graph_a_node_id) {
+      require(member.original_graph_node_id == 5000,
+              "unique originalGraphNodeId mapping was lost");
+    }
+  }
+  require(ambiguous_member_count > 0,
+          "ambiguous original mapping fixture did not exercise the node");
 
   const std::string malformed_path = temp_db_path("_malformed");
   create_db(malformed_path,

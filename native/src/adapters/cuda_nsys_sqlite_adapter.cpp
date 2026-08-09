@@ -1041,6 +1041,39 @@ void prepare_cuda_graph_body(PreparedCudaGraphLaunch& prepared) {
   }
 }
 
+std::map<std::int64_t, std::int64_t> load_cuda_graph_node_original_mapping(
+    SqliteDb& db) {
+  // CUDA_GRAPH_NODE_EVENTS.originalGraphNodeId is retained for exact node
+  // identity. A raw graphNodeId is mapped only when exactly one non-null
+  // original exists; missing or ambiguous mappings stay unmapped (-1) rather
+  // than being guessed.
+  std::map<std::int64_t, std::set<std::int64_t>> originals_by_graph_node;
+  SqliteStmt stmt(
+      db.get(),
+      "SELECT graphNodeId, originalGraphNodeId FROM CUDA_GRAPH_NODE_EVENTS "
+      "WHERE originalGraphNodeId IS NOT NULL ORDER BY rowid");
+  while (true) {
+    const int rc = sqlite3_step(stmt.get());
+    if (rc == SQLITE_DONE) {
+      break;
+    }
+    if (rc != SQLITE_ROW) {
+      throw std::runtime_error(
+          "failed to load CUDA graph node original identity: " +
+          std::string(sqlite3_errmsg(stmt.db())));
+    }
+    originals_by_graph_node[sqlite_i64(stmt.get(), 0)].insert(
+        sqlite_i64(stmt.get(), 1));
+  }
+  std::map<std::int64_t, std::int64_t> mapping;
+  for (const auto& item : originals_by_graph_node) {
+    if (item.second.size() == 1) {
+      mapping.emplace(item.first, *item.second.begin());
+    }
+  }
+  return mapping;
+}
+
 void materialize_cuda_graph_node_replays(
     SqliteDb& db, NativeIr& ir, const CudaNsightSQLiteAdapterOptions& options,
     const std::unordered_map<std::int64_t, std::string>& strings) {
@@ -1056,6 +1089,8 @@ void materialize_cuda_graph_node_replays(
   if (launches.empty()) {
     return;
   }
+  const std::map<std::int64_t, std::int64_t> original_graph_node_ids =
+      load_cuda_graph_node_original_mapping(db);
   std::vector<CudaGraphChildEvidence> children;
   load_cuda_graph_kernel_children(db, ir, children);
   load_cuda_graph_memcpy_children(db, ir, children);
@@ -1188,6 +1223,8 @@ void materialize_cuda_graph_node_replays(
       }
       for (const CudaGraphChildEvidence* child : prepared.children) {
         const std::uint32_t lane_ordinal = lane_ordinals.at(child->stream_id);
+        const auto original = original_graph_node_ids.find(
+            child->graph_node_id);
         ir.graph_launch_body_members.append(
             body_id, child->task_id, lane_ordinal,
             task_ordinals[lane_ordinal]++,
@@ -1195,7 +1232,11 @@ void materialize_cuda_graph_node_replays(
                 ? GraphLaunchBodyMemberRow::Kind::kCommunication
                 : (child->compute
                        ? GraphLaunchBodyMemberRow::Kind::kCompute
-                       : GraphLaunchBodyMemberRow::Kind::kDataMove));
+                       : GraphLaunchBodyMemberRow::Kind::kDataMove),
+            child->graph_node_id,
+            original == original_graph_node_ids.end()
+                ? -1
+                : original->second);
       }
     }
 
