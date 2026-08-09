@@ -568,7 +568,11 @@ void insert_graph_launch_row(SqliteStmt& stmt,
   bind_int64(stmt, 3, row.device_id);
   bind_text(stmt, 4, row.graph_provider);
   bind_text(stmt, 5, row.graph_event_id);
-  bind_text(stmt, 6, row.anchor_id);
+  if (row.anchor_id.empty()) {
+    bind_null(stmt, 6);
+  } else {
+    bind_text(stmt, 6, row.anchor_id);
+  }
   bind_int64(stmt, 7, row.replay_unit_id);
   bind_int64(stmt, 8, row.graph_template_id);
   bind_int64(stmt, 9, row.graph_launch_occurrence_id);
@@ -580,7 +584,11 @@ void insert_graph_launch_row(SqliteStmt& stmt,
   } else {
     bind_int64(stmt, 13, row.slot_order);
   }
-  bind_text(stmt, 14, row.correlation_id);
+  if (row.correlation_id.empty()) {
+    bind_null(stmt, 14);
+  } else {
+    bind_text(stmt, 14, row.correlation_id);
+  }
   bind_text(stmt, 15, row.match_policy);
   bind_text(stmt, 16, row.association_policy);
   bind_int64(stmt, 17, row.start_ns);
@@ -628,7 +636,11 @@ void insert_graph_body_member_row(SqliteStmt& stmt,
   bind_int64(stmt, 22, row.start_ns);
   bind_int64(stmt, 23, row.end_ns);
   bind_double(stmt, 24, row.dur_us);
-  bind_text(stmt, 25, row.correlation_id);
+  if (row.correlation_id.empty()) {
+    bind_null(stmt, 25);
+  } else {
+    bind_text(stmt, 25, row.correlation_id);
+  }
   if (row.graph_node_id < 0) {
     bind_null(stmt, 26);
   } else {
@@ -1059,12 +1071,36 @@ void materialize_cuda_graph_views(SqliteDb& db) {
 }
 
 void materialize_exact_graph_views(SqliteDb& db) {
-  // Canonical node/member view over the exact graph relations. Filter by
-  // node_event_id (node occurrence -> exact members/events) or by event_id
-  // (member event -> the node occurrences that contain it).
+  // Canonical tree-occurrence view over the exact graph relations. Rows are
+  // the exact ordered members of a graph launch whose promoted tree anchor
+  // exists in traceloom_viz_node_anchor; exact launches without a tree anchor
+  // stay in the base tables and do not masquerade as node-view rows. The
+  // launch<->anchor, launch<->member, and member<->event joins are composite
+  // (id + db_idx + device_id), never bare IDs. Filter by (node_id,
+  // occurrence_idx) or node_event_id to walk a tree node occurrence to its
+  // exact members/events; filter by event_id to walk a member event back to
+  // the tree occurrences that contain it.
   db.exec(
       "CREATE VIEW IF NOT EXISTS traceloom_v_node_graph_body_member AS "
       "SELECT "
+      "na.node_id AS node_id, "
+      "na.view_name AS view_name, "
+      "na.occurrence_idx AS occurrence_idx, "
+      "(SELECT COUNT(*) FROM traceloom_viz_node_anchor na2 "
+      "WHERE na2.node_id = na.node_id AND na2.db_idx = na.db_idx "
+      "AND na2.device_id = na.device_id AND na2.view_name = na.view_name "
+      "AND na2.occurrence_idx = na.occurrence_idx "
+      "AND na2.anchor_order < na.anchor_order) AS idx_in_occurrence, "
+      "na.anchor_order AS anchor_order, "
+      "na.coverage_kind AS coverage_kind, "
+      "na.repeat_context AS repeat_context, "
+      "na.compute_us AS anchor_compute_us, "
+      "na.comm_us AS anchor_comm_us, "
+      "na.idle_us AS anchor_idle_us, "
+      "na.total_us AS anchor_total_us, "
+      "na.self_us AS anchor_self_us, "
+      "na.aux_events AS anchor_aux_events, "
+      "na.aux_us AS anchor_aux_us, "
       "l.launch_id AS node_launch_id, "
       "l.graph_event_id AS node_event_id, "
       "l.anchor_id AS node_anchor_id, "
@@ -1112,8 +1148,15 @@ void materialize_exact_graph_views(SqliteDb& db) {
       "e.task_type AS member_task_type, "
       "e.semantic_role AS member_semantic_role "
       "FROM traceloom_graph_launch l "
-      "JOIN traceloom_graph_body_member m ON m.launch_id = l.launch_id "
-      "JOIN traceloom_event e ON e.event_id = m.event_id");
+      "JOIN traceloom_viz_node_anchor na "
+      "ON na.anchor_id = l.anchor_id AND na.db_idx = l.db_idx "
+      "AND na.device_id = l.device_id "
+      "JOIN traceloom_graph_body_member m "
+      "ON m.launch_id = l.launch_id AND m.db_idx = l.db_idx "
+      "AND m.device_id = l.device_id "
+      "JOIN traceloom_event e "
+      "ON e.event_id = m.event_id AND e.db_idx = m.db_idx "
+      "AND e.device_id = m.device_id");
 }
 
 void materialize_tree_node_anchor_view(SqliteDb& db) {
@@ -1605,6 +1648,7 @@ void drop_report_compatibility_views(SqliteDb& db) {
   db.exec("DROP VIEW IF EXISTS traceloom_tree_node_anchor");
   db.exec("DROP VIEW IF EXISTS traceloom_v_cuda_graph_envelope");
   db.exec("DROP VIEW IF EXISTS traceloom_v_cuda_graph_replay");
+  db.exec("DROP VIEW IF EXISTS traceloom_v_node_graph_body_member");
 }
 #endif
 
@@ -1618,6 +1662,7 @@ void materialize_report_compatibility_views(const std::string& sqlite_path) {
     drop_report_compatibility_views(db);
     materialize_report_compatibility_indexes(db);
     materialize_cuda_graph_views(db);
+    materialize_exact_graph_views(db);
     materialize_tree_node_anchor_view(db);
     materialize_tree_node_occurrence_view(db);
     materialize_node_cost_views(db);

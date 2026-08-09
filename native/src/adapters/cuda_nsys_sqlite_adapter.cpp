@@ -1044,14 +1044,26 @@ void prepare_cuda_graph_body(PreparedCudaGraphLaunch& prepared) {
 std::map<std::int64_t, std::int64_t> load_cuda_graph_node_original_mapping(
     SqliteDb& db) {
   // CUDA_GRAPH_NODE_EVENTS.originalGraphNodeId is retained for exact node
-  // identity. A raw graphNodeId is mapped only when exactly one non-null
-  // original exists; missing or ambiguous mappings stay unmapped (-1) rather
-  // than being guessed.
+  // identity, but the column is optional in older/variant schemas. When
+  // either mapping column is unavailable, return an empty mapping: exact
+  // graphNodeId/correlation reconstruction keeps working and the original
+  // identity stays unmapped (-1) rather than failing or guessing. A raw
+  // graphNodeId is mapped only when exactly one non-null original exists;
+  // missing or ambiguous mappings stay unmapped (-1).
+  const ColumnMap node_columns = table_columns(db, "CUDA_GRAPH_NODE_EVENTS");
+  const std::string raw_graph_node_column =
+      find_column(node_columns, "graphNodeId");
+  const std::string original_graph_node_column =
+      find_column(node_columns, "originalGraphNodeId");
+  if (raw_graph_node_column.empty() || original_graph_node_column.empty()) {
+    return {};
+  }
   std::map<std::int64_t, std::set<std::int64_t>> originals_by_graph_node;
   SqliteStmt stmt(
       db.get(),
-      "SELECT graphNodeId, originalGraphNodeId FROM CUDA_GRAPH_NODE_EVENTS "
-      "WHERE originalGraphNodeId IS NOT NULL ORDER BY rowid");
+      "SELECT " + raw_graph_node_column + ", " + original_graph_node_column +
+          " FROM CUDA_GRAPH_NODE_EVENTS WHERE " +
+          original_graph_node_column + " IS NOT NULL ORDER BY rowid");
   while (true) {
     const int rc = sqlite3_step(stmt.get());
     if (rc == SQLITE_DONE) {
