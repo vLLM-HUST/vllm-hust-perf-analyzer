@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <map>
 #include <set>
+#include <stdexcept>
 #include <utility>
 
 namespace traceloom {
@@ -86,25 +87,14 @@ GraphBodyCostSummary build_graph_body_cost_summary(const NativeIr& ir) {
        ir.replay_unit_launch_members.rows()) {
     exact_occurrences.insert(member.graph_launch_occurrence_id.value());
   }
-  // Fail-closed membership indexing: body members whose body id or
-  // task/event references are invalid or out of range are skipped rather than
-  // dereferenced, so malformed IR never throws. For valid IR the behavior is
-  // byte-identical to strict membership.
   std::vector<std::vector<const GraphLaunchBodyMemberRow*>> members_by_body(
       ir.graph_launch_bodies.size());
   for (const GraphLaunchBodyMemberRow& member :
        ir.graph_launch_body_members.rows()) {
     if (!member.graph_launch_body_id.valid() ||
         member.graph_launch_body_id.value() >= members_by_body.size()) {
-      continue;
-    }
-    if (!member.task_id.valid() || member.task_id.value() >= ir.tasks.size()) {
-      continue;
-    }
-    const TaskRow& task = ir.tasks.row(member.task_id);
-    if (!task.trace_event_id.valid() ||
-        task.trace_event_id.value() >= ir.trace_events.size()) {
-      continue;
+      throw std::invalid_argument(
+          "graph launch body member references an invalid body");
     }
     members_by_body[member.graph_launch_body_id.value()].push_back(&member);
   }

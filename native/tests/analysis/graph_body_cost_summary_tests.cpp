@@ -86,57 +86,5 @@ int main() {
               summary.distributions[1].task_sum_median_ns == 17 &&
               summary.distributions[1].communication_median_ns == 5,
           "exact-body distribution");
-
-  // Fail-closed malformed membership: body members with invalid body ids,
-  // invalid task ids, or invalid trace-event references are skipped (never
-  // dereferenced, never thrown); valid-IR rows are unaffected.
-  NativeIr malformed;
-  const SourceRefId m_source =
-      malformed.source_refs.append("fixture", "memory", "TASK", 0);
-  const SymbolId m_compute = malformed.symbols.intern("Compute");
-  const TraceEventId m_e0 =
-      malformed.trace_events.append(m_source, 1, 0, 1, 0, 10, m_compute);
-  const TaskId m_t0 = malformed.tasks.append(
-      m_source, m_e0, 1, 1, -1, m_compute, SymbolId::invalid(), m_compute,
-      SymbolId::invalid(), SymbolId::invalid());
-  const TaskId m_bad_event_task = malformed.tasks.append(
-      m_source, TraceEventId::invalid(), 2, 2, -1, m_compute,
-      SymbolId::invalid(), m_compute, SymbolId::invalid(),
-      SymbolId::invalid());
-  const ReplayBodyTemplateId m_template =
-      malformed.replay_body_templates.append(
-          m_source, 1, malformed.symbols.intern("Compute"), 1, 0, 1,
-          ReplayBodyTopologyPolicy::kSingleModelStream);
-  const GraphLaunchOccurrenceId m_launch =
-      malformed.graph_launch_occurrences.append(
-          m_source, m_source, 0, 1, 1, 1, 1, StreamId::invalid(),
-          StreamId::invalid(), CapturedGraphInstanceId::invalid(),
-          TaskId::invalid(), TaskId::invalid(), TaskId::invalid(), 0, 10, 0,
-          GraphLaunchMatchPolicy::kNotifyCompletionAdjacent,
-          GraphLaunchInstanceAssociationPolicy::kRecordModelId);
-  const GraphLaunchBodyId m_body = malformed.graph_launch_bodies.append(
-      m_launch, m_template, m_t0, m_t0, 1, 0, 1);
-  malformed.graph_launch_body_members.append(
-      m_body, m_t0, 0, 0, GraphLaunchBodyMemberRow::Kind::kCompute);
-  malformed.graph_launch_body_members.append(
-      GraphLaunchBodyId(99), m_t0, 0, 0,
-      GraphLaunchBodyMemberRow::Kind::kCompute);
-  malformed.graph_launch_body_members.append(
-      m_body, TaskId::invalid(), 0, 0,
-      GraphLaunchBodyMemberRow::Kind::kCompute);
-  malformed.graph_launch_body_members.append(
-      m_body, m_bad_event_task, 0, 0,
-      GraphLaunchBodyMemberRow::Kind::kCompute);
-
-  const GraphBodyCostSummary malformed_summary =
-      build_graph_body_cost_summary(malformed);
-  require(malformed_summary.occurrences.size() == 1,
-          "malformed membership still yields one body row");
-  require(malformed_summary.occurrences[0].member_count == 1 &&
-              malformed_summary.occurrences[0].task_sum_ns == 10 &&
-              malformed_summary.occurrences[0].compute_ns == 10 &&
-              malformed_summary.occurrences[0].busy_union_ns == 10 &&
-              malformed_summary.occurrences[0].envelope_ns == 10,
-          "only the valid member contributes cost evidence");
   return 0;
 }

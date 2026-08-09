@@ -1,7 +1,5 @@
 #include "traceloom/analysis/replay_internal_cost_map.h"
 
-#include "traceloom/analysis/graph_body_cost_summary.h"
-
 #include <algorithm>
 #include <map>
 #include <set>
@@ -157,6 +155,58 @@ struct BodyMembership {
   bool duplicate_position = false;
   bool lane_inconsistent = false;
 };
+
+// Whole-body occurrence lenses computed locally from the pre-validated
+// membership with the same overlap-aware interval arithmetic as the shared
+// GraphBodyCostSummary (task_sum = sum of member durations, busy_union =
+// overlap-safe interval union, envelope = earliest start to latest end, and
+// kind sums partitioning the scheduled task_sum). Computed only for
+// supported bodies whose membership is complete and valid, so partial
+// evidence can never masquerade as complete cost.
+struct BodyOccurrenceCost {
+  std::uint32_t member_count = 0;
+  std::uint64_t task_sum_ns = 0;
+  std::uint64_t busy_union_ns = 0;
+  std::uint64_t envelope_ns = 0;
+  std::uint64_t compute_ns = 0;
+  std::uint64_t communication_ns = 0;
+  std::uint64_t data_move_ns = 0;
+};
+
+BodyOccurrenceCost body_occurrence_cost(const BodyMembership& membership) {
+  BodyOccurrenceCost out;
+  out.member_count = static_cast<std::uint32_t>(membership.members.size());
+  std::vector<std::pair<std::int64_t, std::int64_t>> intervals;
+  intervals.reserve(membership.members.size());
+  for (const BodyMemberRef& member : membership.members) {
+    const std::uint64_t duration = duration_ns(*member.event);
+    out.task_sum_ns += duration;
+    switch (member.row->kind) {
+      case GraphLaunchBodyMemberRow::Kind::kCompute:
+        out.compute_ns += duration;
+        break;
+      case GraphLaunchBodyMemberRow::Kind::kCommunication:
+        out.communication_ns += duration;
+        break;
+      case GraphLaunchBodyMemberRow::Kind::kDataMove:
+        out.data_move_ns += duration;
+        break;
+    }
+    intervals.emplace_back(member.event->start_ns, member.event->end_ns);
+  }
+  out.busy_union_ns = interval_union_ns(intervals);
+  if (!intervals.empty()) {
+    std::int64_t envelope_start = intervals.front().first;
+    std::int64_t envelope_end = intervals.front().second;
+    for (const auto& interval : intervals) {
+      envelope_start = std::min(envelope_start, interval.first);
+      envelope_end = std::max(envelope_end, interval.second);
+    }
+    out.envelope_ns = static_cast<std::uint64_t>(
+        std::max<std::int64_t>(0, envelope_end - envelope_start));
+  }
+  return out;
+}
 
 void append_stream_cost_row(
     ReplayLaunchMemberCostRow& launch_member,
@@ -372,13 +422,6 @@ ReplayInternalCostMapResult build_replay_internal_cost_map(
     bodies_by_occurrence[body.graph_launch_occurrence_id.value()].push_back(
         &body);
   }
-  const GraphBodyCostSummary summary = build_graph_body_cost_summary(ir);
-  std::map<GraphLaunchBodyId::value_type, const GraphBodyOccurrenceCostRow*>
-      occurrence_cost_by_body;
-  for (const GraphBodyOccurrenceCostRow& row : summary.occurrences) {
-    occurrence_cost_by_body.emplace(row.graph_launch_body_id.value(), &row);
-  }
-
   // Launch members grouped by unit, preserving recorded order with a stable
   // (member_order, member id) emission order.
   std::map<ReplayUnitId::value_type, std::vector<LaunchMemberRef>>
@@ -524,15 +567,11 @@ ReplayInternalCostMapResult build_replay_internal_cost_map(
                       result, "stream_lane_inconsistency", unit.id, member.id,
                       "streams of body " + std::to_string(body.id.value()) +
                           " map to multiple lane ordinals");
-                } else if (occurrence_cost_by_body.find(body.id.value()) ==
-                           occurrence_cost_by_body.end()) {
-                  cost.reason_code = "missing_occurrence_cost_evidence";
-                  cost.replay_body_template_id = slot->replay_body_template_id;
                 } else {
                   cost.supported = true;
                   cost.graph_launch_body_id = body.id;
-                  const GraphBodyOccurrenceCostRow& occurrence_cost =
-                      *occurrence_cost_by_body.at(body.id.value());
+                  const BodyOccurrenceCost occurrence_cost =
+                      body_occurrence_cost(*membership);
                   cost.member_count = occurrence_cost.member_count;
                   cost.task_sum_ns = occurrence_cost.task_sum_ns;
                   cost.busy_union_ns = occurrence_cost.busy_union_ns;
