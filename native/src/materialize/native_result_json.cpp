@@ -1,6 +1,7 @@
 #include "traceloom/materialize/native_result_json.h"
 
 #include "traceloom/analysis/graph_body_cost_summary.h"
+#include "traceloom/analysis/replay_internal_cost_map.h"
 
 #include <algorithm>
 #include <iomanip>
@@ -998,6 +999,264 @@ void write_replay_units(std::ostream& out, const NativeIr* ir) {
   out << "  ],\n";
 }
 
+void write_replay_internal_cost_map(std::ostream& out,
+                                    const SymbolTable& symbols,
+                                    const NativeIr* ir) {
+  out << "  \"replay_internal_cost_map\": ";
+  if (ir == nullptr) {
+    out << "null,\n";
+    return;
+  }
+  const ReplayInternalCostMapResult map = build_replay_internal_cost_map(*ir);
+  out << "{\n";
+  out << "    \"semantics\": "
+         "\"ReplayUnit -> ordered launch/composition slots -> body template "
+         "-> per-stream ordered members -> fine-grained costs/provenance. "
+         "task_sum preserves scheduled work, busy_union removes cross-stream "
+         "overlap, envelope retains the observed wall span; kind lenses are "
+         "not additive or interchangeable.\",\n";
+  out << "    \"resolved_launch_count\": " << map.resolved_launch_count
+      << ",\n";
+  out << "    \"unsupported_launch_count\": " << map.unsupported_launch_count
+      << ",\n";
+  out << "    \"fully_supported_unit_count\": "
+      << map.fully_supported_unit_count << ",\n";
+  out << "    \"partially_supported_unit_count\": "
+      << map.partially_supported_unit_count << ",\n";
+  out << "    \"unsupported_unit_count\": " << map.unsupported_unit_count
+      << ",\n";
+  out << "    \"result_reason_codes\": [\n";
+  for (std::size_t index = 0; index < map.result_reason_codes.size();
+       ++index) {
+    out << "      ";
+    write_json_string(out, map.result_reason_codes[index]);
+    if (index + 1 < map.result_reason_codes.size()) {
+      out << ",";
+    }
+    out << "\n";
+  }
+  out << "    ],\n";
+  out << "    \"issues\": [\n";
+  for (std::size_t index = 0; index < map.issues.size(); ++index) {
+    const ReplayInternalCostIssue& issue = map.issues[index];
+    out << "      {\"code\": ";
+    write_json_string(out, issue.code);
+    out << ", \"replay_unit_id\": " << issue.replay_unit_id.value()
+        << ", \"replay_unit_launch_member_id\": ";
+    if (issue.replay_unit_launch_member_id.valid()) {
+      out << issue.replay_unit_launch_member_id.value();
+    } else {
+      out << "null";
+    }
+    out << ", \"detail\": ";
+    write_json_string(out, issue.detail);
+    out << "}";
+    if (index + 1 < map.issues.size()) {
+      out << ",";
+    }
+    out << "\n";
+  }
+  out << "    ],\n";
+  out << "    \"units\": [\n";
+  for (std::size_t unit_index = 0; unit_index < map.units.size();
+       ++unit_index) {
+    const ReplayUnitCostBlock& block = map.units[unit_index];
+    out << "      {\"replay_unit_id\": " << block.replay_unit_id.value()
+        << ", \"graph_template_id\": " << block.graph_template_id.value()
+        << ", \"source_table\": ";
+    if (block.source_ref_id.valid()) {
+      write_json_string(
+          out, ir->source_refs.row(block.source_ref_id).table_name);
+    } else {
+      out << "null";
+    }
+    out << ", \"launch_member_count\": " << block.launch_member_count
+        << ", \"resolved_launch_count\": " << block.resolved_launch_count
+        << ", \"supported\": " << (block.supported ? "true" : "false")
+        << ", \"reason_codes\": [";
+    for (std::size_t reason_index = 0;
+         reason_index < block.unit_reason_codes.size(); ++reason_index) {
+      if (reason_index != 0) {
+        out << ", ";
+      }
+      write_json_string(out, block.unit_reason_codes[reason_index]);
+    }
+    out << "], \"launch_members\": [\n";
+    for (std::size_t member_index = 0;
+         member_index < block.launch_members.size(); ++member_index) {
+      const ReplayLaunchMemberCostRow& launch_member =
+          block.launch_members[member_index];
+      out << "        {\"replay_unit_launch_member_id\": "
+          << launch_member.replay_unit_launch_member_id.value()
+          << ", \"member_order\": " << launch_member.member_order
+          << ", \"graph_launch_occurrence_id\": "
+          << launch_member.graph_launch_occurrence_id.value()
+          << ", \"replay_composition_slot_id\": "
+          << launch_member.replay_composition_slot_id.value()
+          << ", \"slot_role\": ";
+      write_json_string(
+          out, replay_composition_slot_role_name(launch_member.slot_role));
+      out << ", \"slot_order\": " << launch_member.slot_order
+          << ", \"replay_body_template_id\": "
+          << launch_member.replay_body_template_id.value()
+          << ", \"graph_launch_body_id\": ";
+      write_nullable_i64(out, launch_member.graph_launch_body_id.valid()
+                                  ? static_cast<std::int64_t>(
+                                        launch_member.graph_launch_body_id
+                                            .value())
+                                  : -1);
+      out << ", \"supported\": "
+          << (launch_member.supported ? "true" : "false")
+          << ", \"reason_code\": ";
+      if (launch_member.reason_code.empty()) {
+        out << "null";
+      } else {
+        write_json_string(out, launch_member.reason_code);
+      }
+      out << ", \"member_count\": " << launch_member.member_count
+          << ", \"task_sum_ns\": " << launch_member.task_sum_ns
+          << ", \"busy_union_ns\": " << launch_member.busy_union_ns
+          << ", \"envelope_ns\": " << launch_member.envelope_ns
+          << ", \"compute_ns\": " << launch_member.compute_ns
+          << ", \"communication_ns\": "
+          << launch_member.communication_ns
+          << ", \"data_move_ns\": " << launch_member.data_move_ns
+          << ", \"streams\": [";
+      for (std::size_t stream_index = 0;
+           stream_index < launch_member.streams.size(); ++stream_index) {
+        const ReplayStreamCostRow& stream =
+            launch_member.streams[stream_index];
+        if (stream_index != 0) {
+          out << ", ";
+        }
+        out << "{\"stream_id\": " << stream.stream_id
+            << ", \"lane_ordinal\": " << stream.lane_ordinal
+            << ", \"lane_consistent\": "
+            << (stream.lane_consistent ? "true" : "false")
+            << ", \"member_count\": " << stream.member_count
+            << ", \"task_sum_ns\": " << stream.task_sum_ns
+            << ", \"busy_union_ns\": " << stream.busy_union_ns
+            << ", \"compute_ns\": " << stream.compute_ns
+            << ", \"communication_ns\": " << stream.communication_ns
+            << ", \"data_move_ns\": " << stream.data_move_ns << "}";
+      }
+      out << "]}";
+      if (member_index + 1 < block.launch_members.size()) {
+        out << ",";
+      }
+      out << "\n";
+    }
+    out << "      ]}";
+    if (unit_index + 1 < map.units.size()) {
+      out << ",";
+    }
+    out << "\n";
+  }
+  out << "    ],\n";
+  out << "    \"members\": [\n";
+  for (std::size_t index = 0; index < map.members.size(); ++index) {
+    const ReplayMemberCostRow& member = map.members[index];
+    out << "      {\"replay_unit_id\": " << member.replay_unit_id.value()
+        << ", \"replay_unit_launch_member_id\": "
+        << member.replay_unit_launch_member_id.value()
+        << ", \"member_order\": " << member.member_order
+        << ", \"graph_launch_occurrence_id\": "
+        << member.graph_launch_occurrence_id.value()
+        << ", \"replay_composition_slot_id\": "
+        << member.replay_composition_slot_id.value() << ", \"slot_role\": ";
+    write_json_string(out,
+                      replay_composition_slot_role_name(member.slot_role));
+    out << ", \"slot_order\": " << member.slot_order
+        << ", \"replay_body_template_id\": "
+        << member.replay_body_template_id.value()
+        << ", \"graph_launch_body_id\": "
+        << member.graph_launch_body_id.value()
+        << ", \"graph_launch_body_member_id\": "
+        << member.graph_launch_body_member_id.value()
+        << ", \"device_id\": " << member.device_id
+        << ", \"stream_id\": " << member.stream_id
+        << ", \"lane_ordinal\": " << member.lane_ordinal
+        << ", \"within_stream_position\": "
+        << member.within_stream_position << ", \"kind\": ";
+    write_json_string(out,
+                      replay_internal_cost_map_member_kind_name(member.kind));
+    out << ", \"task_id\": " << member.task_id.value()
+        << ", \"trace_event_id\": " << member.trace_event_id.value()
+        << ", \"source_table\": ";
+    if (member.source_ref_id.valid()) {
+      write_json_string(
+          out, ir->source_refs.row(member.source_ref_id).table_name);
+    } else {
+      out << "null";
+    }
+    out << ", \"source_row_id\": ";
+    if (member.source_ref_id.valid()) {
+      out << ir->source_refs.row(member.source_ref_id).row_id;
+    } else {
+      out << "null";
+    }
+    out << ", \"raw_task_id\": " << member.raw_task_id << ", \"identity\": ";
+    if (member.identity_symbol_id.valid()) {
+      write_json_string(out,
+                        std::string(symbols.value(member.identity_symbol_id)));
+    } else {
+      write_json_string(out, "<invalid>");
+    }
+    out << ", \"start_ns\": " << member.start_ns
+        << ", \"end_ns\": " << member.end_ns
+        << ", \"duration_ns\": " << member.duration_ns
+        << ", \"relative_start_ns\": " << member.relative_start_ns
+        << ", \"relative_end_ns\": " << member.relative_end_ns << "}";
+    if (index + 1 < map.members.size()) {
+      out << ",";
+    }
+    out << "\n";
+  }
+  out << "    ],\n";
+  out << "    \"aligned_aggregates\": [\n";
+  for (std::size_t index = 0; index < map.aggregates.size(); ++index) {
+    const ReplayAlignedCostAggregateRow& aggregate = map.aggregates[index];
+    out << "      {\"graph_template_id\": "
+        << aggregate.graph_template_id.value()
+        << ", \"device_id\": " << aggregate.device_id << ", \"slot_role\": ";
+    write_json_string(
+        out, replay_composition_slot_role_name(aggregate.slot_role));
+    out << ", \"replay_body_template_id\": "
+        << aggregate.replay_body_template_id.value()
+        << ", \"stream_id\": " << aggregate.stream_id
+        << ", \"within_stream_position\": "
+        << aggregate.within_stream_position << ", \"identity\": ";
+    if (aggregate.identity_symbol_id.valid()) {
+      write_json_string(
+          out, std::string(symbols.value(aggregate.identity_symbol_id)));
+    } else {
+      write_json_string(out, "<invalid>");
+    }
+    out << ", \"kind\": ";
+    write_json_string(
+        out, replay_internal_cost_map_member_kind_name(aggregate.kind));
+    out << ", \"member_occurrence_count\": "
+        << aggregate.member_occurrence_count
+        << ", \"replay_unit_count\": " << aggregate.replay_unit_count
+        << ", \"launch_member_count\": " << aggregate.launch_member_count
+        << ", \"kind_consistent\": "
+        << (aggregate.kind_consistent ? "true" : "false")
+        << ", \"lane_consistent\": "
+        << (aggregate.lane_consistent ? "true" : "false")
+        << ", \"distribution_supported\": "
+        << (aggregate.distribution_supported ? "true" : "false")
+        << ", \"duration_p25_ns\": " << aggregate.duration_p25_ns
+        << ", \"duration_median_ns\": " << aggregate.duration_median_ns
+        << ", \"duration_p75_ns\": " << aggregate.duration_p75_ns << "}";
+    if (index + 1 < map.aggregates.size()) {
+      out << ",";
+    }
+    out << "\n";
+  }
+  out << "    ]\n  },\n";
+}
+
+
 }  // namespace
 
 void write_native_result_json(std::ostream& out,
@@ -1177,6 +1436,7 @@ void write_native_result_json(std::ostream& out,
   write_graph_launch_activities(out, options.native_ir);
   write_replay_composition_candidates(out, options.native_ir);
   write_replay_units(out, options.native_ir);
+  write_replay_internal_cost_map(out, symbols, options.native_ir);
   write_structural_units(out, options.structural_units);
 
   if (options.anchor_internal_cost_breakdown != nullptr) {

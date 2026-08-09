@@ -96,6 +96,14 @@ Native JSON also carries two audit surfaces for graph-heavy comparisons:
   occurrence counts are evidence, not a schema error; consumers compare
 distributions rather than pairing occurrences by index.
 
+Native JSON also emits `replay_internal_cost_map`, the replay-internal
+query surface: ReplayUnit -> ordered launch/composition slots -> body
+template -> per-stream ordered members -> fine-grained costs and provenance.
+See [replay-internal-cost-map.md](replay-internal-cost-map.md) for the
+result contract, the aligned-aggregate structural key, the cost-lens
+boundaries (task_sum/busy_union/envelope/kind lenses are not additive or
+interchangeable), and the fail-closed support/reason model.
+
 Native JSON also emits `structural_units` whenever native JSON is requested.
 Its rows use the same IDs, fingerprints, token bounds, costs, evidence status,
 boundary policy, and expansion handles as the Markdown and sidecar views.

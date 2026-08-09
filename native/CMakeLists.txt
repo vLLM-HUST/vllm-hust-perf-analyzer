@@ -30,6 +30,7 @@ add_library(traceloom_native_core
   src/analysis/signal_classification_rules.cpp
   src/analysis/stream_state_timeline.cpp
   src/analysis/native_pipeline.cpp
+  src/analysis/replay_internal_cost_map.cpp
   src/core/diagnostics.cpp
   src/core/sha256.cpp
   src/core/string_table.cpp
@@ -474,6 +475,18 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
   add_test(
     NAME traceloom_native_graph_body_cost_summary_tests
     COMMAND traceloom_native_graph_body_cost_summary_tests
+  )
+
+  add_executable(traceloom_native_replay_internal_cost_map_tests
+    tests/analysis/replay_internal_cost_map_tests.cpp
+  )
+  target_link_libraries(
+    traceloom_native_replay_internal_cost_map_tests PRIVATE
+    traceloom_native_core
+  )
+  add_test(
+    NAME traceloom_native_replay_internal_cost_map_tests
+    COMMAND traceloom_native_replay_internal_cost_map_tests
   )
 
   add_executable(traceloom_native_graph_body_performance_comparison_tests
