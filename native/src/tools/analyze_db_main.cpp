@@ -394,7 +394,10 @@ std::string default_loop_tree_output_path(const CliOptions& cli,
     return (output_root / "loop_tree_v2.md").string();
   }
   std::ostringstream filename;
-  if (per_device_output) {
+  if (per_device_output && cli.source_dbs.size() > 1) {
+    filename << "db" << std::setw(2) << std::setfill('0') << (db_index + 1)
+             << "_device" << device_id << "_loop_tree_v2.md";
+  } else if (per_device_output) {
     filename << "device" << device_id << "_loop_tree_v2.md";
   } else {
     filename << "db" << std::setw(2) << std::setfill('0') << (db_index + 1)
@@ -672,17 +675,124 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
         markdown_options.db_idx = sidecar_options.db_idx;
         markdown_options.has_device_id = true;
         markdown_options.device_id = render_device_id;
-        markdown_options.trace_event_count = ir.trace_events.size();
-        markdown_options.anchor_count = ir.anchors.size();
-        markdown_options.replay_composition_region_count =
-            ir.replay_composition_regions.size();
-        markdown_options.replay_unit_count = ir.replay_units.size();
-        std::map<std::string, std::uint64_t> reconstruction_status_counts;
+        // Header counts are device-local: a per-device report must never
+        // claim another device's anchors or replay evidence.
+        std::uint64_t device_trace_event_count = 0;
+        for (const traceloom::TraceEventRow& event :
+             ir.trace_events.rows()) {
+          if (event.device_id == render_device_id) {
+            ++device_trace_event_count;
+          }
+        }
+        markdown_options.trace_event_count = device_trace_event_count;
+
+        std::uint64_t device_anchor_count = 0;
+        for (const traceloom::AnchorRow& anchor : ir.anchors.rows()) {
+          if (anchor.device_id == render_device_id) {
+            ++device_anchor_count;
+          }
+        }
+        markdown_options.anchor_count = device_anchor_count;
+
+        // Replay units are attributed through their anchor bounds; replay
+        // composition regions through the units that reference them.
+        // Unattributable evidence is only assigned to the single device when
+        // the whole DB has exactly one anchor device; otherwise it is never
+        // claimed by any device report.
+        std::map<traceloom::ReplayUnitId::value_type, std::uint32_t>
+            unit_devices;
+        std::set<std::uint32_t> anchor_devices;
+        for (const traceloom::AnchorRow& anchor : ir.anchors.rows()) {
+          anchor_devices.insert(anchor.device_id);
+        }
+        for (const traceloom::ReplayUnitRow& unit : ir.replay_units.rows()) {
+          const traceloom::AnchorId bound =
+              unit.first_anchor_id.valid() ? unit.first_anchor_id
+                                           : unit.last_anchor_id;
+          if (!bound.valid()) {
+            continue;
+          }
+          if (bound.value() >= ir.anchors.size()) {
+            throw std::invalid_argument(
+                "ReplayUnitRow anchor bound is out of range");
+          }
+          unit_devices.emplace(unit.id.value(),
+                               ir.anchors.row(bound).device_id);
+        }
+        std::map<traceloom::ReplayCompositionRegionId::value_type,
+                 std::uint32_t>
+            region_devices;
         for (const traceloom::ReplayCompositionRegionRow& region :
              ir.replay_composition_regions.rows()) {
+          bool found = false;
+          std::uint32_t device = 0;
+          for (const traceloom::ReplayUnitRow& unit :
+               ir.replay_units.rows()) {
+            if (!unit.replay_composition_region_id.valid() ||
+                unit.replay_composition_region_id != region.id) {
+              continue;
+            }
+            const auto found_unit = unit_devices.find(unit.id.value());
+            if (found_unit == unit_devices.end()) {
+              continue;
+            }
+            if (!found) {
+              device = found_unit->second;
+              found = true;
+              continue;
+            }
+            if (device != found_unit->second) {
+              throw std::invalid_argument(
+                  "replay composition region spans devices; cross-device "
+                  "replay evidence is unsupported in device reports");
+            }
+          }
+          if (found) {
+            region_devices.emplace(region.id.value(), device);
+          } else if (anchor_devices.size() == 1) {
+            region_devices.emplace(region.id.value(),
+                                   *anchor_devices.begin());
+          }
+        }
+        for (const traceloom::ReplayUnitRow& unit : ir.replay_units.rows()) {
+          if (unit_devices.find(unit.id.value()) != unit_devices.end()) {
+            continue;
+          }
+          if (anchor_devices.size() == 1) {
+            unit_devices.emplace(unit.id.value(), *anchor_devices.begin());
+          }
+        }
+
+        std::uint64_t device_replay_unit_count = 0;
+        std::uint64_t device_exact_replay_unit_count = 0;
+        for (const traceloom::ReplayUnitRow& unit : ir.replay_units.rows()) {
+          const auto found = unit_devices.find(unit.id.value());
+          if (found == unit_devices.end() ||
+              found->second != render_device_id) {
+            continue;
+          }
+          ++device_replay_unit_count;
+          if (unit.replay_composition_region_id.valid()) {
+            ++device_exact_replay_unit_count;
+          }
+        }
+        markdown_options.replay_unit_count = device_replay_unit_count;
+        markdown_options.exact_replay_unit_count =
+            device_exact_replay_unit_count;
+
+        std::map<std::string, std::uint64_t> device_status_counts;
+        std::uint64_t device_region_count = 0;
+        for (const traceloom::ReplayCompositionRegionRow& region :
+             ir.replay_composition_regions.rows()) {
+          const auto found = region_devices.find(region.id.value());
+          if (found == region_devices.end() ||
+              found->second != render_device_id) {
+            continue;
+          }
+          ++device_region_count;
           const std::string status =
               traceloom::replay_composition_region_status_name(region.status);
-          ++reconstruction_status_counts[status];
+          ++device_status_counts[status];
           if (region.status == traceloom::ReplayCompositionRegionStatus::
                                    kRecognizedCompletePattern) {
             ++markdown_options.recognized_replay_composition_region_count;
@@ -690,12 +800,9 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
             ++markdown_options.unrecognized_replay_composition_region_count;
           }
         }
-        for (const traceloom::ReplayUnitRow& unit : ir.replay_units.rows()) {
-          if (unit.replay_composition_region_id.valid()) {
-            ++markdown_options.exact_replay_unit_count;
-          }
-        }
-        for (const auto& item : reconstruction_status_counts) {
+        markdown_options.replay_composition_region_count =
+            device_region_count;
+        for (const auto& item : device_status_counts) {
           markdown_options.reconstruction_status_counts.push_back(
               traceloom::ReconstructionStatusCount{item.first, item.second});
         }

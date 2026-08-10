@@ -107,12 +107,24 @@ traceloom /path/to/msprof_output
 
 TraceLoom discovers monolithic `PROF_*/msprof_*.db` files and split
 `PROF_*/{host,device_*}/sqlite/*.db` layouts, then writes one report per
-device/database:
+database:
 
 ```text
-/path/to/msprof_output/traceloom/device0_loop_tree_v2.md
-/path/to/msprof_output/traceloom/device1_loop_tree_v2.md
+/path/to/msprof_output/traceloom/db01_loop_tree_v2.md
+/path/to/msprof_output/traceloom/db02_loop_tree_v2.md
 ```
+
+When one profiler database contains several devices (for example an Nsight
+Systems capture of a DP2 training run), TraceLoom partitions the structural
+report by observed `device_id` and writes one independently recovered tree
+per device (`device0_loop_tree_v2.md`, `device1_loop_tree_v2.md`). Several
+multi-device databases in one directory use collision-safe names that carry
+both the database identity and the device id
+(`db01_device0_loop_tree_v2.md`, ...). An explicit `--loop-tree-out PATH`
+on a multi-device database requires `--loop-tree-device-id N`; an unknown
+device id fails with the list of available devices. Ascend databases that
+contain more than one device require `--loop-tree-device-id N` because Ascend
+Loop Tree idle evidence is scoped to one device.
 
 Use an explicit worker count for large traces:
 

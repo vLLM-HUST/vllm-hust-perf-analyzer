@@ -518,5 +518,134 @@ int main() {
   require(rejected_cross_device_interval,
           "cross-device protected intervals must fail closed");
 
+  // ---- Grammar-enabled multi-device recovery with a same-device protected
+  // replay interval. The per-device IR projection must remap TokenIds to a
+  // dense per-device table (the grammar state machine requires dense ids)
+  // while retaining original anchor and event ids.
+  NativeIr replay_ir;
+  const SourceRefId replay_source =
+      replay_ir.source_refs.append("fixture", "multi_device_replay", "TASK",
+                                   0);
+  const SymbolId replay_matmul = replay_ir.symbols.intern("MatMul");
+  const SymbolId replay_softmax = replay_ir.symbols.intern("Softmax");
+  const GraphTemplateId replay_template =
+      replay_ir.graph_templates.append(replay_source, 12345, 4);
+  const ReplayCompositionCandidateId replay_candidate =
+      replay_ir.replay_composition_candidates.append(
+          replay_source, 1, GraphLaunchOccurrenceId::invalid(),
+          GraphLaunchOccurrenceId::invalid(), 4, 0, 4, 1, 0, 4242,
+          ReplayCompositionIdentityPolicy::kGraphConnection,
+          ReplayCompositionOrderPolicy::kDeviceExecutionOrder,
+          ReplayCompositionShapePolicy::kHeadRepeatedLayerTail,
+          ReplayCompositionBoundaryPolicy::kExactOneShotLeadingComposition);
+  const ReplayCompositionRegionId replay_region =
+      replay_ir.replay_composition_regions.append(
+          replay_candidate, 0, GraphLaunchOccurrenceId::invalid(),
+          GraphLaunchOccurrenceId::invalid(), 3000, 6300, 4, 4,
+          ReplayCompositionRegionStatus::kRecognizedCompletePattern);
+  const ReplayUnitId replay_unit = replay_ir.replay_units.append(
+      replay_template, replay_source, AnchorId(6), AnchorId(9),
+      TraceEventId::invalid(), replay_region);
+  const auto append_replay_token = [&](std::uint32_t device_id,
+                                       std::uint64_t source_row_id,
+                                       SymbolId symbol, AnchorKind kind,
+                                       ReplayUnitId unit_id,
+                                       std::int64_t start_ns,
+                                       std::int64_t end_ns) {
+    const TraceEventId event = replay_ir.trace_events.append(
+        replay_source, source_row_id, device_id, 3, start_ns, end_ns, symbol);
+    const AnchorId anchor = replay_ir.anchors.append(
+        replay_source, event, unit_id, kind, symbol, device_id, 3, start_ns,
+        end_ns);
+    replay_ir.tokens.append(
+        anchor, symbol, device_id,
+        static_cast<std::uint32_t>(replay_ir.tokens.size()), start_ns,
+        end_ns);
+  };
+  // Device 0: MatMul x3 then AllReduce x3 (no replay evidence).
+  const SymbolId replay_all_reduce = replay_ir.symbols.intern("AllReduce");
+  for (std::uint32_t step = 0; step < 3; ++step) {
+    const std::int64_t base = 1000 + static_cast<std::int64_t>(step) * 1000;
+    append_replay_token(0, step + 1, replay_matmul,
+                        AnchorKind::kDeviceEvent, ReplayUnitId::invalid(),
+                        base, base + 600);
+  }
+  for (std::uint32_t step = 0; step < 3; ++step) {
+    const std::int64_t base = 4000 + static_cast<std::int64_t>(step) * 1000;
+    append_replay_token(0, step + 10, replay_all_reduce,
+                        AnchorKind::kCommunication, ReplayUnitId::invalid(),
+                        base, base + 400);
+  }
+  // Device 1: Softmax x4 inside one same-device replay interval (anchors
+  // 6..9, events 6..9, original ids).
+  for (std::uint32_t step = 0; step < 4; ++step) {
+    const std::int64_t base = 3000 + static_cast<std::int64_t>(step) * 1000;
+    append_replay_token(1, 100 + step, replay_softmax,
+                        AnchorKind::kDeviceEvent, replay_unit, base,
+                        base + 300);
+  }
+  replay_ir.protected_intervals.append(
+      ProtectedIntervalKind::kGraphReplayUnit, BoundaryPolicy::kNoCross,
+      TokenId(6), TokenId(9), AnchorId(6), AnchorId(9), replay_source);
+
+  require(replay_ir.anchors.row(AnchorId(6)).trace_event_id ==
+              TraceEventId(6),
+          "device 1 anchors retain original event ids");
+  require(replay_ir.anchors.row(AnchorId(9)).trace_event_id ==
+              TraceEventId(9),
+          "device 1 anchors retain original event ids");
+
+  compat::NativeCompatibilitySidecarOptions replay_options;
+  replay_options.materialize_grammar_report_tree = true;
+  replay_options.materialize_aux_attribution = false;
+  const std::vector<compat::NativeDeviceReportTree> replay_trees =
+      compat::build_native_device_report_trees(replay_ir, replay_options);
+  require(replay_trees.size() == 2, "one grammar tree per device");
+  require(replay_trees[0].device_id == 0);
+  require(replay_trees[1].device_id == 1);
+  require(replay_trees[0].tokens.size() == 6);
+  require(replay_trees[1].tokens.size() == 4);
+
+  bool saw_replay_unit_node = false;
+  for (const ReportNodeDef& def : replay_trees[1].tree.node_defs) {
+    if (def.kind == ReportNodeKind::kSeq &&
+        def.display_op == "ReplayUnit T1") {
+      saw_replay_unit_node = true;
+    }
+  }
+  require(saw_replay_unit_node,
+          "same-device replay interval recovered through the device "
+          "projection with dense TokenId remapping");
+  for (const ReportNodeDef& def : replay_trees[0].tree.node_defs) {
+    require(!(def.kind == ReportNodeKind::kSeq &&
+              def.display_op == "ReplayUnit T1"),
+            "device 0 tree must not claim device 1's replay evidence");
+  }
+
+  const compat::NodeCoverageSqlRows replay_rows =
+      compat::build_native_loop_tree_node_coverage_rows(replay_ir,
+                                                        replay_options);
+  std::set<std::string> replay_device1_anchor_ids;
+  std::uint32_t replay_device1_seq_first = 0;
+  std::uint32_t replay_device1_seq_last = 0;
+  for (const compat::VizNodeAnchorSqlRow& row : replay_rows.node_anchors) {
+    if (row.device_id == 1) {
+      replay_device1_anchor_ids.insert(row.anchor_id);
+    }
+  }
+  require(replay_device1_anchor_ids ==
+              std::set<std::string>({"anchor-6", "anchor-7", "anchor-8",
+                                     "anchor-9"}),
+          "device 1 rows retain original anchor ids through the projection");
+  for (const compat::VizNodeSqlRow& node : replay_rows.nodes) {
+    if (node.device_id == 1 && node.kind == "seq") {
+      replay_device1_seq_first = node.first_anchor_idx;
+      replay_device1_seq_last = node.last_anchor_idx;
+      require(node.anchor_count == 4);
+    }
+  }
+  require(replay_device1_seq_first == 7 && replay_device1_seq_last == 10,
+          "device 1 rows keep original global anchor indices");
+
   return 0;
 }

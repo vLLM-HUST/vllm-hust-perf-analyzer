@@ -63,8 +63,19 @@ neighboring `traceloom/` directory by default:
 
 ```text
 PROF_.../traceloom/loop_tree_v2.md
-msprof_output/traceloom/device0_loop_tree_v2.md
+msprof_output/traceloom/db01_loop_tree_v2.md
+msprof_output/traceloom/db02_loop_tree_v2.md
 ```
+
+A profiler directory containing several databases gets one report per
+database. A single database that contains multiple devices is partitioned by
+observed `device_id` into one independently recovered tree per device
+(`device0_loop_tree_v2.md`, `device1_loop_tree_v2.md`); several multi-device
+databases use collision-safe `dbNN_deviceN_loop_tree_v2.md` names. An
+explicit `--loop-tree-out PATH` on a multi-device database requires
+`--loop-tree-device-id N`, and an Ascend database with multiple devices also
+requires that flag because Ascend Loop Tree idle evidence is scoped to one
+device.
 
 TraceLoom prefers a nonempty monolithic `TASK` table. If none is usable, it
 prints a split-fallback warning and normalizes the base timeline from

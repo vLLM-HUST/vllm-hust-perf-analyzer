@@ -1127,6 +1127,39 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
         DEPENDS traceloom_native_analyze_cuda_nsys_compat_sidecar_cli
     )
 
+    add_executable(traceloom_native_cli_multidevice_report_tests
+      tests/compat/cli_multidevice_report_tests.cpp
+    )
+    target_link_libraries(
+      traceloom_native_cli_multidevice_report_tests PRIVATE
+      traceloom_native_core
+    )
+    if(TARGET SQLite::SQLite3)
+      target_link_libraries(
+        traceloom_native_cli_multidevice_report_tests PRIVATE SQLite::SQLite3
+      )
+    else()
+      target_include_directories(
+        traceloom_native_cli_multidevice_report_tests
+        PRIVATE ${SQLite3_INCLUDE_DIRS}
+      )
+      target_link_libraries(
+        traceloom_native_cli_multidevice_report_tests
+        PRIVATE ${SQLite3_LIBRARIES}
+      )
+    endif()
+    add_test(
+      NAME traceloom_native_cli_multidevice_report_tests
+      COMMAND traceloom_native_cli_multidevice_report_tests
+        $<TARGET_FILE:traceloom>
+        ${CMAKE_CURRENT_BINARY_DIR}/cuda_nsys_minimal_fixture.sqlite
+    )
+    set_tests_properties(
+      traceloom_native_cli_multidevice_report_tests
+      PROPERTIES
+        DEPENDS traceloom_native_cuda_nsys_sqlite_adapter_tests
+    )
+
     add_test(
       NAME traceloom_native_analyze_fixture_compat_sidecar_cli
       COMMAND traceloom-native-analyze-fixture

@@ -73,8 +73,8 @@ neighboring `traceloom/` directory:
 
 ```text
 PROF_.../traceloom/loop_tree_v2.md
-msprof_raw/traceloom/device0_loop_tree_v2.md
-msprof_raw/traceloom/device1_loop_tree_v2.md
+msprof_raw/traceloom/db01_loop_tree_v2.md
+msprof_raw/traceloom/db02_loop_tree_v2.md
 ```
 
 When a single profiler database contains multiple devices (for example an
@@ -84,7 +84,17 @@ recovered tree per device (`device0_loop_tree_v2.md`, `device1_loop_tree_v2.md`)
 and never emits a combined cross-device tree. `--loop-tree-device-id N`
 selects one device's tree; an explicit `--loop-tree-out PATH` on a
 multi-device database requires that flag, and an unknown device id fails with
-the list of available devices.
+the list of available devices. When several multi-device databases are
+discovered in one directory, default filenames carry both the database
+identity and the device id (`db01_device0_loop_tree_v2.md`,
+`db02_device0_loop_tree_v2.md`, ...) so reports never overwrite each other.
+
+The per-device partition is currently gated by provider support: CUDA and
+Hygon databases emit one tree per device by default, but an Ascend database
+that contains more than one device refuses multi-device default emission
+because Ascend Loop Tree idle evidence is scoped to one device. Pass
+`--loop-tree-device-id N` to render exactly one device's tree from such a
+database.
 
 A nonempty monolithic `TASK` table takes priority. When it is missing,
 TraceLoom emits a split-fallback warning and builds the base timeline from
