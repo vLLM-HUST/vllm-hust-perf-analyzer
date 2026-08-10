@@ -112,6 +112,19 @@ available to the compatibility sidecar as child evidence. Missing optional
 tables are valid, while malformed present tables fail with an explicit schema
 error.
 
+NCCL-qualified kernels whose labels identify a recognized collective operation
+materialize as communication evidence rather than compute anchors. Operation
+names are normalized to `AllReduce`, `ReduceScatter`, `AllGather`, `Broadcast`,
+or `AllToAll`, while the raw Nsight kernel label and source-row provenance
+remain available in the native IR. Bare operation-like labels and NCCL
+point-to-point kernels remain ordinary task evidence rather than being promoted
+from names alone.
+
+Nsight versions that export `CUPTI_ACTIVITY_KIND_CUDA_EVENT` as an
+identity-only lookup table without `start` or `timestamp` keep that table as
+inventory evidence and skip timeline materialization; they do not block timed
+kernel, synchronization, or CUDA Graph evidence from loading.
+
 ## Developer Commands
 
 Build with native tests enabled:
@@ -188,5 +201,11 @@ An explicit ruleset override that fails to load exits non-zero; it never
 silently falls back. `TRACELOOM_IDLE_EVIDENCE_RULES` selects the default
 ruleset path. The E2 productive-timeline library
 (`build_productive_timelines`) consumes these roles to build per-device
-productive timelines and visible gaps; main CLI / SQL materialization
-remains deferred to a later milestone.
+productive timelines and visible gaps. E3
+(`build_stream_state_timelines`) builds the observed per-stream partition,
+and E4 (`build_idle_explanations`) slices each visible gap into conservative,
+mutually exclusive device-evidence categories. The authoritative E1-to-E4
+composition is `run_idle_evidence_pipeline`; its results feed the CLI, SQL
+sidecar, anchor/node attribution, and Loop Tree summaries. Host correlation
+remains a separate later stage that requires calibrated clocks and validated
+host/device links.

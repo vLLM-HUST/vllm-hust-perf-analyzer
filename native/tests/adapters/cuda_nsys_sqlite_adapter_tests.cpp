@@ -130,6 +130,10 @@ int main(int argc, char** argv) {
       "start INTEGER, end INTEGER, deviceId INTEGER, streamId INTEGER, "
       "correlationId INTEGER);"
       "INSERT INTO CUPTI_ACTIVITY_KIND_MEMCPY VALUES (86, 89, 0, 7, 10);"
+      "CREATE TABLE CUPTI_ACTIVITY_KIND_CUDA_EVENT("
+      "deviceId INTEGER, contextId INTEGER, streamId INTEGER, "
+      "correlationId INTEGER, eventId INTEGER);"
+      "INSERT INTO CUPTI_ACTIVITY_KIND_CUDA_EVENT VALUES (0, 1, 7, 10, 3);"
       "CREATE TABLE CUPTI_ACTIVITY_KIND_GRAPH_TRACE("
       "start INTEGER, end INTEGER, deviceId INTEGER, streamId INTEGER, "
       "graphId INTEGER);"
@@ -143,7 +147,7 @@ int main(int argc, char** argv) {
   require(inventory.kernel_row_count == 3, "kernel row count mismatch");
   require(inventory.missing_required_kernel_columns.empty(),
           "valid kernel schema was rejected");
-  require(inventory.present_activity_tables.size() == 3 &&
+  require(inventory.present_activity_tables.size() == 4 &&
               inventory.present_activity_tables.front() ==
                   "CUPTI_ACTIVITY_KIND_RUNTIME" &&
               inventory.present_activity_tables.back() ==
@@ -222,6 +226,76 @@ int main(int argc, char** argv) {
   require(fallback_ir.anchors.size() == 1,
           "unattributed CUDA kernel disappeared from the report model");
 
+  const std::string collective_path = temp_db_path("_collective");
+  create_db(
+      collective_path,
+      "CREATE TABLE StringIds(id INTEGER PRIMARY KEY, value TEXT);"
+      "INSERT INTO StringIds VALUES "
+      "(1, 'ncclDevKernel_AllReduce_Sum_bf16_RING_LL');"
+      "CREATE TABLE CUPTI_ACTIVITY_KIND_KERNEL("
+      "start INTEGER, end INTEGER, deviceId INTEGER, streamId INTEGER, "
+      "correlationId INTEGER, shortName INTEGER);"
+      "INSERT INTO CUPTI_ACTIVITY_KIND_KERNEL VALUES "
+      "(10, 20, 1, 7, 42, 1);");
+  NativeIr collective_ir = CudaNsightSQLiteAdapter(collective_path).load();
+  require(collective_ir.tasks.size() == 1 &&
+              collective_ir.communication_ops.size() == 1,
+          "NCCL kernel did not materialize task and communication evidence");
+  const TaskRow& collective_task = collective_ir.tasks.row(TaskId(0));
+  require(!collective_task.compute_task_type_symbol_id.valid() &&
+              collective_task.comm_name_symbol_id.valid() &&
+              collective_task.communication_task_type_symbol_id.valid(),
+          "NCCL task was not marked as communication evidence");
+  const CommunicationOpRow& collective_op =
+      collective_ir.communication_ops.row(CommunicationOpId(0));
+  require(collective_op.trace_event_id == TraceEventId(0) &&
+              collective_op.raw_connection_id == 42 &&
+              collective_op.raw_op_id == 1 &&
+              collective_op.linked_task_count == 1 &&
+              collective_op.linked_stream_count == 1,
+          "NCCL communication provenance was not preserved");
+  FlatAnchorBuildConfig collective_anchor_config;
+  collective_anchor_config.filter_auxiliary_task_anchors = true;
+  collective_anchor_config.skip_tasks_covered_by_communication_ops = true;
+  const FlatAnchorBuildStats collective_anchor_stats =
+      build_flat_anchors(collective_ir, collective_anchor_config);
+  require(collective_anchor_stats.communication_anchors == 1 &&
+              collective_anchor_stats.device_event_anchors == 0 &&
+              collective_ir.symbols.value(
+                  collective_ir.anchors.row(AnchorId(0)).symbol_id) ==
+                  "AllReduce",
+          "NCCL kernel did not become a normalized collective anchor");
+
+  const std::string ambiguous_communication_path =
+      temp_db_path("_ambiguous_communication");
+  create_db(
+      ambiguous_communication_path,
+      "CREATE TABLE StringIds(id INTEGER PRIMARY KEY, value TEXT);"
+      "INSERT INTO StringIds VALUES "
+      "(1, 'broadcast_kernel'), (2, 'ncclDevKernel_SendRecv');"
+      "CREATE TABLE CUPTI_ACTIVITY_KIND_KERNEL("
+      "start INTEGER, end INTEGER, deviceId INTEGER, streamId INTEGER, "
+      "correlationId INTEGER, shortName INTEGER);"
+      "INSERT INTO CUPTI_ACTIVITY_KIND_KERNEL VALUES "
+      "(10, 20, 0, 7, 41, 1), (30, 40, 0, 7, 42, 2);");
+  NativeIr ambiguous_communication_ir =
+      CudaNsightSQLiteAdapter(ambiguous_communication_path).load();
+  require(ambiguous_communication_ir.tasks.size() == 2 &&
+              ambiguous_communication_ir.communication_ops.empty(),
+          "ambiguous CUDA kernel names became communication evidence");
+  for (const TaskRow& task : ambiguous_communication_ir.tasks.rows()) {
+    require(task.compute_task_type_symbol_id.valid() &&
+                !task.comm_name_symbol_id.valid() &&
+                !task.communication_task_type_symbol_id.valid(),
+            "ambiguous CUDA kernel task was promoted to communication");
+  }
+  const FlatAnchorBuildStats ambiguous_communication_anchor_stats =
+      build_flat_anchors(ambiguous_communication_ir,
+                         collective_anchor_config);
+  require(ambiguous_communication_anchor_stats.communication_anchors == 0 &&
+              ambiguous_communication_anchor_stats.device_event_anchors == 2,
+          "ambiguous CUDA kernel names became collective anchors");
+
   const std::string malformed_path = temp_db_path("_malformed");
   create_db(malformed_path,
             "CREATE TABLE CUPTI_ACTIVITY_KIND_KERNEL("
@@ -237,10 +311,56 @@ int main(int argc, char** argv) {
     (void)CudaNsightSQLiteAdapter(malformed_path).load();
   });
 
+  const std::string malformed_aux_path = temp_db_path("_malformed_aux");
+  create_db(malformed_aux_path,
+            "CREATE TABLE CUPTI_ACTIVITY_KIND_KERNEL("
+            "start INTEGER, end INTEGER, deviceId INTEGER, streamId INTEGER);"
+            "INSERT INTO CUPTI_ACTIVITY_KIND_KERNEL VALUES (10, 20, 0, 1);"
+            "CREATE TABLE CUPTI_ACTIVITY_KIND_MEMCPY("
+            "end INTEGER, deviceId INTEGER, streamId INTEGER);"
+            "INSERT INTO CUPTI_ACTIVITY_KIND_MEMCPY VALUES (30, 0, 1);");
+  require_throws_with("CUPTI_ACTIVITY_KIND_MEMCPY schema: missing start", [&]() {
+    (void)CudaNsightSQLiteAdapter(malformed_aux_path).load();
+  });
+
+  const std::string partial_cuda_event_path =
+      temp_db_path("_partial_cuda_event");
+  create_db(partial_cuda_event_path,
+            "CREATE TABLE CUPTI_ACTIVITY_KIND_KERNEL("
+            "start INTEGER, end INTEGER, deviceId INTEGER, streamId INTEGER);"
+            "INSERT INTO CUPTI_ACTIVITY_KIND_KERNEL VALUES (10, 20, 0, 1);"
+            "CREATE TABLE CUPTI_ACTIVITY_KIND_CUDA_EVENT("
+            "end INTEGER, deviceId INTEGER, contextId INTEGER, "
+            "streamId INTEGER, eventId INTEGER);"
+            "INSERT INTO CUPTI_ACTIVITY_KIND_CUDA_EVENT VALUES "
+            "(30, 0, 1, 7, 3);");
+  require_throws_with("end without start or timestamp", [&]() {
+    (void)CudaNsightSQLiteAdapter(partial_cuda_event_path).load();
+  });
+
+  const std::string malformed_cuda_event_path =
+      temp_db_path("_malformed_cuda_event");
+  create_db(malformed_cuda_event_path,
+            "CREATE TABLE CUPTI_ACTIVITY_KIND_KERNEL("
+            "start INTEGER, end INTEGER, deviceId INTEGER, streamId INTEGER);"
+            "INSERT INTO CUPTI_ACTIVITY_KIND_KERNEL VALUES (10, 20, 0, 1);"
+            "CREATE TABLE CUPTI_ACTIVITY_KIND_CUDA_EVENT("
+            "deviceId INTEGER, eventId INTEGER);"
+            "INSERT INTO CUPTI_ACTIVITY_KIND_CUDA_EVENT VALUES (0, 3);");
+  require_throws_with(
+      "missing identity column(s): contextId, streamId", [&]() {
+        (void)CudaNsightSQLiteAdapter(malformed_cuda_event_path).load();
+      });
+
   if (!keep_fixture) {
     std::remove(db_path.c_str());
   }
   std::remove(fallback_path.c_str());
+  std::remove(collective_path.c_str());
+  std::remove(ambiguous_communication_path.c_str());
   std::remove(malformed_path.c_str());
+  std::remove(malformed_aux_path.c_str());
+  std::remove(partial_cuda_event_path.c_str());
+  std::remove(malformed_cuda_event_path.c_str());
   return 0;
 }

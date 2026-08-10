@@ -124,8 +124,10 @@ bool link_less(const StreamStateSourceLink& lhs,
   if (lhs.source_ref_id != rhs.source_ref_id) {
     return lhs.source_ref_id < rhs.source_ref_id;
   }
-  return lhs.matched_rule_id.value_or(std::string()) <
-         rhs.matched_rule_id.value_or(std::string());
+  if (lhs.matched_rule_id != rhs.matched_rule_id) {
+    return lhs.matched_rule_id < rhs.matched_rule_id;
+  }
+  return lhs.observed_state < rhs.observed_state;
 }
 
 // Identity for exact duplicates: same canonical source (kind + trace event),
@@ -479,7 +481,7 @@ StreamStateRunResult build_stream_state_timelines(
     stream_event.source_links.push_back(StreamStateSourceLink{
         StreamStateSourceLink::Kind::kTask, event->id, task.id,
         CommunicationOpId::invalid(), event->source_ref_id,
-        row.matched_rule_id});
+        row.matched_rule_id, stream_event.state});
     stream_event.diagnostic_source_row_id = task.raw_global_task_id;
     events_by_device[event->device_id].push_back(std::move(stream_event));
   }
@@ -527,7 +529,8 @@ StreamStateRunResult build_stream_state_timelines(
     stream_event.state = StreamState::kRunningComm;
     stream_event.source_links.push_back(StreamStateSourceLink{
         StreamStateSourceLink::Kind::kCommunicationOp, event->id,
-        TaskId::invalid(), op.id, event->source_ref_id, std::nullopt});
+        TaskId::invalid(), op.id, event->source_ref_id, std::nullopt,
+        stream_event.state});
     stream_event.diagnostic_source_row_id = op.raw_op_id;
     // Absorbed tasks attach as supporting sources of the same canonical
     // event (contract 6.6): one event, full lineage.
@@ -568,7 +571,7 @@ StreamStateRunResult build_stream_state_timelines(
         stream_event.source_links.push_back(StreamStateSourceLink{
             StreamStateSourceLink::Kind::kTask, task.trace_event_id, task.id,
             CommunicationOpId::invalid(), task_event->source_ref_id,
-            row.matched_rule_id});
+            row.matched_rule_id, StreamState::kRunningComm});
       }
     }
     events_by_device[event->device_id].push_back(std::move(stream_event));

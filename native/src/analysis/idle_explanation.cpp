@@ -39,8 +39,10 @@ bool source_less(const IdleExplanationSourceLink& lhs,
   if (lhs.source.source_ref_id != rhs.source.source_ref_id) {
     return lhs.source.source_ref_id < rhs.source.source_ref_id;
   }
-  return lhs.source.matched_rule_id.value_or(std::string()) <
-         rhs.source.matched_rule_id.value_or(std::string());
+  if (lhs.source.matched_rule_id != rhs.source.matched_rule_id) {
+    return lhs.source.matched_rule_id < rhs.source.matched_rule_id;
+  }
+  return lhs.source.observed_state < rhs.source.observed_state;
 }
 
 std::vector<IdleExplanationSourceLink> links_for_states(
@@ -48,14 +50,27 @@ std::vector<IdleExplanationSourceLink> links_for_states(
     const std::vector<StreamState>& selected_states) {
   std::vector<IdleExplanationSourceLink> links;
   for (const ActiveState& item : active) {
-    if (std::find(selected_states.begin(), selected_states.end(),
-                  item.interval->state) == selected_states.end()) {
-      continue;
-    }
+    const bool select_whole_ambiguous =
+        item.interval->state == StreamState::kAmbiguousOverlap &&
+        std::find(selected_states.begin(), selected_states.end(),
+                  StreamState::kAmbiguousOverlap) != selected_states.end();
+    const bool select_interval =
+        std::find(selected_states.begin(), selected_states.end(),
+                  item.interval->state) != selected_states.end();
     for (const StreamStateSourceLink& source : item.interval->source_links) {
-      links.push_back(
-          IdleExplanationSourceLink{item.stream_id, item.interval->state,
-                                    source});
+      const bool select_component =
+          item.interval->state == StreamState::kAmbiguousOverlap &&
+          std::find(selected_states.begin(), selected_states.end(),
+                    source.observed_state) != selected_states.end();
+      if (!select_interval && !select_whole_ambiguous && !select_component) {
+        continue;
+      }
+      const StreamState selected_state =
+          item.interval->state == StreamState::kAmbiguousOverlap
+              ? source.observed_state
+              : item.interval->state;
+      links.push_back(IdleExplanationSourceLink{item.stream_id, selected_state,
+                                                source});
     }
   }
   std::sort(links.begin(), links.end(), source_less);
@@ -64,10 +79,21 @@ std::vector<IdleExplanationSourceLink> links_for_states(
 
 bool contains_state(const std::vector<ActiveState>& active,
                     StreamState state) {
-  return std::any_of(active.begin(), active.end(),
-                     [state](const ActiveState& item) {
-                       return item.interval->state == state;
-                     });
+  return std::any_of(
+      active.begin(), active.end(), [state](const ActiveState& item) {
+        if (item.interval->state == state) {
+          return true;
+        }
+        if (item.interval->state != StreamState::kAmbiguousOverlap) {
+          return false;
+        }
+        return std::any_of(
+            item.interval->source_links.begin(),
+            item.interval->source_links.end(),
+            [state](const StreamStateSourceLink& source) {
+              return source.observed_state == state;
+            });
+      });
 }
 
 IdleExplanationRow explain_slice(
@@ -222,27 +248,9 @@ void explain_gap(const DeviceIntervalRow& gap,
     if (contains_state(active, StreamState::kRunningCompute) ||
         contains_state(active, StreamState::kRunningComm) ||
         contains_state(active, StreamState::kRunningDataMove)) {
-      diagnostics->push_back(TimelineDiagnostic{
-          "productive_state_inside_gap: E2/E3 productive coverage disagrees",
-          -1});
-      IdleExplanationRow inconsistent;
-      inconsistent.start_ns = start_ns;
-      inconsistent.end_ns = end_ns;
-      inconsistent.category =
-          IdleExplanationCategory::kUnattributedVisibleIdle;
-      inconsistent.evidence_level = IdleEvidenceLevel::kNone;
-      inconsistent.evidence_relation = IdleEvidenceRelation::kNone;
-      inconsistent.reason =
-          "E2/E3 productive coverage disagrees; no explanation promoted";
-      inconsistent.source_links = links_for_states(
-          active, {StreamState::kRunningCompute, StreamState::kRunningComm,
-                   StreamState::kRunningDataMove, StreamState::kRunningWait,
-                   StreamState::kRunningCaptureControl,
-                   StreamState::kRunningRecord,
-                   StreamState::kRunningRuntimeControl,
-                   StreamState::kUnknown, StreamState::kAmbiguousOverlap});
-      append_or_merge(std::move(inconsistent), output);
-      continue;
+      throw std::invalid_argument(
+          "E2/E3 semantic mismatch: productive stream state intersects an "
+          "E2 visible gap");
     }
     append_or_merge(
         explain_slice(start_ns, end_ns, active,
@@ -318,7 +326,7 @@ IdleExplanationRunResult build_idle_explanations(
                    : productive.status;
   const bool upstream_inputs_valid =
       productive.status == AnalysisStatus::kOk &&
-      streams.status == AnalysisStatus::kOk;
+      streams.status == AnalysisStatus::kOk && streams.diagnostics.empty();
 
   std::map<std::uint32_t, const StreamStateDeviceResult*> streams_by_device;
   for (const StreamStateDeviceResult& device : streams.devices) {
