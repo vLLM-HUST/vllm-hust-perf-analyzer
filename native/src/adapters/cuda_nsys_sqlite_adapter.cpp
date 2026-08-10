@@ -353,9 +353,9 @@ std::string choose_kernel_label(const std::string& short_name,
   return short_name.empty() ? demangled_name : short_name;
 }
 
-bool is_collective_kernel(const std::string& raw_name) {
+bool is_nccl_collective_kernel(const std::string& raw_name) {
   const std::string low = lower_ascii(raw_name);
-  return low.find("nccl") != std::string::npos ||
+  return low.find("nccl") != std::string::npos &&
          contains_any(low, {"allreduce", "all_reduce", "allgather",
                             "all_gather", "reducescatter", "reduce_scatter",
                             "alltoall", "all_to_all", "broadcast"});
@@ -363,7 +363,7 @@ bool is_collective_kernel(const std::string& raw_name) {
 
 std::string lift_cuda_kernel_label(const std::string& raw_name) {
   const std::string low = lower_ascii(raw_name);
-  if (is_collective_kernel(raw_name)) {
+  if (is_nccl_collective_kernel(raw_name)) {
     return raw_name;
   }
   if (contains_any(low,
@@ -465,6 +465,18 @@ std::string select_or_null(const std::string& column) {
   return column.empty() ? std::string("NULL") : quote_identifier(column);
 }
 
+std::vector<std::string> missing_cuda_event_identity_columns(
+    const ColumnMap& columns) {
+  std::vector<std::string> out;
+  for (const char* required : {"deviceId", "contextId", "streamId",
+                               "eventId"}) {
+    if (find_column(columns, required).empty()) {
+      out.push_back(required);
+    }
+  }
+  return out;
+}
+
 struct AuxiliaryActivitySpec {
   const char* table;
   const char* task_type;
@@ -495,6 +507,30 @@ void load_auxiliary_activity_rows(
     const std::string start = first_column(columns, {"start", "timestamp"});
     const std::string end = find_column(columns, "end");
     if (start.empty()) {
+      // Recent Nsight exports can use CUPTI_ACTIVITY_KIND_CUDA_EVENT as an
+      // identity-only lookup table (eventId, device/context/stream) without a
+      // device timestamp. It remains useful inventory evidence, but cannot be
+      // materialized as a timeline event. Do not let that optional metadata
+      // prevent timed kernel, synchronization, or graph evidence from loading.
+      if (std::string(spec.table) == "CUPTI_ACTIVITY_KIND_CUDA_EVENT") {
+        if (!end.empty()) {
+          throw std::runtime_error(
+              "unsupported CUDA/Nsight CUPTI_ACTIVITY_KIND_CUDA_EVENT "
+              "schema: end without start or timestamp");
+        }
+        const std::vector<std::string> missing_identity_columns =
+            missing_cuda_event_identity_columns(columns);
+        if (!missing_identity_columns.empty()) {
+          throw std::runtime_error(
+              "unsupported CUDA/Nsight CUPTI_ACTIVITY_KIND_CUDA_EVENT "
+              "metadata schema: missing identity column(s): " +
+              join(missing_identity_columns, ", "));
+        }
+        if (options.timing_diagnostics) {
+          std::cerr << "cuda_nsys_metadata_only_table=" << spec.table << "\n";
+        }
+        continue;
+      }
       throw std::runtime_error("unsupported CUDA/Nsight " +
                                std::string(spec.table) +
                                " schema: missing start or timestamp");
@@ -711,7 +747,7 @@ void load_kernel_rows(
     }
     const std::string lifted_label = lift_cuda_kernel_label(raw_label);
     const bool auxiliary = lifted_label.rfind("CudaAux:", 0) == 0;
-    const bool collective = is_collective_kernel(raw_label);
+    const bool collective = is_nccl_collective_kernel(raw_label);
     const std::string task_type =
         auxiliary ? "CUDA_KERNEL_AUX"
                   : (collective ? "CUDA_COLLECTIVE_KERNEL" : "CUDA_KERNEL");
@@ -729,9 +765,21 @@ void load_kernel_rows(
     const std::int64_t raw_global_task_id =
         correlation_id < 0 ? static_cast<std::int64_t>(source_row_id)
                            : correlation_id;
+    const SymbolId compute_task_type_symbol =
+        collective ? SymbolId::invalid() : task_type_symbol;
+    const SymbolId comm_name_symbol =
+        collective ? raw_symbol : SymbolId::invalid();
+    const SymbolId communication_task_type_symbol =
+        collective ? task_type_symbol : SymbolId::invalid();
     ir.tasks.append(source_ref, event, raw_task_id, raw_global_task_id,
                     normalized_correlation_id, task_type_symbol, raw_symbol,
-                    op_type_symbol, task_type_symbol, SymbolId::invalid());
+                    op_type_symbol, compute_task_type_symbol, comm_name_symbol,
+                    -1, communication_task_type_symbol);
+    if (collective) {
+      ir.communication_ops.append(
+          source_ref, event, normalized_correlation_id, raw_source_row_id, 1, 1,
+          raw_symbol, op_type_symbol, raw_symbol, task_type_symbol);
+    }
   }
 }
 
