@@ -18,18 +18,37 @@ std::vector<ReportToken> build_report_tokens_from_native_ir(
     const NativeIr& ir,
     FlatAnchorBuildConfig config);
 
+struct NativeReportDevicePartition {
+  std::uint32_t device_id = 0;
+  std::vector<ReportToken> tokens;
+};
+
+// Partitions the report token stream by observed device_id, preserving the
+// deterministic token-table order within each device. One partition exists
+// per device that owns at least one report token, ordered by device_id. This
+// never invents cross-device ordering: a multi-device profiler DB yields one
+// independent linear anchor sequence per device instead of a combined tree.
+std::vector<NativeReportDevicePartition> partition_report_tokens_by_device(
+    const NativeIr& ir);
+
+std::vector<NativeReportDevicePartition> partition_report_tokens_by_device(
+    const NativeIr& ir,
+    FlatAnchorBuildConfig config);
+
 NodeCoverageSqlRows build_report_tree_node_coverage_sql_rows(
     const ReportTree& tree,
     const std::vector<ReportToken>& tokens,
     std::uint32_t db_idx = 0,
-    std::string view_name = "native_report_tree");
+    std::string view_name = "native_report_tree",
+    bool scope_node_ids_by_device = false);
 
 NodeCoverageSqlRows build_report_tree_node_coverage_sql_rows(
     const ReportTree& tree,
     const std::vector<ReportToken>& tokens,
     const AuxAttributionSqlRows& aux_rows,
     std::uint32_t db_idx = 0,
-    std::string view_name = "native_report_tree");
+    std::string view_name = "native_report_tree",
+    bool scope_node_ids_by_device = false);
 
 NodeCoverageSqlRows build_native_report_tree_node_coverage_sql_rows(
     const NativeIr& ir,
@@ -46,7 +65,8 @@ SemanticTreeSqlRows build_report_tree_semantic_sql_rows(
     const std::vector<ReportToken>& tokens,
     std::uint32_t db_idx = 0,
     std::string tree_id = "native-report-tree",
-    std::string view_name = "anchor_tree");
+    std::string view_name = "anchor_tree",
+    bool scope_node_ids_by_device = false);
 
 SemanticTreeSqlRows build_report_tree_semantic_sql_rows(
     const ReportTree& tree,
@@ -54,7 +74,8 @@ SemanticTreeSqlRows build_report_tree_semantic_sql_rows(
     const AuxAttributionSqlRows& aux_rows,
     std::uint32_t db_idx = 0,
     std::string tree_id = "native-report-tree",
-    std::string view_name = "anchor_tree");
+    std::string view_name = "anchor_tree",
+    bool scope_node_ids_by_device = false);
 
 SemanticTreeSqlRows build_native_report_tree_semantic_sql_rows(
     const NativeIr& ir,

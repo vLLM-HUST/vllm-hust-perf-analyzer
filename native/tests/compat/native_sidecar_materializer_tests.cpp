@@ -613,6 +613,46 @@ NativeIr build_ascend_multi_slot_exact_graph_sql_ir() {
   return ir;
 }
 
+NativeIr build_multi_device_report_ir() {
+  NativeIr ir;
+  const SourceRefId source =
+      ir.source_refs.append("fixture", "multi-device-sidecar", "TASK", 0);
+  const SymbolId matmul = ir.symbols.intern("MatMul");
+  const SymbolId all_reduce = ir.symbols.intern("AllReduce");
+  const SymbolId softmax = ir.symbols.intern("Softmax");
+  const auto append_token = [&](std::uint32_t device_id,
+                                std::uint64_t source_row_id,
+                                SymbolId symbol,
+                                AnchorKind kind,
+                                std::int64_t start_ns,
+                                std::int64_t end_ns) {
+    const TraceEventId event = ir.trace_events.append(
+        source, source_row_id, device_id, 3, start_ns, end_ns, symbol);
+    const AnchorId anchor = ir.anchors.append(
+        source, event, ReplayUnitId::invalid(), kind, symbol, device_id, 3,
+        start_ns, end_ns);
+    ir.tokens.append(
+        anchor, symbol, device_id,
+        static_cast<std::uint32_t>(ir.tokens.size()), start_ns, end_ns);
+  };
+  for (std::uint32_t step = 0; step < 3; ++step) {
+    const std::int64_t base = 1000 + static_cast<std::int64_t>(step) * 1000;
+    append_token(0, step + 1, matmul, AnchorKind::kDeviceEvent, base,
+                 base + 600);
+  }
+  for (std::uint32_t step = 0; step < 3; ++step) {
+    const std::int64_t base = 4000 + static_cast<std::int64_t>(step) * 1000;
+    append_token(0, step + 10, all_reduce, AnchorKind::kCommunication, base,
+                 base + 400);
+  }
+  for (std::uint32_t step = 0; step < 4; ++step) {
+    const std::int64_t base = 3000 + static_cast<std::int64_t>(step) * 1000;
+    append_token(1, 100 + step, softmax, AnchorKind::kDeviceEvent, base,
+                 base + 300);
+  }
+  return ir;
+}
+
 }  // namespace
 
 int main() {
@@ -1541,5 +1581,46 @@ int main() {
                          "traceloom_raw_000__RAW_SHARED UNION ALL SELECT id "
                          "FROM traceloom_raw_001__RAW_SHARED)") == 3);
   std::remove(split_augmented.c_str());
+
+  // One profiler DB may contain several devices. Structural recovery and
+  // semantic publication stay device-local, with queryable grammar-completion
+  // status per tree.
+  const std::string multi_db_path = temp_db_path();
+  compat::NativeCompatibilitySidecarOptions multi_options;
+  multi_options.source_kind = "native_multi_device_fixture";
+  multi_options.source_path = "memory";
+  multi_options.grammar_full_discovery_cap = 1;
+  compat::write_basic_native_compatibility_sidecar(
+      multi_db_path, build_multi_device_report_ir(), multi_options);
+  require(run_scalar_int(
+              multi_db_path,
+              "SELECT COUNT(DISTINCT device_id) FROM traceloom_viz_node "
+              "WHERE view_name = 'native_report_tree'") == 2);
+  require(run_scalar_int(
+              multi_db_path,
+              "SELECT COUNT(*) FROM traceloom_semantic_tree") == 2);
+  require(run_scalar_text(
+              multi_db_path,
+              "SELECT tree_id FROM traceloom_semantic_tree "
+              "WHERE device_id = 0") == "native-report-tree-d0");
+  require(run_scalar_text(
+              multi_db_path,
+              "SELECT root_node_id FROM traceloom_semantic_tree "
+              "WHERE device_id = 1") == "node-d1-N001");
+  require(run_scalar_text(
+              multi_db_path,
+              "SELECT macro_discovery FROM traceloom_semantic_tree "
+              "WHERE device_id = 0") ==
+          "native_report_tree_partial_size_limit");
+  require(run_scalar_text(
+              multi_db_path,
+              "SELECT macro_discovery FROM traceloom_semantic_tree "
+              "WHERE device_id = 1") == "native_report_tree_complete");
+  require(run_scalar_int(
+              multi_db_path,
+              "SELECT COUNT(*) FROM traceloom_viz_node_anchor na "
+              "JOIN traceloom_anchor a ON a.anchor_id = na.anchor_id "
+              "WHERE na.device_id != a.device_id") == 0);
+  std::remove(multi_db_path.c_str());
   return 0;
 }

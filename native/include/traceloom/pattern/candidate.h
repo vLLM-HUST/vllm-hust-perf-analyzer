@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <vector>
 
 #include "traceloom/core/ids.h"
@@ -9,15 +10,19 @@ namespace traceloom {
 
 struct CandidateKey {
   std::vector<SymbolId> symbols;
+  std::uint32_t device_id = 0;
 };
 
 inline bool operator==(const CandidateKey& lhs,
                        const CandidateKey& rhs) noexcept {
-  return lhs.symbols == rhs.symbols;
+  return lhs.device_id == rhs.device_id && lhs.symbols == rhs.symbols;
 }
 
 inline bool operator<(const CandidateKey& lhs,
                       const CandidateKey& rhs) noexcept {
+  if (lhs.device_id != rhs.device_id) {
+    return lhs.device_id < rhs.device_id;
+  }
   return lhs.symbols < rhs.symbols;
 }
 
@@ -32,6 +37,7 @@ enum class CandidateDiagnosticCode {
   kCrossesNoCrossBoundary,
   kEnclosesNoCrossInterval,
   kAmbiguousIntervalBlocksCandidate,
+  kCrossesSequenceDomain,
   kPartialNoCrossInterval = kCrossesNoCrossBoundary,
 };
 

@@ -23,6 +23,7 @@ std::string format_candidate_key(
     const traceloom::SymbolTable& symbols,
     const traceloom::CandidateKey& key) {
   std::ostringstream out;
+  out << "device=" << key.device_id << ":";
   for (std::size_t index = 0; index < key.symbols.size(); ++index) {
     if (index != 0) {
       out << " ";

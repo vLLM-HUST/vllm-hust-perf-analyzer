@@ -28,11 +28,19 @@ kind, source, and purpose independently queryable.
 by later projections, while `traceloom_v_projection_continuation` lists target
 recipes for which every required coordinate kind is available.
 
+If one source database contains several devices, the artifact contains one
+independently recovered structural tree per observed `device_id`. TraceLoom
+does not concatenate those device sequences or invent a cross-device order.
+Node and semantic-tree keys are device-scoped in that case (for example,
+`node-d1-N001` and `native-report-tree-d1`).
+
 ## Optional Markdown Projection
 
 `--loop-tree-out PATH` renders a compact human projection over the same
 analysis choices. It is a convenience for readers; the queryable database
 timeline remains the complete analytical product and drill-down surface.
+For a multi-device source database, add `--loop-tree-device-id N`; one Markdown
+path cannot ambiguously name several device-local trees.
 
 ## Explicit Projections And Compatibility Artifacts
 

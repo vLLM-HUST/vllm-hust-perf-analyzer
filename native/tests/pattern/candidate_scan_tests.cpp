@@ -201,6 +201,48 @@ int main() {
   require(seam_aggregate.occurrence_count == 13,
           "complete halo must preserve every length-2/3 window");
 
+  TokenTable multi_device_tokens;
+  multi_device_tokens.append(AnchorId(0), SymbolId(1), 0, 0, 0, 10);
+  multi_device_tokens.append(AnchorId(1), SymbolId(2), 0, 1, 10, 20);
+  multi_device_tokens.append(AnchorId(2), SymbolId(1), 0, 2, 20, 30);
+  multi_device_tokens.append(AnchorId(3), SymbolId(2), 1, 3, 0, 10);
+  multi_device_tokens.append(AnchorId(4), SymbolId(1), 1, 4, 10, 20);
+  multi_device_tokens.append(AnchorId(5), SymbolId(2), 1, 5, 20, 30);
+  const ProtectedSequence multi_device_sequence =
+      ProtectedSequence::from_token_table(multi_device_tokens);
+  const BoundaryIndex multi_device_boundaries =
+      BoundaryIndex::build(multi_device_sequence, ProtectedIntervalTable{});
+  const PartitionPlan multi_device_plan = PartitionPlan::build(
+      multi_device_sequence.size(), PartitionPlanConfig{2, 2});
+  const CandidateAggregateResult multi_device_aggregate =
+      scan_and_reduce_candidate_partitions(
+          multi_device_sequence, multi_device_boundaries, multi_device_plan,
+          CandidateScanConfig{2, 3}, 3);
+  require(multi_device_aggregate.occurrence_count == 6,
+          "device-local windows must exclude cross-device starts");
+  bool saw_domain_boundary = false;
+  for (const CandidateDiagnostic& diagnostic :
+       multi_device_aggregate.diagnostics) {
+    if (diagnostic.code ==
+        CandidateDiagnosticCode::kCrossesSequenceDomain) {
+      require(!diagnostic.protected_interval_id.valid());
+      saw_domain_boundary = true;
+    }
+  }
+  require(saw_domain_boundary,
+          "cross-device windows must remain typed diagnostics");
+  bool saw_device0_ab = false;
+  bool saw_device1_ab = false;
+  for (const CandidateSummaryRow& row : multi_device_aggregate.summaries) {
+    if (row.key.symbols ==
+        std::vector<SymbolId>({SymbolId(1), SymbolId(2)})) {
+      saw_device0_ab = saw_device0_ab || row.key.device_id == 0;
+      saw_device1_ab = saw_device1_ab || row.key.device_id == 1;
+    }
+  }
+  require(saw_device0_ab && saw_device1_ab,
+          "candidate keys must retain their device sequence domain");
+
   ProtectedIntervalTable ambiguous_intervals;
   ambiguous_intervals.append(
       ProtectedIntervalKind::kUserWindow, BoundaryPolicy::kBlockAnyOverlap,

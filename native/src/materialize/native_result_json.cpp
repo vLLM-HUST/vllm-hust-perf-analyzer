@@ -1371,7 +1371,8 @@ void write_native_result_json(std::ostream& out,
     const CandidateSummaryRow& row = preview[index];
     out << "    {\"rank\": " << index << ", \"occurrence_count\": "
         << row.occurrence_count << ", \"first_begin\": "
-        << row.first_begin << ", \"key\": ";
+        << row.first_begin << ", \"device_id\": " << row.key.device_id
+        << ", \"key\": ";
     write_candidate_key(out, symbols, row.key);
     out << "}";
     if (index + 1 < preview.size()) {
@@ -1392,13 +1393,19 @@ void write_native_result_json(std::ostream& out,
         result.pattern_mining_diagnostics.rows[index];
     out << "      {\"code\": ";
     write_json_string(out, candidate_diagnostic_code_name(diagnostic.code));
-    out << ", \"begin\": " << diagnostic.begin
+    out << ", \"device_id\": " << diagnostic.key.device_id
+        << ", \"begin\": " << diagnostic.begin
         << ", \"end\": " << diagnostic.end
         << ", \"key\": ";
     write_candidate_key(out, symbols, diagnostic.key);
     out << ", \"partition_id\": " << diagnostic.partition_id.value()
-        << ", \"protected_interval_id\": "
-        << diagnostic.protected_interval_id.value() << "}";
+        << ", \"protected_interval_id\": ";
+    if (diagnostic.protected_interval_id.valid()) {
+      out << diagnostic.protected_interval_id.value();
+    } else {
+      out << "null";
+    }
+    out << "}";
     if (index + 1 < diagnostic_preview_count) {
       out << ",";
     }

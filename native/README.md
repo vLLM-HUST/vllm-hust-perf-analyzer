@@ -76,6 +76,15 @@ msprof_raw/traceloom/analysis_db01.db
 msprof_raw/traceloom/analysis_db02.db
 ```
 
+When a single profiler database contains multiple devices (for example an
+Nsight Systems capture of a DP2 training run), the structural report is
+partitioned by observed `device_id`: TraceLoom materializes one independently
+recovered tree per device in the queryable database and never emits a combined
+cross-device tree. `--loop-tree-device-id N` selects one device for the
+optional Markdown projection; an explicit `--loop-tree-out PATH` on a
+multi-device database requires that flag, and an unknown device id lists the
+available devices.
+
 A nonempty monolithic `TASK` table takes priority. When it is missing,
 TraceLoom emits a split-fallback warning and builds the base timeline from
 `AscendTask`, enriched with `TaskInfo`, `HostTask`, and `ApiData` metadata.

@@ -52,16 +52,28 @@ therefore conserve total time while still discovering a pattern across two
 illegal domains and publishing every row under the first device id. Existing
 candidate and grammar fixtures use one device.
 
-**Required repair.** Make `(analysis input, device_id)` an enforced sequence
-domain. Discovery, grammar composition, and report-tree lowering must operate
-independently per domain; a self-contained augmented database may contain
-several device-local trees. Cross-device or cross-rank comparison remains an
+**Repair in this branch.** The retained implementation at `ec7fc5f` is adopted
+and reconciled with the current cost-policy and augmented-DB paths. Report
+tokens are partitioned by observed `device_id`; grammar runs over a dense token
+projection for exactly one device; protected intervals that span devices fail
+closed; each tree is lowered with its true device id; and multi-device
+node/tree keys are device-scoped. The queryable DB may contain several device-
+local trees, while an explicit Markdown path requires
+`--loop-tree-device-id`. Cross-device or cross-rank comparison remains an
 explicit relational operation over those trees.
 
-**Required oracle.** A two-device fixture whose boundary symbols would form a
-profitable recurrence if concatenated. Assert that no candidate, macro,
-occurrence, coverage span, or tree row crosses the domain and that each row
-retains its actual device identity.
+The bounded-window candidate key now also includes `device_id`. Windows that
+touch a device boundary become typed `CandidateCrossesSequenceDomain`
+diagnostics and cannot contribute to either device's count. Thus the
+construction diagnostic cannot manufacture recurrence by aggregating equal
+symbols across two devices.
+
+**Oracles.** Two-device fixtures whose concatenated boundaries would otherwise
+create candidates assert device-keyed summaries, typed boundary rejection,
+one independently recovered tree per device, scoped node/tree keys, per-device
+cost conservation, no cross-device node/anchor links, and fail-closed cross-
+device protected intervals. The CUDA compatibility fixture additionally checks
+two independently published device trees through SQLite.
 
 ### A2. `total_us` at a position is a right-anchored disjoint attribution
 
@@ -257,11 +269,14 @@ exception and silently emits the flat-token tree.  Neither outcome is carried
 into `traceloom_semantic_tree.macro_discovery` or another queryable support
 surface.
 
-**Required repair.** Preserve the useful exact partial structure, but publish
-its stop reason per device/tree; publish a typed flat-fallback reason on
-grammar rejection or exception.  An empty grammar that reached a real fixpoint
-is not an error.  Tests must distinguish complete fixpoint, size-limited
-partial hierarchy, and fail-closed flat fallback through the augmented DB.
+**Repair in this branch.** Useful exact run-only structure is preserved at the
+size limit, but the tree receives a typed partial-discovery diagnostic.
+Rejected and exceptional grammar runs fail closed to the flat tree with their
+own typed diagnostics. `traceloom_semantic_tree.macro_discovery` now publishes
+`native_report_tree_complete`, `native_report_tree_partial_size_limit`, or the
+corresponding rejected/exception fallback state per tree. A multi-device
+sidecar oracle forces only device 0 through the cap and observes partial versus
+complete status independently in SQL.
 
 ### A9. Bounded-window discovery is not an augmented-DB relation
 
