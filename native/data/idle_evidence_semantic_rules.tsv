@@ -24,6 +24,7 @@ runtime.model_execute	170	task	task_type	exact	MODEL_EXECUTE	runtime_control	Run
 runtime.model_maintaince	170	task	task_type	exact	MODEL_MAINTAINCE	runtime_control	Runtime model maintenance control
 runtime.task_timeout_set	170	task	task_type	exact	TASK_TIMEOUT_SET	runtime_control	Runtime timeout control task
 runtime.profiling_enable	170	task	task_type	exact	PROFILING_ENABLE	runtime_control	Profiling control task
+runtime.profiling_disable	170	task	task_type	exact	PROFILING_DISABLE	runtime_control	Profiling control task
 runtime.hccl_aiv_sync	170	task	blob	contains	hccl_aiv_sync	runtime_control	HCCL internal sync helper
 comm.allreduce	150	task	blob	contains	allreduce	productive_comm	AllReduce collective
 comm.all_reduce	150	task	blob	contains	all_reduce	productive_comm	AllReduce collective

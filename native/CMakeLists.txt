@@ -13,6 +13,7 @@ option(
 set(TRACELOOM_NATIVE_ASCEND_SQLITE_AVAILABLE OFF)
 
 add_library(traceloom_native_core
+  src/analysis/audit_report.cpp
   src/analysis/exact_periodic_suffix.cpp
   src/analysis/flat_anchor_builder.cpp
   src/analysis/idle_explanation.cpp
@@ -931,6 +932,33 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     add_test(
       NAME traceloom_native_idle_evidence_golden_fixture_tests
       COMMAND traceloom_native_idle_evidence_golden_fixture_tests
+    )
+
+    add_executable(traceloom_native_idle_evidence_audit_cli_tests
+      tests/analysis/idle_evidence_audit_cli_tests.cpp
+    )
+    target_link_libraries(
+      traceloom_native_idle_evidence_audit_cli_tests PRIVATE
+      traceloom_native_core
+    )
+    if(TARGET SQLite::SQLite3)
+      target_link_libraries(
+        traceloom_native_idle_evidence_audit_cli_tests PRIVATE SQLite::SQLite3
+      )
+    else()
+      target_include_directories(
+        traceloom_native_idle_evidence_audit_cli_tests
+        PRIVATE ${SQLite3_INCLUDE_DIRS}
+      )
+      target_link_libraries(
+        traceloom_native_idle_evidence_audit_cli_tests
+        PRIVATE ${SQLite3_LIBRARIES}
+      )
+    endif()
+    add_test(
+      NAME traceloom_native_idle_evidence_audit_cli_tests
+      COMMAND traceloom_native_idle_evidence_audit_cli_tests
+        $<TARGET_FILE:traceloom-native-idle-evidence-audit>
     )
 
     add_executable(traceloom_native_sidecar_writer_tests

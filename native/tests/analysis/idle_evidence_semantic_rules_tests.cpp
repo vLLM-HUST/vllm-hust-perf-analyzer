@@ -71,6 +71,9 @@ int main() {
   require(classify("WRITE_VALUE", "write_value").role ==
               SemanticTaskRole::kRuntimeControl,
           "WRITE_VALUE -> runtime_control");
+  require(classify("PROFILING_DISABLE", "profiling_disable").role ==
+              SemanticTaskRole::kRuntimeControl,
+          "PROFILING_DISABLE -> runtime_control");
   require(classify("AI_CORE", "MatMulV2").role ==
               SemanticTaskRole::kProductiveCompute,
           "MatMul blob -> productive_compute");

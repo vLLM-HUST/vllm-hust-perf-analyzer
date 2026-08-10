@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "traceloom/adapters/ascend_sqlite_adapter.h"
+#include "traceloom/analysis/audit_report.h"
 #include "traceloom/analysis/idle_explanation.h"
 #include "traceloom/analysis/idle_evidence_pipeline.h"
 #include "traceloom/analysis/idle_evidence_semantic_rules.h"
@@ -73,13 +74,6 @@ CliOptions parse_args(int argc, char** argv) {
 std::string symbol_text(const traceloom::NativeIr& ir,
                         traceloom::SymbolId id) {
   return id.valid() ? ir.symbols.value(id) : std::string();
-}
-
-// Diagnostics use "<code>: <detail>" free text (E2 style); the code is the
-// part before the first colon.
-std::string diagnostic_code(const std::string& message) {
-  const std::size_t colon = message.find(':');
-  return message.substr(0, colon);
 }
 
 std::string peak_rss_kb() {
@@ -240,6 +234,18 @@ int main(int argc, char** argv) {
                 " | " + std::to_string(device.intervals.size()) + " |\n";
     }
 
+    output += "\n### E2 diagnostics\n\n";
+    output += "| device | code | source_row_id | message |\n";
+    output += "| --- | --- | --- | --- |\n";
+    for (const DeviceTimelineResult& device : timeline.devices) {
+      for (const TimelineDiagnostic& diagnostic : device.diagnostics) {
+        output += "| " + std::to_string(device.device_id) + " | " +
+                  diagnostic_code(diagnostic.message) + " | " +
+                  std::to_string(diagnostic.source_row_id) + " | " +
+                  diagnostic.message + " |\n";
+      }
+    }
+
     output += "\n## Stream state timeline (E3)\n\n";
     output += "- run_status: " +
               std::string(analysis_status_name(streams.status)) + "\n";
@@ -310,6 +316,8 @@ int main(int argc, char** argv) {
       output += "| " + (code.empty() ? "(empty)" : code) + " | " +
                 std::to_string(count) + " |\n";
     }
+
+    append_e3_diagnostic_detail(&output, streams);
 
     output += "\n## Idle explanation (E4, device-only)\n\n";
     output += "- run_status: " +
