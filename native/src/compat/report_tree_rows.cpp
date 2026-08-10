@@ -73,8 +73,13 @@ const char* report_node_type_name(ReportNodeKind kind) {
   return "Unknown";
 }
 
-std::string node_id_for_def(const ReportNodeDef& def) {
-  return "node-" + def.local_node_id;
+std::string node_id_for_def(const ReportNodeDef& def,
+                            std::uint32_t device_id,
+                            bool scope_by_device) {
+  if (!scope_by_device) {
+    return "node-" + def.local_node_id;
+  }
+  return "node-d" + std::to_string(device_id) + "-" + def.local_node_id;
 }
 
 std::uint32_t anchor_idx_for_token(const ReportToken& token) {
@@ -760,13 +765,34 @@ std::vector<ReportToken> build_report_tokens_from_native_ir(
   return tokens;
 }
 
+std::vector<NativeReportDevicePartition> partition_report_tokens_by_device(
+    const NativeIr& ir) {
+  const std::vector<ReportToken> tokens =
+      build_report_tokens_from_native_ir(ir);
+  std::map<std::uint32_t, std::vector<ReportToken>> by_device;
+  for (const ReportToken& token : tokens) {
+    by_device[token.device_id].push_back(token);
+  }
+  std::vector<NativeReportDevicePartition> out;
+  out.reserve(by_device.size());
+  for (auto& item : by_device) {
+    NativeReportDevicePartition partition;
+    partition.device_id = item.first;
+    partition.tokens = std::move(item.second);
+    out.push_back(std::move(partition));
+  }
+  return out;
+}
+
 NodeCoverageSqlRows build_report_tree_node_coverage_sql_rows(
     const ReportTree& tree,
     const std::vector<ReportToken>& tokens,
     std::uint32_t db_idx,
-    std::string view_name) {
+    std::string view_name,
+    bool scope_node_ids_by_device) {
   return build_report_tree_node_coverage_sql_rows(
-      tree, tokens, AuxAttributionSqlRows{}, db_idx, std::move(view_name));
+      tree, tokens, AuxAttributionSqlRows{}, db_idx, std::move(view_name),
+      scope_node_ids_by_device);
 }
 
 NodeCoverageSqlRows build_report_tree_node_coverage_sql_rows(
@@ -774,7 +800,8 @@ NodeCoverageSqlRows build_report_tree_node_coverage_sql_rows(
     const std::vector<ReportToken>& tokens,
     const AuxAttributionSqlRows& aux_rows,
     std::uint32_t db_idx,
-    std::string view_name) {
+    std::string view_name,
+    bool scope_node_ids_by_device) {
   validate_report_tree_or_throw(tree, static_cast<std::uint32_t>(tokens.size()));
 
   NodeCoverageSqlRows rows;
@@ -795,7 +822,7 @@ NodeCoverageSqlRows build_report_tree_node_coverage_sql_rows(
         node_accum.compute_us + node_accum.comm_us + node_accum.idle_us;
 
     VizNodeSqlRow row;
-    row.node_id = node_id_for_def(def);
+    row.node_id = node_id_for_def(def, device_id, scope_node_ids_by_device);
     row.db_idx = db_idx;
     row.device_id = device_id;
     row.view_name = view_name;
@@ -836,7 +863,7 @@ NodeCoverageSqlRows build_report_tree_node_coverage_sql_rows(
 
     if (def.kind == ReportNodeKind::kRepeat) {
       LoopNodeSqlRow loop;
-      loop.node_id = node_id_for_def(def);
+      loop.node_id = node_id_for_def(def, device_id, scope_node_ids_by_device);
       loop.db_idx = db_idx;
       loop.device_id = device_id;
       loop.view_name = view_name;
@@ -863,8 +890,9 @@ NodeCoverageSqlRows build_report_tree_node_coverage_sql_rows(
         node_occurrence(tree, edge.child_occurrence_id);
     const ReportNodeDef& parent_def = node_def(tree, parent.node_def_id);
     const ReportNodeDef& child_def = node_def(tree, child.node_def_id);
-    const std::pair<std::string, std::string> key{node_id_for_def(parent_def),
-                                                  node_id_for_def(child_def)};
+    const std::pair<std::string, std::string> key{
+        node_id_for_def(parent_def, device_id, scope_node_ids_by_device),
+        node_id_for_def(child_def, device_id, scope_node_ids_by_device)};
     if (!seen_edges.insert(key).second) {
       continue;
     }
@@ -894,7 +922,7 @@ NodeCoverageSqlRows build_report_tree_node_coverage_sql_rows(
       const std::string anchor_id = anchor_compat_id(token.anchor_id);
 
       VizNodeAnchorSqlRow row;
-      row.node_id = node_id_for_def(def);
+      row.node_id = node_id_for_def(def, device_id, scope_node_ids_by_device);
       row.anchor_id = anchor_id;
       row.db_idx = db_idx;
       row.device_id = device_id;
@@ -919,7 +947,8 @@ NodeCoverageSqlRows build_report_tree_node_coverage_sql_rows(
           primary_anchor_ids.insert(anchor_id).second) {
         AnchorPrimaryNodeSqlRow primary;
         primary.anchor_id = anchor_id;
-        primary.node_id = node_id_for_def(def);
+        primary.node_id =
+            node_id_for_def(def, device_id, scope_node_ids_by_device);
         primary.db_idx = db_idx;
         primary.device_id = device_id;
         primary.view_name = view_name;
@@ -936,12 +965,32 @@ NodeCoverageSqlRows build_native_report_tree_node_coverage_sql_rows(
     const NativeIr& ir,
     std::uint32_t db_idx,
     std::string view_name) {
-  const std::vector<ReportToken> tokens = build_report_tokens_from_native_ir(ir);
-  const ReportTree tree = build_report_tree_from_tokens(tokens);
+  const std::vector<NativeReportDevicePartition> partitions =
+      partition_report_tokens_by_device(ir);
   const AuxAttributionSqlRows aux_rows =
       build_aux_attribution_sql_rows(ir, db_idx);
-  return build_report_tree_node_coverage_sql_rows(
-      tree, tokens, aux_rows, db_idx, std::move(view_name));
+  const bool scope_node_ids = partitions.size() > 1;
+  NodeCoverageSqlRows rows;
+  for (const NativeReportDevicePartition& partition : partitions) {
+    const ReportTree tree = build_report_tree_from_tokens(partition.tokens);
+    NodeCoverageSqlRows device_rows = build_report_tree_node_coverage_sql_rows(
+        tree, partition.tokens, aux_rows, db_idx, view_name, scope_node_ids);
+    rows.nodes.insert(rows.nodes.end(), device_rows.nodes.begin(),
+                      device_rows.nodes.end());
+    rows.edges.insert(rows.edges.end(), device_rows.edges.begin(),
+                      device_rows.edges.end());
+    rows.loop_nodes.insert(rows.loop_nodes.end(),
+                           device_rows.loop_nodes.begin(),
+                           device_rows.loop_nodes.end());
+    rows.node_anchors.insert(rows.node_anchors.end(),
+                             device_rows.node_anchors.begin(),
+                             device_rows.node_anchors.end());
+    rows.anchor_primary_nodes.insert(
+        rows.anchor_primary_nodes.end(),
+        device_rows.anchor_primary_nodes.begin(),
+        device_rows.anchor_primary_nodes.end());
+  }
+  return rows;
 }
 
 LoopTreeSqlRows split_loop_tree_sql_rows(const NodeCoverageSqlRows& rows) {
@@ -965,10 +1014,11 @@ SemanticTreeSqlRows build_report_tree_semantic_sql_rows(
     const std::vector<ReportToken>& tokens,
     std::uint32_t db_idx,
     std::string tree_id,
-    std::string view_name) {
+    std::string view_name,
+    bool scope_node_ids_by_device) {
   return build_report_tree_semantic_sql_rows(
       tree, tokens, AuxAttributionSqlRows{}, db_idx, std::move(tree_id),
-      std::move(view_name));
+      std::move(view_name), scope_node_ids_by_device);
 }
 
 SemanticTreeSqlRows build_report_tree_semantic_sql_rows(
@@ -977,7 +1027,8 @@ SemanticTreeSqlRows build_report_tree_semantic_sql_rows(
     const AuxAttributionSqlRows& aux_rows,
     std::uint32_t db_idx,
     std::string tree_id,
-    std::string view_name) {
+    std::string view_name,
+    bool scope_node_ids_by_device) {
   validate_report_tree_or_throw(tree, static_cast<std::uint32_t>(tokens.size()));
 
   SemanticTreeSqlRows rows;
@@ -1002,7 +1053,9 @@ SemanticTreeSqlRows build_report_tree_semantic_sql_rows(
   header.auxiliary_attribution =
       aux_rows.aux_links.empty() ? "none" : "native_aux_attribution";
   if (!tree.node_defs.empty()) {
-    header.root_node_id = node_id_for_def(tree.node_defs.front());
+    header.root_node_id =
+        node_id_for_def(tree.node_defs.front(), device_id,
+                        scope_node_ids_by_device);
   }
   rows.trees.push_back(header);
 
@@ -1017,7 +1070,7 @@ SemanticTreeSqlRows build_report_tree_semantic_sql_rows(
     const auto occurrence_found = first_occurrences.find(def.id.value());
 
     SemanticNodeSqlRow row;
-    row.node_id = node_id_for_def(def);
+    row.node_id = node_id_for_def(def, device_id, scope_node_ids_by_device);
     row.tree_id = tree_id;
     row.db_idx = db_idx;
     row.device_id = device_id;
@@ -1064,7 +1117,8 @@ SemanticTreeSqlRows build_report_tree_semantic_sql_rows(
         const ReportNodeOccurrence& parent =
             node_occurrence(tree, occurrence.parent_occurrence_id);
         const ReportNodeDef& parent_def = node_def(tree, parent.node_def_id);
-        row.parent_node_id = node_id_for_def(parent_def);
+        row.parent_node_id =
+            node_id_for_def(parent_def, device_id, scope_node_ids_by_device);
         row.parent_local_node_id = parent_def.local_node_id;
       }
     }
@@ -1079,8 +1133,9 @@ SemanticTreeSqlRows build_report_tree_semantic_sql_rows(
         node_occurrence(tree, edge.child_occurrence_id);
     const ReportNodeDef& parent_def = node_def(tree, parent.node_def_id);
     const ReportNodeDef& child_def = node_def(tree, child.node_def_id);
-    const std::pair<std::string, std::string> key{node_id_for_def(parent_def),
-                                                  node_id_for_def(child_def)};
+    const std::pair<std::string, std::string> key{
+        node_id_for_def(parent_def, device_id, scope_node_ids_by_device),
+        node_id_for_def(child_def, device_id, scope_node_ids_by_device)};
     if (!seen_edges.insert(key).second) {
       continue;
     }
@@ -1105,12 +1160,30 @@ SemanticTreeSqlRows build_native_report_tree_semantic_sql_rows(
     std::uint32_t db_idx,
     std::string tree_id,
     std::string view_name) {
-  const std::vector<ReportToken> tokens = build_report_tokens_from_native_ir(ir);
-  const ReportTree tree = build_report_tree_from_tokens(tokens);
+  const std::vector<NativeReportDevicePartition> partitions =
+      partition_report_tokens_by_device(ir);
   const AuxAttributionSqlRows aux_rows =
       build_aux_attribution_sql_rows(ir, db_idx);
-  return build_report_tree_semantic_sql_rows(
-      tree, tokens, aux_rows, db_idx, std::move(tree_id), std::move(view_name));
+  const bool scope_node_ids = partitions.size() > 1;
+  SemanticTreeSqlRows rows;
+  for (const NativeReportDevicePartition& partition : partitions) {
+    const ReportTree tree = build_report_tree_from_tokens(partition.tokens);
+    const std::string device_tree_id =
+        partitions.size() == 1
+            ? tree_id
+            : tree_id + "-d" + std::to_string(partition.device_id);
+    const SemanticTreeSqlRows device_rows =
+        build_report_tree_semantic_sql_rows(
+            tree, partition.tokens, aux_rows, db_idx, device_tree_id,
+            view_name, scope_node_ids);
+    rows.trees.insert(rows.trees.end(), device_rows.trees.begin(),
+                      device_rows.trees.end());
+    rows.nodes.insert(rows.nodes.end(), device_rows.nodes.begin(),
+                      device_rows.nodes.end());
+    rows.edges.insert(rows.edges.end(), device_rows.edges.begin(),
+                      device_rows.edges.end());
+  }
+  return rows;
 }
 
 std::vector<SemanticTreeHeaderSqlRow> split_semantic_tree_catalog_sql_rows(

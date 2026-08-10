@@ -15,6 +15,23 @@ msprof_output/traceloom/device0_loop_tree_v2.md
 msprof_output/traceloom/device1_loop_tree_v2.md
 ```
 
+The same per-device convention applies when one profiler database contains
+multiple devices (for example an Nsight Systems capture of a DP2 training
+run). TraceLoom partitions the structural report by observed `device_id` and
+writes one independently recovered tree per device:
+
+```text
+profile.db/traceloom/device0_loop_tree_v2.md
+profile.db/traceloom/device1_loop_tree_v2.md
+```
+
+The partition never invents cross-device ordering or TP/training meaning:
+each device keeps its own deterministic linear anchor sequence and cost
+hierarchy, and no structural unit spans devices. `--loop-tree-device-id N`
+selects exactly one device's tree; an explicit `--loop-tree-out PATH` on a
+multi-device database requires that flag, and an unknown device id fails with
+the list of available devices.
+
 The report contains the compressed execution tree, occurrence and repeat
 counts, total wall-clock cost, per-occurrence/per-iteration averages, compute,
 communication, idle, active, auxiliary, and self-cost columns.

@@ -195,7 +195,10 @@ formal nodes so users can query loop structure directly.
 
 Important columns:
 
-- `node_id`: stable TraceLoom node key.
+- `node_id`: stable TraceLoom node key. A database whose report spans one
+  device uses the `node-Nxxx` form; a multi-device database scopes the key by
+  device (`node-d0-N001`, `node-d1-N001`) so SQL joins between the tree
+  tables stay unambiguous and no structural unit can cross devices.
 - `local_node_id`: user-facing node id used inside the readable tree, tree
   JSON, cost tables, and SQL drill-down views, such as `N004`. The same
   `Nxxx` value must name the same node everywhere in one report.
@@ -223,7 +226,11 @@ or JSON report.
 
 Important columns:
 
-- `tree_id`: stable tree key.
+- `tree_id`: stable tree key. A single-device database uses
+  `native-report-tree`; a multi-device database emits one tree per device
+  with device-scoped keys (`native-report-tree-d0`, `native-report-tree-d1`).
+  Every tree row carries the true `device_id` of the device it was recovered
+  from; TraceLoom never stamps a combined tree with device 0.
 - `view_name`: analyzer view, such as `anchor_tree`.
 - `tree_kind`: semantic tree flavor copied from the tree payload.
 - `root_node_id`: root row in `traceloom_semantic_node`.
