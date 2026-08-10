@@ -122,6 +122,20 @@ void ensure_viz_node_anchor_cost_columns(SqliteDb& db) {
   }
 }
 
+void ensure_event_process_context_columns(SqliteDb& db) {
+  static const char* const columns[] = {
+      "profiler_global_pid",
+      "profiler_context_id",
+  };
+  for (const char* column : columns) {
+    if (table_has_column(db.get(), "traceloom_event", column)) {
+      continue;
+    }
+    db.exec(std::string("ALTER TABLE traceloom_event ADD COLUMN ") + column +
+            " INTEGER");
+  }
+}
+
 void bind_text(SqliteStmt& stmt, int column, const std::string& value) {
   const int rc = sqlite3_bind_text(stmt.get(), column, value.c_str(), -1,
                                    SQLITE_TRANSIENT);
@@ -214,7 +228,17 @@ void insert_event_row(SqliteStmt& stmt, const EventSqlRow& row) {
   bind_text(stmt, 19, row.compute_task_type);
   bind_text(stmt, 20, row.family);
   bind_text(stmt, 21, row.task_type);
-  bind_text(stmt, 22, row.raw_json);
+  if (row.profiler_global_pid < 0) {
+    bind_null(stmt, 22);
+  } else {
+    bind_int64(stmt, 22, row.profiler_global_pid);
+  }
+  if (row.profiler_context_id < 0) {
+    bind_null(stmt, 23);
+  } else {
+    bind_int64(stmt, 23, row.profiler_context_id);
+  }
+  bind_text(stmt, 24, row.raw_json);
 
   const int rc = sqlite3_step(stmt.get());
   if (rc != SQLITE_DONE) {
@@ -1864,6 +1888,8 @@ void materialize_compatibility_schema(
       db.exec(sqlite_create_table_sql(schema));
       if (schema.name == "traceloom_viz_node_anchor") {
         ensure_viz_node_anchor_cost_columns(db);
+      } else if (schema.name == "traceloom_event") {
+        ensure_event_process_context_columns(db);
       }
     }
     db.exec("COMMIT");
@@ -2007,9 +2033,10 @@ void replace_event_rows(const std::string& sqlite_path,
         "event_id, db_idx, device_id, step_idx, source_table, source_key, "
         "stream_id, start_ns, end_ns, dur_us, category, role, semantic_role, "
         "semantic_role_reason, symbol, label, raw_label, op_type, "
-        "compute_task_type, family, task_type, raw_json"
+        "compute_task_type, family, task_type, profiler_global_pid, "
+        "profiler_context_id, raw_json"
         ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
-        "?, ?, ?)");
+        "?, ?, ?, ?, ?)");
     for (const EventSqlRow& row : rows.events) {
       insert_event_row(event_stmt, row);
     }
@@ -2056,9 +2083,10 @@ void replace_timeline_rows(const std::string& sqlite_path,
         "event_id, db_idx, device_id, step_idx, source_table, source_key, "
         "stream_id, start_ns, end_ns, dur_us, category, role, semantic_role, "
         "semantic_role_reason, symbol, label, raw_label, op_type, "
-        "compute_task_type, family, task_type, raw_json"
+        "compute_task_type, family, task_type, profiler_global_pid, "
+        "profiler_context_id, raw_json"
         ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
-        "?, ?, ?)");
+        "?, ?, ?, ?, ?)");
     for (const EventSqlRow& row : rows) {
       insert_event_row(event_stmt, row);
     }
@@ -2262,9 +2290,10 @@ void replace_anchor_aux_rows(const std::string& sqlite_path,
         "event_id, db_idx, device_id, step_idx, source_table, source_key, "
         "stream_id, start_ns, end_ns, dur_us, category, role, semantic_role, "
         "semantic_role_reason, symbol, label, raw_label, op_type, "
-        "compute_task_type, family, task_type, raw_json"
+        "compute_task_type, family, task_type, profiler_global_pid, "
+        "profiler_context_id, raw_json"
         ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
-        "?, ?, ?)");
+        "?, ?, ?, ?, ?)");
     for (const EventSqlRow& row : rows.events) {
       insert_event_row(event_stmt, row);
     }
@@ -2718,9 +2747,10 @@ void replace_graph_replay_rows(const std::string& sqlite_path,
         "event_id, db_idx, device_id, step_idx, source_table, source_key, "
         "stream_id, start_ns, end_ns, dur_us, category, role, semantic_role, "
         "semantic_role_reason, symbol, label, raw_label, op_type, "
-        "compute_task_type, family, task_type, raw_json"
+        "compute_task_type, family, task_type, profiler_global_pid, "
+        "profiler_context_id, raw_json"
         ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
-        "?, ?, ?)");
+        "?, ?, ?, ?, ?)");
     for (const EventSqlRow& row : rows.events) {
       insert_event_row(event_stmt, row);
     }

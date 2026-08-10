@@ -393,6 +393,8 @@ int main() {
   event.role = "compute";
   event.semantic_role = "anchor";
   event.symbol = "MatMul";
+  event.profiler_global_pid = 4242;
+  event.profiler_context_id = 7;
   event_rows.events.push_back(event);
   traceloom::compat::EventSourceSqlRow event_source;
   event_source.event_id = event.event_id;
@@ -408,6 +410,14 @@ int main() {
   require(run_scalar_text(db_path,
                           "SELECT symbol FROM traceloom_event "
                           "WHERE event_id = 'event-1'") == "MatMul");
+  require(run_scalar_int(
+              db_path,
+              "SELECT profiler_global_pid FROM traceloom_event "
+              "WHERE event_id = 'event-1'") == 4242);
+  require(run_scalar_int(
+              db_path,
+              "SELECT profiler_context_id FROM traceloom_event "
+              "WHERE event_id = 'event-1'") == 7);
   event_rows.event_sources.clear();
   traceloom::compat::replace_event_rows(db_path, event_rows);
   require(run_scalar_int(db_path,

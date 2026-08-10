@@ -37,6 +37,8 @@ struct EventSqlRow {
   std::string compute_task_type;
   std::string family;
   std::string task_type;
+  std::int64_t profiler_global_pid = -1;
+  std::int64_t profiler_context_id = -1;
   std::string raw_json;
 };
 
