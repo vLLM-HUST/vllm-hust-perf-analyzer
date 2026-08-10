@@ -67,7 +67,8 @@ int main() {
   require(json.find("\"AdjacentRunProducer\"") != std::string::npos);
   require(json.find("\"PairGrammarProducer\"") != std::string::npos);
   require(json.find("\"NativeMacroRunProducer\"") != std::string::npos);
-  require(json.find("\"generic_repeated_block_skipped_native_v1\"") !=
+  require(json.find("\"ExactRepeatedBlockProducer\"") != std::string::npos);
+  require(json.find("generic_repeated_block_skipped_native_v1") ==
           std::string::npos);
   require(json.find("\"stop_reason\": \"done\"") != std::string::npos);
   require(json.find("\"producer\": \"PairGrammarProducer\"") !=

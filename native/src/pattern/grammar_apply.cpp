@@ -181,11 +181,15 @@ std::vector<SymbolId> rhs_for_action(const GrammarGlobalAction& action) {
   if (action.kind == GrammarActionKind::kReplacePair) {
     return {action.key.symbol_id, action.key.second_symbol_id};
   }
+  if (action.kind == GrammarActionKind::kReplaceRepeatedBlock) {
+    return action.block_rhs_symbols;
+  }
   return std::vector<SymbolId>(action.key.run_len, action.key.symbol_id);
 }
 
 MacroLevel macro_level_for_action(const GrammarGlobalAction& action) {
-  if (action.kind == GrammarActionKind::kReplacePair) {
+  if (action.kind == GrammarActionKind::kReplacePair ||
+      action.kind == GrammarActionKind::kReplaceRepeatedBlock) {
     return MacroLevel::kRP;
   }
   return MacroLevel::kLP;
@@ -199,6 +203,8 @@ GrammarCommitPlan revalidate_plan(const GrammarSnapshot& snapshot,
       return build_pair_grammar_commit_plan(snapshot, action);
     case GrammarActionKind::kCompressMaximalRuns:
       return build_native_macro_run_commit_plan(snapshot, action);
+    case GrammarActionKind::kReplaceRepeatedBlock:
+      return build_exact_repeated_block_commit_plan(snapshot, action);
     case GrammarActionKind::kReplaceExactRuns:
       return build_adjacent_run_commit_plan(snapshot, action);
   }
@@ -291,22 +297,49 @@ GrammarApplyResult apply_validated_commit_plan(
   MacroDefId macro_def_id = MacroDefId::invalid();
   SymbolId macro_symbol_id = SymbolId::invalid();
   std::vector<ReplacementMacroAssignment> macro_run_assignments;
+  const bool repeated_block =
+      expected_kind == GrammarActionKind::kReplaceRepeatedBlock;
   if (expected_kind == GrammarActionKind::kCompressMaximalRuns) {
     macro_run_assignments = allocate_macro_run_assignments(next, plan);
   } else {
     macro_def_id = checked_next_id<MacroDefId>(next.macro_defs.size());
     macro_symbol_id = allocate_macro_symbol(next);
     std::vector<SymbolId> rhs_symbols = rhs_for_action(plan.action);
+    const std::size_t replace_count = plan.replacement_spans.size();
+    const std::ptrdiff_t gain =
+        repeated_block
+            ? static_cast<std::ptrdiff_t>(replace_count *
+                                          (rhs_symbols.size() - 1))
+            : static_cast<std::ptrdiff_t>(plan.action.gain);
     next.macro_defs.push_back(MacroDefRow{
         macro_def_id,
         macro_symbol_id,
         macro_level_for_action(plan.action),
         rhs_symbols,
         rhs_symbols.size(),
-        plan.replacement_spans.size(),
-        static_cast<std::ptrdiff_t>(plan.action.gain),
+        replace_count,
+        gain,
         plan.action.first_dense_index,
         ""});
+    if (repeated_block) {
+      // Outer uniform LP macro: [block] x repeat_count, rendered as a Repeat
+      // node whose body is the (transparent) block macro.
+      const SymbolId block_symbol_id = macro_symbol_id;
+      macro_def_id = checked_next_id<MacroDefId>(next.macro_defs.size());
+      macro_symbol_id = allocate_macro_symbol(next);
+      std::vector<SymbolId> repeat_rhs(plan.action.repeat_count,
+                                       block_symbol_id);
+      next.macro_defs.push_back(MacroDefRow{
+          macro_def_id,
+          macro_symbol_id,
+          MacroLevel::kLP,
+          repeat_rhs,
+          repeat_rhs.size(),
+          1,
+          static_cast<std::ptrdiff_t>(plan.action.repeat_count - 1),
+          0,
+          ""});
+    }
   }
 
   std::vector<GrammarNode> rewritten_nodes;
@@ -314,9 +347,37 @@ GrammarApplyResult apply_validated_commit_plan(
   std::size_t replacement_index = 0;
   std::size_t dense_index = 0;
   while (dense_index < snapshot.nodes.size()) {
+    if (repeated_block && replacement_index == 0 &&
+        dense_index ==
+            plan.replacement_spans[0].begin_dense_index) {
+      const GrammarReplacementSpan& first_span =
+          plan.replacement_spans.front();
+      const GrammarReplacementSpan& last_span =
+          plan.replacement_spans.back();
+      rewritten_nodes.push_back(GrammarNode{
+          GrammarNodeId::invalid(),
+          macro_symbol_id,
+          macro_def_id,
+          first_span.source_begin_token_index,
+          last_span.source_end_token_index_exclusive,
+          first_span.start_ns,
+          last_span.end_ns,
+          GrammarChunkId::invalid(),
+          GrammarNodeId::invalid(),
+          GrammarNodeId::invalid(),
+          true});
+      dense_index = last_span.end_dense_index_exclusive;
+      replacement_index = plan.replacement_spans.size();
+      continue;
+    }
     if (replacement_index < plan.replacement_spans.size() &&
         dense_index ==
             plan.replacement_spans[replacement_index].begin_dense_index) {
+      if (repeated_block) {
+        reject(result,
+               GrammarApplyDiagnosticCode::kCommitPlanRevalidationFailed);
+        return result;
+      }
       const GrammarReplacementSpan& span =
           plan.replacement_spans[replacement_index];
       MacroDefId replacement_macro_def_id = macro_def_id;
@@ -424,6 +485,13 @@ GrammarApplyResult apply_native_macro_run_commit_plan(
     const GrammarCommitPlan& plan) {
   return apply_validated_commit_plan(state, plan,
                                      GrammarActionKind::kCompressMaximalRuns);
+}
+
+GrammarApplyResult apply_exact_repeated_block_commit_plan(
+    GlobalGrammarState& state,
+    const GrammarCommitPlan& plan) {
+  return apply_validated_commit_plan(state, plan,
+                                     GrammarActionKind::kReplaceRepeatedBlock);
 }
 
 }  // namespace traceloom

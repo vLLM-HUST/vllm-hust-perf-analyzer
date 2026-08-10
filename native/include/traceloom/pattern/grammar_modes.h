@@ -24,4 +24,9 @@ const char* grammar_algorithm_mode_name(GrammarAlgorithmMode mode);
 GrammarAlgorithmMetadata default_grammar_metadata(
     GrammarAlgorithmMode mode = GrammarAlgorithmMode::kAnalysisQualityV1);
 
+// Whether the native engine executes the exact repeated-block producer for
+// the given algorithm mode. kPythonCompatWithoutRepeatedBlock is the only
+// mode that must not execute it (and keeps its declared known delta).
+bool grammar_mode_enables_exact_repeated_block(GrammarAlgorithmMode mode);
+
 }  // namespace traceloom
