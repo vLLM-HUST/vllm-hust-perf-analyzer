@@ -8,11 +8,12 @@ For one database, TraceLoom writes:
 PROF_.../traceloom/loop_tree_v2.md
 ```
 
-For a profiler directory containing multiple device databases:
+For a profiler directory containing multiple databases (one report per
+database):
 
 ```text
-msprof_output/traceloom/device0_loop_tree_v2.md
-msprof_output/traceloom/device1_loop_tree_v2.md
+msprof_output/traceloom/db01_loop_tree_v2.md
+msprof_output/traceloom/db02_loop_tree_v2.md
 ```
 
 The same per-device convention applies when one profiler database contains
@@ -30,7 +31,22 @@ each device keeps its own deterministic linear anchor sequence and cost
 hierarchy, and no structural unit spans devices. `--loop-tree-device-id N`
 selects exactly one device's tree; an explicit `--loop-tree-out PATH` on a
 multi-device database requires that flag, and an unknown device id fails with
-the list of available devices.
+the list of available devices. When several multi-device databases are
+discovered in one directory, default filenames include both the database
+identity and the device id so reports never collide:
+
+```text
+msprof_output/traceloom/db01_device0_loop_tree_v2.md
+msprof_output/traceloom/db01_device1_loop_tree_v2.md
+msprof_output/traceloom/db02_device0_loop_tree_v2.md
+msprof_output/traceloom/db02_device1_loop_tree_v2.md
+```
+
+Provider gating: CUDA and Hygon databases emit one tree per device by
+default. Ascend Loop Tree idle evidence is currently scoped to one device, so
+an Ascend database containing more than one device refuses default
+multi-device emission and requires `--loop-tree-device-id N` to render one
+device's tree.
 
 The report contains the compressed execution tree, occurrence and repeat
 counts, total wall-clock cost, per-occurrence/per-iteration averages, compute,

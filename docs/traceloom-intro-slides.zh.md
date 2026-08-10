@@ -70,8 +70,8 @@ build/native/native/traceloom /path/to/msprof_raw
 
 ```text
 /path/to/msprof_raw/traceloom/
-  device0_loop_tree_v2.md
-  device1_loop_tree_v2.md
+  db01_loop_tree_v2.md
+  db02_loop_tree_v2.md
 ```
 
 推荐读法：从 `tree-map.md` 复制 node id，例如 `N060`，再用 SQL 查询对应区间里的事件和成本构成。

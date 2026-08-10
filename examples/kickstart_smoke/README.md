@@ -44,7 +44,8 @@ TraceLoom writes the analysis back into:
 examples/kickstart_smoke/msprof_raw/traceloom/
 ```
 
-Open `device0_loop_tree_v2.md` and `device1_loop_tree_v2.md` first.
+Open `db01_loop_tree_v2.md` (device 0) and `db02_loop_tree_v2.md` (device 1)
+first.
 
 ## What To Look For
 
