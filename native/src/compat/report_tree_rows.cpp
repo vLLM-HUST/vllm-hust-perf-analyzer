@@ -784,6 +784,37 @@ std::vector<NativeReportDevicePartition> partition_report_tokens_by_device(
   return out;
 }
 
+std::map<ReplayUnitId::value_type, std::uint32_t> replay_unit_device_map(
+    const NativeIr& ir) {
+  std::map<ReplayUnitId::value_type, std::uint32_t> unit_devices;
+  for (const ReplayUnitRow& unit : ir.replay_units.rows()) {
+    const AnchorId first = unit.first_anchor_id;
+    const AnchorId last = unit.last_anchor_id;
+    if (!first.valid() && !last.valid()) {
+      continue;
+    }
+    auto bound_device = [&ir](AnchorId bound) -> std::uint32_t {
+      if (bound.value() >= ir.anchors.size()) {
+        throw std::invalid_argument(
+            "ReplayUnitRow anchor bound is out of range");
+      }
+      return ir.anchors.row(bound).device_id;
+    };
+    const std::uint32_t first_device =
+        first.valid() ? bound_device(first) : 0;
+    const std::uint32_t last_device =
+        last.valid() ? bound_device(last) : 0;
+    if (first.valid() && last.valid() && first_device != last_device) {
+      throw std::invalid_argument(
+          "ReplayUnitRow anchor bounds span devices; cross-device replay "
+          "evidence is unsupported in device reports");
+    }
+    unit_devices.emplace(unit.id.value(),
+                         first.valid() ? first_device : last_device);
+  }
+  return unit_devices;
+}
+
 NodeCoverageSqlRows build_report_tree_node_coverage_sql_rows(
     const ReportTree& tree,
     const std::vector<ReportToken>& tokens,

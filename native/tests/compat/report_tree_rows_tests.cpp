@@ -4,6 +4,7 @@
 #include "traceloom/report/report_tree_builder.h"
 #include "traceloom/testing/test_util.h"
 
+#include <map>
 #include <set>
 #include <stdexcept>
 #include <vector>
@@ -517,6 +518,97 @@ int main() {
   }
   require(rejected_cross_device_interval,
           "cross-device protected intervals must fail closed");
+
+  // ---- Replay-unit device attribution validates every present anchor
+  // bound. A unit whose bounds disagree on device ownership, or whose
+  // previously-unchecked bound is out of range, must fail closed instead of
+  // being misattributed to the first checked bound.
+  NativeIr disagree_ir;
+  const SourceRefId disagree_source =
+      disagree_ir.source_refs.append("fixture", "disagree_bounds", "TASK", 0);
+  const SymbolId disagree_symbol = disagree_ir.symbols.intern("MatMul");
+  const TraceEventId disagree_event0 = disagree_ir.trace_events.append(
+      disagree_source, 1, 0, 3, 0, 100, disagree_symbol);
+  const TraceEventId disagree_event1 = disagree_ir.trace_events.append(
+      disagree_source, 2, 1, 3, 200, 300, disagree_symbol);
+  const AnchorId disagree_anchor0 = disagree_ir.anchors.append(
+      disagree_source, disagree_event0, ReplayUnitId::invalid(),
+      AnchorKind::kDeviceEvent, disagree_symbol, 0, 3, 0, 100);
+  const AnchorId disagree_anchor1 = disagree_ir.anchors.append(
+      disagree_source, disagree_event1, ReplayUnitId::invalid(),
+      AnchorKind::kDeviceEvent, disagree_symbol, 1, 3, 200, 300);
+  const ReplayUnitId disagree_unit = disagree_ir.replay_units.append(
+      GraphTemplateId::invalid(), disagree_source, disagree_anchor0,
+      disagree_anchor1, TraceEventId::invalid());
+  (void)disagree_unit;
+  bool rejected_disagreeing_bounds = false;
+  try {
+    (void)compat::replay_unit_device_map(disagree_ir);
+  } catch (const std::invalid_argument&) {
+    rejected_disagreeing_bounds = true;
+  }
+  require(rejected_disagreeing_bounds,
+          "replay unit with device-disagreeing anchor bounds must fail "
+          "closed");
+
+  // The unchecked direction: first bound in range, second bound out of
+  // range. The old attribution selected the first valid bound and never
+  // looked at the second, so this must now fail closed.
+  NativeIr unused_bound_ir;
+  const SourceRefId unused_bound_source = unused_bound_ir.source_refs.append(
+      "fixture", "unused_bound", "TASK", 0);
+  const SymbolId unused_bound_symbol =
+      unused_bound_ir.symbols.intern("MatMul");
+  const TraceEventId unused_bound_event0 = unused_bound_ir.trace_events.append(
+      unused_bound_source, 1, 0, 3, 0, 100, unused_bound_symbol);
+  const AnchorId unused_bound_anchor0 = unused_bound_ir.anchors.append(
+      unused_bound_source, unused_bound_event0, ReplayUnitId::invalid(),
+      AnchorKind::kDeviceEvent, unused_bound_symbol, 0, 3, 0, 100);
+  unused_bound_ir.replay_units.append(
+      GraphTemplateId::invalid(), unused_bound_source, unused_bound_anchor0,
+      AnchorId(99), TraceEventId::invalid());
+  bool rejected_unused_bound_out_of_range = false;
+  try {
+    (void)compat::replay_unit_device_map(unused_bound_ir);
+  } catch (const std::invalid_argument&) {
+    rejected_unused_bound_out_of_range = true;
+  }
+  require(rejected_unused_bound_out_of_range,
+          "replay unit with an out-of-range second anchor bound must fail "
+          "closed");
+
+  // Well-formed units are attributed to their bound device, and units with
+  // no valid bound are left unclaimed for the caller's fallback.
+  NativeIr well_formed_ir;
+  const SourceRefId well_formed_source = well_formed_ir.source_refs.append(
+      "fixture", "well_formed_bounds", "TASK", 0);
+  const SymbolId well_formed_symbol =
+      well_formed_ir.symbols.intern("MatMul");
+  const TraceEventId well_formed_event0 =
+      well_formed_ir.trace_events.append(
+          well_formed_source, 1, 0, 3, 0, 100, well_formed_symbol);
+  const TraceEventId well_formed_event1 =
+      well_formed_ir.trace_events.append(
+          well_formed_source, 2, 0, 3, 200, 300, well_formed_symbol);
+  const AnchorId well_formed_anchor0 = well_formed_ir.anchors.append(
+      well_formed_source, well_formed_event0, ReplayUnitId::invalid(),
+      AnchorKind::kDeviceEvent, well_formed_symbol, 0, 3, 0, 100);
+  const AnchorId well_formed_anchor1 = well_formed_ir.anchors.append(
+      well_formed_source, well_formed_event1, ReplayUnitId::invalid(),
+      AnchorKind::kDeviceEvent, well_formed_symbol, 0, 3, 200, 300);
+  const ReplayUnitId well_formed_unit = well_formed_ir.replay_units.append(
+      GraphTemplateId::invalid(), well_formed_source, well_formed_anchor0,
+      well_formed_anchor1, TraceEventId::invalid());
+  const ReplayUnitId unclaimed_unit = well_formed_ir.replay_units.append(
+      GraphTemplateId::invalid(), well_formed_source, AnchorId::invalid(),
+      AnchorId::invalid(), TraceEventId::invalid());
+  const std::map<ReplayUnitId::value_type, std::uint32_t> well_formed_devices =
+      compat::replay_unit_device_map(well_formed_ir);
+  require(well_formed_devices.at(well_formed_unit.value()) == 0,
+          "well-formed replay unit attributed to its bound device");
+  require(well_formed_devices.find(unclaimed_unit.value()) ==
+              well_formed_devices.end(),
+          "bound-less replay unit stays unclaimed");
 
   // ---- Grammar-enabled multi-device recovery with a same-device protected
   // replay interval. The per-device IR projection must remap TokenIds to a
