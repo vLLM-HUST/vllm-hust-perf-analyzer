@@ -226,8 +226,27 @@ int main() {
           "analysis_quality_v1");
   require(has_value(state.metadata.producer_sequence, "AdjacentRunProducer"));
   require(has_value(state.metadata.producer_sequence, "PairGrammarProducer"));
-  require(has_value(state.metadata.known_deltas,
-                    "generic_repeated_block_skipped_native_v1"));
+  require(has_value(state.metadata.producer_sequence,
+                    "ExactRepeatedBlockProducer"));
+  require(has_value(state.metadata.producer_sequence,
+                    "NativeMacroRunProducer"));
+  require(state.metadata.known_deltas.empty(),
+          "analysis_quality_v1 no longer skips exact repeated blocks");
+  const std::vector<std::string> expected_analysis_producers = {
+      "ExactRepeatedBlockProducer",
+      "AdjacentRunProducer",
+      "PairGrammarProducer",
+      "NativeMacroRunProducer",
+  };
+  require(state.metadata.producer_sequence == expected_analysis_producers,
+          "analysis_quality_v1 producer order matches native execution");
+  require(grammar_mode_enables_exact_repeated_block(
+              GrammarAlgorithmMode::kAnalysisQualityV1) == true);
+  require(grammar_mode_enables_exact_repeated_block(
+              GrammarAlgorithmMode::kPythonCompatFull) == true);
+  require(grammar_mode_enables_exact_repeated_block(
+              GrammarAlgorithmMode::kPythonCompatWithoutRepeatedBlock) ==
+          false);
 
   require(state.nodes[0].local_prev == GrammarNodeId::invalid());
   require(state.nodes[0].local_next == GrammarNodeId(1));
@@ -317,6 +336,7 @@ int main() {
           "semantic seed rhs size");
   require(exact_state.macro_defs[0].replace_count == 4,
           "semantic seed replace count");
+  const SymbolId semantic_symbol_id = exact_state.macro_defs[0].symbol_id;
   require(exact_state.nodes[0].source_begin_token_index == 0 &&
               exact_state.nodes[0].source_end_token_index_exclusive == 3 &&
               exact_state.nodes[2].source_begin_token_index == 4 &&
@@ -330,6 +350,28 @@ int main() {
           "semantic grammar engine stage");
   require(exact_state.live_node_count == 1,
           "semantic grammar outer repeat compression");
+  bool saw_semantic_block_action = false;
+  for (const GrammarEngineStep& step : exact_result.steps) {
+    if (step.round_status == GrammarRoundStatus::kActionSelected &&
+        step.producer_id == GrammarProducerId::kExactRepeatedBlock) {
+      saw_semantic_block_action = true;
+    }
+  }
+  require(saw_semantic_block_action,
+          "semantic-seeded repeated block folds already-macro symbols");
+  require(exact_state.macro_defs.size() == 3,
+          "semantic repeated block keeps seed plus block and repeat defs");
+  require(exact_state.macro_defs[1].level == MacroLevel::kRP,
+          "semantic repeated block body level");
+  require(exact_state.macro_defs[1].rhs_symbols.size() == 2 &&
+              exact_state.macro_defs[1].rhs_symbols[0] ==
+                  semantic_symbol_id,
+          "semantic repeated block body starts with the semantic symbol");
+  require(exact_state.macro_defs[1].replace_count == 4,
+          "semantic repeated block replace count");
+  require(exact_state.macro_defs[2].level == MacroLevel::kLP &&
+              exact_state.macro_defs[2].rhs_symbols.size() == 4,
+          "semantic repeated block outer uniform repeat");
   const ReportTree exact_tree = build_report_tree_from_grammar_state(
       report_tokens_for_ir(exact_ir), exact_state);
   const auto semantic_def = std::find_if(

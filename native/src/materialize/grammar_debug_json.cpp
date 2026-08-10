@@ -88,6 +88,8 @@ const char* grammar_action_kind_name(GrammarActionKind kind) {
       return "replace_pair";
     case GrammarActionKind::kCompressMaximalRuns:
       return "compress_maximal_runs";
+    case GrammarActionKind::kReplaceRepeatedBlock:
+      return "replace_repeated_block";
   }
   return "unknown";
 }

@@ -204,6 +204,8 @@ const char* grammar_producer_id_name(GrammarProducerId producer_id) {
       return "PairGrammarProducer";
     case GrammarProducerId::kNativeMacroRun:
       return "NativeMacroRunProducer";
+    case GrammarProducerId::kExactRepeatedBlock:
+      return "ExactRepeatedBlockProducer";
   }
   return "unknown";
 }
@@ -480,6 +482,131 @@ GrammarRoundResult run_native_macro_run_readonly_round(
   }
   std::sort(result.action.occurrences.begin(),
             result.action.occurrences.end(), occurrence_less);
+  return result;
+}
+
+GrammarRoundResult run_exact_repeated_block_readonly_round(
+    const GlobalGrammarState& state) {
+  const GrammarSnapshot snapshot = freeze_grammar_snapshot(state);
+  const DenseGrammarView dense = build_dense_grammar_view(snapshot);
+  const std::vector<std::size_t> worker_by_chunk =
+      build_worker_by_chunk(snapshot);
+
+  GrammarRoundResult result;
+  result.status = GrammarRoundStatus::kStop;
+  result.snapshot_generation = snapshot.generation;
+  result.producer_id = GrammarProducerId::kExactRepeatedBlock;
+
+  const std::size_t worker_count = worker_count_from_chunks(snapshot);
+  result.local_outputs.reserve(worker_count);
+  for (std::size_t worker_id = 0; worker_id < worker_count; ++worker_id) {
+    result.local_outputs.push_back(GrammarLocalMapOutput{worker_id, {}, {}});
+  }
+  for (const GrammarChunk& chunk : snapshot.chunks) {
+    result.local_outputs[chunk.owner_worker_id].chunk_ids.push_back(chunk.id);
+  }
+
+  const std::size_t sequence_len = dense.size();
+  if (sequence_len < 4 ||
+      sequence_len > state.metadata.full_discovery_cap) {
+    return result;
+  }
+
+  // Deterministic exact tiling discovery: scan block lengths ascending and
+  // pick the smallest length that tiles the entire live sequence exactly with
+  // exact symbol equality. The chosen block is required to be non-uniform
+  // (contain at least two distinct symbols): uniform runs are owned by the
+  // adjacent-run producer, which yields maximal runs for them. For non-uniform
+  // input the smallest tiling length is the primitive multi-symbol block
+  // (the minimal period of the pure power), so the choice is unique and
+  // maximizes the repeat count.
+  std::size_t block_len = 0;
+  for (std::size_t len = 2; len * 2 <= sequence_len; ++len) {
+    if (sequence_len % len != 0) {
+      continue;
+    }
+    bool non_uniform = false;
+    for (std::size_t index = 1; index < len; ++index) {
+      if (dense.symbols[index] != dense.symbols[0]) {
+        non_uniform = true;
+        break;
+      }
+    }
+    if (!non_uniform) {
+      continue;
+    }
+    bool tiles = true;
+    for (std::size_t index = 0; index < sequence_len && tiles; ++index) {
+      if (dense.symbols[index] != dense.symbols[index % len]) {
+        tiles = false;
+      }
+    }
+    if (tiles) {
+      block_len = len;
+      break;
+    }
+  }
+  if (block_len == 0) {
+    return result;
+  }
+
+  const std::size_t repeat_count = sequence_len / block_len;
+  const GrammarCandidateKey key{
+      GrammarProducerId::kExactRepeatedBlock,
+      dense.symbols[0], SymbolId::invalid(), block_len};
+
+  std::vector<SymbolId> block_symbols;
+  block_symbols.reserve(block_len);
+  for (std::size_t index = 0; index < block_len; ++index) {
+    block_symbols.push_back(dense.symbols[index]);
+  }
+
+  for (std::size_t repetition = 0; repetition < repeat_count; ++repetition) {
+    const std::size_t begin = repetition * block_len;
+    const std::size_t end = begin + block_len;
+    const GrammarSnapshotNode& begin_node = snapshot.nodes[begin];
+    const GrammarSnapshotNode& last_node = snapshot.nodes[end - 1];
+    if (!begin_node.owner_chunk_id.valid() ||
+        begin_node.owner_chunk_id.value() >= worker_by_chunk.size()) {
+      throw std::invalid_argument(
+          "grammar repeated-block occurrence has invalid owner chunk");
+    }
+    const std::size_t owner_worker_id =
+        worker_by_chunk[begin_node.owner_chunk_id.value()];
+    GrammarCandidateOccurrence occurrence;
+    occurrence.key = key;
+    occurrence.begin_node_id = dense.node_ids[begin];
+    occurrence.last_node_id = dense.node_ids[end - 1];
+    occurrence.begin_dense_index = begin;
+    occurrence.end_dense_index_exclusive = end;
+    occurrence.start_ns = dense.start_ns[begin];
+    occurrence.end_ns = dense.end_ns[end - 1];
+    occurrence.owner_chunk_id = begin_node.owner_chunk_id;
+    occurrence.owner_worker_id = owner_worker_id;
+    occurrence.crosses_chunk_boundary =
+        begin_node.owner_chunk_id != last_node.owner_chunk_id;
+    result.local_outputs[owner_worker_id].occurrences.push_back(occurrence);
+    result.occurrences.push_back(occurrence);
+  }
+
+  result.candidate_stats.push_back(GrammarCandidateStats{
+      key,
+      repeat_count,
+      0,
+      repeat_count * block_len - 1,
+      block_len});
+
+  result.status = GrammarRoundStatus::kActionSelected;
+  result.action.kind = GrammarActionKind::kReplaceRepeatedBlock;
+  result.action.snapshot_generation = snapshot.generation;
+  result.action.key = key;
+  result.action.block_rhs_symbols = std::move(block_symbols);
+  result.action.repeat_count = repeat_count;
+  result.action.replace_count = repeat_count;
+  result.action.gain = repeat_count * block_len - 1;
+  result.action.first_dense_index = 0;
+  result.action.max_run_len = block_len;
+  result.action.occurrences = result.occurrences;
   return result;
 }
 

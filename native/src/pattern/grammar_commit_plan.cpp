@@ -106,6 +106,28 @@ bool span_matches_action(const GrammarSnapshot& snapshot,
     }
     return true;
   }
+  if (action.kind == GrammarActionKind::kReplaceRepeatedBlock) {
+    if (occurrence.end_dense_index_exclusive - occurrence.begin_dense_index !=
+        action.key.run_len) {
+      return false;
+    }
+    if (action.key.run_len != action.block_rhs_symbols.size()) {
+      return false;
+    }
+    if (action.repeat_count < 2 ||
+        action.repeat_count != action.occurrences.size()) {
+      return false;
+    }
+    for (std::size_t dense_index = occurrence.begin_dense_index;
+         dense_index < occurrence.end_dense_index_exclusive; ++dense_index) {
+      if (snapshot.nodes[dense_index].symbol_id !=
+          action.block_rhs_symbols[dense_index -
+                                   occurrence.begin_dense_index]) {
+        return false;
+      }
+    }
+    return true;
+  }
   if (occurrence.end_dense_index_exclusive - occurrence.begin_dense_index !=
       action.key.run_len) {
     return false;
@@ -185,9 +207,35 @@ GrammarCommitPlan build_commit_plan_for_action(
 
   std::size_t previous_end = 0;
   bool has_previous = false;
+  const bool repeated_block =
+      action.kind == GrammarActionKind::kReplaceRepeatedBlock;
   for (std::size_t index = 0; index < occurrences.size(); ++index) {
     const GrammarCandidateOccurrence& occurrence = occurrences[index];
     if (!span_matches_action(snapshot, action, occurrence)) {
+      reject(plan, GrammarCommitDiagnostic{
+                       GrammarCommitDiagnosticCode::kReplacementSpanMismatch,
+                       index, ProtectedIntervalId::invalid(),
+                       BoundaryViolationKind::kNone});
+      continue;
+    }
+    if (repeated_block && index == 0 &&
+        occurrence.begin_dense_index != 0) {
+      reject(plan, GrammarCommitDiagnostic{
+                       GrammarCommitDiagnosticCode::kReplacementSpanMismatch,
+                       index, ProtectedIntervalId::invalid(),
+                       BoundaryViolationKind::kNone});
+      continue;
+    }
+    if (repeated_block && index + 1 == occurrences.size() &&
+        occurrence.end_dense_index_exclusive != snapshot.nodes.size()) {
+      reject(plan, GrammarCommitDiagnostic{
+                       GrammarCommitDiagnosticCode::kReplacementSpanMismatch,
+                       index, ProtectedIntervalId::invalid(),
+                       BoundaryViolationKind::kNone});
+      continue;
+    }
+    if (repeated_block && has_previous &&
+        occurrence.begin_dense_index != previous_end) {
       reject(plan, GrammarCommitDiagnostic{
                        GrammarCommitDiagnosticCode::kReplacementSpanMismatch,
                        index, ProtectedIntervalId::invalid(),
@@ -222,6 +270,25 @@ GrammarCommitPlan build_commit_plan_for_action(
 
   if (!plan.diagnostics.empty()) {
     plan.replacement_spans.clear();
+  } else if (repeated_block && !plan.replacement_spans.empty()) {
+    // The repeated-block action folds all spans into one outer macro whose
+    // union span is [first, last). Validate that union span against protected
+    // intervals as well: per-block checks alone would allow an outer macro to
+    // enclose or straddle a kNoCross interval that each individual block span
+    // exactly covers or misses.
+    const GrammarReplacementSpan& first_span = plan.replacement_spans.front();
+    const GrammarReplacementSpan& last_span = plan.replacement_spans.back();
+    const BoundaryViolation outer_violation = first_span_violation(
+        snapshot.protected_intervals, first_span.source_begin_token_index,
+        last_span.source_end_token_index_exclusive);
+    if (outer_violation.valid()) {
+      reject(plan,
+             GrammarCommitDiagnostic{
+                 GrammarCommitDiagnosticCode::kProtectedIntervalViolation,
+                 plan.replacement_spans.size() - 1,
+                 outer_violation.protected_interval_id, outer_violation.kind});
+      plan.replacement_spans.clear();
+    }
   }
   return plan;
 }
@@ -268,6 +335,22 @@ GrammarCommitPlan build_native_macro_run_commit_plan(
     const GrammarGlobalAction& action) {
   if (action.kind != GrammarActionKind::kCompressMaximalRuns ||
       action.key.producer_id != GrammarProducerId::kNativeMacroRun) {
+    return rejected_plan_for_action(snapshot, action);
+  }
+  return build_commit_plan_for_action(snapshot, action);
+}
+
+GrammarCommitPlan build_exact_repeated_block_commit_plan(
+    const GrammarSnapshot& snapshot,
+    const GrammarGlobalAction& action) {
+  if (action.kind != GrammarActionKind::kReplaceRepeatedBlock ||
+      action.key.producer_id != GrammarProducerId::kExactRepeatedBlock) {
+    return rejected_plan_for_action(snapshot, action);
+  }
+  if (action.key.run_len < 2 ||
+      action.key.run_len != action.block_rhs_symbols.size() ||
+      action.repeat_count < 2 ||
+      action.repeat_count != action.occurrences.size()) {
     return rejected_plan_for_action(snapshot, action);
   }
   return build_commit_plan_for_action(snapshot, action);

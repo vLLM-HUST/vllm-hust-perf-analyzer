@@ -173,5 +173,104 @@ int main() {
   require(blocked_plan.diagnostics[0].boundary_violation_kind ==
           BoundaryViolationKind::kAmbiguousIntervalBlocksCandidate);
 
+  GlobalGrammarState block_state =
+      make_state({"A", "B", "C", "D", "A", "B", "C", "D",
+                  "A", "B", "C", "D"});
+  const GrammarSnapshot block_snapshot = freeze_grammar_snapshot(block_state);
+  const GrammarRoundResult block_round =
+      run_exact_repeated_block_readonly_round(block_state);
+  const GrammarCommitPlan block_plan =
+      build_exact_repeated_block_commit_plan(block_snapshot, block_round.action);
+  require(block_plan.valid());
+  require(block_plan.replacement_spans.size() == 3);
+  require(block_plan.replacement_spans[0].begin_dense_index == 0);
+  require(block_plan.replacement_spans[0].end_dense_index_exclusive == 4);
+  require(block_plan.replacement_spans[0].source_begin_token_index == 0);
+  require(block_plan.replacement_spans[0].source_end_token_index_exclusive == 4);
+  require(block_plan.replacement_spans[2].begin_dense_index == 8);
+  require(block_plan.replacement_spans[2].end_dense_index_exclusive == 12);
+
+  GrammarGlobalAction shifted_block = block_round.action;
+  shifted_block.occurrences[1].begin_dense_index = 5;
+  shifted_block.occurrences[1].begin_node_id =
+      block_snapshot.nodes[5].node_id;
+  const GrammarCommitPlan shifted_block_plan =
+      build_exact_repeated_block_commit_plan(block_snapshot, shifted_block);
+  require(!shifted_block_plan.valid());
+  require(shifted_block_plan.diagnostics[0].code ==
+          GrammarCommitDiagnosticCode::kReplacementSpanMismatch);
+
+  GrammarGlobalAction gapped_block = block_round.action;
+  gapped_block.occurrences[1].begin_dense_index = 6;
+  gapped_block.occurrences[1].begin_node_id =
+      block_snapshot.nodes[6].node_id;
+  gapped_block.occurrences[1].end_dense_index_exclusive = 10;
+  gapped_block.occurrences[1].last_node_id =
+      block_snapshot.nodes[9].node_id;
+  const GrammarCommitPlan gapped_block_plan =
+      build_exact_repeated_block_commit_plan(block_snapshot, gapped_block);
+  require(!gapped_block_plan.valid());
+  require(gapped_block_plan.diagnostics[0].code ==
+          GrammarCommitDiagnosticCode::kReplacementSpanMismatch);
+
+  GrammarGlobalAction partial_block = block_round.action;
+  partial_block.occurrences.pop_back();
+  partial_block.repeat_count = 2;
+  const GrammarCommitPlan partial_block_plan =
+      build_exact_repeated_block_commit_plan(block_snapshot, partial_block);
+  require(!partial_block_plan.valid());
+  require(partial_block_plan.diagnostics[0].code ==
+          GrammarCommitDiagnosticCode::kReplacementSpanMismatch);
+
+  GrammarGlobalAction wrong_producer_block = block_round.action;
+  wrong_producer_block.key.producer_id = GrammarProducerId::kPairGrammar;
+  const GrammarCommitPlan wrong_producer_block_plan =
+      build_exact_repeated_block_commit_plan(block_snapshot,
+                                             wrong_producer_block);
+  require(!wrong_producer_block_plan.valid());
+
+  std::vector<FixtureProtectedInterval> block_no_cross = {
+      FixtureProtectedInterval{ProtectedIntervalKind::kGraphReplayUnit,
+                               BoundaryPolicy::kNoCross, 1, 3},
+  };
+  GlobalGrammarState protected_block_state =
+      make_state({"A", "B", "C", "D", "A", "B", "C", "D",
+                  "A", "B", "C", "D"},
+                 block_no_cross);
+  const GrammarSnapshot protected_block_snapshot =
+      freeze_grammar_snapshot(protected_block_state);
+  const GrammarRoundResult protected_block_round =
+      run_exact_repeated_block_readonly_round(protected_block_state);
+  const GrammarCommitPlan protected_block_plan =
+      build_exact_repeated_block_commit_plan(protected_block_snapshot,
+                                             protected_block_round.action);
+  require(!protected_block_plan.valid());
+  require(protected_block_plan.diagnostics[0].code ==
+          GrammarCommitDiagnosticCode::kProtectedIntervalViolation);
+  require(protected_block_plan.diagnostics[0].boundary_violation_kind ==
+          BoundaryViolationKind::kCrossesNoCrossBoundary);
+
+  std::vector<FixtureProtectedInterval> block_union_no_cross = {
+      FixtureProtectedInterval{ProtectedIntervalKind::kGraphReplayUnit,
+                               BoundaryPolicy::kNoCross, 0, 3},
+  };
+  GlobalGrammarState protected_union_state =
+      make_state({"A", "B", "C", "D", "A", "B", "C", "D",
+                  "A", "B", "C", "D"},
+                 block_union_no_cross);
+  const GrammarSnapshot protected_union_snapshot =
+      freeze_grammar_snapshot(protected_union_state);
+  const GrammarRoundResult protected_union_round =
+      run_exact_repeated_block_readonly_round(protected_union_state);
+  const GrammarCommitPlan protected_union_plan =
+      build_exact_repeated_block_commit_plan(protected_union_snapshot,
+                                             protected_union_round.action);
+  require(!protected_union_plan.valid());
+  require(protected_union_plan.diagnostics.size() == 1);
+  require(protected_union_plan.diagnostics[0].code ==
+          GrammarCommitDiagnosticCode::kProtectedIntervalViolation);
+  require(protected_union_plan.diagnostics[0].boundary_violation_kind ==
+          BoundaryViolationKind::kCrossesNoCrossBoundary);
+
   return 0;
 }
