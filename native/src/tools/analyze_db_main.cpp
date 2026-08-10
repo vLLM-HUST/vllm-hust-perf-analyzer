@@ -67,6 +67,7 @@ struct CliOptions {
   std::string compat_sidecar_out_path;
   std::string loop_tree_out_path;
   bool loop_tree_out_path_set = false;
+  bool loop_tree_out_path_explicit = false;
   std::string loop_tree_db_label;
   bool has_loop_tree_device_id = false;
   std::uint32_t loop_tree_device_id = 0;
@@ -167,6 +168,7 @@ CliOptions parse_args(int argc, char** argv) {
     } else if (arg == "--loop-tree-out") {
       options.loop_tree_out_path = require_value(arg);
       options.loop_tree_out_path_set = true;
+      options.loop_tree_out_path_explicit = true;
     } else if (arg == "--loop-tree-db-label") {
       options.loop_tree_db_label = require_value(arg);
     } else if (arg == "--loop-tree-device-id") {
@@ -385,14 +387,14 @@ fs::path default_output_root(const std::string& input) {
 
 std::string default_loop_tree_output_path(const CliOptions& cli,
                                           std::size_t db_index,
-                                          bool has_device_id,
+                                          bool per_device_output,
                                           std::uint32_t device_id) {
   const fs::path output_root = default_output_root(cli.source_input);
-  if (cli.source_dbs.size() == 1) {
+  if (cli.source_dbs.size() == 1 && !per_device_output) {
     return (output_root / "loop_tree_v2.md").string();
   }
   std::ostringstream filename;
-  if (has_device_id) {
+  if (per_device_output) {
     filename << "device" << device_id << "_loop_tree_v2.md";
   } else {
     filename << "db" << std::setw(2) << std::setfill('0') << (db_index + 1)
@@ -415,22 +417,6 @@ std::string default_db_label(const std::string& source_db,
         << (fs::is_directory(source) ? source.filename().string()
                                      : source.parent_path().filename().string());
   return label.str();
-}
-
-bool infer_single_device_id(const traceloom::NativeIr& ir,
-                            std::uint32_t& device_id) {
-  bool found = false;
-  for (const auto& event : ir.trace_events.rows()) {
-    if (!found) {
-      device_id = event.device_id;
-      found = true;
-      continue;
-    }
-    if (device_id != event.device_id) {
-      return false;
-    }
-  }
-  return found;
 }
 
 void write_text_output(const std::string& path, const std::string& contents) {
@@ -620,218 +606,253 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
         std::cerr << "timing loop_tree_rows_ms="
                   << loop_tree_rows_watch.elapsed_ms() << "\n";
       }
-      std::uint32_t inferred_device_id = 0;
-      const bool has_inferred_device_id =
-          infer_single_device_id(ir, inferred_device_id);
-      traceloom::LoopTreeMarkdownOptions markdown_options;
-      markdown_options.db_label =
-          cli.loop_tree_db_label.empty()
-              ? default_db_label(source_db, db_index, cli.source_dbs.size())
-              : cli.loop_tree_db_label;
-      markdown_options.source_kind = json_options.source_kind;
-      markdown_options.source_path = json_options.source_path;
-      markdown_options.db_idx = sidecar_options.db_idx;
-      markdown_options.has_device_id = cli.has_loop_tree_device_id;
-      markdown_options.device_id = cli.loop_tree_device_id;
-      markdown_options.trace_event_count = ir.trace_events.size();
-      markdown_options.anchor_count = ir.anchors.size();
-      markdown_options.replay_composition_region_count =
-          ir.replay_composition_regions.size();
-      markdown_options.replay_unit_count = ir.replay_units.size();
-      std::map<std::string, std::uint64_t> reconstruction_status_counts;
-      for (const traceloom::ReplayCompositionRegionRow& region :
-           ir.replay_composition_regions.rows()) {
-        const std::string status =
-            traceloom::replay_composition_region_status_name(region.status);
-        ++reconstruction_status_counts[status];
-        if (region.status == traceloom::ReplayCompositionRegionStatus::
-                                 kRecognizedCompletePattern) {
-          ++markdown_options.recognized_replay_composition_region_count;
-        } else {
-          ++markdown_options.unrecognized_replay_composition_region_count;
-        }
-      }
-      for (const traceloom::ReplayUnitRow& unit : ir.replay_units.rows()) {
-        if (unit.replay_composition_region_id.valid()) {
-          ++markdown_options.exact_replay_unit_count;
-        }
-      }
-      for (const auto& item : reconstruction_status_counts) {
-        markdown_options.reconstruction_status_counts.push_back(
-            traceloom::ReconstructionStatusCount{item.first, item.second});
-      }
-      // The current production taxonomy is validated for Ascend/CANN. Keep
-      // CUDA and Hygon reports free of Ascend-specific conclusions until each
-      // provider supplies and validates its own semantic ruleset.
-      if (!is_cuda && !is_hygon) {
-        if (!idle_pipeline.has_value()) {
-          throw std::logic_error(
-              "Ascend Loop Tree idle evidence pipeline was not prepared");
-        }
-        const traceloom::IdleExplanationRunResult& idle_explanations =
-            idle_pipeline->idle_explanations;
-        markdown_options.has_idle_explanation_summary = true;
-        markdown_options.idle_analysis_status =
-            traceloom::analysis_status_name(idle_explanations.status);
-        markdown_options.idle_collection_status =
-            traceloom::collection_status_name(
-                idle_explanations.collection_status);
-        markdown_options.idle_attribution_rule_version =
-            idle_explanations.attribution_rule_version;
 
-        struct IdleSummary {
-          std::uint64_t slices = 0;
-          std::uint64_t duration_ns = 0;
-        };
-        std::map<std::string, IdleSummary> idle_summary;
-        std::set<std::uint32_t> report_device_ids;
-        for (const traceloom::compat::VizNodeSqlRow& node :
-             loop_tree_rows.nodes) {
-          if (node.view_name == "native_report_tree" &&
-              node.db_idx == sidecar_options.db_idx) {
-            report_device_ids.insert(node.device_id);
+      // The report rows are partitioned per device; rendering always selects
+      // exactly one device so a multi-device DB never produces a combined
+      // cross-device tree.
+      std::set<std::uint32_t> report_device_ids;
+      for (const traceloom::compat::VizNodeSqlRow& node :
+           loop_tree_rows.nodes) {
+        if (node.view_name == "native_report_tree" &&
+            node.db_idx == sidecar_options.db_idx) {
+          report_device_ids.insert(node.device_id);
+        }
+      }
+      std::vector<std::uint32_t> render_device_ids;
+      if (cli.has_loop_tree_device_id) {
+        if (report_device_ids.find(cli.loop_tree_device_id) ==
+            report_device_ids.end()) {
+          std::ostringstream available;
+          bool first = true;
+          for (const std::uint32_t id : report_device_ids) {
+            if (!first) {
+              available << ", ";
+            }
+            available << id;
+            first = false;
+          }
+          throw std::runtime_error(
+              "no native_report_tree rows for device " +
+              std::to_string(cli.loop_tree_device_id) +
+              "; available devices: " +
+              (available.str().empty() ? "none" : available.str()));
+        }
+        render_device_ids.push_back(cli.loop_tree_device_id);
+      } else if (report_device_ids.size() <= 1) {
+        render_device_ids.push_back(
+            report_device_ids.empty() ? 0 : *report_device_ids.begin());
+      } else {
+        // Multi-device DB: the default emits one report per device. An
+        // explicit --loop-tree-out path has no unambiguous target, so it
+        // requires --loop-tree-device-id.
+        if (cli.loop_tree_out_path_explicit) {
+          throw std::runtime_error(
+              "profile DB contains multiple devices; select one with "
+              "--loop-tree-device-id when --loop-tree-out is given");
+        }
+        if (!is_cuda && !is_hygon) {
+          throw std::runtime_error(
+              "Ascend Loop Tree idle evidence is currently scoped to one "
+              "device; select a device with --loop-tree-device-id");
+        }
+        render_device_ids.assign(report_device_ids.begin(),
+                                 report_device_ids.end());
+      }
+
+      for (const std::uint32_t render_device_id : render_device_ids) {
+        const Stopwatch loop_tree_render_watch;
+        traceloom::LoopTreeMarkdownOptions markdown_options;
+        markdown_options.db_label =
+            cli.loop_tree_db_label.empty()
+                ? default_db_label(source_db, db_index,
+                                   cli.source_dbs.size())
+                : cli.loop_tree_db_label;
+        markdown_options.source_kind = json_options.source_kind;
+        markdown_options.source_path = json_options.source_path;
+        markdown_options.db_idx = sidecar_options.db_idx;
+        markdown_options.has_device_id = true;
+        markdown_options.device_id = render_device_id;
+        markdown_options.trace_event_count = ir.trace_events.size();
+        markdown_options.anchor_count = ir.anchors.size();
+        markdown_options.replay_composition_region_count =
+            ir.replay_composition_regions.size();
+        markdown_options.replay_unit_count = ir.replay_units.size();
+        std::map<std::string, std::uint64_t> reconstruction_status_counts;
+        for (const traceloom::ReplayCompositionRegionRow& region :
+             ir.replay_composition_regions.rows()) {
+          const std::string status =
+              traceloom::replay_composition_region_status_name(region.status);
+          ++reconstruction_status_counts[status];
+          if (region.status == traceloom::ReplayCompositionRegionStatus::
+                                   kRecognizedCompletePattern) {
+            ++markdown_options.recognized_replay_composition_region_count;
+          } else {
+            ++markdown_options.unrecognized_replay_composition_region_count;
           }
         }
-        const bool filter_idle_device =
-            cli.has_loop_tree_device_id || report_device_ids.size() == 1;
-        const std::uint32_t idle_device_id =
-            cli.has_loop_tree_device_id
-                ? cli.loop_tree_device_id
-                : (report_device_ids.empty() ? 0 : *report_device_ids.begin());
-        for (const traceloom::IdleExplanationDeviceResult& device :
-             idle_explanations.devices) {
-          if (filter_idle_device && device.device_id != idle_device_id) {
-            continue;
+        for (const traceloom::ReplayUnitRow& unit : ir.replay_units.rows()) {
+          if (unit.replay_composition_region_id.valid()) {
+            ++markdown_options.exact_replay_unit_count;
           }
-          for (const traceloom::IdleExplanationRow& row :
-               device.explanations) {
-            const std::uint64_t duration_ns = static_cast<std::uint64_t>(
-                row.end_ns - row.start_ns);
-            const std::string category(
-                traceloom::idle_explanation_category_name(row.category));
-            ++idle_summary[category].slices;
-            idle_summary[category].duration_ns += duration_ns;
-            markdown_options.visible_productive_idle_ns += duration_ns;
-            if (row.evidence_level == traceloom::IdleEvidenceLevel::kDirect) {
-              markdown_options.direct_explained_idle_ns += duration_ns;
+        }
+        for (const auto& item : reconstruction_status_counts) {
+          markdown_options.reconstruction_status_counts.push_back(
+              traceloom::ReconstructionStatusCount{item.first, item.second});
+        }
+        // The current production taxonomy is validated for Ascend/CANN. Keep
+        // CUDA and Hygon reports free of Ascend-specific conclusions until
+        // each provider supplies and validates its own semantic ruleset.
+        if (!is_cuda && !is_hygon) {
+          if (!idle_pipeline.has_value()) {
+            throw std::logic_error(
+                "Ascend Loop Tree idle evidence pipeline was not prepared");
+          }
+          const traceloom::IdleExplanationRunResult& idle_explanations =
+              idle_pipeline->idle_explanations;
+          markdown_options.has_idle_explanation_summary = true;
+          markdown_options.idle_analysis_status =
+              traceloom::analysis_status_name(idle_explanations.status);
+          markdown_options.idle_collection_status =
+              traceloom::collection_status_name(
+                  idle_explanations.collection_status);
+          markdown_options.idle_attribution_rule_version =
+              idle_explanations.attribution_rule_version;
+
+          struct IdleSummary {
+            std::uint64_t slices = 0;
+            std::uint64_t duration_ns = 0;
+          };
+          std::map<std::string, IdleSummary> idle_summary;
+          for (const traceloom::IdleExplanationDeviceResult& device :
+               idle_explanations.devices) {
+            if (device.device_id != render_device_id) {
+              continue;
+            }
+            for (const traceloom::IdleExplanationRow& row :
+                 device.explanations) {
+              const std::uint64_t duration_ns = static_cast<std::uint64_t>(
+                  row.end_ns - row.start_ns);
+              const std::string category(
+                  traceloom::idle_explanation_category_name(row.category));
+              ++idle_summary[category].slices;
+              idle_summary[category].duration_ns += duration_ns;
+              markdown_options.visible_productive_idle_ns += duration_ns;
+              if (row.evidence_level == traceloom::IdleEvidenceLevel::kDirect) {
+                markdown_options.direct_explained_idle_ns += duration_ns;
+              }
             }
           }
-        }
-        for (const auto& item : idle_summary) {
-          markdown_options.idle_explanation_counts.push_back(
-              traceloom::IdleExplanationSummaryCount{
-                  item.first, item.second.slices, item.second.duration_ns});
-        }
-
-        const std::optional<std::uint32_t> attribution_device_id =
-            filter_idle_device
-                ? std::optional<std::uint32_t>(idle_device_id)
-                : std::nullopt;
-        const std::vector<traceloom::ReportToken> idle_report_tokens =
-            traceloom::compat::build_report_tokens_from_native_ir(ir);
-        const traceloom::compat::IdleExplanationAttributionRows attribution =
-            traceloom::compat::build_idle_explanation_attribution_rows(
-                idle_report_tokens, idle_explanations, loop_tree_rows,
-                sidecar_options.db_idx, attribution_device_id);
-        if (attribution.visible_productive_idle_ns !=
-            markdown_options.visible_productive_idle_ns) {
-          throw std::logic_error(
-              "Loop Tree idle summary/attribution device scope mismatch");
-        }
-        markdown_options.anchor_prelude_attributed_idle_ns =
-            attribution.anchor_prelude_attributed_ns;
-        markdown_options.device_only_unassigned_idle_ns =
-            attribution.device_only_unassigned_ns;
-
-        std::map<std::string, const traceloom::compat::VizNodeSqlRow*>
-            report_nodes;
-        for (const traceloom::compat::VizNodeSqlRow& node :
-             loop_tree_rows.nodes) {
-          if (node.db_idx == sidecar_options.db_idx &&
-              node.view_name == "native_report_tree" &&
-              (!filter_idle_device || node.device_id == idle_device_id)) {
-            report_nodes[node.node_id] = &node;
+          for (const auto& item : idle_summary) {
+            markdown_options.idle_explanation_counts.push_back(
+                traceloom::IdleExplanationSummaryCount{
+                    item.first, item.second.slices, item.second.duration_ns});
           }
-        }
-        std::map<std::string, traceloom::IdleExplanationNodeHotspot> hotspots;
-        for (const traceloom::compat::NodeIdleExplanationRow& row :
-             attribution.nodes) {
-          const auto node_it = report_nodes.find(row.node_id);
-          if (node_it == report_nodes.end()) {
+
+          const std::vector<traceloom::ReportToken> idle_report_tokens =
+              traceloom::compat::build_report_tokens_from_native_ir(ir);
+          const traceloom::compat::IdleExplanationAttributionRows attribution =
+              traceloom::compat::build_idle_explanation_attribution_rows(
+                  idle_report_tokens, idle_explanations, loop_tree_rows,
+                  sidecar_options.db_idx, render_device_id);
+          if (attribution.visible_productive_idle_ns !=
+              markdown_options.visible_productive_idle_ns) {
             throw std::logic_error(
-                "idle attribution references an absent Loop Tree node");
+                "Loop Tree idle summary/attribution device scope mismatch");
           }
-          const traceloom::compat::VizNodeSqlRow& node = *node_it->second;
-          traceloom::IdleExplanationNodeHotspot& hotspot =
-              hotspots[row.node_id];
-          hotspot.node_id = row.node_id;
-          hotspot.label = node.label;
-          hotspot.kind = node.kind;
-          hotspot.attributed_ns += row.duration_ns;
-          if (row.evidence_level == "direct") {
-            hotspot.direct_ns += row.duration_ns;
+          markdown_options.anchor_prelude_attributed_idle_ns =
+              attribution.anchor_prelude_attributed_ns;
+          markdown_options.device_only_unassigned_idle_ns =
+              attribution.device_only_unassigned_ns;
+
+          std::map<std::string, const traceloom::compat::VizNodeSqlRow*>
+              report_nodes;
+          for (const traceloom::compat::VizNodeSqlRow& node :
+               loop_tree_rows.nodes) {
+            if (node.db_idx == sidecar_options.db_idx &&
+                node.view_name == "native_report_tree" &&
+                node.device_id == render_device_id) {
+              report_nodes[node.node_id] = &node;
+            }
           }
-          if (row.category == "blocked_by_visible_wait") {
-            hotspot.wait_ns += row.duration_ns;
-          } else if (row.category == "capture_control_present") {
-            hotspot.capture_control_ns += row.duration_ns;
-          } else if (row.category == "runtime_control_present") {
-            hotspot.runtime_control_ns += row.duration_ns;
-          } else if (row.category == "no_observed_device_work") {
-            hotspot.no_observed_work_ns += row.duration_ns;
-          } else if (row.category == "unattributed_visible_idle") {
-            hotspot.unattributed_ns += row.duration_ns;
+          std::map<std::string, traceloom::IdleExplanationNodeHotspot>
+              hotspots;
+          for (const traceloom::compat::NodeIdleExplanationRow& row :
+               attribution.nodes) {
+            const auto node_it = report_nodes.find(row.node_id);
+            if (node_it == report_nodes.end()) {
+              throw std::logic_error(
+                  "idle attribution references an absent Loop Tree node");
+            }
+            const traceloom::compat::VizNodeSqlRow& node = *node_it->second;
+            traceloom::IdleExplanationNodeHotspot& hotspot =
+                hotspots[row.node_id];
+            hotspot.node_id = row.node_id;
+            hotspot.label = node.label;
+            hotspot.kind = node.kind;
+            hotspot.attributed_ns += row.duration_ns;
+            if (row.evidence_level == "direct") {
+              hotspot.direct_ns += row.duration_ns;
+            }
+            if (row.category == "blocked_by_visible_wait") {
+              hotspot.wait_ns += row.duration_ns;
+            } else if (row.category == "capture_control_present") {
+              hotspot.capture_control_ns += row.duration_ns;
+            } else if (row.category == "runtime_control_present") {
+              hotspot.runtime_control_ns += row.duration_ns;
+            } else if (row.category == "no_observed_device_work") {
+              hotspot.no_observed_work_ns += row.duration_ns;
+            } else if (row.category == "unattributed_visible_idle") {
+              hotspot.unattributed_ns += row.duration_ns;
+            }
+          }
+          for (auto& item : hotspots) {
+            traceloom::IdleExplanationNodeHotspot& hotspot = item.second;
+            const traceloom::compat::VizNodeSqlRow& node =
+                *report_nodes.at(item.first);
+            double divisor = static_cast<double>(
+                node.occurrence_count == 0 ? 1 : node.occurrence_count);
+            if (node.kind == "repeat" && node.repeat_count > 0) {
+              divisor *= static_cast<double>(node.repeat_count);
+            }
+            hotspot.average_attributed_ns =
+                static_cast<double>(hotspot.attributed_ns) / divisor;
+            markdown_options.idle_node_hotspots.push_back(hotspot);
+          }
+          std::stable_sort(
+              markdown_options.idle_node_hotspots.begin(),
+              markdown_options.idle_node_hotspots.end(),
+              [](const traceloom::IdleExplanationNodeHotspot& lhs,
+                 const traceloom::IdleExplanationNodeHotspot& rhs) {
+                if (lhs.attributed_ns != rhs.attributed_ns) {
+                  return lhs.attributed_ns > rhs.attributed_ns;
+                }
+                return lhs.node_id < rhs.node_id;
+              });
+          constexpr std::size_t kIdleHotspotLimit = 12;
+          if (markdown_options.idle_node_hotspots.size() >
+              kIdleHotspotLimit) {
+            markdown_options.idle_node_hotspots.resize(kIdleHotspotLimit);
           }
         }
-        for (auto& item : hotspots) {
-          traceloom::IdleExplanationNodeHotspot& hotspot = item.second;
-          const traceloom::compat::VizNodeSqlRow& node =
-              *report_nodes.at(item.first);
-          double divisor = static_cast<double>(
-              node.occurrence_count == 0 ? 1 : node.occurrence_count);
-          if (node.kind == "repeat" && node.repeat_count > 0) {
-            divisor *= static_cast<double>(node.repeat_count);
-          }
-          hotspot.average_attributed_ns =
-              static_cast<double>(hotspot.attributed_ns) / divisor;
-          markdown_options.idle_node_hotspots.push_back(hotspot);
+        std::ostringstream markdown;
+        traceloom::write_loop_tree_markdown(markdown, loop_tree_rows,
+                                            markdown_options);
+        const std::string loop_tree_out =
+            cli.loop_tree_out_path.empty()
+                ? default_loop_tree_output_path(
+                      cli, db_index, report_device_ids.size() > 1,
+                      render_device_id)
+                : cli.loop_tree_out_path;
+        write_text_output(loop_tree_out, markdown.str());
+        if (cli.loop_tree_out_path != "-") {
+          std::cerr << "wrote loop tree: " << loop_tree_out << "\n";
+          std::cerr << "  source_db: " << source_db << "\n";
+          std::cerr << "  device_id: " << render_device_id << "\n";
         }
-        std::stable_sort(
-            markdown_options.idle_node_hotspots.begin(),
-            markdown_options.idle_node_hotspots.end(),
-            [](const traceloom::IdleExplanationNodeHotspot& lhs,
-               const traceloom::IdleExplanationNodeHotspot& rhs) {
-              if (lhs.attributed_ns != rhs.attributed_ns) {
-                return lhs.attributed_ns > rhs.attributed_ns;
-              }
-              return lhs.node_id < rhs.node_id;
-            });
-        constexpr std::size_t kIdleHotspotLimit = 12;
-        if (markdown_options.idle_node_hotspots.size() > kIdleHotspotLimit) {
-          markdown_options.idle_node_hotspots.resize(kIdleHotspotLimit);
+        if (cli.timings) {
+          std::cerr << "timing loop_tree_markdown_ms="
+                    << loop_tree_render_watch.elapsed_ms() << "\n";
         }
-      }
-      const Stopwatch loop_tree_render_watch;
-      std::ostringstream markdown;
-      traceloom::write_loop_tree_markdown(markdown, loop_tree_rows,
-                                          markdown_options);
-      const std::string loop_tree_out =
-          cli.loop_tree_out_path.empty()
-              ? default_loop_tree_output_path(cli, db_index,
-                                              has_inferred_device_id,
-                                              inferred_device_id)
-              : cli.loop_tree_out_path;
-      write_text_output(loop_tree_out, markdown.str());
-      if (cli.loop_tree_out_path != "-") {
-        std::cerr << "wrote loop tree: " << loop_tree_out << "\n";
-        std::cerr << "  source_db: " << source_db << "\n";
-        if (has_inferred_device_id) {
-          std::cerr << "  device_id: " << inferred_device_id << "\n";
-        }
-      }
-      if (cli.timings) {
-        std::cerr << "timing loop_tree_markdown_ms="
-                  << loop_tree_render_watch.elapsed_ms() << "\n";
       }
     }
     if (report_only) {

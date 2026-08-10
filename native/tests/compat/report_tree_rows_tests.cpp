@@ -1,8 +1,10 @@
 #include "traceloom/compat/report_tree_rows.h"
+#include "traceloom/compat/native_sidecar_materializer.h"
 #include "traceloom/pattern/grammar_state.h"
 #include "traceloom/report/report_tree_builder.h"
 #include "traceloom/testing/test_util.h"
 
+#include <set>
 #include <stdexcept>
 #include <vector>
 
@@ -350,6 +352,171 @@ int main() {
   }
   require(rejected_bad_token_anchor);
   (void)bad_source;
+
+  // ---- Multi-device: one independently recovered report tree per device.
+  // Device 0 owns a repeated [MatMul, AllReduce] pattern; device 1 owns a
+  // distinct repeated Softmax run. Partitioning must never combine them into
+  // one structural unit or stamp both trees with device 0.
+  NativeIr multi_ir;
+  const SourceRefId multi_source =
+      multi_ir.source_refs.append("fixture", "multi_device", "TASK", 0);
+  const SymbolId multi_matmul = multi_ir.symbols.intern("MatMul");
+  const SymbolId multi_all_reduce = multi_ir.symbols.intern("AllReduce");
+  const SymbolId multi_softmax = multi_ir.symbols.intern("Softmax");
+  const auto append_multi_token = [&](std::uint32_t device_id,
+                                      std::uint64_t source_row_id,
+                                      SymbolId symbol, AnchorKind kind,
+                                      std::int64_t start_ns,
+                                      std::int64_t end_ns) {
+    const TraceEventId event = multi_ir.trace_events.append(
+        multi_source, source_row_id, device_id, 3, start_ns, end_ns, symbol);
+    const AnchorId anchor = multi_ir.anchors.append(
+        multi_source, event, ReplayUnitId::invalid(), kind, symbol, device_id,
+        3, start_ns, end_ns);
+    multi_ir.tokens.append(
+        anchor, symbol, device_id,
+        static_cast<std::uint32_t>(multi_ir.tokens.size()), start_ns, end_ns);
+  };
+  // Device 0: MatMul x3 then AllReduce x3 (two distinct adjacent runs).
+  for (std::uint32_t step = 0; step < 3; ++step) {
+    const std::int64_t base = 1000 + static_cast<std::int64_t>(step) * 1000;
+    append_multi_token(0, step + 1, multi_matmul, AnchorKind::kDeviceEvent,
+                       base, base + 600);
+  }
+  for (std::uint32_t step = 0; step < 3; ++step) {
+    const std::int64_t base = 4000 + static_cast<std::int64_t>(step) * 1000;
+    append_multi_token(0, step + 10, multi_all_reduce,
+                       AnchorKind::kCommunication, base, base + 400);
+  }
+  // Device 1: Softmax x4 (a distinct adjacent run).
+  for (std::uint32_t step = 0; step < 4; ++step) {
+    const std::int64_t base = 3000 + static_cast<std::int64_t>(step) * 1000;
+    append_multi_token(1, 100 + step, multi_softmax,
+                       AnchorKind::kDeviceEvent, base, base + 300);
+  }
+
+  const std::vector<compat::NativeReportDevicePartition> partitions =
+      compat::partition_report_tokens_by_device(multi_ir);
+  require(partitions.size() == 2, "two device partitions");
+  require(partitions[0].device_id == 0);
+  require(partitions[1].device_id == 1);
+  require(partitions[0].tokens.size() == 6, "device 0 partition tokens");
+  require(partitions[1].tokens.size() == 4, "device 1 partition tokens");
+  for (const compat::NativeReportDevicePartition& partition : partitions) {
+    for (const ReportToken& token : partition.tokens) {
+      require(token.device_id == partition.device_id,
+              "partition owns only its own device tokens");
+    }
+  }
+
+  compat::NativeCompatibilitySidecarOptions multi_options;
+  multi_options.materialize_grammar_report_tree = false;
+  const std::vector<compat::NativeDeviceReportTree> multi_trees =
+      compat::build_native_device_report_trees(multi_ir, multi_options);
+  require(multi_trees.size() == 2, "one tree per device");
+  require(multi_trees[0].device_id == 0);
+  require(multi_trees[1].device_id == 1);
+  require(multi_trees[0].tokens.size() == 6);
+  require(multi_trees[1].tokens.size() == 4);
+
+  const compat::NodeCoverageSqlRows multi_rows =
+      compat::build_native_loop_tree_node_coverage_rows(multi_ir,
+                                                        multi_options);
+  std::set<std::uint32_t> multi_device_ids;
+  for (const compat::VizNodeSqlRow& node : multi_rows.nodes) {
+    require(node.view_name == "native_report_tree");
+    multi_device_ids.insert(node.device_id);
+  }
+  require(multi_device_ids == std::set<std::uint32_t>({0, 1}),
+          "rows carry true per-device ids");
+
+  // Each device has its own Seq root; no combined structural unit exists.
+  const compat::VizNodeSqlRow* root0 = nullptr;
+  const compat::VizNodeSqlRow* root1 = nullptr;
+  for (const compat::VizNodeSqlRow& node : multi_rows.nodes) {
+    if (node.kind == "seq" && node.device_id == 0) {
+      root0 = &node;
+    }
+    if (node.kind == "seq" && node.device_id == 1) {
+      root1 = &node;
+    }
+  }
+  require(root0 != nullptr, "device 0 Seq root");
+  require(root1 != nullptr, "device 1 Seq root");
+  require(root0->node_id == "node-d0-N001", "device-scoped node id");
+  require(root1->node_id == "node-d1-N001", "device-scoped node id");
+  require(root0->anchor_count == 6);
+  require(root1->anchor_count == 4);
+  require(root0->first_anchor_idx == 1 && root0->last_anchor_idx == 6);
+  require(root1->first_anchor_idx == 7 && root1->last_anchor_idx == 10);
+
+  // Device 0 folds MatMul x3 and AllReduce x3; device 1 folds Softmax x4.
+  // Every repeat node belongs to its own device with its own anchors.
+  std::uint32_t device0_repeats = 0;
+  std::uint32_t device1_repeats = 0;
+  for (const compat::LoopNodeSqlRow& loop : multi_rows.loop_nodes) {
+    if (loop.device_id == 0) {
+      require(loop.repeat_count == 3 && loop.anchor_count == 3,
+              "device 0 repeat folds only device 0 anchors");
+      ++device0_repeats;
+    }
+    if (loop.device_id == 1 && loop.repeat_count == 4 &&
+        loop.anchor_count == 4) {
+      ++device1_repeats;
+    }
+  }
+  require(device0_repeats == 2, "device 0 repeats preserved");
+  require(device1_repeats == 1, "device 1 repeat preserved");
+
+  // No edge crosses devices, and node-anchor provenance stays per device.
+  for (const compat::VizEdgeSqlRow& edge : multi_rows.edges) {
+    require(edge.device_id == 0 || edge.device_id == 1);
+  }
+  std::set<std::string> device0_nodes;
+  std::set<std::string> device1_nodes;
+  for (const compat::VizNodeAnchorSqlRow& row : multi_rows.node_anchors) {
+    if (row.device_id == 0) {
+      device0_nodes.insert(row.node_id);
+    } else {
+      device1_nodes.insert(row.node_id);
+    }
+  }
+  require(device0_nodes.size() >= 3, "device 0 anchors land in device 0 nodes");
+  require(device1_nodes.size() >= 2, "device 1 anchors land in device 1 nodes");
+
+  // Per-device cost hierarchy: device 0 root spans its own wall clock only.
+  require(root0->total_us == 5.4, "device 0 root wall clock");
+  require(root1->total_us == 3.3, "device 1 root wall clock");
+
+  // Semantic rows materialize one catalog entry per device with distinct
+  // tree ids and scoped root ids.
+  const compat::SemanticTreeSqlRows multi_semantic =
+      compat::build_native_report_tree_semantic_sql_rows(
+          multi_ir, 0, "native-report-tree", "anchor_tree");
+  require(multi_semantic.trees.size() == 2,
+          "one semantic tree per device");
+  require(multi_semantic.trees[0].device_id == 0);
+  require(multi_semantic.trees[1].device_id == 1);
+  require(multi_semantic.trees[0].tree_id == "native-report-tree-d0");
+  require(multi_semantic.trees[1].tree_id == "native-report-tree-d1");
+  require(multi_semantic.trees[0].root_node_id == "node-d0-N001");
+  require(multi_semantic.trees[1].root_node_id == "node-d1-N001");
+
+  // Cross-device protected intervals fail closed instead of inventing a
+  // combined replay structure.
+  NativeIr cross_ir = multi_ir;
+  cross_ir.protected_intervals.append(
+      ProtectedIntervalKind::kGraphReplayUnit, BoundaryPolicy::kNoCross,
+      TokenId(0), TokenId(7), AnchorId(0), AnchorId(7),
+      cross_ir.source_refs.rows().front().id);
+  bool rejected_cross_device_interval = false;
+  try {
+    (void)compat::build_native_device_report_trees(cross_ir, multi_options);
+  } catch (const std::invalid_argument&) {
+    rejected_cross_device_interval = true;
+  }
+  require(rejected_cross_device_interval,
+          "cross-device protected intervals must fail closed");
 
   return 0;
 }

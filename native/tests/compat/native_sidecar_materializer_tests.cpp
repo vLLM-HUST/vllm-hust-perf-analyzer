@@ -279,6 +279,46 @@ NativeIr build_exact_graph_replay_ir() {
   return ir;
 }
 
+NativeIr build_multi_device_ir() {
+  NativeIr ir;
+  const SourceRefId source =
+      ir.source_refs.append("fixture", "multi-device-sidecar", "TASK", 0);
+  const SymbolId matmul = ir.symbols.intern("MatMul");
+  const SymbolId softmax = ir.symbols.intern("Softmax");
+  const auto append_token = [&](std::uint32_t device_id,
+                                std::uint64_t source_row_id, SymbolId symbol,
+                                AnchorKind kind, std::int64_t start_ns,
+                                std::int64_t end_ns) {
+    const TraceEventId event = ir.trace_events.append(
+        source, source_row_id, device_id, 3, start_ns, end_ns, symbol);
+    const AnchorId anchor = ir.anchors.append(
+        source, event, ReplayUnitId::invalid(), kind, symbol, device_id, 3,
+        start_ns, end_ns);
+    ir.tokens.append(
+        anchor, symbol, device_id,
+        static_cast<std::uint32_t>(ir.tokens.size()), start_ns, end_ns);
+  };
+  // Device 0: MatMul x3, AllReduce x3; device 1: Softmax x4. Distinct
+  // per-device sequences that must never merge into one structural unit.
+  const SymbolId all_reduce = ir.symbols.intern("AllReduce");
+  for (std::uint32_t step = 0; step < 3; ++step) {
+    const std::int64_t base = 1000 + static_cast<std::int64_t>(step) * 1000;
+    append_token(0, step + 1, matmul, AnchorKind::kDeviceEvent, base,
+                 base + 600);
+  }
+  for (std::uint32_t step = 0; step < 3; ++step) {
+    const std::int64_t base = 4000 + static_cast<std::int64_t>(step) * 1000;
+    append_token(0, step + 10, all_reduce, AnchorKind::kCommunication, base,
+                 base + 400);
+  }
+  for (std::uint32_t step = 0; step < 4; ++step) {
+    const std::int64_t base = 3000 + static_cast<std::int64_t>(step) * 1000;
+    append_token(1, 100 + step, softmax, AnchorKind::kDeviceEvent, base,
+                 base + 300);
+  }
+  return ir;
+}
+
 }  // namespace
 
 int main() {
@@ -665,5 +705,103 @@ int main() {
                           "'$.analysis_status') FROM "
                           "traceloom_run_metadata") == "invalid_input");
   std::remove(invalid_idle_db_path.c_str());
+
+  // ---- Multi-device sidecar: one independently recovered tree per device
+  // with true device ids, device-scoped node ids, and distinct semantic tree
+  // ids. No combined structural unit is materialized.
+  const std::string multi_db_path = temp_db_path();
+  const NativeIr multi_ir = build_multi_device_ir();
+  compat::NativeCompatibilitySidecarOptions multi_options;
+  multi_options.source_kind = "native_multi_device_fixture";
+  multi_options.source_path = "memory";
+  multi_options.materialize_grammar_report_tree = false;
+  compat::write_basic_native_compatibility_sidecar(multi_db_path, multi_ir,
+                                                   multi_options);
+
+  require(run_scalar_int(
+              multi_db_path,
+              "SELECT COUNT(*) FROM traceloom_viz_node "
+              "WHERE view_name = 'native_report_tree' AND device_id = 0") ==
+          5);
+  require(run_scalar_int(
+              multi_db_path,
+              "SELECT COUNT(*) FROM traceloom_viz_node "
+              "WHERE view_name = 'native_report_tree' AND device_id = 1") ==
+          3);
+  require(run_scalar_int(
+              multi_db_path,
+              "SELECT COUNT(*) FROM traceloom_viz_node "
+              "WHERE view_name = 'native_report_tree' AND kind = 'seq' "
+              "AND device_id = 0 AND anchor_count = 6") == 1);
+  require(run_scalar_int(
+              multi_db_path,
+              "SELECT COUNT(*) FROM traceloom_viz_node "
+              "WHERE view_name = 'native_report_tree' AND kind = 'seq' "
+              "AND device_id = 1 AND anchor_count = 4") == 1);
+  require(run_scalar_int(
+              multi_db_path,
+              "SELECT COUNT(*) FROM traceloom_loop_node "
+              "WHERE device_id = 0 AND repeat_count = 3 AND "
+              "anchor_count = 3") == 2);
+  require(run_scalar_int(
+              multi_db_path,
+              "SELECT COUNT(*) FROM traceloom_loop_node "
+              "WHERE device_id = 1 AND repeat_count = 4 AND "
+              "anchor_count = 4") == 1);
+  require(run_scalar_int(
+              multi_db_path,
+              "SELECT COUNT(*) FROM traceloom_anchor_primary_node "
+              "WHERE device_id = 0") == 6);
+  require(run_scalar_int(
+              multi_db_path,
+              "SELECT COUNT(*) FROM traceloom_anchor_primary_node "
+              "WHERE device_id = 1") == 4);
+  require(run_scalar_int(
+              multi_db_path,
+              "SELECT COUNT(*) FROM traceloom_semantic_tree") == 2);
+  require(run_scalar_text(
+              multi_db_path,
+              "SELECT tree_id FROM traceloom_semantic_tree "
+              "WHERE device_id = 0") == "native-report-tree-d0");
+  require(run_scalar_text(
+              multi_db_path,
+              "SELECT tree_id FROM traceloom_semantic_tree "
+              "WHERE device_id = 1") == "native-report-tree-d1");
+  require(run_scalar_text(
+              multi_db_path,
+              "SELECT root_node_id FROM traceloom_semantic_tree "
+              "WHERE device_id = 0") == "node-d0-N001");
+  require(run_scalar_text(
+              multi_db_path,
+              "SELECT root_node_id FROM traceloom_semantic_tree "
+              "WHERE device_id = 1") == "node-d1-N001");
+  require(run_scalar_int(
+              multi_db_path,
+              "SELECT COUNT(*) FROM traceloom_semantic_node "
+              "WHERE device_id = 0") == 5);
+  require(run_scalar_int(
+              multi_db_path,
+              "SELECT COUNT(*) FROM traceloom_semantic_node "
+              "WHERE device_id = 1") == 3);
+  // No edge may cross devices, and node-anchor provenance must stay on the
+  // anchor's own device.
+  require(run_scalar_int(
+              multi_db_path,
+              "SELECT COUNT(*) FROM traceloom_viz_edge e "
+              "JOIN traceloom_viz_node p ON p.node_id = e.parent_node_id "
+              "JOIN traceloom_viz_node c ON c.node_id = e.child_node_id "
+              "WHERE e.view_name = 'native_report_tree' AND "
+              "p.device_id != c.device_id") == 0);
+  require(run_scalar_int(
+              multi_db_path,
+              "SELECT COUNT(*) FROM traceloom_viz_node_anchor na "
+              "JOIN traceloom_anchor a ON a.anchor_id = na.anchor_id "
+              "WHERE na.device_id != a.device_id") == 0);
+  // The readable semantic view stays unambiguous with device-scoped ids.
+  require(run_scalar_int(
+              multi_db_path,
+              "SELECT COUNT(*) FROM traceloom_v_semantic_tree_readable "
+              "WHERE device_id = 1") == 3);
+  std::remove(multi_db_path.c_str());
   return 0;
 }

@@ -101,6 +101,34 @@ void require_cuda_sidecar(const std::string& path) {
                                   "SELECT COUNT(*) FROM traceloom_viz_node "
                                   "WHERE view_name = "
                                   "'native_report_tree'") > 0);
+  // A single profiler DB may contain several devices. The report path must
+  // materialize one tree per device with its true device_id instead of a
+  // combined tree stamped with device 0.
+  traceloom::testing::require(run_scalar_int(
+                                  path,
+                                  "SELECT COUNT(DISTINCT device_id) FROM "
+                                  "traceloom_viz_node WHERE view_name = "
+                                  "'native_report_tree'") == 2);
+  traceloom::testing::require(
+      run_scalar_int(path,
+                     "SELECT COUNT(*) FROM traceloom_viz_node "
+                     "WHERE view_name = 'native_report_tree' AND "
+                     "device_id = 0 AND kind = 'seq'") == 1);
+  traceloom::testing::require(
+      run_scalar_int(path,
+                     "SELECT COUNT(*) FROM traceloom_viz_node "
+                     "WHERE view_name = 'native_report_tree' AND "
+                     "device_id = 1 AND kind = 'seq'") == 1);
+  traceloom::testing::require(run_scalar_int(
+                                  path,
+                                  "SELECT COUNT(*) FROM traceloom_semantic_tree "
+                                  "WHERE device_id = 0 AND tree_id = "
+                                  "'native-report-tree-d0'") == 1);
+  traceloom::testing::require(run_scalar_int(
+                                  path,
+                                  "SELECT COUNT(*) FROM traceloom_semantic_tree "
+                                  "WHERE device_id = 1 AND tree_id = "
+                                  "'native-report-tree-d1'") == 1);
   traceloom::testing::require(
       run_scalar_int(path,
                      "SELECT COUNT(*) FROM traceloom_cuda_graph_replay") > 0);

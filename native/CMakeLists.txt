@@ -1107,6 +1107,7 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
         --sidecar-only
         --compat-sidecar-out ${CMAKE_CURRENT_BINARY_DIR}/cuda_nsys_cli_compat.db
         --loop-tree-out ${CMAKE_CURRENT_BINARY_DIR}/cuda_nsys_loop_tree_v2.md
+        --loop-tree-device-id 0
     )
     set_tests_properties(
       traceloom_native_analyze_cuda_nsys_compat_sidecar_cli
