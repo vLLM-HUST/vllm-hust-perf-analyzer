@@ -223,5 +223,93 @@ int main() {
   require(macro_state.nodes[1].macro_def_id == MacroDefId::invalid());
   require(macro_state.nodes[2].macro_def_id == MacroDefId(2));
 
+  GlobalGrammarState block_state =
+      make_state({"A", "B", "C", "D", "A", "B", "C", "D",
+                  "A", "B", "C", "D"});
+  const SymbolId block_first_symbol = block_state.next_macro_symbol_id;
+  const GrammarSnapshot block_snapshot = freeze_grammar_snapshot(block_state);
+  const GrammarRoundResult block_round =
+      run_exact_repeated_block_readonly_round(block_state);
+  const GrammarCommitPlan block_plan =
+      build_exact_repeated_block_commit_plan(block_snapshot, block_round.action);
+  const GrammarApplyResult block_applied =
+      apply_exact_repeated_block_commit_plan(block_state, block_plan);
+  require(block_applied.applied());
+  require(block_state.generation == 1);
+  require(block_state.live_node_count == 1);
+  require(block_state.nodes.size() == 1);
+  require(block_state.macro_defs.size() == 2);
+  require(block_state.macro_defs[0].id == MacroDefId(0));
+  require(block_state.macro_defs[0].symbol_id == block_first_symbol);
+  require(block_state.macro_defs[0].level == MacroLevel::kRP);
+  require(block_state.macro_defs[0].rhs_symbols.size() == 4);
+  require(block_state.macro_defs[0].rhs_symbols[0] == SymbolId(0));
+  require(block_state.macro_defs[0].rhs_symbols[3] == SymbolId(3));
+  require(block_state.macro_defs[0].replace_count == 3);
+  require(block_state.macro_defs[0].gain == 9);
+  require(block_state.macro_defs[0].first_pos == 0);
+  require(block_state.macro_defs[1].id == MacroDefId(1));
+  require(block_state.macro_defs[1].symbol_id.value() ==
+          block_first_symbol.value() + 1);
+  require(block_state.macro_defs[1].level == MacroLevel::kLP);
+  require(block_state.macro_defs[1].rhs_symbols.size() == 3);
+  require(block_state.macro_defs[1].rhs_symbols[0] ==
+          block_state.macro_defs[0].symbol_id);
+  require(block_state.macro_defs[1].rhs_symbols[2] ==
+          block_state.macro_defs[0].symbol_id);
+  require(block_state.macro_defs[1].replace_count == 1);
+  require(block_state.macro_defs[1].gain == 2);
+  require(block_state.macro_defs[1].first_pos == 0);
+  require(block_state.nodes[0].symbol_id ==
+          block_state.macro_defs[1].symbol_id);
+  require(block_state.nodes[0].macro_def_id == MacroDefId(1));
+  require(block_state.nodes[0].source_begin_token_index == 0);
+  require(block_state.nodes[0].source_end_token_index_exclusive == 12);
+  require(block_state.nodes[0].start_ns == 0);
+  require(block_state.nodes[0].end_ns == 120);
+  require(block_state.next_macro_symbol_id.value() ==
+          block_first_symbol.value() + 2);
+
+  GlobalGrammarState stale_block_state =
+      make_state({"A", "B", "C", "D", "A", "B", "C", "D",
+                  "A", "B", "C", "D"});
+  const GrammarSnapshot stale_block_snapshot =
+      freeze_grammar_snapshot(stale_block_state);
+  const GrammarRoundResult stale_block_round =
+      run_exact_repeated_block_readonly_round(stale_block_state);
+  GrammarCommitPlan stale_block_plan =
+      build_exact_repeated_block_commit_plan(stale_block_snapshot,
+                                             stale_block_round.action);
+  stale_block_plan.snapshot_generation = 99;
+  const GrammarApplyResult stale_block_result =
+      apply_exact_repeated_block_commit_plan(stale_block_state,
+                                             stale_block_plan);
+  require(!stale_block_result.applied());
+  require(stale_block_result.diagnostics[0].code ==
+          GrammarApplyDiagnosticCode::kStaleStateGeneration);
+  require(stale_block_state.generation == 0);
+  require(stale_block_state.live_node_count == 12);
+  require(stale_block_state.macro_defs.empty());
+
+  GlobalGrammarState corrupt_block_state =
+      make_state({"A", "B", "C", "D", "A", "B", "C", "D",
+                  "A", "B", "C", "D"});
+  const GrammarSnapshot corrupt_block_snapshot =
+      freeze_grammar_snapshot(corrupt_block_state);
+  const GrammarRoundResult corrupt_block_round =
+      run_exact_repeated_block_readonly_round(corrupt_block_state);
+  const GrammarCommitPlan corrupt_block_plan =
+      build_exact_repeated_block_commit_plan(corrupt_block_snapshot,
+                                             corrupt_block_round.action);
+  corrupt_block_state.nodes[0].symbol_id = SymbolId(1);
+  const GrammarApplyResult corrupt_block_result =
+      apply_exact_repeated_block_commit_plan(corrupt_block_state,
+                                             corrupt_block_plan);
+  require(!corrupt_block_result.applied());
+  require(corrupt_block_result.diagnostics[0].code ==
+          GrammarApplyDiagnosticCode::kCommitPlanRevalidationFailed);
+  require(corrupt_block_state.generation == 0);
+  require(corrupt_block_state.macro_defs.empty());
+
   return 0;
 }

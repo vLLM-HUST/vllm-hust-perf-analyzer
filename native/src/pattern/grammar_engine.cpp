@@ -1,5 +1,7 @@
 #include "traceloom/pattern/grammar_engine.h"
 
+#include <algorithm>
+
 namespace traceloom {
 namespace {
 
@@ -40,6 +42,83 @@ GrammarEngineResult reject_apply(GrammarEngineResult result,
   return result;
 }
 
+bool only_protected_boundary_diagnostics(
+    const std::vector<GrammarCommitDiagnostic>& diagnostics) {
+  if (diagnostics.empty()) {
+    return false;
+  }
+  return std::all_of(
+      diagnostics.begin(), diagnostics.end(),
+      [](const GrammarCommitDiagnostic& diagnostic) {
+        return diagnostic.code ==
+               GrammarCommitDiagnosticCode::kProtectedIntervalViolation;
+      });
+}
+
+bool only_protected_boundary_apply_diagnostics(
+    const std::vector<GrammarApplyDiagnostic>& diagnostics) {
+  if (diagnostics.empty()) {
+    return false;
+  }
+  return std::all_of(
+      diagnostics.begin(), diagnostics.end(),
+      [](const GrammarApplyDiagnostic& diagnostic) {
+        return diagnostic.code ==
+               GrammarApplyDiagnosticCode::kProtectedIntervalMappingFailed;
+      });
+}
+
+enum class RepeatedBlockOutcome {
+  kApplied,
+  kStopped,
+  kError,
+};
+
+// Commits and applies a selected exact repeated-block action. On success
+// returns kApplied and records the step with post-apply counts. A
+// protected-boundary rejection is a clean stop (kStopped): the sequence was
+// already at a stable fixpoint and the state is left untouched, with the
+// diagnostics recorded for honest reporting. Any other plan/apply failure is
+// a hard engine error (kError). The block step is pushed in the stopped and
+// error paths; callers push their own contextual step (for example the pair
+// stop step) before invoking this helper.
+RepeatedBlockOutcome commit_repeated_block_round(
+    GlobalGrammarState& state,
+    const GrammarRoundResult& block_round,
+    GrammarEngineResult& result,
+    GrammarEngineStep& block_step) {
+  const GrammarSnapshot snapshot = freeze_grammar_snapshot(state);
+  const GrammarCommitPlan plan =
+      build_exact_repeated_block_commit_plan(snapshot, block_round.action);
+  if (!plan.valid()) {
+    result.steps.push_back(block_step);
+    if (only_protected_boundary_diagnostics(plan.diagnostics)) {
+      result.commit_diagnostics = plan.diagnostics;
+      return RepeatedBlockOutcome::kStopped;
+    }
+    state.stage = GrammarStage::kError;
+    result.stop_reason = GrammarEngineStopReason::kCommitPlanRejected;
+    result.commit_diagnostics = plan.diagnostics;
+    return RepeatedBlockOutcome::kError;
+  }
+  const GrammarApplyResult apply =
+      apply_exact_repeated_block_commit_plan(state, plan);
+  if (!apply.applied()) {
+    result.steps.push_back(block_step);
+    if (only_protected_boundary_apply_diagnostics(apply.diagnostics)) {
+      result.apply_diagnostics = apply.diagnostics;
+      return RepeatedBlockOutcome::kStopped;
+    }
+    state.stage = GrammarStage::kError;
+    result.stop_reason = GrammarEngineStopReason::kApplyRejected;
+    result.apply_diagnostics = apply.diagnostics;
+    return RepeatedBlockOutcome::kError;
+  }
+  finish_step_after_apply(block_step, state);
+  result.steps.push_back(block_step);
+  return RepeatedBlockOutcome::kApplied;
+}
+
 }  // namespace
 
 const char* grammar_engine_stop_reason_name(
@@ -65,8 +144,45 @@ GrammarEngineResult run_grammar_state_machine(
   GrammarEngineResult result;
   std::size_t rounds = 0;
 
+  // The engine config is the single authority for the full-discovery cap;
+  // sync it into the state metadata so cap decisions, the discovery bound,
+  // and the reported metadata cannot disagree.
+  state.metadata.full_discovery_cap = config.full_discovery_cap;
+
   state.stage = GrammarStage::kRunFold;
-  while (true) {
+
+  // First pass: exact whole-sequence repeated-block discovery runs before any
+  // adjacent-run or pair compression (for modes that enable the producer) so
+  // a raw exact tiling is recognized first and cannot be destroyed by a
+  // cross-boundary pair action.
+  if (grammar_mode_enables_exact_repeated_block(state.metadata.mode)) {
+    if (++rounds > config.max_rounds) {
+      result.stop_reason = GrammarEngineStopReason::kRoundLimitExceeded;
+      state.stage = GrammarStage::kError;
+      return result;
+    }
+    const GrammarRoundResult block_round =
+        run_exact_repeated_block_readonly_round(state);
+    GrammarEngineStep block_step =
+        make_step(state, GrammarStage::kRunFold, block_round);
+    if (block_round.status == GrammarRoundStatus::kActionSelected) {
+      const RepeatedBlockOutcome outcome =
+          commit_repeated_block_round(state, block_round, result, block_step);
+      if (outcome == RepeatedBlockOutcome::kApplied) {
+        state.stage = GrammarStage::kPairGrammar;
+      } else if (outcome == RepeatedBlockOutcome::kStopped) {
+        state.stage = GrammarStage::kDone;
+        result.stop_reason = GrammarEngineStopReason::kDone;
+        return result;
+      } else {
+        return result;
+      }
+    } else {
+      result.steps.push_back(block_step);
+    }
+  }
+
+  while (state.stage == GrammarStage::kRunFold) {
     if (++rounds > config.max_rounds) {
       result.stop_reason = GrammarEngineStopReason::kRoundLimitExceeded;
       state.stage = GrammarStage::kError;
@@ -99,14 +215,16 @@ GrammarEngineResult run_grammar_state_machine(
     result.steps.push_back(step);
   }
 
-  if (state.live_node_count > config.full_discovery_cap) {
-    state.stage = GrammarStage::kDone;
-    result.stop_reason =
-        GrammarEngineStopReason::kSequenceTooLargeForFullPairDiscovery;
-    return result;
+  if (state.stage == GrammarStage::kRunFold) {
+    if (state.live_node_count > config.full_discovery_cap) {
+      state.stage = GrammarStage::kDone;
+      result.stop_reason =
+          GrammarEngineStopReason::kSequenceTooLargeForFullPairDiscovery;
+      return result;
+    }
+    state.stage = GrammarStage::kPairGrammar;
   }
 
-  state.stage = GrammarStage::kPairGrammar;
   while (state.stage == GrammarStage::kPairGrammar) {
     if (++rounds > config.max_rounds) {
       result.stop_reason = GrammarEngineStopReason::kRoundLimitExceeded;
@@ -118,7 +236,47 @@ GrammarEngineResult run_grammar_state_machine(
     GrammarEngineStep pair_step =
         make_step(state, GrammarStage::kPairGrammar, pair_round);
     if (pair_round.status == GrammarRoundStatus::kStop) {
-      result.steps.push_back(pair_step);
+      // Later pass at the pair fixpoint. Note that a tiling of a compressed
+      // sequence always implies a raw tiling (each macro expands to a fixed
+      // word, so an exact macro-level tiling P^R expands to an exact raw
+      // tiling), which the first pass would already have recognized. The one
+      // reachable case for this pass is the cap boundary: when the raw
+      // sequence exceeds full_discovery_cap the first pass is bounded off,
+      // and compression can later bring the sequence within the cap, where
+      // this pass re-applies the same exact whole-sequence check. It fires
+      // only on exact tilings (block x R, R >= 2) with the same protected-
+      // interval validation, so it cannot invent partial or inexact structure.
+      if (grammar_mode_enables_exact_repeated_block(state.metadata.mode)) {
+        if (++rounds > config.max_rounds) {
+          result.stop_reason = GrammarEngineStopReason::kRoundLimitExceeded;
+          state.stage = GrammarStage::kError;
+          return result;
+        }
+        const GrammarRoundResult block_round =
+            run_exact_repeated_block_readonly_round(state);
+        GrammarEngineStep block_step =
+            make_step(state, GrammarStage::kPairGrammar, block_round);
+        if (block_round.status == GrammarRoundStatus::kActionSelected) {
+          result.steps.push_back(pair_step);
+          const RepeatedBlockOutcome outcome =
+              commit_repeated_block_round(state, block_round, result,
+                                          block_step);
+          if (outcome == RepeatedBlockOutcome::kApplied) {
+            state.stage = GrammarStage::kPairGrammar;
+            continue;
+          }
+          if (outcome == RepeatedBlockOutcome::kStopped) {
+            state.stage = GrammarStage::kDone;
+            result.stop_reason = GrammarEngineStopReason::kDone;
+            break;
+          }
+          return result;
+        }
+        result.steps.push_back(pair_step);
+        result.steps.push_back(block_step);
+      } else {
+        result.steps.push_back(pair_step);
+      }
       state.stage = GrammarStage::kDone;
       break;
     }

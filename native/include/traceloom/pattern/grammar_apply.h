@@ -48,4 +48,8 @@ GrammarApplyResult apply_native_macro_run_commit_plan(
     GlobalGrammarState& state,
     const GrammarCommitPlan& plan);
 
+GrammarApplyResult apply_exact_repeated_block_commit_plan(
+    GlobalGrammarState& state,
+    const GrammarCommitPlan& plan);
+
 }  // namespace traceloom

@@ -21,13 +21,17 @@ GrammarAlgorithmMetadata default_grammar_metadata(
   metadata.full_discovery_cap = 50000;
   switch (mode) {
     case GrammarAlgorithmMode::kAnalysisQualityV1:
+      // Execution order of the native engine: the exact repeated-block
+      // producer runs first (before any adjacent-run or pair compression so
+      // raw exact tilings are recognized), then the run fold, then the pair
+      // grammar with interleaved macro-run folds. The repeated-block producer
+      // additionally re-runs at the pair fixpoint to catch macro-level exact
+      // tilings created by compression.
       metadata.producer_sequence = {
+          "ExactRepeatedBlockProducer",
           "AdjacentRunProducer",
           "PairGrammarProducer",
           "NativeMacroRunProducer",
-      };
-      metadata.known_deltas = {
-          "generic_repeated_block_skipped_native_v1",
       };
       break;
     case GrammarAlgorithmMode::kPythonCompatWithoutRepeatedBlock:
@@ -50,6 +54,10 @@ GrammarAlgorithmMetadata default_grammar_metadata(
       break;
   }
   return metadata;
+}
+
+bool grammar_mode_enables_exact_repeated_block(GrammarAlgorithmMode mode) {
+  return mode != GrammarAlgorithmMode::kPythonCompatWithoutRepeatedBlock;
 }
 
 }  // namespace traceloom

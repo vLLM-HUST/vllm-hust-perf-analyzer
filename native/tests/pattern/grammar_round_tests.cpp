@@ -46,6 +46,17 @@ traceloom::GrammarRoundResult pair_round_for(
       traceloom::build_initial_grammar_state(make_ir(symbols), config));
 }
 
+traceloom::GrammarRoundResult block_round_for(
+    const std::vector<std::string>& symbols,
+    std::size_t target_nodes_per_chunk,
+    std::size_t worker_count) {
+  traceloom::GrammarStateConfig config;
+  config.target_nodes_per_chunk = target_nodes_per_chunk;
+  config.worker_count = worker_count;
+  return traceloom::run_exact_repeated_block_readonly_round(
+      traceloom::build_initial_grammar_state(make_ir(symbols), config));
+}
+
 traceloom::GlobalGrammarState pair_compressed_state(
     const std::vector<std::string>& symbols,
     std::size_t target_nodes_per_chunk = 2,
@@ -207,6 +218,111 @@ int main() {
   require(boundary_macro.action.occurrences[0].crosses_chunk_boundary);
   require(boundary_macro.action.max_run_len == 4);
   require(boundary_macro.action.gain == 3);
+
+  const GrammarRoundResult repeated_block =
+      block_round_for({"A", "B", "C", "D", "A", "B", "C", "D",
+                       "A", "B", "C", "D"},
+                      2, 2);
+  require(repeated_block.status == GrammarRoundStatus::kActionSelected);
+  require(repeated_block.producer_id ==
+          GrammarProducerId::kExactRepeatedBlock);
+  require(repeated_block.action.kind ==
+          GrammarActionKind::kReplaceRepeatedBlock);
+  require(repeated_block.action.key.producer_id ==
+          GrammarProducerId::kExactRepeatedBlock);
+  require(repeated_block.action.key.symbol_id == SymbolId(0));
+  require(repeated_block.action.key.run_len == 4);
+  require(repeated_block.action.block_rhs_symbols.size() == 4);
+  require(repeated_block.action.block_rhs_symbols[0] == SymbolId(0));
+  require(repeated_block.action.block_rhs_symbols[3] == SymbolId(3));
+  require(repeated_block.action.repeat_count == 3);
+  require(repeated_block.action.replace_count == 3);
+  require(repeated_block.action.gain == 11);
+  require(repeated_block.action.first_dense_index == 0);
+  require(repeated_block.action.max_run_len == 4);
+  require(repeated_block.action.occurrences.size() == 3);
+  require(repeated_block.action.occurrences[0].begin_dense_index == 0);
+  require(repeated_block.action.occurrences[0].end_dense_index_exclusive == 4);
+  require(repeated_block.action.occurrences[1].begin_dense_index == 4);
+  require(repeated_block.action.occurrences[2].begin_dense_index == 8);
+  require(repeated_block.action.occurrences[2].end_dense_index_exclusive == 12);
+  require(repeated_block.candidate_stats.size() == 1);
+  require(repeated_block.candidate_stats[0].occurrence_count == 3);
+  require(repeated_block.candidate_stats[0].gain == 11);
+  require(repeated_block.candidate_stats[0].max_run_len == 4);
+  require(repeated_block.local_outputs.size() == 2);
+
+  const GrammarRoundResult repeated_block_one_worker =
+      block_round_for({"A", "B", "C", "D", "A", "B", "C", "D",
+                       "A", "B", "C", "D"},
+                      2, 1);
+  require(repeated_block_one_worker.status ==
+          GrammarRoundStatus::kActionSelected);
+  require(repeated_block_one_worker.action.key ==
+          repeated_block.action.key);
+  require(repeated_block_one_worker.action.block_rhs_symbols ==
+          repeated_block.action.block_rhs_symbols);
+  require(repeated_block_one_worker.action.repeat_count ==
+          repeated_block.action.repeat_count);
+  require(repeated_block_one_worker.action.gain ==
+          repeated_block.action.gain);
+  require(repeated_block_one_worker.local_outputs.size() == 1);
+
+  const GrammarRoundResult repeated_block_boundary =
+      block_round_for({"A", "B", "C", "D", "A", "B", "C", "D",
+                       "A", "B", "C", "D"},
+                      1, 3);
+  require(repeated_block_boundary.status ==
+          GrammarRoundStatus::kActionSelected);
+  require(repeated_block_boundary.action.occurrences.size() == 3);
+  for (const GrammarCandidateOccurrence& occurrence :
+       repeated_block_boundary.action.occurrences) {
+    require(occurrence.crosses_chunk_boundary);
+  }
+
+  const GrammarRoundResult repeated_block_primitive =
+      block_round_for({"A", "B", "A", "B", "A", "B", "A", "B"}, 2, 2);
+  require(repeated_block_primitive.status ==
+          GrammarRoundStatus::kActionSelected);
+  require(repeated_block_primitive.action.key.run_len == 2);
+  require(repeated_block_primitive.action.repeat_count == 4);
+  require(repeated_block_primitive.action.block_rhs_symbols.size() == 2);
+
+  const GrammarRoundResult repeated_block_two =
+      block_round_for({"A", "B", "A", "B"}, 2, 2);
+  require(repeated_block_two.status == GrammarRoundStatus::kActionSelected);
+  require(repeated_block_two.action.key.run_len == 2);
+  require(repeated_block_two.action.repeat_count == 2);
+
+  const GrammarRoundResult repeated_block_near_miss =
+      block_round_for({"A", "B", "C", "D", "A", "B", "C", "D",
+                       "A", "B", "C"},
+                      2, 2);
+  require(repeated_block_near_miss.status == GrammarRoundStatus::kStop);
+  require(repeated_block_near_miss.occurrences.empty());
+  require(repeated_block_near_miss.candidate_stats.empty());
+
+  const GrammarRoundResult repeated_block_short =
+      block_round_for({"A", "B", "C"}, 2, 2);
+  require(repeated_block_short.status == GrammarRoundStatus::kStop);
+
+  const GrammarRoundResult repeated_block_uniform =
+      block_round_for({"A", "A", "A", "A", "A", "A"}, 2, 2);
+  require(repeated_block_uniform.status == GrammarRoundStatus::kStop);
+  require(repeated_block_uniform.occurrences.empty());
+
+  traceloom::GrammarStateConfig capped_config;
+  capped_config.target_nodes_per_chunk = 2;
+  capped_config.worker_count = 2;
+  capped_config.full_discovery_cap = 8;
+  const traceloom::GrammarRoundResult repeated_block_capped =
+      traceloom::run_exact_repeated_block_readonly_round(
+          traceloom::build_initial_grammar_state(
+              make_ir({"A", "B", "C", "D", "A", "B", "C", "D",
+                       "A", "B", "C", "D"}),
+              capped_config));
+  require(repeated_block_capped.status == GrammarRoundStatus::kStop);
+  require(repeated_block_capped.occurrences.empty());
 
   GlobalGrammarState state =
       build_initial_grammar_state(make_ir({"A", "A", "A"}));

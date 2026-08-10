@@ -14,6 +14,7 @@ enum class GrammarProducerId {
   kAdjacentRun,
   kPairGrammar,
   kNativeMacroRun,
+  kExactRepeatedBlock,
 };
 
 enum class GrammarRoundStatus {
@@ -26,6 +27,7 @@ enum class GrammarActionKind {
   kReplaceExactRuns,
   kReplacePair,
   kCompressMaximalRuns,
+  kReplaceRepeatedBlock,
 };
 
 struct GrammarCandidateKey {
@@ -88,6 +90,10 @@ struct GrammarGlobalAction {
   GrammarActionKind kind = GrammarActionKind::kReplaceExactRuns;
   std::uint64_t snapshot_generation = 0;
   GrammarCandidateKey key;
+  // kReplaceRepeatedBlock: the exact tiled block (length == key.run_len).
+  std::vector<SymbolId> block_rhs_symbols;
+  // kReplaceRepeatedBlock: number of consecutive block repetitions (>= 2).
+  std::size_t repeat_count = 0;
   std::size_t replace_count = 0;
   std::size_t gain = 0;
   std::size_t first_dense_index = 0;
@@ -114,6 +120,9 @@ GrammarRoundResult run_pair_grammar_readonly_round(
     const GlobalGrammarState& state);
 
 GrammarRoundResult run_native_macro_run_readonly_round(
+    const GlobalGrammarState& state);
+
+GrammarRoundResult run_exact_repeated_block_readonly_round(
     const GlobalGrammarState& state);
 
 }  // namespace traceloom
