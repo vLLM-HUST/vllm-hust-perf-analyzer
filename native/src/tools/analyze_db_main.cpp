@@ -699,26 +699,15 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
         // Unattributable evidence is only assigned to the single device when
         // the whole DB has exactly one anchor device; otherwise it is never
         // claimed by any device report.
-        std::map<traceloom::ReplayUnitId::value_type, std::uint32_t>
-            unit_devices;
         std::set<std::uint32_t> anchor_devices;
         for (const traceloom::AnchorRow& anchor : ir.anchors.rows()) {
           anchor_devices.insert(anchor.device_id);
         }
-        for (const traceloom::ReplayUnitRow& unit : ir.replay_units.rows()) {
-          const traceloom::AnchorId bound =
-              unit.first_anchor_id.valid() ? unit.first_anchor_id
-                                           : unit.last_anchor_id;
-          if (!bound.valid()) {
-            continue;
-          }
-          if (bound.value() >= ir.anchors.size()) {
-            throw std::invalid_argument(
-                "ReplayUnitRow anchor bound is out of range");
-          }
-          unit_devices.emplace(unit.id.value(),
-                               ir.anchors.row(bound).device_id);
-        }
+        // Every present replay-unit anchor bound is validated for range and
+        // device ownership; malformed units fail closed instead of being
+        // misattributed to whichever bound was checked first.
+        std::map<traceloom::ReplayUnitId::value_type, std::uint32_t>
+            unit_devices = traceloom::compat::replay_unit_device_map(ir);
         std::map<traceloom::ReplayCompositionRegionId::value_type,
                  std::uint32_t>
             region_devices;

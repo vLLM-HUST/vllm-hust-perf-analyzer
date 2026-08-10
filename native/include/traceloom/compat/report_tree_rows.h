@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -24,6 +25,14 @@ struct NativeReportDevicePartition {
 // never invents cross-device ordering: a multi-device profiler DB yields one
 // independent linear anchor sequence per device instead of a combined tree.
 std::vector<NativeReportDevicePartition> partition_report_tokens_by_device(
+    const NativeIr& ir);
+
+// Attributes each replay unit to the device that owns its anchor bounds.
+// Every present bound must be in range, and when both bounds are present
+// they must own anchors on the same device; malformed units fail closed
+// (throw) instead of being misattributed. Units with no valid bound are
+// left unclaimed so callers can decide the unattributable fallback.
+std::map<ReplayUnitId::value_type, std::uint32_t> replay_unit_device_map(
     const NativeIr& ir);
 
 NodeCoverageSqlRows build_report_tree_node_coverage_sql_rows(
