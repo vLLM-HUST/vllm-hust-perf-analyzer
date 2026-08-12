@@ -23,6 +23,8 @@ query or report surface, artifact, and negative boundary are all named.
   current contract cannot support the claim.
 - **GATED**: implementation or external-validity evidence is deliberately
   required before the paper may make the claim.
+- **ARCHIVED EXPERIMENT**: reproducible work intentionally removed from the
+  mainline product and excluded from current paper claims.
 
 ## Current Claim Ledger
 
@@ -31,11 +33,11 @@ query or report surface, artifact, and negative boundary are all named.
 | C1 | Every promoted ACLGraph ReplayUnit has typed composition-region, launch-membership, body-template, interval, and raw-row evidence; unsupported regions remain typed unknown rather than fabricated units. | **REPRODUCED** | Native contract/unit tests, schema-capability goldens, and real sidecars. | Safe as the central exact-reconstruction claim. |
 | C2 | Each retained TP2 LLM rank reconstructs 30 exact `H + L×35 + T` regions covering 1,110 completed launches, with zero unknown or legacy units. | **REPRODUCED** | Current full split-directory rerun: both ranks report available body/completion capability, 30 recognized regions, 30 exact units, and 1,110 observed/expected launch members. | Safe when the split-profile capability requirement is stated. |
 | C3 | Older kickstart profiles support exact ACLGraph promotion. | **NOT_REPRODUCED** | Their missing `CaptureStreamInfo` makes body capability unavailable; current output is 10 missing-body-capability regions plus one missing-completion region and zero ReplayUnits on the larger rank. | Retain only as a conservative capability-gate/negative example. |
-| C4 | The device-only visible-gap analysis is an exact, non-overlapping, source-linked partition of profiler-visible productive gaps. | **REPRODUCED** | Checked SQL audit and real sidecars pass arithmetic, partition, extent, lineage, and anchor/root conservation. Collection status remains `unknown`; one TP2 split-layout result is explicitly `invalid_input` because E3 found damaged unknown point events. | Safe only with “visible productive gap,” not hardware idle or causality; a positive semantic claim additionally requires `analysis_status=ok`. |
+| C4 | Device-idle explanation belongs to TraceLoom's provider-neutral mainline. | **ARCHIVED EXPERIMENT** | The E1–E4 implementation is reproducible on `experimental/idle-evidence-v4.3-20260812`, but its provider allowlist and complement-based gap naming do not fit the unknown-first relational model. | Exclude this capability and its measurements from the main paper claims. Generic structural `idle_us` remains a cost residual, not an idleness inference. |
 | C5 | Current exact TP2 Loop Trees reproduce the older report's single `GraphReplayUnit x30 at ≈35 ms` and single `AllReduce x280` nodes. | **NOT_REPRODUCED** as written; diagnosis **REPRODUCED** | Current monolithic reports split the 30 exact units into two context-specific `x15` runs and retain eight distinct pre-graph AllReduce positions, each repeated 35 times. Their 280 combined occurrences preserve the 9.864× cross-rank skew. | State the more precise current structure; do not quote the obsolete merged node shape. |
 | C6 | Prefix hot/cold, output-tail, mixed-interference, overload, and eager/graph case-study counts remain valid under the current exact capability gate. | **INSUFFICIENT_EVIDENCE** | Existing counts come from older Loop Trees; most artifacts have not been rerun through the current capability matrix and audit surface. | Keep as historical observations or rerun; do not present them as current exact-reconstruction evaluation yet. |
 | C7 | TraceLoom implements a general runtime relation graph with `contains`, `repeat_of`, `prelude_of`, `neighbor_of`, `covers`, `derived_from`, and `changed_with`. | **NOT_REPRODUCED** | Durable tables cover tree containment/coverage, provenance, prelude attribution, and graph envelopes; there is no uniform relation-graph contract and no implemented cross-run `changed_with`. | Frame these as concrete typed tables/relations, not one completed general graph. |
-| C8 | CUDA/Nsight node traces support the same observation-backed exact visible-replay-structure contract as the Ascend path. | **REPRODUCED** for the scoped visible-body claim | The immutable Nsight 2024.4 node export recovers five directly correlated exact occurrences, two bodies, and oracle schedule `A/B/A/A/B`; missing-child and unsupported-activity mutations fail closed. CUDA idle taxonomy remains disabled, and graph-TP capture is a recorded negative. | Use as two-provider external-validity evidence. Say “profiler-visible body,” not full CUDA Graph definition or universal platform independence. |
+| C8 | CUDA/Nsight node traces support the same observation-backed exact visible-replay-structure contract as the Ascend path. | **REPRODUCED** for the scoped visible-body claim | The immutable Nsight 2024.4 node export recovers five directly correlated exact occurrences, two bodies, and oracle schedule `A/B/A/A/B`; missing-child and unsupported-activity mutations fail closed, and graph-TP capture is a recorded negative. | Use as two-provider external-validity evidence. Say “profiler-visible body,” not full CUDA Graph definition or universal platform independence. |
 
 ## Pre-Registered Current TP2 Check
 
@@ -52,8 +54,7 @@ diagnosis or must be downgraded to a historical legacy observation.
   `ascend_sqlite_split` so `CaptureStreamInfo`, `TaskInfo`, device controls,
   and communication identity are all available;
 - outputs: one current Loop Tree and compatibility sidecar per rank;
-- audits: `reconstruction-capability-matrix.sql` and
-  `idle-evidence-audit.sql`.
+- audit: `reconstruction-capability-matrix.sql`.
 
 ### Expected Observation
 
@@ -149,15 +150,6 @@ anchor histograms, and collective-duration multisets. All 3,655 communication
 task events remain available as detail, with 3,646 nonzero rows linked as
 auxiliary evidence and nine zero-duration rows retained only as raw events.
 
-Both monolithic paper-path idle sidecars have `analysis_status=ok` and pass
-every SQL invariant. The rank-3 **split** tables also pass every structural SQL
-invariant, but correctly carry `analysis_status=invalid_input`: E3 found 209
-zero-duration unknown task rows, so its observed stream scan is incomplete.
-This is a useful distinction:
-`audit_status=PASS` proves materialized-table integrity, not that the semantic
-input was valid. The analyzer now materializes this auditable negative result
-instead of aborting because E2 and E3 have different run statuses.
-
 ## Paper Corrections Already Required
 
 The current draft's graph-replay design description is stale if it says that
@@ -167,10 +159,9 @@ promotion now uses completion-backed launch occurrences, complete
 and exact `H/L/T` composition. Host API order is optional; the exact path can
 use `device_execution_order`.
 
-Likewise, “gap” must not be defined as generic idle inferred from neighboring
-events. The implemented evidence surface distinguishes overlap-safe historical
-prelude cost from the E1→E4 partition of **visible productive gaps**, preserves
-unattributed residual, and records collection completeness explicitly.
+Generic `idle_us` fields must remain described as structural prelude-cost
+residuals. Mainline TraceLoom does not infer device idleness from neighboring
+events; the former E1–E4 experiment is archived outside the product branch.
 
 ## Highest-Value Remaining Evidence
 

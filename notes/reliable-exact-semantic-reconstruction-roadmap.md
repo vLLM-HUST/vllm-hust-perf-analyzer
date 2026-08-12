@@ -91,63 +91,23 @@ tree itself, but are no longer invisible beside it; a kickstart report shows
 `0 exact / 11 unrecognized`, while each capability-complete TP2 rank shows
 `30 exact / 0 unrecognized`.
 
-The main-pipeline idle front has reached E4 device-only explanation. E2
-productive gaps are now projected through E3 per-stream state partitions into
-an exact, non-overlapping explanation partition with frozen priority, evidence
-level/relation, alignment status, and source lineage. Unknown collection
-completeness conservatively disables absence claims; a complete synthetic
-attestation enables `no_observed_device_work` only when every observed stream
-is empty and the scan is complete. Unknown and ambiguous task coverage stays
-typed `unattributed_visible_idle` with diagnostic lineage. The checked-in
-host-wait counterexample now runs through E4 and proves that a host wait over a
-fully productive device span creates no idle explanation.
+### Archived experiment: device-idle explanation
 
-Both real kickstart ranks run E1→E4 successfully. E4 takes 640 ms and 421 ms
-in the recorded one-run audit and preserves the entire visible-gap duration;
-the larger input improved from 18,009 ms after replacing full-timeline rescans
-with indexed interval lookup. The device-only explanation semantics are no
-longer the open front.
+The former E1–E4 device-idle explanation path is no longer a mainline
+TraceLoom capability. Its provider allowlist decided which observed tasks were
+"productive" and then named the complement as visible productive idle. That
+choice is useful as an experiment, but it does not fit the main product's
+provider-neutral, unknown-first relational timeline: visible unknown, wait, or
+control work can occur inside an interval whose name already implies idleness.
 
-The production `traceloom` command now runs that E1→E4 path for Ascend Loop
-Tree reports and renders a device-scoped `Visible Productive Idle Evidence`
-section. The section reports analysis/collection/rule status, total gap time,
-directly explained coverage, and every category including unattributed
-residual. It remains separate from the compatibility tree's historical
-prelude `idle_us`, preventing two different measurements from being silently
-conflated. Ascend-specific rules are deliberately gated off for CUDA and Hygon
-reports until those providers have validated taxonomies.
-
-Exact anchor/node attribution is now implemented for the conservative
-anchor-prelude view. E4 slices are intersected with the same disjoint prelude
-windows used by Loop Tree cost packets; intersections aggregate through the
-existing node/anchor coverage rows, while uncovered explanation time remains
-an explicit device-only residual. The production report exposes the coverage
-ratio and top hierarchical hotspots and warns that parent/child rows are not
-additive. On the larger kickstart rank, 65,097,292,403 of 65,097,292,443 gap
-nanoseconds map to anchor preludes; the remaining 40 ns is retained rather than
-rounded into a node.
-
-Raw idle evidence is now materialized in compatibility sidecars. One
-deterministic `traceloom_run_metadata` row records the frozen analysis,
-collection, ruleset, and attribution versions; its `run_id` is the lowercase
-SHA-256 of the generated RFC-8785-canonical metadata JSON without `run_id`.
-The sidecar also carries exact-nanosecond device intervals, per-stream state
-partitions and universe completeness, E4 explanation slices linked to their
-owning productive gaps, precise source-row evidence links, and anchor/node
-aggregates. Host API rules are explicitly `not_loaded`, so this materializer
-does not imply host correlation or collection completeness. Regenerating a
-sidecar without a provider-validated idle pipeline clears these tables instead
-of retaining stale Ascend conclusions.
-
-The larger real kickstart rank materializes 30,628 productive intervals and
-30,627 gaps. Explanation duration sums to the exact 65,097,292,443 ns gap
-total; anchor aggregation remains 65,097,292,403 ns, the root-node aggregate
-matches that value, all explanation-to-gap links resolve, and all 143,355
-materialized source links resolve to compatibility timeline events. The next
-idle-evidence front is therefore optional host/device correlation (only after
-real clock calibration and host allowlist import), not more device-only
-heuristics. The raw tables now have checked-in capability, summary, and audit
-queries suitable for regression and paper evaluation.
+The complete implementation, contracts, fixtures, reports, and measurements
+remain reproducible on branch
+`experimental/idle-evidence-v4.3-20260812` at commit
+`98f1bf4b33df54f6fad232250cce09d599c06882`. Mainline retains factual event,
+anchor, auxiliary, graph, hierarchy, occurrence, and cost relations. It does
+not infer device idleness or expose the E1–E4 tables/reports. Generic
+per-anchor/tree `idle_us` fields remain structural cost residuals and are not a
+device-idle claim.
 
 Cross-stream reconstruction is intentionally **not** an active front. The
 stable TraceLoom boundary is a coarse, permutation-invariant projection of
@@ -259,19 +219,12 @@ still promotes four exact units using device execution order.
 
 ## 2026-08-04 Golden SQL Audit Contract
 
-Three checked-in, executable SQL reports freeze the paper-facing evidence
-surface. `reconstruction-capability-matrix.sql` reduces the typed region ledger
-and replay rows into capability, body, completion, ordering, recognition, and
-legacy outcomes. `idle-evidence-summary.sql` emits exact category totals and
-visible-gap shares. `idle-evidence-audit.sql` checks interval arithmetic,
-per-gap partition and non-overlap, stream adjacency, source/owner lineage,
-evidence extents, anchor/node references, and root conservation before
-returning `PASS` or `FAIL`.
-
-The SQL compatibility golden fixes the column contracts and known-good values,
-then corrupts one explanation duration and requires the audit to change from
-`PASS` to `FAIL`. Supporting identity indexes keep lineage checks bounded on
-large sidecars.
+The checked-in `reconstruction-capability-matrix.sql` report freezes the
+paper-facing ACLGraph evidence surface. It reduces the typed region ledger and
+replay rows into capability, body, completion, ordering, recognition, and
+legacy outcomes. The SQL compatibility golden fixes its column contract and
+known-good values. The former device-idle SQL reports are preserved only on the
+archived experimental branch named above.
 
 The matrix separates the two important real outcomes without interpretation:
 the older kickstart artifact reports `capability_incomplete`, unavailable body

@@ -6,33 +6,12 @@
 #include <vector>
 
 #include "traceloom/compat/sidecar_writer.h"
-#include "traceloom/analysis/semantic_task_classifier.h"
 
 namespace traceloom {
 
 struct ReconstructionStatusCount {
   std::string status;
   std::uint64_t region_count = 0;
-};
-
-struct IdleExplanationSummaryCount {
-  std::string category;
-  std::uint64_t slice_count = 0;
-  std::uint64_t duration_ns = 0;
-};
-
-struct IdleExplanationNodeHotspot {
-  std::string node_id;
-  std::string label;
-  std::string kind;
-  std::uint64_t attributed_ns = 0;
-  std::uint64_t direct_ns = 0;
-  std::uint64_t wait_ns = 0;
-  std::uint64_t capture_control_ns = 0;
-  std::uint64_t runtime_control_ns = 0;
-  std::uint64_t no_observed_work_ns = 0;
-  std::uint64_t unattributed_ns = 0;
-  double average_attributed_ns = 0.0;
 };
 
 struct LoopTreeMarkdownOptions {
@@ -50,22 +29,6 @@ struct LoopTreeMarkdownOptions {
   std::uint64_t replay_unit_count = 0;
   std::uint64_t exact_replay_unit_count = 0;
   std::vector<ReconstructionStatusCount> reconstruction_status_counts;
-  bool has_semantic_operator_coverage = false;
-  std::string semantic_rules_version;
-  std::uint64_t unknown_task_count = 0;
-  std::uint64_t unregistered_operator_occurrence_count = 0;
-  std::uint64_t unique_unregistered_operator_count = 0;
-  std::vector<UnregisteredOperatorSummaryRow> unregistered_operators;
-  bool has_idle_explanation_summary = false;
-  std::string idle_analysis_status;
-  std::string idle_collection_status;
-  std::string idle_attribution_rule_version;
-  std::uint64_t visible_productive_idle_ns = 0;
-  std::uint64_t direct_explained_idle_ns = 0;
-  std::vector<IdleExplanationSummaryCount> idle_explanation_counts;
-  std::uint64_t anchor_prelude_attributed_idle_ns = 0;
-  std::uint64_t device_only_unassigned_idle_ns = 0;
-  std::vector<IdleExplanationNodeHotspot> idle_node_hotspots;
 };
 
 void write_loop_tree_markdown(
