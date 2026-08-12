@@ -23,8 +23,7 @@ int main() {
   const TraceEventId task_event =
       ir.trace_events.append(task_source, 101, 0, 7, 1000, 2500, raw_task);
   ir.tasks.append(task_source, task_event, 55, 9001, -1, raw_task, matmul,
-                  cube, raw_task, SymbolId::invalid(), -1,
-                  SymbolId::invalid(), 4242, 7);
+                  cube, raw_task, SymbolId::invalid());
 
   const TraceEventId comm_event =
       ir.trace_events.append(comm_source, 5, 1, 9, 3000, 4500, all_reduce);
@@ -64,8 +63,6 @@ int main() {
   require(rows.events[0].role == "compute");
   require(rows.events[0].category == "compute");
   require(rows.events[0].family == "compute");
-  require(rows.events[0].profiler_global_pid == 4242);
-  require(rows.events[0].profiler_context_id == 7);
 
   require(rows.event_sources[0].event_id == rows.events[0].event_id);
   require(rows.event_sources[0].source_table == "TASK");
@@ -79,8 +76,6 @@ int main() {
   require(rows.events[1].symbol == "HcclAllReduce");
   require(rows.events[1].role == "comm");
   require(rows.events[1].category == "comm");
-  require(rows.events[1].profiler_global_pid == -1);
-  require(rows.events[1].profiler_context_id == -1);
   require(rows.event_sources[1].source_table == "COMMUNICATION_OP");
 
   const SourceRefId aux_source = ir.source_refs.append(

@@ -168,8 +168,6 @@ EventSqlRows build_timeline_sql_rows(const NativeIr& ir, std::uint32_t db_idx) {
       row.compute_task_type =
           symbol_value_or_empty(ir, task->compute_task_type_symbol_id);
       row.task_type = symbol_value_or_empty(ir, task->task_type_symbol_id);
-      row.profiler_global_pid = task->raw_global_pid;
-      row.profiler_context_id = task->raw_context_id;
       const bool is_comm_task = task->comm_name_symbol_id.valid();
       const bool is_aux_task = ends_with(row.task_type, "_AUX");
       row.role = is_comm_task ? "comm" : (is_aux_task ? "aux" : "compute");

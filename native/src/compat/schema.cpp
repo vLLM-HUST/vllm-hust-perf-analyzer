@@ -93,8 +93,6 @@ const CompatTableSchema& event_table_schema() {
           {"compute_task_type", CompatColumnType::kText, true},
           {"family", CompatColumnType::kText, true},
           {"task_type", CompatColumnType::kText, true},
-          {"profiler_global_pid", CompatColumnType::kInteger, true},
-          {"profiler_context_id", CompatColumnType::kInteger, true},
           {"raw_json", CompatColumnType::kText, true},
       },
   };
