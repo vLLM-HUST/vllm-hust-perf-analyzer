@@ -26,7 +26,7 @@ profiler SQLite
   -> semantic anchor extraction
   -> repeated-pattern discovery
   -> overlap-safe timeline cost attribution
-  -> Loop Tree report and optional SQLite/JSON evidence
+  -> Loop Tree report and self-contained augmented SQLite analysis
 ```
 
 Key capabilities:
@@ -142,7 +142,33 @@ useful columns are:
   categories;
 - `avg_aux_us` and `avg_self_us`: attributed auxiliary and node-owned cost.
 
-### 4. Request Advanced Evidence
+### 4. Create An Agent-Queryable Analysis Database
+
+For one profiler SQLite file, ask TraceLoom for a new self-contained database:
+
+```bash
+traceloom /path/to/msprof.db --aug-db-out /tmp/run.traceloom.db
+```
+
+The input is opened read-only. TraceLoom snapshots every raw profiler table
+into the new file and appends its `traceloom_*` hierarchy, occurrence, exact
+graph, replay-cost, provenance, and typed-issue relations. The resulting file
+can be moved away from the input and queried without `ATTACH`:
+
+```bash
+sqlite3 /tmp/run.traceloom.db < docs/report-sql/replay-cost-hotspots.sql
+sqlite3 /tmp/run.traceloom.db < docs/report-sql/node-replay-cost-members.sql
+```
+
+Use `source_table` and `source_row_id` to audit a selected member directly in
+the copied vendor table. `traceloom_metadata` records the original path,
+byte-size, and SHA-256 as provenance; they are not runtime dependencies.
+
+The first production slice accepts one regular profiler SQLite file. Ascend
+split-profile directories continue to support Loop Tree and compatibility DB
+output while their multi-file self-contained packaging contract is developed.
+
+### 5. Request Other Advanced Evidence
 
 The normal workflow only writes the Loop Tree. Use advanced flags when a
 single database needs additional evidence:
@@ -150,7 +176,7 @@ single database needs additional evidence:
 ```bash
 traceloom /path/to/msprof.db \
   --loop-tree-out /tmp/loop_tree_v2.md \
-  --compat-db-out /tmp/traceloom-sidecar.db \
+  --aug-db-out /tmp/traceloom-analysis.db \
   --out /tmp/native_result.json
 ```
 

@@ -65,6 +65,7 @@ struct CliOptions {
   bool out_path_set = false;
   std::string grammar_debug_out_path;
   std::string compat_sidecar_out_path;
+  std::string augmented_db_out_path;
   std::string loop_tree_out_path;
   bool loop_tree_out_path_set = false;
   std::string loop_tree_db_label;
@@ -112,6 +113,7 @@ void print_advanced_usage(const char* argv0) {
                " [--out PATH|-] [--top-candidates N]"
                " [--grammar-debug-out PATH|-]"
                " [--compat-db-out PATH]"
+               " [--aug-db-out PATH]"
                " [--loop-tree-out PATH|-]"
                " [--loop-tree-db-label LABEL]"
                " [--loop-tree-device-id N]"
@@ -164,6 +166,8 @@ CliOptions parse_args(int argc, char** argv) {
       options.grammar_debug_out_path = require_value(arg);
     } else if (arg == "--compat-db-out" || arg == "--compat-sidecar-out") {
       options.compat_sidecar_out_path = require_value(arg);
+    } else if (arg == "--aug-db-out") {
+      options.augmented_db_out_path = require_value(arg);
     } else if (arg == "--loop-tree-out") {
       options.loop_tree_out_path = require_value(arg);
       options.loop_tree_out_path_set = true;
@@ -232,6 +236,7 @@ CliOptions parse_args(int argc, char** argv) {
   if (options.source_dbs.size() > 1 &&
       (options.out_path_set || !options.grammar_debug_out_path.empty() ||
        !options.compat_sidecar_out_path.empty() ||
+       !options.augmented_db_out_path.empty() ||
        options.loop_tree_out_path_set)) {
     throw std::invalid_argument(
         "explicit output paths are only supported for a single input DB; pass "
@@ -245,7 +250,8 @@ CliOptions parse_args(int argc, char** argv) {
   }
   const bool has_explicit_output =
       options.out_path_set || !options.grammar_debug_out_path.empty() ||
-      !options.compat_sidecar_out_path.empty() || options.loop_tree_out_path_set;
+      !options.compat_sidecar_out_path.empty() ||
+      !options.augmented_db_out_path.empty() || options.loop_tree_out_path_set;
   if (!has_explicit_output && !source_db_from_flag) {
     options.loop_tree_out_path_set = true;
   }
@@ -266,9 +272,11 @@ CliOptions parse_args(int argc, char** argv) {
     throw std::invalid_argument("multiple outputs cannot use '-' together");
   }
   if (options.sidecar_only && options.compat_sidecar_out_path.empty() &&
+      options.augmented_db_out_path.empty() &&
       !options.loop_tree_out_path_set) {
     throw std::invalid_argument(
-        "--sidecar-only requires --compat-db-out or --loop-tree-out");
+        "--sidecar-only requires --aug-db-out, --compat-db-out, or "
+        "--loop-tree-out");
   }
   return options;
 }
@@ -460,7 +468,8 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
   const bool report_only =
       cli.sidecar_only || (!cli.out_path_set &&
                            cli.grammar_debug_out_path.empty() &&
-                           cli.compat_sidecar_out_path.empty());
+                           cli.compat_sidecar_out_path.empty() &&
+                           cli.augmented_db_out_path.empty());
 
   const bool is_cuda =
       cli.source_kind == "cuda_nsys_sqlite" ||
@@ -580,7 +589,8 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
                     cli.idle_evidence_rules_path));
     }
     if (!is_cuda && !is_hygon &&
-        (!cli.compat_sidecar_out_path.empty() || cli.loop_tree_out_path_set)) {
+        (!cli.compat_sidecar_out_path.empty() ||
+         !cli.augmented_db_out_path.empty() || cli.loop_tree_out_path_set)) {
       const Stopwatch idle_evidence_watch;
       // Trace contents cannot attest collection completeness. The main CLI
       // keeps the default kUnknown and never upgrades observed emptiness into
@@ -611,6 +621,16 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
       if (cli.timings) {
         std::cerr << "timing compat_db_ms="
                   << sidecar_watch.elapsed_ms() << "\n";
+      }
+    }
+    if (!cli.augmented_db_out_path.empty()) {
+      const Stopwatch augmented_db_watch;
+      traceloom::compat::write_self_contained_augmented_database(
+          cli.augmented_db_out_path, source_db, ir, sidecar_options,
+          idle_pipeline ? &*idle_pipeline : nullptr);
+      if (cli.timings) {
+        std::cerr << "timing augmented_db_ms="
+                  << augmented_db_watch.elapsed_ms() << "\n";
       }
     }
     if (cli.loop_tree_out_path_set) {

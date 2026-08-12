@@ -53,7 +53,11 @@ Use `traceloom --help-advanced` for non-default outputs:
 
 - `--out PATH`: native result JSON;
 - `--grammar-debug-out PATH`: grammar-state diagnostics;
-- `--compat-db-out PATH`: queryable compatibility SQLite sidecar;
+- `--aug-db-out PATH`: new self-contained augmented SQLite database containing
+  copied raw profiler tables and TraceLoom analysis relations (one regular
+  SQLite input in the current production slice);
+- `--compat-db-out PATH`: legacy queryable compatibility SQLite output without
+  a raw-table snapshot;
 - `--loop-tree-out PATH`: explicit Loop Tree output path;
 - `--loop-tree-aux`: include auxiliary attribution in the Loop Tree build.
 - `--idle-evidence-rules PATH`: override the Ascend idle-evidence semantic

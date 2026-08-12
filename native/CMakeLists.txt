@@ -124,6 +124,7 @@ add_library(traceloom_native_materialize
   src/compat/native_graph_replay_rows.cpp
   src/compat/native_sidecar_materializer.cpp
   src/compat/report_tree_rows.cpp
+  src/compat/replay_cost_sql_rows.cpp
   src/compat/schema.cpp
   src/compat/sidecar_writer.cpp
   src/compat/timeline_rows.cpp

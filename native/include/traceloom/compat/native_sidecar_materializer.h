@@ -25,10 +25,26 @@ struct NativeCompatibilitySidecarOptions {
   std::size_t grammar_target_nodes_per_chunk = 4096;
   std::size_t grammar_full_discovery_cap = 50000;
   bool timing_diagnostics = false;
+  std::string artifact_kind = "compatibility_database";
+  bool source_embedded = false;
+  std::string source_sha256;
+  std::uint64_t source_size_bytes = 0;
 };
 
 void write_basic_native_compatibility_sidecar(
     const std::string& sqlite_path,
+    const NativeIr& ir,
+    const NativeCompatibilitySidecarOptions& options =
+        NativeCompatibilitySidecarOptions{},
+    const IdleEvidencePipelineResult* idle_evidence = nullptr);
+
+// Creates a new SQLite artifact by snapshotting a regular input profiler DB,
+// then materializing TraceLoom relations into that snapshot. The input is
+// opened read-only and is never modified. Publication is atomic: the output
+// path is replaced only after the complete augmented database is ready.
+void write_self_contained_augmented_database(
+    const std::string& output_path,
+    const std::string& source_sqlite_path,
     const NativeIr& ir,
     const NativeCompatibilitySidecarOptions& options =
         NativeCompatibilitySidecarOptions{},

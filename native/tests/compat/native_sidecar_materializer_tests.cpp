@@ -61,6 +61,21 @@ std::string run_scalar_text(const std::string& path, const std::string& sql) {
   return value;
 }
 
+void run_sql(const std::string& path, const std::string& sql) {
+  sqlite3* db = nullptr;
+  int rc = sqlite3_open_v2(path.c_str(), &db,
+                           SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE,
+                           nullptr);
+  traceloom::testing::require(rc == SQLITE_OK);
+  char* error = nullptr;
+  rc = sqlite3_exec(db, sql.c_str(), nullptr, nullptr, &error);
+  if (error != nullptr) {
+    sqlite3_free(error);
+  }
+  sqlite3_close(db);
+  traceloom::testing::require(rc == SQLITE_OK);
+}
+
 NativeIr build_collective_repeat_ir() {
   NativeIr ir;
   const SourceRefId source =
@@ -514,7 +529,7 @@ int main() {
   compat::write_basic_native_compatibility_sidecar(db_path, ir, options);
 
   require(run_scalar_int(db_path,
-                         "SELECT COUNT(*) FROM traceloom_metadata") == 10);
+                         "SELECT COUNT(*) FROM traceloom_metadata") == 14);
   require(run_scalar_text(db_path,
                           "SELECT value FROM traceloom_metadata "
                           "WHERE key = 'native_compatibility_materializer'") ==
@@ -760,6 +775,40 @@ int main() {
               exact_cuda_graph_db_path,
               "SELECT COUNT(*) FROM traceloom_graph_body_member "
               "WHERE kind = 'data_move'") == 1);
+  require(run_scalar_int(exact_cuda_graph_db_path,
+                         "SELECT COUNT(*) FROM traceloom_replay_cost_unit") ==
+          1);
+  require(run_scalar_text(
+              exact_cuda_graph_db_path,
+              "SELECT support_status FROM traceloom_replay_cost_unit") ==
+          "supported");
+  require(run_scalar_int(
+              exact_cuda_graph_db_path,
+              "SELECT task_sum_ns FROM traceloom_replay_cost_launch") == 30);
+  require(run_scalar_int(
+              exact_cuda_graph_db_path,
+              "SELECT busy_union_ns FROM traceloom_replay_cost_launch") ==
+          30);
+  require(run_scalar_int(
+              exact_cuda_graph_db_path,
+              "SELECT envelope_ns FROM traceloom_replay_cost_launch") == 50);
+  require(run_scalar_int(exact_cuda_graph_db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_replay_cost_member") == 3);
+  require(run_scalar_int(exact_cuda_graph_db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_replay_cost_aggregate") == 3);
+  require(run_scalar_int(exact_cuda_graph_db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_replay_cost_aggregate_member") == 3);
+  require(run_scalar_int(exact_cuda_graph_db_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_v_node_replay_cost_member") == 3);
+  require(run_scalar_int(
+              exact_cuda_graph_db_path,
+              "SELECT scheduled_work_share_ppm FROM "
+              "traceloom_replay_cost_member "
+              "WHERE member_id = 'graph-body-member-0'") == 333333);
   require(run_scalar_int(
               exact_cuda_graph_db_path,
               "SELECT COUNT(*) FROM traceloom_graph_body_member "
@@ -1120,5 +1169,36 @@ int main() {
                           "'$.analysis_status') FROM "
                           "traceloom_run_metadata") == "invalid_input");
   std::remove(invalid_idle_db_path.c_str());
+
+  // The analysis database is a new snapshot, not a modified sidecar. It must
+  // retain arbitrary raw profiler relations after the source is gone.
+  const std::string raw_source_path = temp_db_path();
+  const std::string augmented_path = temp_db_path();
+  run_sql(raw_source_path,
+          "CREATE TABLE RAW_SENTINEL(id INTEGER, payload TEXT);"
+          "INSERT INTO RAW_SENTINEL VALUES(7, 'retained profiler evidence')");
+  const std::string source_hash_before = sha256_file_hex(raw_source_path);
+  compat::NativeCompatibilitySidecarOptions augmented_options;
+  augmented_options.source_kind = "cuda_nsys_sqlite";
+  compat::write_self_contained_augmented_database(
+      augmented_path, raw_source_path, build_exact_cuda_graph_replay_ir(),
+      augmented_options);
+  require(sha256_file_hex(raw_source_path) == source_hash_before,
+          "augmented DB construction modified the input profiler DB");
+  require(run_scalar_text(augmented_path,
+                          "SELECT value FROM traceloom_metadata WHERE key = "
+                          "'artifact_kind'") ==
+          "self_contained_augmented_database");
+  require(run_scalar_text(augmented_path,
+                          "SELECT value FROM traceloom_metadata WHERE key = "
+                          "'source_sha256'") == source_hash_before);
+  std::remove(raw_source_path.c_str());
+  require(run_scalar_text(augmented_path,
+                          "SELECT payload FROM RAW_SENTINEL WHERE id = 7") ==
+          "retained profiler evidence");
+  require(run_scalar_int(augmented_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_v_node_replay_cost_member") == 3);
+  std::remove(augmented_path.c_str());
   return 0;
 }

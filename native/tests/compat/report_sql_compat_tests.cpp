@@ -595,6 +595,29 @@ void seed_exact_graph_query_fixture(const std::string& db_path) {
   traceloom::compat::replace_exact_graph_rows(db_path, rows);
 }
 
+void seed_replay_cost_query_fixture(const std::string& db_path) {
+  traceloom::compat::materialize_report_compatibility_views(db_path);
+  execute_sql(db_path, R"SQL(
+INSERT INTO traceloom_replay_cost_unit VALUES
+ ('replay-cost-unit-1',0,0,1,2,1,1,'supported','');
+INSERT INTO traceloom_replay_cost_launch VALUES
+ ('graph-launch-query-1','replay-cost-unit-1',0,0,0,3,4,'cuda_graph',0,4,5,
+  'supported','',1,5000,5000,5000,5000,0,0,1,2);
+INSERT INTO traceloom_replay_cost_stream VALUES
+ ('graph-launch-query-1',0,0,7,0,1,1,5000,5000,5000,0,0);
+INSERT INTO traceloom_replay_cost_member VALUES
+ ('graph-body-member-query-1','graph-launch-query-1','replay-cost-unit-1',
+  0,0,4,'cuda_graph',0,4,5,7,0,0,'compute','event-anchor-1','MatMul',
+  10,1000,6000,5000,0,5000,1000000,1,5000);
+INSERT INTO traceloom_replay_cost_aggregate VALUES
+ ('replay-cost-aggregate-0',0,0,2,'cuda_graph','role_collapsed',4,7,0,
+  'MatMul','compute',1,1,1,1,1,1,5000,5000,5000,1000000,1,5000);
+INSERT INTO traceloom_replay_cost_aggregate_member VALUES
+ ('replay-cost-aggregate-0','graph-body-member-query-1',0,0,0);
+)SQL");
+  traceloom::compat::materialize_report_compatibility_views(db_path);
+}
+
 void seed_graph_replay_fixture(const std::string& db_path) {
   traceloom::compat::GraphReplaySqlRows rows;
 
@@ -1186,6 +1209,17 @@ std::vector<QueryCase> active_query_cases() {
           1,
       },
       QueryCase{
+          "node-replay-cost-members.sql",
+          {
+              "node_id", "occurrence_idx", "anchor_id", "launch_id",
+              "member_id", "slot_role", "slot_order", "stream_id",
+              "lane_ordinal", "task_ordinal", "identity", "kind",
+              "duration_ns", "scheduled_work_share_ppm", "event_id",
+              "source_table", "source_row_id",
+          },
+          1,
+      },
+      QueryCase{
           "node-occurrences.sql",
           {
               "node",
@@ -1241,6 +1275,28 @@ std::vector<QueryCase> active_query_cases() {
               "leading_context_count",
               "exact_replay_unit_count",
               "legacy_replay_unit_count",
+          },
+          1,
+      },
+      QueryCase{
+          "replay-cost-hotspots.sql",
+          {
+              "aggregate_id", "graph_template_id", "slot_role",
+              "replay_body_template_id", "stream_id", "task_ordinal",
+              "identity", "kind", "member_occurrence_count",
+              "replay_unit_count", "duration_p25_ns", "duration_median_ns",
+              "duration_p75_ns", "scheduled_work_share_ppm",
+          },
+          1,
+      },
+      QueryCase{
+          "replay-cost-explain.sql",
+          {
+              "aggregate_id", "aggregation_scope", "aggregate_identity",
+              "duration_p25_ns", "duration_median_ns", "duration_p75_ns",
+              "contributor_order", "cost_unit_id", "launch_id", "member_id",
+              "slot_order", "stream_id", "task_ordinal", "duration_ns",
+              "event_id", "source_table", "source_row_id",
           },
           1,
       },
@@ -1373,6 +1429,7 @@ int main() {
     } else if (query_case.filename == "node-events.sql" ||
                query_case.filename == "node-occurrences.sql" ||
                query_case.filename == "node-graph-body-members.sql" ||
+               query_case.filename == "node-replay-cost-members.sql" ||
                query_case.filename == "event-graph-node-occurrences.sql" ||
                query_case.filename == "repeat-overview.sql" ||
                query_case.filename == "repeat-children.sql" ||
@@ -1381,14 +1438,24 @@ int main() {
       seed_anchor_aux_fixture(db_path);
       seed_node_event_fixture(db_path);
       if (query_case.filename == "node-graph-body-members.sql" ||
+          query_case.filename == "node-replay-cost-members.sql" ||
           query_case.filename == "event-graph-node-occurrences.sql") {
         seed_exact_graph_query_fixture(db_path);
+      }
+      if (query_case.filename == "node-replay-cost-members.sql") {
+        seed_replay_cost_query_fixture(db_path);
       }
       require_anchor_aux_invariants(db_path);
       require_node_coverage_invariants(db_path);
     } else if (query_case.filename == "semantic-tree-readable.sql") {
       seed_semantic_tree_fixture(db_path);
       require_semantic_tree_invariants(db_path);
+    } else if (query_case.filename == "replay-cost-hotspots.sql" ||
+               query_case.filename == "replay-cost-explain.sql") {
+      seed_anchor_aux_fixture(db_path);
+      seed_node_event_fixture(db_path);
+      seed_exact_graph_query_fixture(db_path);
+      seed_replay_cost_query_fixture(db_path);
     }
 
     const QueryResult result = run_query(db_path, query_case);
@@ -1505,6 +1572,22 @@ int main() {
       require(result.first_row[8] == "MatMul");
       require(result.first_row[9] == "8589934592");
       require(result.first_row[10] == "4294967296");
+    } else if (query_case.filename == "node-replay-cost-members.sql") {
+      require(result.row_count == 1);
+      require(result.first_row[4] == "graph-body-member-query-1");
+      require(result.first_row[10] == "MatMul");
+      require(result.first_row[12] == "5000");
+      require(result.first_row[15] == "TASK");
+    } else if (query_case.filename == "replay-cost-hotspots.sql") {
+      require(result.row_count == 1);
+      require(result.first_row[0] == "replay-cost-aggregate-0");
+      require(result.first_row[6] == "MatMul");
+      require(result.first_row[11] == "5000");
+    } else if (query_case.filename == "replay-cost-explain.sql") {
+      require(result.row_count == 1);
+      require(result.first_row[1] == "role_collapsed");
+      require(result.first_row[9] == "graph-body-member-query-1");
+      require(result.first_row[15] == "TASK");
     } else if (query_case.filename ==
                "event-graph-node-occurrences.sql") {
       require(result.row_count == 2);

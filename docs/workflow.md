@@ -94,18 +94,21 @@ This normalization makes a loop node directly comparable with its loop body.
 
 ## 5. Drill Down When Needed
 
-The normal report is intentionally compact. For queryable evidence from one
-database, request native JSON and a compatibility sidecar:
+The normal report is intentionally compact. For portable, queryable evidence
+from one regular profiler database, request native JSON and a self-contained
+augmented database:
 
 ```bash
 traceloom /path/to/msprof.db \
   --loop-tree-out /tmp/loop_tree_v2.md \
-  --compat-db-out /tmp/traceloom-sidecar.db \
+  --aug-db-out /tmp/traceloom-analysis.db \
   --out /tmp/native_result.json
 ```
 
-Inspect the sidecar with `sqlite3` or another SQLite client. Source references
-retain the original database, table, and row identifiers. Run
+Inspect the augmented database with `sqlite3` or another SQLite client. It
+contains the copied raw profiler tables as well as the TraceLoom hierarchy and
+cost relations, so source references remain queryable after the input is moved.
+Run
 `traceloom --help-advanced` for grammar and auxiliary-attribution options.
 
 ## 6. Share A Reproducible Diagnosis

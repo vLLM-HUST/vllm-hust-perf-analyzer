@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <exception>
+#include <filesystem>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -16,14 +17,22 @@
 #include "traceloom/compat/idle_explanation_rows.h"
 #include "traceloom/compat/native_graph_replay_rows.h"
 #include "traceloom/compat/report_tree_rows.h"
+#include "traceloom/compat/replay_cost_sql_rows.h"
 #include "traceloom/compat/sidecar_writer.h"
 #include "traceloom/compat/timeline_rows.h"
+#include "traceloom/core/sha256.h"
 #include "traceloom/pattern/grammar_engine.h"
 #include "traceloom/pattern/grammar_state.h"
 #include "traceloom/report/report_tree_builder.h"
 
+#if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
+#include <sqlite3.h>
+#endif
+
 namespace traceloom::compat {
 namespace {
+
+namespace fs = std::filesystem;
 
 class Stopwatch {
  public:
@@ -51,6 +60,53 @@ std::string basename_or_default(const std::string& path,
   const std::string value = path.substr(pos + 1);
   return value.empty() ? fallback : value;
 }
+
+#if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
+void sqlite_snapshot(const std::string& source_path,
+                     const std::string& destination_path) {
+  sqlite3* source = nullptr;
+  sqlite3* destination = nullptr;
+  if (sqlite3_open_v2(source_path.c_str(), &source, SQLITE_OPEN_READONLY,
+                      nullptr) != SQLITE_OK) {
+    const std::string message = source ? sqlite3_errmsg(source) : "open failed";
+    if (source != nullptr) {
+      sqlite3_close(source);
+    }
+    throw std::runtime_error("failed to open profiler DB for snapshot: " +
+                             message);
+  }
+  if (sqlite3_open_v2(destination_path.c_str(), &destination,
+                      SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) !=
+      SQLITE_OK) {
+    const std::string message =
+        destination ? sqlite3_errmsg(destination) : "open failed";
+    if (destination != nullptr) {
+      sqlite3_close(destination);
+    }
+    sqlite3_close(source);
+    throw std::runtime_error("failed to create augmented DB snapshot: " +
+                             message);
+  }
+  sqlite3_backup* backup =
+      sqlite3_backup_init(destination, "main", source, "main");
+  if (backup == nullptr) {
+    const std::string message = sqlite3_errmsg(destination);
+    sqlite3_close(destination);
+    sqlite3_close(source);
+    throw std::runtime_error("failed to initialize augmented DB snapshot: " +
+                             message);
+  }
+  const int step_rc = sqlite3_backup_step(backup, -1);
+  const int finish_rc = sqlite3_backup_finish(backup);
+  const std::string message = sqlite3_errmsg(destination);
+  sqlite3_close(destination);
+  sqlite3_close(source);
+  if (step_rc != SQLITE_DONE || finish_rc != SQLITE_OK) {
+    throw std::runtime_error("failed to copy profiler DB into augmented DB: " +
+                             message);
+  }
+}
+#endif
 
 ReportTree build_sidecar_report_tree(
     const NativeIr& ir,
@@ -155,6 +211,10 @@ void write_basic_native_compatibility_sidecar(
       {"native_compatibility_materializer", "basic_native_ir_v1"},
       {"source_kind", options.source_kind},
       {"source_path", options.source_path},
+      {"artifact_kind", options.artifact_kind},
+      {"source_embedded", options.source_embedded ? "true" : "false"},
+      {"source_sha256", options.source_sha256},
+      {"source_size_bytes", std::to_string(options.source_size_bytes)},
       {"trace_event_count", std::to_string(ir.trace_events.size())},
       {"anchor_count", std::to_string(ir.anchors.size())},
       {"graph_template_count", std::to_string(ir.graph_templates.size())},
@@ -184,6 +244,7 @@ void write_basic_native_compatibility_sidecar(
   replace_exact_graph_rows(
       sqlite_path,
       build_exact_graph_sql_rows(ir, options.source_kind, options.db_idx));
+  replace_replay_cost_rows(sqlite_path, ir, options.db_idx);
   const std::vector<AnchorSqlRow> anchor_rows =
       build_anchor_sequence_sql_rows(ir, options.db_idx);
   replace_anchor_rows(sqlite_path, anchor_rows);
@@ -255,6 +316,63 @@ void write_basic_native_compatibility_sidecar(
   if (options.materialize_report_views) {
     materialize_report_compatibility_views(sqlite_path);
   }
+}
+
+void write_self_contained_augmented_database(
+    const std::string& output_path,
+    const std::string& source_sqlite_path,
+    const NativeIr& ir,
+    const NativeCompatibilitySidecarOptions& options,
+    const IdleEvidencePipelineResult* idle_evidence) {
+#if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
+  const fs::path source = fs::absolute(source_sqlite_path).lexically_normal();
+  const fs::path output = fs::absolute(output_path).lexically_normal();
+  if (!fs::is_regular_file(source)) {
+    throw std::invalid_argument(
+        "self-contained augmented DB currently requires one regular SQLite "
+        "input; split profile directories must use the compatibility output");
+  }
+  if (source == output ||
+      (fs::exists(output) && fs::equivalent(source, output))) {
+    throw std::invalid_argument(
+        "augmented DB output must differ from the input profiler DB");
+  }
+  if (output.has_parent_path()) {
+    fs::create_directories(output.parent_path());
+  }
+  const std::string suffix = std::to_string(
+      std::chrono::steady_clock::now().time_since_epoch().count());
+  const fs::path temporary = output.string() + ".tmp." + suffix;
+  try {
+    sqlite_snapshot(source.string(), temporary.string());
+    NativeCompatibilitySidecarOptions augmented_options = options;
+    augmented_options.source_path = source.string();
+    augmented_options.artifact_kind = "self_contained_augmented_database";
+    augmented_options.source_embedded = true;
+    augmented_options.source_size_bytes = fs::file_size(source);
+    augmented_options.source_sha256 = sha256_file_hex(source.string());
+    write_basic_native_compatibility_sidecar(
+        temporary.string(), ir, augmented_options, idle_evidence);
+    std::error_code ec;
+    fs::rename(temporary, output, ec);
+    if (ec) {
+      throw std::runtime_error("failed to publish augmented DB output: " +
+                               ec.message());
+    }
+  } catch (...) {
+    std::error_code ignored;
+    fs::remove(temporary, ignored);
+    throw;
+  }
+#else
+  (void)output_path;
+  (void)source_sqlite_path;
+  (void)ir;
+  (void)options;
+  (void)idle_evidence;
+  throw std::runtime_error(
+      "self-contained augmented DB requires SQLite support");
+#endif
 }
 
 }  // namespace traceloom::compat

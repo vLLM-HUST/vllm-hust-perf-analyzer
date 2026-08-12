@@ -1159,6 +1159,20 @@ void materialize_exact_graph_views(SqliteDb& db) {
       "AND e.device_id = m.device_id");
 }
 
+void materialize_replay_cost_views(SqliteDb& db) {
+  db.exec(
+      "CREATE VIEW IF NOT EXISTS traceloom_v_node_replay_cost_member AS "
+      "SELECT g.node_id, g.occurrence_idx, g.view_name, g.coverage_kind, "
+      "g.node_anchor_id, g.node_member_order, g.node_slot_order, c.*, "
+      "g.source_table, g.source_row_id, g.graph_node_id, "
+      "g.original_graph_node_id, g.evidence_level "
+      "FROM traceloom_v_node_graph_body_member g "
+      "JOIN traceloom_replay_cost_member c "
+      "ON c.member_id = g.member_id AND c.db_idx = g.db_idx "
+      "AND c.device_id = g.device_id "
+      "WHERE g.coverage_kind = 'self'");
+}
+
 void materialize_tree_node_anchor_view(SqliteDb& db) {
   db.exec(
       "CREATE VIEW IF NOT EXISTS traceloom_tree_node_anchor AS "
@@ -1537,6 +1551,21 @@ void materialize_report_compatibility_indexes(SqliteDb& db) {
       "CREATE INDEX IF NOT EXISTS idx_traceloom_graph_body_member_node "
       "ON traceloom_graph_body_member(graph_node_id)");
   db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_replay_cost_member_event "
+      "ON traceloom_replay_cost_member(event_id, db_idx, device_id)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_replay_cost_member_launch "
+      "ON traceloom_replay_cost_member(launch_id, db_idx, device_id, "
+      "lane_ordinal, task_ordinal)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_replay_cost_aggregate_hotspot "
+      "ON traceloom_replay_cost_aggregate(db_idx, device_id, "
+      "duration_median_ns DESC)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_replay_cost_contributor "
+      "ON traceloom_replay_cost_aggregate_member(aggregate_id, "
+      "contributor_order)");
+  db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_node_anchor_node "
       "ON traceloom_viz_node_anchor(node_id)");
   db.exec(
@@ -1665,6 +1694,7 @@ void drop_report_compatibility_views(SqliteDb& db) {
   db.exec("DROP VIEW IF EXISTS traceloom_tree_node_anchor");
   db.exec("DROP VIEW IF EXISTS traceloom_v_cuda_graph_envelope");
   db.exec("DROP VIEW IF EXISTS traceloom_v_cuda_graph_replay");
+  db.exec("DROP VIEW IF EXISTS traceloom_v_node_replay_cost_member");
   db.exec("DROP VIEW IF EXISTS traceloom_v_node_graph_body_member");
 }
 #endif
@@ -1680,6 +1710,7 @@ void materialize_report_compatibility_views(const std::string& sqlite_path) {
     materialize_report_compatibility_indexes(db);
     materialize_cuda_graph_views(db);
     materialize_exact_graph_views(db);
+    materialize_replay_cost_views(db);
     materialize_tree_node_anchor_view(db);
     materialize_tree_node_occurrence_view(db);
     materialize_node_cost_views(db);

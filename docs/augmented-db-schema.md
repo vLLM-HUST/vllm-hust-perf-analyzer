@@ -1,20 +1,28 @@
 # Augmented DB Schema
 
-TraceLoom's primary output model is an augmented SQLite database. The analyzer
-keeps the original `msprof` tables intact and appends TraceLoom-owned tables
-under the `traceloom_*` namespace. Reports are SQL queries over those tables,
-not a separate report-specific data model.
+TraceLoom's primary analytical artifact is a **new, self-contained augmented
+SQLite database**. The analyzer opens the profiler DB read-only, snapshots its
+raw schema and rows into a new file, and appends TraceLoom-owned relations under
+the `traceloom_*` namespace. It never modifies the input. Reports are SQL
+queries over those relations, not a separate report-specific data model.
 
-The default implementation writes one sidecar copy per discovered msprof DB:
+Create one explicitly for a regular profiler SQLite file:
 
-```text
-<analysis_dir>/db01.traceloom_augmented.db
-<analysis_dir>/db02.traceloom_augmented.db
+```bash
+traceloom profile.db --aug-db-out profile.traceloom.db
 ```
 
-Each sidecar contains the original raw tables plus TraceLoom augmentation
-tables. This preserves the source DB as evidence while still allowing SQL joins
-against raw `TASK`, `STRING_IDS`, and `COMMUNICATION_OP` tables.
+The result retains every original raw table plus TraceLoom augmentation tables.
+Moving or deleting the input does not break hierarchy/cost drill-down or SQL
+queries against raw `TASK`, `STRING_IDS`, `COMMUNICATION_OP`, CUPTI, or other
+vendor relations. `traceloom_metadata` records `artifact_kind`,
+`source_embedded`, original path, size, and SHA-256. The path and digest are
+provenance, not query-time dependencies.
+
+The first production slice snapshots one regular SQLite input. Ascend split
+profiles still use the compatibility DB path until their multiple raw SQLite
+files receive an explicit collision-free packaging contract; TraceLoom fails
+closed rather than calling such an artifact self-contained.
 
 ## Core Tables
 
@@ -215,6 +223,33 @@ Indexes cover `graph_event_id`, `anchor_id`, `launch_id`, `event_id`, and
 Canonical queries in `docs/report-sql/node-graph-body-members.sql` and
 `docs/report-sql/event-graph-node-occurrences.sql` demonstrate the forward
 tree-occurrence drill-down and the reverse event-to-tree navigation.
+
+### Replay-internal cost relations
+
+`traceloom_replay_cost_unit`, `traceloom_replay_cost_launch`,
+`traceloom_replay_cost_stream`, and `traceloom_replay_cost_member` publish the
+authoritative native replay cost map. A replay unit is never assumed to be one
+launch: ordered composition slots, roles, bodies, streams, members, exact
+timing, and source identities remain explicit. `task_sum_ns` is scheduled work,
+`busy_union_ns` is overlap-safe busy time, and `envelope_ns` is observed span;
+they are deliberately separate lenses.
+
+`traceloom_replay_cost_aggregate` publishes deterministic role-collapsed
+p25/median/p75 rows. `traceloom_replay_cost_aggregate_member` records every
+exact contributor, so SQL never has to guess how a distribution was aligned.
+`traceloom_replay_cost_issue` and unit/launch `support_status` columns retain
+unsupported or ambiguous evidence as typed analysis results.
+
+`traceloom_v_node_replay_cost_member` composes the cost map with the exact
+tree-occurrence/graph-member spine. The canonical flow is:
+
+```text
+tree node occurrence -> exact cost member -> normalized event -> raw row
+hotspot aggregate -> exact contributors -> same evidence chain
+```
+
+See `replay-cost-hotspots.sql`, `node-replay-cost-members.sql`, and
+`replay-cost-explain.sql` under `docs/report-sql/`.
 
 ## Device Idle Evidence
 

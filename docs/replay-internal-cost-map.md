@@ -198,17 +198,22 @@ keeps its strict base behavior unchanged.
 A unit is `supported` only when every launch member is supported; units with
 zero launch members are explicit `empty_replay_unit` results.
 
-## JSON surface
+## JSON and augmented-SQL surfaces
 
 `traceloom --out PATH` (native result JSON) now includes the
 `replay_internal_cost_map` section with `units` (nested launch members and
 per-stream rows), flat `members`, `aligned_aggregates` (with
 `aggregation_scope: "role_collapsed"` and scheduled-work share fields),
 `issues`, and result-level counts/reasons. The section is `null` when no
-native IR is available. Sidecar/report publication of the map is
-intentionally not part of this slice; the analysis API and the native JSON
-surface are the contract, and exact member rows are the drill-down contract
-for a particular slot.
+native IR is available.
+
+The augmented database publishes the same authoritative result without
+re-deriving it in SQL: `traceloom_replay_cost_{unit,launch,stream,member}` keep
+exact occurrence costs, `traceloom_replay_cost_aggregate` keeps the aligned
+role-collapsed distributions, `traceloom_replay_cost_aggregate_member` records
+their exact contributors, and `traceloom_replay_cost_issue` preserves typed
+negative results. `traceloom_v_node_replay_cost_member` composes these rows
+with concrete Loop Tree occurrences and raw-source locators.
 
 ## Boundaries
 
