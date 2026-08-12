@@ -170,21 +170,46 @@ normalized events, exact graph members, and raw evidence. Important costs are:
   categories;
 - `avg_aux_us` and `avg_self_us`: attributed auxiliary and node-owned cost.
 
-To inspect profiler-observed host runtime behavior corresponding to device
-structure (without assigning an idle cause):
+#### Recommended host/device workflow
+
+Start from a recovered structure rather than from a provider table. First pick
+a costly or repeated node, then keep its occurrence and anchor coordinates
+while moving into runtime/device evidence:
 
 ```sql
-SELECT anchor_idx, anchor_symbol, api_name, support_state, cardinality
-FROM traceloom_v_anchor_runtime_call
-ORDER BY device_id, anchor_idx, runtime_start_ns;
+SELECT node_id, local_node_id, label, occurrence_count, avg_total_us
+FROM traceloom_v_tree_node
+WHERE occurrence_count > 1
+ORDER BY total_us DESC
+LIMIT 20;
 
-SELECT api_name, count(*) AS occurrences,
-       round(sum(observed_dur_us), 3) AS observed_runtime_us
-FROM traceloom_v_anchor_host_activity
-GROUP BY api_name
-ORDER BY observed_runtime_us DESC
-LIMIT 30;
+SELECT occurrence_idx, anchor_order, anchor_idx, api_name, device_symbol,
+       match_policy, support_state, cardinality
+FROM traceloom_v_node_runtime_call
+WHERE node_id = 'node-N006' AND coverage_kind = 'self'
+ORDER BY occurrence_idx, anchor_order, runtime_start_ns;
+
+SELECT occurrence_idx, anchor_order, right_anchor_symbol, host_interval_us,
+       api_name,
+       count(*) AS observed_calls,
+       round(sum(observed_overlap_us), 3) AS scheduled_overlap_us
+FROM traceloom_v_node_host_activity
+WHERE node_id = 'node-N006' AND coverage_kind = 'self'
+GROUP BY occurrence_idx, anchor_order, right_anchor_symbol,
+         host_interval_us, api_name
+ORDER BY occurrence_idx, anchor_order, scheduled_overlap_us DESC;
 ```
+
+Replace `node-N006` with a returned `node_id`. The first runtime view exposes
+provider-supported submission/correlation relations. The second reports calls
+in the host interval **after** each node-owned anchor; it is contextual runtime
+behavior, not CPU cost owned by that node and not an idle-cause claim. Keep
+`support_state`, `cardinality`, and source keys in any audit. A bounded canned
+projection is available in `docs/report-sql/node-host-activity.sql`; it selects
+the highest-cost repeated atom by default and documents how to substitute a
+chosen `node_id`. Runtime
+calls may overlap each other; even the clipped overlap sum is scheduled-call
+time, not an overlap-safe host busy union.
 
 For the complete horizontal-and-vertical experience shown above:
 

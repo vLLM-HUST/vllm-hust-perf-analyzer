@@ -1887,6 +1887,7 @@ void materialize_compatibility_schema(
 
 #if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
 void drop_report_compatibility_views(SqliteDb& db) {
+  db.exec("DROP VIEW IF EXISTS traceloom_v_node_host_activity");
   db.exec("DROP VIEW IF EXISTS traceloom_v_node_runtime_call");
   db.exec("DROP VIEW IF EXISTS traceloom_v_anchor_host_activity");
   db.exec("DROP VIEW IF EXISTS traceloom_v_anchor_host_interval");
@@ -1968,7 +1969,12 @@ void materialize_runtime_device_views(SqliteDb& db) {
       "CREATE VIEW IF NOT EXISTS traceloom_v_anchor_host_activity AS "
       "SELECT i.*, c.runtime_call_id AS observed_runtime_call_id, c.api_name, "
       "c.api_type, c.start_ns AS observed_start_ns, c.end_ns AS "
-      "observed_end_ns, c.dur_us AS observed_dur_us, c.process_id AS "
+      "observed_end_ns, c.dur_us AS observed_dur_us, "
+      "ROUND((MIN(c.end_ns, i.host_end_ns) - MAX(c.start_ns, "
+      "i.host_start_ns)) / 1000.0, 3) AS observed_overlap_us, "
+      "CASE WHEN c.start_ns >= i.host_start_ns AND c.end_ns <= "
+      "i.host_end_ns THEN 'contained' ELSE 'boundary_overlap' END AS "
+      "interval_relation, c.process_id AS "
       "observed_process_id, c.thread_id AS observed_thread_id, "
       "c.source_table AS observed_source_table, c.source_key AS "
       "observed_source_key, a.observed_order FROM "
@@ -1976,6 +1982,27 @@ void materialize_runtime_device_views(SqliteDb& db) {
       "traceloom_v_anchor_host_interval i ON i.interval_id = a.interval_id "
       "JOIN traceloom_runtime_call c ON c.runtime_call_id = "
       "a.runtime_call_id");
+
+  db.exec(
+      "CREATE VIEW IF NOT EXISTS traceloom_v_node_host_activity AS "
+      "SELECT na.node_id, n.local_node_id, na.view_name, "
+      "na.occurrence_idx, na.anchor_order, na.coverage_kind, "
+      "na.repeat_context, a.anchor_idx, next.anchor_idx AS "
+      "right_anchor_idx, next.symbol AS right_anchor_symbol, next.role AS "
+      "right_anchor_role, ROUND((h.host_end_ns - h.host_start_ns) / 1000.0, "
+      "3) AS host_interval_us, "
+      "'after_anchor_interval' AS placement_semantics, h.* "
+      "FROM traceloom_viz_node_anchor na "
+      "JOIN traceloom_viz_node n ON n.node_id = na.node_id "
+      "AND n.db_idx = na.db_idx AND n.device_id = na.device_id "
+      "AND n.view_name = na.view_name "
+      "JOIN traceloom_anchor a ON a.anchor_id = na.anchor_id "
+      "AND a.db_idx = na.db_idx AND a.device_id = na.device_id "
+      "JOIN traceloom_v_anchor_host_activity h ON h.left_anchor_id = "
+      "na.anchor_id AND h.db_idx = na.db_idx AND h.device_id = "
+      "na.device_id JOIN traceloom_anchor next ON next.anchor_id = "
+      "h.right_anchor_id AND next.db_idx = h.db_idx AND next.device_id = "
+      "h.device_id");
 }
 #endif
 

@@ -1002,6 +1002,7 @@ int main() {
               "traceloom_v_node_children",
               "traceloom_v_node_cost",
               "traceloom_v_node_graph_body_member",
+              "traceloom_v_node_host_activity",
               "traceloom_v_node_replay_cost_member",
               "traceloom_v_node_runtime_call",
               "traceloom_v_runtime_device",

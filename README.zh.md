@@ -144,25 +144,44 @@ member 下钻到内嵌原始证据。最常用的成本列是：
 - `avg_compute_us`、`avg_comm_us`、`avg_idle_us`：可以直接比较的平均成本；
 - `avg_aux_us`、`avg_self_us`：归因到节点的辅助成本和节点自身成本。
 
-从 device 结构反查 host runtime 行为：
+#### 推荐的 host/device 分析路径
+
+不要从 provider 原始表起步。先在恢复结构中选一个高成本或重复 node，再带着
+occurrence 与 anchor 坐标进入 runtime/device 证据：
 
 ```sql
--- 哪些 host runtime call 与 anchor 有直接、可审计的 provider 关联？
-SELECT anchor_idx, anchor_symbol, api_name, cardinality, support_state
-FROM traceloom_v_anchor_runtime_call
-ORDER BY device_id, anchor_idx, runtime_start_ns;
+SELECT node_id, local_node_id, label, occurrence_count, avg_total_us
+FROM traceloom_v_tree_node
+WHERE occurrence_count > 1
+ORDER BY total_us DESC
+LIMIT 20;
 
--- 相邻 anchor 的 host endpoint 之间，profiler 实际观察到了哪些调用？
-SELECT api_name, count(*) AS occurrences,
-       round(sum(observed_dur_us), 3) AS observed_runtime_us
-FROM traceloom_v_anchor_host_activity
-GROUP BY api_name
-ORDER BY observed_runtime_us DESC
-LIMIT 30;
+SELECT occurrence_idx, anchor_order, anchor_idx, api_name, device_symbol,
+       match_policy, support_state, cardinality
+FROM traceloom_v_node_runtime_call
+WHERE node_id = 'node-N006' AND coverage_kind = 'self'
+ORDER BY occurrence_idx, anchor_order, runtime_start_ns;
+
+SELECT occurrence_idx, anchor_order, right_anchor_symbol, host_interval_us,
+       api_name,
+       count(*) AS observed_calls,
+       round(sum(observed_overlap_us), 3) AS scheduled_overlap_us
+FROM traceloom_v_node_host_activity
+WHERE node_id = 'node-N006' AND coverage_kind = 'self'
+GROUP BY occurrence_idx, anchor_order, right_anchor_symbol,
+         host_interval_us, api_name
+ORDER BY occurrence_idx, anchor_order, scheduled_overlap_us DESC;
 ```
 
-第二个查询只报告 profiler 可见的 runtime API 活动；它不声称覆盖全部 CPU
-工作，也不会从时间邻近关系推断提交边或 idle 因果。
+把 `node-N006` 换成第一条查询返回的 `node_id`。第一条 runtime 视图报告有
+provider 证据的提交/关联关系；第二条报告每个 node-owned anchor **之后**的 host
+区间里 profiler 可见的 runtime calls。后者是结构上下文，不是归属于该 node 的
+CPU 成本，也不是 idle 因果。审计时保留 `support_state`、`cardinality` 与原始
+source key。仓库还提供了有界投影
+`docs/report-sql/node-host-activity.sql`；它默认选择成本最高的重复 atom，并说明
+如何替换成指定 `node_id`。runtime calls 彼此可能嵌套或重叠；即使
+按 interval 裁剪后求和，得到的也只是 scheduled-call time，不是 overlap-safe
+的 host busy union。
 
 体验上图完整的横向与纵向分析路径：
 

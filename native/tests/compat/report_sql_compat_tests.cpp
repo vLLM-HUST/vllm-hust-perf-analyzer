@@ -1147,6 +1147,49 @@ void seed_runtime_device_fixture(const std::string& db_path) {
       AnchorHostActivitySqlRow{interval.interval_id, "runtime-call-middle", 0});
 
   replace_runtime_device_rows(db_path, rows);
+  std::vector<AnchorSqlRow> anchors;
+  AnchorSqlRow left_anchor;
+  left_anchor.anchor_id = "anchor-1";
+  left_anchor.anchor_idx = 1;
+  left_anchor.symbol = "kernel";
+  left_anchor.role = "compute";
+  left_anchor.label = "kernel";
+  left_anchor.family = "compute";
+  left_anchor.start_ns = 1000;
+  left_anchor.end_ns = 1100;
+  left_anchor.dur_us = 0.1;
+  anchors.push_back(left_anchor);
+  AnchorSqlRow right_anchor = left_anchor;
+  right_anchor.anchor_id = "anchor-2";
+  right_anchor.anchor_idx = 2;
+  right_anchor.start_ns = 2000;
+  right_anchor.end_ns = 2100;
+  anchors.push_back(right_anchor);
+  replace_anchor_rows(db_path, anchors);
+
+  NodeCoverageSqlRows node_rows;
+  VizNodeSqlRow node;
+  node.node_id = "node-1";
+  node.local_node_id = "N001";
+  node.view_name = "anchor_tree";
+  node.path = "/N001";
+  node.node_type = "Atom";
+  node.kind = "leaf";
+  node.symbol = "kernel";
+  node.label = "kernel";
+  node.category = "compute";
+  node.occurrence_count = 2;
+  node.total_us = 1.0;
+  node_rows.nodes.push_back(node);
+  VizNodeAnchorSqlRow node_anchor;
+  node_anchor.node_id = node.node_id;
+  node_anchor.anchor_id = left_anchor.anchor_id;
+  node_anchor.view_name = node.view_name;
+  node_anchor.occurrence_idx = 1;
+  node_anchor.anchor_order = 1;
+  node_anchor.coverage_kind = "self";
+  node_rows.node_anchors.push_back(node_anchor);
+  replace_node_coverage_rows(db_path, node_rows);
   materialize_report_compatibility_views(db_path);
 }
 
@@ -1166,9 +1209,34 @@ std::vector<QueryCase> active_query_cases() {
               "api_type",
               "observed_start_ns",
               "observed_end_ns",
-              "runtime_us",
+              "call_duration_us",
+              "interval_overlap_us",
+              "interval_relation",
               "observed_source_table",
               "observed_source_key",
+          },
+          1,
+      },
+      QueryCase{
+          "node-host-activity.sql",
+          {
+              "node_id",
+              "local_node_id",
+              "occurrence_idx",
+              "anchor_order",
+              "anchor_idx",
+              "right_anchor_idx",
+              "right_anchor_symbol",
+              "right_anchor_role",
+              "host_interval_us",
+              "placement_semantics",
+              "left_anchor_id",
+              "right_anchor_id",
+              "api_name",
+              "observed_call_count",
+              "scheduled_overlap_us",
+              "scope_policy",
+              "support_state",
           },
           1,
       },
@@ -1533,6 +1601,7 @@ int main() {
     if (query_case.filename == "anchor-cost-breakdown.sql") {
       seed_anchor_cost_fixture(db_path);
     } else if (query_case.filename == "anchor-host-activity.sql" ||
+               query_case.filename == "node-host-activity.sql" ||
                query_case.filename == "runtime-device-relations.sql") {
       seed_runtime_device_fixture(db_path);
     } else if (query_case.filename == "anchor-aux.sql") {
@@ -1580,8 +1649,14 @@ int main() {
     }
 
     const QueryResult result = run_query(db_path, query_case);
-    require(result.columns == query_case.expected_columns);
-    require(result.row_count >= query_case.expected_min_rows);
+    const std::string column_message =
+        query_case.filename + ": unexpected report columns";
+    const std::string row_message =
+        query_case.filename + ": expected seeded report rows";
+    require(result.columns == query_case.expected_columns,
+            column_message.c_str());
+    require(result.row_count >= query_case.expected_min_rows,
+            row_message.c_str());
     if (query_case.filename == "anchor-cost-breakdown.sql") {
       require(result.row_count == 2);
       require(result.first_row[0] == "2");

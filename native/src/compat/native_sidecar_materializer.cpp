@@ -596,12 +596,25 @@ void materialize_augmented_catalog(const std::string& path,
          "SELECT * FROM traceloom_v_anchor_host_interval ORDER BY db_idx, "
          "device_id, left_anchor_id LIMIT 200;"},
         {"anchor_host_activity", "traceloom_v_anchor_host_activity",
-         "one observed runtime call inside an anchor-delimited host interval",
+         "one observed runtime call overlapping an anchor-delimited host "
+         "interval",
          "inspect profiler-visible host runtime behavior between device "
          "structure endpoints without assigning an idle cause",
-         "SELECT * FROM traceloom_v_anchor_host_activity ORDER BY db_idx, "
-         "device_id, left_anchor_id, observed_start_ns, "
+         "SELECT * FROM traceloom_v_anchor_host_activity WHERE left_anchor_id "
+         "= (SELECT left_anchor_id FROM traceloom_anchor_host_interval WHERE "
+         "support_state = 'supported_ordered' ORDER BY db_idx, device_id, "
+         "host_start_ns LIMIT 1) ORDER BY observed_start_ns, "
          "observed_runtime_call_id LIMIT 200;"},
+        {"node_host_activity", "traceloom_v_node_host_activity",
+         "one node-occurrence/anchor-delimited observed runtime call",
+         "compare profiler-visible host runtime distributions after the same "
+         "recovered structural position across occurrences",
+         "SELECT * FROM traceloom_v_node_host_activity WHERE coverage_kind = "
+         "'self' AND node_id = (SELECT node_id FROM "
+         "traceloom_v_tree_node WHERE node_type = 'Atom' AND "
+         "occurrence_count > 1 "
+         "ORDER BY total_us DESC LIMIT 1) ORDER BY occurrence_idx, "
+         "anchor_order, observed_order LIMIT 200;"},
         {"event_source", "traceloom_v_event_source_locator",
          "one event-to-raw-source link",
          "resolve normalized evidence to the embedded profiler table",

@@ -156,7 +156,7 @@ otherwise reports the shared provider clock domain. Unsupported cases remain typ
 
 `traceloom_anchor_host_activity` stores the narrow interval/call links;
 `traceloom_v_anchor_host_activity` joins their readable fields and returns
-every **profiler-observed runtime call** inside a supported interval. This lets
+every **profiler-observed runtime call** overlapping a supported interval. This lets
 a query ask whether the same device structure is accompanied by a launch
 burst, synchronization calls, or different runtime-call distributions across
 occurrences. It does not assert what unprofiled CPU code did between calls and
@@ -164,8 +164,25 @@ does not label a device gap's cause. Clock calibration is needed only for
 genuinely cross-clock measures such as enqueue-to-execute latency; it is not
 required to query ordered calls inside one host clock domain.
 
+The readable view retains full call duration and also materializes the call's
+clipped `observed_overlap_us` plus a `contained`/`boundary_overlap` relation.
+Runtime calls may nest or overlap each other, so summing either duration is a
+scheduled-call measure, not an overlap-safe host busy union.
+
+`traceloom_v_node_host_activity` adds node, occurrence, anchor order, and
+repeat context to the left endpoint of the same relation. Its explicit
+`placement_semantics = 'after_anchor_interval'` means contextual placement:
+the runtime calls follow that node-owned anchor within the supported host
+interval. Their duration is not CPU cost owned by the node. Filtering
+`coverage_kind = 'self'` avoids repeating the same anchor through ancestor
+coverage when comparing equivalent structural positions. The view also exposes
+the right anchor's identity and the host-interval width; occurrence comparisons
+must retain these fields so a changed structural neighbor is not mistaken for
+a changed node-owned CPU cost.
+
 Canonical examples are in `docs/report-sql/runtime-device-relations.sql` and
-`docs/report-sql/anchor-host-activity.sql`.
+`docs/report-sql/anchor-host-activity.sql`; the occurrence-oriented aggregate
+is `docs/report-sql/node-host-activity.sql`.
 
 Implementation lineage: the provider host-API ingestion pattern was adapted
 and generalized from

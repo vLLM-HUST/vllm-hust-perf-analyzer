@@ -323,6 +323,9 @@ int main() {
                       "SELECT api_name FROM "
                       "traceloom_v_anchor_host_activity") ==
           "cudaEventQuery");
+  require(scalar_text(path,
+                      "SELECT interval_relation FROM "
+                      "traceloom_v_anchor_host_activity") == "contained");
   require(scalar_int(path,
                      "SELECT COUNT(*) FROM traceloom_v_aux_runtime_call "
                      "WHERE support_state='supported_exact'") == 1);
@@ -340,6 +343,17 @@ int main() {
                       "traceloom_v_node_runtime_call WHERE "
                       "runtime_call_id='runtime-call-0'") ==
           "local-node-1");
+  require(scalar_int(path,
+                     "SELECT COUNT(*) FROM traceloom_v_node_host_activity "
+                     "WHERE node_id='node-1' AND occurrence_idx=0 AND "
+                     "observed_runtime_call_id='runtime-call-1'") == 1);
+  require(scalar_text(path,
+                      "SELECT placement_semantics FROM "
+                      "traceloom_v_node_host_activity") ==
+          "after_anchor_interval");
+  require(scalar_text(path,
+                      "SELECT right_anchor_symbol FROM "
+                      "traceloom_v_node_host_activity") == "kernel");
 
   std::remove(path.c_str());
   return 0;
