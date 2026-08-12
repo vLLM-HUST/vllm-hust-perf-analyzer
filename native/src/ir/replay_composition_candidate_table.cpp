@@ -52,6 +52,8 @@ const char* replay_composition_shape_policy_name(
       return "unclassified";
     case ReplayCompositionShapePolicy::kHeadRepeatedLayerTail:
       return "head_repeated_layer_tail";
+    case ReplayCompositionShapePolicy::kSingleGraph:
+      return "single_graph";
   }
   return "unclassified";
 }
@@ -85,6 +87,10 @@ bool replay_composition_candidate_has_exact_structure(
              candidate.segment_launch_count == candidate.pattern_length;
     case ReplayCompositionBoundaryPolicy::kIncompleteLaunchEvidence:
       return false;
+    case ReplayCompositionBoundaryPolicy::kDirectObservedGraphLaunch:
+      return candidate.full_repeat_count == 1 &&
+             candidate.segment_launch_count == 1 &&
+             candidate.pattern_length == 1;
   }
   return false;
 }

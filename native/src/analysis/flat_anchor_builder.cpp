@@ -543,6 +543,10 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
           kind = AnchorKind::kGraphT;
           symbol = "ACLT";
           break;
+        case ReplayCompositionSlotRole::kGraph:
+          kind = AnchorKind::kGraphReplayUnit;
+          symbol = "ACLGraph";
+          break;
         case ReplayCompositionSlotRole::kGeneric:
           kind = AnchorKind::kGraphReplayUnit;
           symbol = members.size() == 1

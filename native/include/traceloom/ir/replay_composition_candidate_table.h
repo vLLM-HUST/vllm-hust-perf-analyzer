@@ -30,6 +30,7 @@ enum class ReplayCompositionOrderPolicy : std::uint8_t {
 enum class ReplayCompositionShapePolicy : std::uint8_t {
   kUnclassified = 0,
   kHeadRepeatedLayerTail = 1,
+  kSingleGraph = 2,
 };
 
 enum class ReplayCompositionSlotRole : std::uint8_t {

@@ -1216,14 +1216,24 @@ int main() {
   generic_anchor_config.skip_events_covered_by_replay_units = true;
   const FlatAnchorBuildStats generic_anchor_stats =
       build_flat_anchors(body_mismatch_ir, generic_anchor_config);
-  require(generic_anchor_stats.device_event_anchors == 6 &&
+  require(generic_anchor_stats.device_event_anchors == 7 &&
               body_mismatch_ir.protected_intervals.size() == 6,
           "generic exact units did not project to protected anchors");
+  std::size_t graph_anchor_count = 0;
+  std::size_t changed_body_anchor_count = 0;
   for (const AnchorRow& anchor : body_mismatch_ir.anchors.rows()) {
-    require(anchor.kind == AnchorKind::kGraphReplayUnit &&
-                body_mismatch_ir.symbols.value(anchor.symbol_id) == "ACLG",
-            "generic exact unit projected a semantic H/L/T anchor");
+    const std::string symbol = body_mismatch_ir.symbols.value(anchor.symbol_id);
+    if (anchor.kind == AnchorKind::kGraphReplayUnit && symbol == "ACLG") {
+      ++graph_anchor_count;
+    } else if (anchor.kind == AnchorKind::kDeviceEvent && symbol == "Sub") {
+      ++changed_body_anchor_count;
+    } else {
+      require(false,
+              "generic exact unit projected an unexpected semantic anchor");
+    }
   }
+  require(graph_anchor_count == 6 && changed_body_anchor_count == 1,
+          "changed-body evidence was lost or normalized into the exact family");
 
   const std::filesystem::path exact_hlt_dir =
       temp_prof_dir("_exact_hlt");
