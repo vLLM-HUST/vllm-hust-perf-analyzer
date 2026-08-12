@@ -49,6 +49,9 @@ Open `analysis_db01.db` and `analysis_db02.db` with SQLite, then query
 `summary.md` and `tree-map.md` are compact historical human projections; they
 are not the primary product.
 
+For a guided horizontal evidence drill-down and vertical occurrence
+comparison, run the [`60-second augmented-DB tour`](../augdb-tour).
+
 ## What To Look For
 
 The raw profile is noisy enough to be representative:

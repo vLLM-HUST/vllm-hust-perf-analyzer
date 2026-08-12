@@ -11,6 +11,18 @@ It turns raw profiler databases into a self-contained hierarchical analytical
 database: a coarse-to-fine execution structure, cost distributions, exact
 replay internals where evidence permits, and links back to embedded raw rows.
 
+![TraceLoom augmented database: horizontal evidence drill-down and vertical occurrence comparison](docs/assets/augdb-experience.svg)
+
+The hierarchy supports two complementary analysis directions. Drill
+**horizontally** from a structural node through one occurrence and normalized
+event to its embedded raw profiler row. Compare **vertically** across every
+equivalent occurrence of the same recovered structure. The structure defines
+the statistical scope; provenance keeps the result auditable.
+
+Try the reproducible, beginner-friendly
+[`60-second augmented-DB tour`](examples/augdb-tour) on the checked-in real
+profile—no prior SQL experience is required.
+
 The native implementation is now the only production implementation in this
 repository. The installed CLI has one stable name:
 
@@ -154,6 +166,19 @@ normalized events, exact graph members, and raw evidence. Important costs are:
 - `avg_compute_us`, `avg_comm_us`, `avg_idle_us`: comparable average cost
   categories;
 - `avg_aux_us` and `avg_self_us`: attributed auxiliary and node-owned cost.
+
+For the complete horizontal-and-vertical experience shown above:
+
+```bash
+sqlite3 -readonly \
+  examples/kickstart_smoke/msprof_raw/traceloom/analysis_db01.db
+```
+
+Then run this at the `sqlite>` prompt:
+
+```sql
+.read examples/augdb-tour/tour.sql
+```
 
 ### 4. Choose An Explicit Output Path
 

@@ -2,9 +2,18 @@
 
 [English](README.md)
 
-TraceLoom 是一个原生 C++17 离线性能分析器。它读取 Ascend/CANN
-`msprof` SQLite 时间线，将密集的底层事件压缩成紧凑、可比较的 Pattern
-Compression Tree，并统计计算、通信、等待、辅助和节点自身成本。
+TraceLoom 是一个原生 C++17 离线性能分析器。它把原始 profiler 数据库
+转换为自包含的层级分析数据库：从粗到细的执行结构、成本分布、有证据支撑的
+精确 replay 内部结构，以及返回内嵌原始行的链接。
+
+![TraceLoom augmented database：横向证据下钻与纵向同构比较](docs/assets/augdb-experience.svg)
+
+这个层级视图可以沿两个互补方向阅读：横向从结构节点下钻到某次 occurrence、
+normalized event 和内嵌原始 profiler 行；纵向则比较同一恢复结构的所有
+equivalent occurrences。结构固定统计范围，provenance 让结论保持可审计。
+
+可以直接用仓库内的真实 profile 试玩
+[`60 秒 augmented-DB tour`](examples/augdb-tour)，不要求预先熟悉 SQL。
 
 本仓库现在只保留原生实现。安装后的正式入口只有一个：
 
@@ -130,6 +139,19 @@ member 下钻到内嵌原始证据。最常用的成本列是：
 - `avg_total_us`：普通节点按 occurrence 平均，Repeat 节点按循环体迭代平均；
 - `avg_compute_us`、`avg_comm_us`、`avg_idle_us`：可以直接比较的平均成本；
 - `avg_aux_us`、`avg_self_us`：归因到节点的辅助成本和节点自身成本。
+
+体验上图完整的横向与纵向分析路径：
+
+```bash
+sqlite3 -readonly \
+  examples/kickstart_smoke/msprof_raw/traceloom/analysis_db01.db
+```
+
+然后在 `sqlite>` 提示符后运行：
+
+```sql
+.read examples/augdb-tour/tour.sql
+```
 
 ### 4. 生成给人阅读的投影或调试证据
 

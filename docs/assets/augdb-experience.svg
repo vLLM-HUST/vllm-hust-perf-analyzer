@@ -1,0 +1,120 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title description">
+<title id="title">TraceLoom augmented database query experience</title>
+<desc id="description">A hierarchical execution structure supports horizontal evidence drill-down and vertical cost comparison across equivalent occurrences.</desc>
+<style>
+          .bg { fill: #09111f; }
+          .panel { fill: #101b2d; stroke: #2b3b55; stroke-width: 1.5; }
+          .terminal { fill: #0b1424; stroke: #344765; stroke-width: 1.5; }
+          .chip { fill: #172840; stroke: #3b5477; stroke-width: 1; }
+          .chip-hot { fill: #243c5f; stroke: #62d9c5; stroke-width: 1.5; }
+          .bar { fill: #5d78d8; }
+          .bar-hot { fill: #62d9c5; }
+          .guide { stroke: #354964; stroke-width: 1; }
+          .arrow { stroke: #62d9c5; stroke-width: 2.5; fill: none; }
+          text { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+          .title { fill: #f5f7fb; font-size: 38px; font-weight: 700; }
+          .subtitle { fill: #9eb0c9; font-size: 19px; }
+          .section { fill: #f0f4fb; font-size: 23px; font-weight: 650; }
+          .label { fill: #a9bad1; font-size: 15px; font-weight: 600; }
+          .body { fill: #dce6f4; font-size: 16px; }
+          .small { fill: #9eb0c9; font-size: 13px; }
+          .mono { fill: #dce6f4; font-size: 15px; font-family: ui-monospace,
+                  SFMono-Regular, Menlo, Consolas, monospace; }
+          .mono-hot { fill: #75ead5; font-size: 15px; font-weight: 650;
+                      font-family: ui-monospace, SFMono-Regular, Menlo,
+                      Consolas, monospace; }
+          .metric { fill: #75ead5; font-size: 20px; font-weight: 700; }
+        </style>
+<rect x="0" y="0" width="1600" height="900" rx="0" class="bg"/>
+<text x="64" y="72" class="title">One artifact. Two analytical directions.</text>
+<text x="64" y="106" class="subtitle">TraceLoom turns raw profiler rows into a queryable hierarchical cost map.</text>
+<rect x="48" y="140" width="1504" height="275" rx="18" class="panel"/>
+<text x="76" y="182" class="section">HORIZONTAL  ·  drill from structure to evidence</text>
+<text x="76" y="213" class="subtitle">One recovered execution path retains ordered children and raw-row provenance.</text>
+<rect x="76" y="242" width="170" height="54" rx="10" class="chip-hot"/>
+<text x="94" y="275" class="mono-hot">Rep x29</text>
+<text x="264" y="275" class="metric">›</text>
+<rect x="294" y="242" width="170" height="54" rx="10" class="chip-hot"/>
+<text x="312" y="275" class="mono-hot">Rep x24</text>
+<rect x="490" y="242" width="88" height="54" rx="10" class="chip"/>
+<text x="505" y="275" class="mono">Cast</text>
+<rect x="588" y="242" width="88" height="54" rx="10" class="chip"/>
+<text x="603" y="275" class="mono">MatMul</text>
+<rect x="686" y="242" width="88" height="54" rx="10" class="chip"/>
+<text x="701" y="275" class="mono">Rep x2</text>
+<rect x="784" y="242" width="88" height="54" rx="10" class="chip"/>
+<text x="799" y="275" class="mono">Rep x2</text>
+<rect x="882" y="242" width="140.5" height="54" rx="10" class="chip"/>
+<text x="897" y="275" class="mono">AtbRopeKernel</text>
+<rect x="1032.5" y="242" width="88" height="54" rx="10" class="chip"/>
+<text x="1047.5" y="275" class="mono">Fill</text>
+<rect x="1130.5" y="242" width="88" height="54" rx="10" class="chip"/>
+<text x="1145.5" y="275" class="mono">MatMul</text>
+<rect x="1228.5" y="242" width="106.5" height="54" rx="10" class="chip"/>
+<text x="1243.5" y="275" class="mono">AllReduce</text>
+<text x="1345.0" y="275" class="small">+6</text>
+<rect x="76" y="322" width="1400" height="66" rx="9" class="terminal"/>
+<text x="96" y="349" class="mono-hot">sqlite›</text>
+<text x="168" y="349" class="mono">node → occurrence #1 →</text>
+<text x="405" y="349" class="mono-hot">AllReduce</text>
+<text x="530" y="349" class="mono">→</text>
+<text x="558" y="349" class="mono-hot">event-85263</text>
+<text x="690" y="349" class="mono">→</text>
+<text x="718" y="349" class="mono-hot">COMMUNICATION_OP row 1006</text>
+<text x="96" y="374" class="small">1816.956 µs · embedded_raw · raw evidence is inside this DB</text>
+<rect x="48" y="439" width="1504" height="370" rx="18" class="panel"/>
+<text x="76" y="481" class="section">VERTICAL  ·  compare equivalent occurrences</text>
+<text x="76" y="512" class="subtitle">N285 Rep x24 appears 29 times under Rep x29; structure fixes the comparison scope.</text>
+<line x1="86" y1="738" x2="1101" y2="738" class="guide"/>
+<line x1="86" y1="562" x2="1101" y2="562" class="guide"/>
+<rect x="89.0" y="640.7620219841123" width="28.0" height="97.23797801588769" rx="3" class="bar"/>
+<text x="89.0" y="761" class="small">1</text>
+<rect x="124.0" y="679.8775281729171" width="28.0" height="58.12247182708295" rx="3" class="bar"/>
+<rect x="159.0" y="668.001643266211" width="28.0" height="69.998356733789" rx="3" class="bar"/>
+<rect x="194.0" y="622.6804544614815" width="28.0" height="115.31954553851844" rx="3" class="bar"/>
+<rect x="229.0" y="666.09362183632" width="28.0" height="71.90637816368" rx="3" class="bar"/>
+<text x="229.0" y="761" class="small">5</text>
+<rect x="264.0" y="668.7448087936449" width="28.0" height="69.25519120635512" rx="3" class="bar"/>
+<rect x="299.0" y="606.7548198780712" width="28.0" height="131.24518012192874" rx="3" class="bar"/>
+<rect x="334.0" y="671.2504941806761" width="28.0" height="66.74950581932387" rx="3" class="bar"/>
+<rect x="369.0" y="631.256471457602" width="28.0" height="106.74352854239802" rx="3" class="bar"/>
+<rect x="404.0" y="649.111261777203" width="28.0" height="88.88873822279697" rx="3" class="bar"/>
+<text x="404.0" y="761" class="small">10</text>
+<rect x="439.0" y="664.9255246628487" width="28.0" height="73.07447533715126" rx="3" class="bar"/>
+<rect x="474.0" y="630.2422076482542" width="28.0" height="107.75779235174585" rx="3" class="bar"/>
+<rect x="509.0" y="676.4945455385184" width="28.0" height="61.505454461481584" rx="3" class="bar"/>
+<rect x="544.0" y="641.3779854055052" width="28.0" height="96.62201459449473" rx="3" class="bar"/>
+<rect x="579.0" y="676.0001145390726" width="28.0" height="61.99988546092739" rx="3" class="bar"/>
+<text x="579.0" y="761" class="small">15</text>
+<rect x="614.0" y="683.3883225568077" width="28.0" height="54.611677443192306" rx="3" class="bar"/>
+<rect x="649.0" y="685.0978135968963" width="28.0" height="52.90218640310364" rx="3" class="bar"/>
+<rect x="684.0" y="680.7950618880473" width="28.0" height="57.20493811195276" rx="3" class="bar"/>
+<rect x="719.0" y="668.2954914095695" width="28.0" height="69.70450859043049" rx="3" class="bar"/>
+<rect x="754.0" y="694.0" width="28.0" height="44.0" rx="3" class="bar-hot"/>
+<text x="754.0" y="761" class="small">20</text>
+<rect x="789.0" y="689.8771032699058" width="28.0" height="48.12289673009424" rx="3" class="bar"/>
+<rect x="824.0" y="649.0078256050249" width="28.0" height="88.99217439497505" rx="3" class="bar"/>
+<rect x="859.0" y="659.2601893589507" width="28.0" height="78.73981064104929" rx="3" class="bar"/>
+<rect x="894.0" y="627.5292434878995" width="28.0" height="110.47075651210051" rx="3" class="bar"/>
+<rect x="929.0" y="621.7234971365231" width="28.0" height="116.2765028634769" rx="3" class="bar"/>
+<text x="929.0" y="761" class="small">25</text>
+<rect x="964.0" y="562.0" width="28.0" height="176.0" rx="3" class="bar-hot"/>
+<rect x="999.0" y="646.1658100868281" width="28.0" height="91.83418991317197" rx="3" class="bar"/>
+<rect x="1034.0" y="569.6042351745796" width="28.0" height="168.3957648254204" rx="3" class="bar"/>
+<rect x="1069.0" y="592.6425189358949" width="28.0" height="145.357481064105" rx="3" class="bar"/>
+<text x="1069.0" y="761" class="small">29</text>
+<text x="86" y="550" class="small">max 68.061 ms</text>
+<text x="86" y="786" class="small">occurrence index</text>
+<rect x="1150" y="554" width="326" height="186" rx="12" class="terminal"/>
+<text x="1174" y="587" class="label">same recovered structure</text>
+<text x="1174" y="626" class="metric">29</text>
+<text x="1220" y="626" class="body">occurrences</text>
+<text x="1174" y="664" class="metric">55.070 ms</text>
+<text x="1320" y="664" class="small">minimum</text>
+<text x="1174" y="700" class="metric">59.492 ms</text>
+<text x="1320" y="700" class="small">mean</text>
+<text x="1174" y="736" class="metric">68.061 ms</text>
+<text x="1320" y="736" class="small">maximum</text>
+<text x="64" y="856" class="subtitle">Structure supplies the statistical condition; provenance keeps every conclusion auditable.</text>
+<text x="1390" y="856" class="mono-hot">TraceLoom</text>
+</svg>
