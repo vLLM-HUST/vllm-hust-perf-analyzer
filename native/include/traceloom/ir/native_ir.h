@@ -13,6 +13,7 @@
 #include "traceloom/ir/protected_interval_table.h"
 #include "traceloom/ir/replay_composition_candidate_table.h"
 #include "traceloom/ir/replay_unit_table.h"
+#include "traceloom/ir/runtime_call_table.h"
 #include "traceloom/ir/source_ref_table.h"
 #include "traceloom/ir/stream_table.h"
 #include "traceloom/ir/task_table.h"
@@ -28,6 +29,7 @@ struct NativeIr {
   StreamTable streams;
   TraceEventTable trace_events;
   TaskTable tasks;
+  RuntimeCallTable runtime_calls;
   CommunicationOpTable communication_ops;
   AnchorTable anchors;
   TokenTable tokens;

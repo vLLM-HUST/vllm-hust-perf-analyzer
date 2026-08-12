@@ -44,6 +44,9 @@ The raw-evidence catalog is itself queryable:
   `source_rowid_column = source_key`; SQL cannot dynamically substitute a table
   name, so agents first read the locator row and then issue the bounded raw
   lookup.
+- `traceloom_v_runtime_call_source_locator` and
+  `traceloom_v_device_work_source_locator`: the same bounded path for both
+  endpoints of a runtime/device relation.
 
 `traceloom_operator_audit` is the SQL replacement for the old Markdown-only
 unregistered-operator section. Its availability is explicit in the
@@ -74,6 +77,104 @@ Important columns:
 Lineage for synthetic or coalesced events. For example, a collective anchor
 created from `COMMUNICATION_OP` can link back to the underlying task
 `globalTaskId` and streams.
+
+### Runtime-call and device-work relations
+
+TraceLoom keeps the host and device observations as different objects rather
+than pretending they are one timestamped event stream:
+
+- `traceloom_runtime_call` is one observed host/runtime API interval. It keeps
+  provider, host clock domain, API identity, correlation/connection key,
+  process/thread/context/device identity when observed, and raw-row lineage.
+- `traceloom_device_work` is one normalized device event or graph-launch
+  composite that can participate in a host/device relation.
+- `traceloom_runtime_device_relation` is one supported, candidate, rejected,
+  or open relation outcome. `match_policy` names the provider evidence;
+  `evidence_level`, `support_state`, and `cardinality` prevent absence or
+  multiplicity from collapsing into an implicit one-to-one join.
+
+CUDA uses profiler `correlationId`; Ascend uses CANN `connectionId` or an
+already validated graph-launch adapter relation. Matching identifiers are not
+silently strengthened when process/device scope is contradictory. Timestamp
+proximity never produces an exact submission edge. Useful open states such as
+`missing_runtime_identifier`, `unmatched_device_work`,
+`ambiguous_runtime_candidates`, and `ambiguous_device_scope` remain rows.
+
+`traceloom_v_runtime_device` joins the three base relations without changing
+their evidence semantics. It is the canonical bidirectional path:
+
+```text
+runtime call -> relation outcome -> device work -> normalized event
+device work  -> relation outcome -> runtime call
+```
+
+Anchors and auxiliary device events reuse the same relation:
+
+- `traceloom_v_anchor_runtime_call` walks an ordinary anchor or an exact graph
+  launch anchor back to runtime calls;
+- `traceloom_v_node_runtime_call` places that path inside a tree node,
+  occurrence, anchor order, and repeat context. Filter `coverage_kind = 'self'`
+  for the node-owned placement; keep ancestor coverage when intentionally
+  aggregating a larger structural scope;
+- `traceloom_v_aux_runtime_call` walks a device-side auxiliary event back to
+  runtime calls.
+
+The node view is bidirectional. Filtering by `node_id` and `occurrence_idx`
+answers structure-to-runtime queries; filtering by `runtime_call_id` returns
+every recovered structural placement of that call's device work.
+
+Host runtime calls are deliberately not counted as device auxiliary work.
+Their intervals remain in the provider host clock and their relation to device
+events remains explicit.
+
+The augmented DB materializes three narrow bridges rather than forcing every
+consumer to reconstruct them from wide joins:
+
+- `traceloom_anchor_runtime_relation`: anchor to relation outcome;
+- `traceloom_anchor_host_interval`: adjacent anchor pair and its typed host
+  endpoint interval;
+- `traceloom_anchor_host_activity`: profiler-observed runtime calls overlapping
+  a supported interval, in observed start order.
+
+The last relation can be large because one asynchronous host interval may
+contain many runtime calls. This is intentional: TraceLoom pays the interval
+join once while producing the read-mostly augmented DB, persists indexes and
+planner statistics, and makes repeated agent queries ordinary relational
+lookups. The compact input profile remains the transport/source artifact; the
+augmented DB is the analysis-optimized product.
+
+### Host runtime behavior between device anchors
+
+When two adjacent device anchors each resolve to exactly one supported runtime
+endpoint, materialized relation `traceloom_anchor_host_interval` and its
+readable view `traceloom_v_anchor_host_interval` expose the ordered host
+interval between the end of the left endpoint call and the start of the right
+endpoint call. The view prefers same-thread scope, then same-process scope, and
+otherwise reports the shared provider clock domain. Unsupported cases remain typed as
+`missing_endpoint`, `ambiguous_endpoint`, `incompatible_host_domain`, or
+`nonmonotonic_host_order`.
+
+`traceloom_anchor_host_activity` stores the narrow interval/call links;
+`traceloom_v_anchor_host_activity` joins their readable fields and returns
+every **profiler-observed runtime call** inside a supported interval. This lets
+a query ask whether the same device structure is accompanied by a launch
+burst, synchronization calls, or different runtime-call distributions across
+occurrences. It does not assert what unprofiled CPU code did between calls and
+does not label a device gap's cause. Clock calibration is needed only for
+genuinely cross-clock measures such as enqueue-to-execute latency; it is not
+required to query ordered calls inside one host clock domain.
+
+Canonical examples are in `docs/report-sql/runtime-device-relations.sql` and
+`docs/report-sql/anchor-host-activity.sql`.
+
+Implementation lineage: the provider host-API ingestion pattern was adapted
+and generalized from
+[PR #26](https://github.com/vLLM-HUST/vllm-hust-perf-analyzer/pull/26), and
+Ascend task process/context retention comes from
+[PR #31](https://github.com/vLLM-HUST/vllm-hust-perf-analyzer/pull/31), both by
+Luqhhh. TraceLoom uses that substrate for explicit runtime/device and
+anchor-delimited observation relations; it does not adopt PR #26's idle-cause
+classification as part of this surface.
 
 ### `traceloom_anchor`
 

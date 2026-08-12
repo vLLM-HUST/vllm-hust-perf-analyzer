@@ -53,6 +53,7 @@ struct AscendLoadTiming {
   double sqlite_open_ms = 0.0;
   double inventory_ms = 0.0;
   double string_ids_ms = 0.0;
+  double runtime_calls_ms = 0.0;
   double compute_info_ms = 0.0;
   double cann_api_metadata_ms = 0.0;
   double communication_task_info_ms = 0.0;
@@ -72,6 +73,8 @@ void print_load_timing(const AscendLoadTiming& timing) {
   std::cerr << "timing load_sqlite_open_ms=" << timing.sqlite_open_ms << "\n";
   std::cerr << "timing load_inventory_ms=" << timing.inventory_ms << "\n";
   std::cerr << "timing load_string_ids_ms=" << timing.string_ids_ms << "\n";
+  std::cerr << "timing load_runtime_calls_ms=" << timing.runtime_calls_ms
+            << "\n";
   std::cerr << "timing load_compute_info_ms=" << timing.compute_info_ms
             << "\n";
   std::cerr << "timing load_cann_api_metadata_ms="
@@ -242,6 +245,8 @@ struct RawTaskRow {
   std::int64_t raw_global_task_id = -1;
   std::int64_t raw_connection_id = -1;
   std::int64_t raw_task_type_id = -1;
+  std::int64_t raw_global_pid = -1;
+  std::int64_t raw_context_id = -1;
   std::int64_t raw_model_id = -1;
 };
 
@@ -1354,6 +1359,64 @@ AclGraphCannApiMetadata load_aclgraph_cann_api_metadata(
   return metadata;
 }
 
+void load_ascend_runtime_calls(
+    SqliteDb& db, NativeIr& ir,
+    const std::unordered_map<std::int64_t, std::string>& string_ids,
+    SourceRefId source_ref) {
+  const bool has_global_tid = table_has_column(db, "CANN_API", "globalTid");
+  const bool has_device_id = table_has_column(db, "CANN_API", "deviceId");
+  const bool has_type = table_has_column(db, "CANN_API", "type");
+  const std::string sql =
+      "SELECT rowid, startNs, endNs, connectionId, name, " +
+      std::string(has_global_tid ? "globalTid, " : "-1, ") +
+      std::string(has_device_id ? "deviceId, " : "NULL, ") +
+      std::string(has_type ? "type " : "NULL ") +
+      "FROM CANN_API WHERE startNs IS NOT NULL AND endNs IS NOT NULL "
+      "AND endNs > startNs ORDER BY startNs, endNs, rowid";
+  SqliteStmt stmt(db.get(), sql.c_str());
+  while (true) {
+    const int rc = sqlite3_step(stmt.get());
+    if (rc == SQLITE_DONE) {
+      return;
+    }
+    if (rc != SQLITE_ROW) {
+      throw std::runtime_error("failed to load Ascend CANN_API runtime calls: " +
+                               std::string(sqlite3_errmsg(stmt.db())));
+    }
+    const std::uint64_t source_row_id = sqlite_u64(stmt.get(), 0);
+    const std::int64_t start_ns = sqlite_i64(stmt.get(), 1, 0);
+    const std::int64_t end_ns = sqlite_i64(stmt.get(), 2, 0);
+    const std::int64_t connection_id = sqlite_i64(stmt.get(), 3, -1);
+    const std::string api_name =
+        decode_string_id(string_ids, sqlite_i64(stmt.get(), 4, -1));
+    const std::int64_t raw_global_tid = sqlite_i64(stmt.get(), 5, -1);
+    std::int64_t raw_process_id = -1;
+    std::int64_t raw_thread_id = -1;
+    if (raw_global_tid >= 0) {
+      const std::uint64_t packed =
+          static_cast<std::uint64_t>(raw_global_tid);
+      raw_process_id = static_cast<std::int64_t>(packed >> 32u);
+      raw_thread_id = static_cast<std::int64_t>(packed & 0xffffffffULL);
+    }
+    const bool row_has_device_id =
+        has_device_id && sqlite3_column_type(stmt.get(), 6) != SQLITE_NULL &&
+        sqlite_i64(stmt.get(), 6, -1) >= 0;
+    const std::uint32_t device_id =
+        row_has_device_id ? sqlite_u32(stmt.get(), 6) : 0;
+    const std::string api_type =
+        sqlite3_column_type(stmt.get(), 7) == SQLITE_NULL
+            ? std::string("cann_api")
+            : decode_string_id(string_ids, sqlite_i64(stmt.get(), 7, -1));
+    ir.runtime_calls.append(
+        source_ref, source_row_id, RuntimeCallProvider::kAscend,
+        RuntimeCallClockDomain::kProfilerHost,
+        RuntimeCallMatchPolicy::kAscendConnectionId, start_ns, end_ns,
+        connection_id, ir.symbols.intern(api_type),
+        ir.symbols.intern(api_name), raw_process_id, raw_thread_id,
+        raw_global_tid, -1, row_has_device_id, device_id);
+  }
+}
+
 std::uint64_t stream_key(std::uint32_t device_id, std::uint64_t stream_id) {
   return (static_cast<std::uint64_t>(device_id) << 32u) ^
          (stream_id & 0xffffffffu);
@@ -1442,6 +1505,12 @@ bool raw_task_row_less(const RawTaskRow& lhs, const RawTaskRow& rhs) {
   if (lhs.raw_task_id != rhs.raw_task_id) {
     return lhs.raw_task_id < rhs.raw_task_id;
   }
+  if (lhs.raw_global_pid != rhs.raw_global_pid) {
+    return lhs.raw_global_pid < rhs.raw_global_pid;
+  }
+  if (lhs.raw_context_id != rhs.raw_context_id) {
+    return lhs.raw_context_id < rhs.raw_context_id;
+  }
   return lhs.row_id < rhs.row_id;
 }
 
@@ -1493,10 +1562,14 @@ std::vector<RowidRange> task_rowid_ranges(SqliteDb& db,
 std::vector<RawTaskRow> read_task_raw_rows(SqliteDb& db,
                                            const RowidRange* range,
                                            bool ordered,
-                                           bool has_model_id) {
+                                           bool has_model_id,
+                                           bool has_global_pid,
+                                           bool has_context_id) {
   std::string sql =
       "SELECT rowid, startNs, endNs, deviceId, streamId, taskId, "
       "globalTaskId, connectionId, taskType, " +
+      std::string(has_global_pid ? "globalPid, " : "-1, ") +
+      std::string(has_context_id ? "contextId, " : "-1, ") +
       std::string(has_model_id ? "modelId " : "-1 ") +
       "FROM TASK ";
   if (range != nullptr) {
@@ -1521,8 +1594,9 @@ std::vector<RawTaskRow> read_task_raw_rows(SqliteDb& db,
           sqlite_i64(stmt.get(), 2, 0), sqlite_u32(stmt.get(), 3),
           sqlite_u64(stmt.get(), 4), sqlite_u64(stmt.get(), 5),
           sqlite_i64(stmt.get(), 6), sqlite_i64(stmt.get(), 7),
-          sqlite_i64(stmt.get(), 8),
-          normalize_raw_model_id(sqlite_i64(stmt.get(), 9, -1))});
+          sqlite_i64(stmt.get(), 8), sqlite_i64(stmt.get(), 9, -1),
+          sqlite_i64(stmt.get(), 10, -1),
+          normalize_raw_model_id(sqlite_i64(stmt.get(), 11, -1))});
       continue;
     }
     if (rc == SQLITE_DONE) {
@@ -1541,20 +1615,25 @@ std::vector<RawTaskRow> load_task_raw_rows(SqliteDb& db,
   const std::size_t reader_count =
       std::min(std::max<std::size_t>(1, thread_count), kMaxTaskReaderThreads);
   const bool has_model_id = table_has_column(db, "TASK", "modelId");
+  const bool has_global_pid = table_has_column(db, "TASK", "globalPid");
+  const bool has_context_id = table_has_column(db, "TASK", "contextId");
   if (reader_count <= 1) {
-    return read_task_raw_rows(db, nullptr, true, has_model_id);
+    return read_task_raw_rows(db, nullptr, true, has_model_id,
+                              has_global_pid, has_context_id);
   }
   const std::vector<RowidRange> ranges = task_rowid_ranges(db, reader_count);
   if (ranges.size() <= 1) {
-    return read_task_raw_rows(db, nullptr, true, has_model_id);
+    return read_task_raw_rows(db, nullptr, true, has_model_id,
+                              has_global_pid, has_context_id);
   }
 
   std::vector<std::vector<RawTaskRow>> chunks(ranges.size());
   ThreadPool pool(reader_count);
   pool.parallel_for(ranges.size(), [&](std::size_t index) {
     SqliteDb worker_db(db_path);
-    chunks[index] =
-        read_task_raw_rows(worker_db, &ranges[index], false, has_model_id);
+    chunks[index] = read_task_raw_rows(
+        worker_db, &ranges[index], false, has_model_id, has_global_pid,
+        has_context_id);
   });
 
   std::size_t total_rows = 0;
@@ -1630,7 +1709,8 @@ void load_task_rows(
                     compute.op_type_symbol_id,
                     compute.compute_task_type_symbol_id,
                     comm_task.comm_name_symbol_id, row.raw_model_id,
-                    comm_task.task_type_symbol_id);
+                    comm_task.task_type_symbol_id, row.raw_global_pid,
+                    row.raw_context_id);
   }
 }
 
@@ -3766,6 +3846,61 @@ AclGraphCannApiMetadata load_split_aclgraph_api_metadata(
   return metadata;
 }
 
+void load_split_ascend_runtime_calls(
+    const AscendSplitSQLiteTableInfo* table, SourceRefId source_ref,
+    NativeIr& ir) {
+  if (table == nullptr || !source_ref.valid()) {
+    return;
+  }
+  SqliteDb db(table->db_path);
+  const bool has_thread_id = table_has_column(db, "ApiData", "thread_id");
+  const bool has_process_id = table_has_column(db, "ApiData", "process_id");
+  const bool has_device_id = table_has_column(db, "ApiData", "device_id");
+  const bool has_context_id = table_has_column(db, "ApiData", "context_id");
+  const bool has_type = table_has_column(db, "ApiData", "type");
+  const std::string sql =
+      "SELECT rowid, start, end, connection_id, id, " +
+      std::string(has_thread_id ? "thread_id, " : "-1, ") +
+      std::string(has_process_id ? "process_id, " : "-1, ") +
+      std::string(has_device_id ? "device_id, " : "NULL, ") +
+      std::string(has_context_id ? "context_id, " : "-1, ") +
+      std::string(has_type ? "type " : "NULL ") +
+      "FROM ApiData WHERE start IS NOT NULL AND end IS NOT NULL "
+      "AND end > start ORDER BY start, end, rowid";
+  SqliteStmt stmt(db.get(), sql.c_str());
+  while (true) {
+    const int rc = sqlite3_step(stmt.get());
+    if (rc == SQLITE_DONE) {
+      return;
+    }
+    if (rc != SQLITE_ROW) {
+      throw std::runtime_error("failed to load split ApiData runtime calls: " +
+                               std::string(sqlite3_errmsg(stmt.db())));
+    }
+    // Split profiler timestamps use 10 ns ticks, matching the existing
+    // ApiData graph-evidence loader.
+    const std::int64_t start_ns = sqlite_i64(stmt.get(), 1, 0) * 10;
+    const std::int64_t end_ns = sqlite_i64(stmt.get(), 2, 0) * 10;
+    const std::int64_t raw_thread_id = sqlite_i64(stmt.get(), 5, -1);
+    const std::int64_t raw_process_id = sqlite_i64(stmt.get(), 6, -1);
+    const bool row_has_device_id =
+        has_device_id && sqlite3_column_type(stmt.get(), 7) != SQLITE_NULL &&
+        sqlite_i64(stmt.get(), 7, -1) >= 0;
+    const std::string api_type =
+        sqlite3_column_type(stmt.get(), 9) == SQLITE_NULL
+            ? std::string("cann_api")
+            : sqlite_text(stmt.get(), 9);
+    ir.runtime_calls.append(
+        source_ref, sqlite_u64(stmt.get(), 0), RuntimeCallProvider::kAscend,
+        RuntimeCallClockDomain::kProfilerHost,
+        RuntimeCallMatchPolicy::kAscendConnectionId, start_ns, end_ns,
+        sqlite_i64(stmt.get(), 3, -1), ir.symbols.intern(api_type),
+        ir.symbols.intern(sqlite_text(stmt.get(), 4)), raw_process_id,
+        raw_thread_id, -1, sqlite_i64(stmt.get(), 8, -1), row_has_device_id,
+        row_has_device_id ? sqlite_u32(stmt.get(), 7) : 0);
+  }
+}
+
 struct SplitRawTask {
   RawTaskRow row;
   SourceRefId source_ref;
@@ -4076,10 +4211,13 @@ NativeIr load_split_profile(const AscendSQLiteAdapterOptions& options) {
     SqliteDb db(table->db_path);
     const bool has_model_id =
         table_has_column(db, "AscendTask", "model_id");
+    const bool has_global_pid =
+        table_has_column(db, "AscendTask", "global_pid");
     const std::string task_sql =
         "SELECT rowid, start_time, duration, device_task_type, stream_id, "
         "task_id, context_id, connection_id, host_task_type, " +
-        std::string(has_model_id ? "model_id " : "-1 ") +
+        std::string(has_model_id ? "model_id, " : "-1, ") +
+        std::string(has_global_pid ? "global_pid " : "-1 ") +
         "FROM AscendTask WHERE start_time >= 0 AND duration >= 0 "
         "ORDER BY start_time, stream_id, task_id, context_id, rowid";
     SqliteStmt stmt(db.get(), task_sql.c_str());
@@ -4102,6 +4240,7 @@ NativeIr load_split_profile(const AscendSQLiteAdapterOptions& options) {
       std::string host_task_type = sqlite_text(stmt.get(), 8);
       const std::int64_t model_id =
           normalize_raw_model_id(sqlite_i64(stmt.get(), 9, -1));
+      const std::int64_t global_pid = sqlite_i64(stmt.get(), 10, -1);
       const auto host_found = host_task_types.find(connection_id);
       if (host_task_type.empty() && host_found != host_task_types.end()) {
         host_task_type = host_found->second;
@@ -4129,6 +4268,7 @@ NativeIr load_split_profile(const AscendSQLiteAdapterOptions& options) {
           RawTaskRow{sqlite_u64(stmt.get(), 0), start_ns,
                      start_ns + duration_ns, table_device_id, stream_id, task_id,
                      compute.synthetic_global_task_id, connection_id, -1,
+                     global_pid, static_cast<std::int64_t>(context_id),
                      model_id},
           source_ref, ir.symbols.intern(normalized_task_type), compute,
           communication});
@@ -4156,7 +4296,8 @@ NativeIr load_split_profile(const AscendSQLiteAdapterOptions& options) {
                     raw.compute.symbols.compute_task_type_symbol_id,
                     raw.communication.comm_name_symbol_id,
                     raw.row.raw_model_id,
-                    raw.communication.task_type_symbol_id);
+                    raw.communication.task_type_symbol_id,
+                    raw.row.raw_global_pid, raw.row.raw_context_id);
   }
   materialize_split_communication_ops(inventory, table_refs,
                                       communication_envelopes, ir, streams);
@@ -4168,6 +4309,11 @@ NativeIr load_split_profile(const AscendSQLiteAdapterOptions& options) {
           raw_api_table, {"start", "end", "connection_id", "id"})
           ? raw_api_table
           : nullptr;
+  if (api_table != nullptr) {
+    load_split_ascend_runtime_calls(
+        api_table,
+        table_refs.at(api_table->db_path + "\n" + api_table->table_name), ir);
+  }
   const AclGraphCannApiMetadata cann_api_metadata =
       load_split_aclgraph_api_metadata(api_table);
   const AscendSplitSQLiteTableInfo* capture_stream_table =
@@ -4357,6 +4503,12 @@ NativeIr AscendSQLiteAdapter::load() const {
   timing.string_ids_ms = time_stage([&]() {
     if (string_ids_usable) {
       string_ids = load_string_ids(db, ir);
+    }
+  });
+  timing.runtime_calls_ms = time_stage([&]() {
+    if (cann_api_usable) {
+      load_ascend_runtime_calls(db, ir, string_ids,
+                                table_refs.at("CANN_API"));
     }
   });
   std::unordered_map<std::int64_t, ComputeInfo> compute_info;

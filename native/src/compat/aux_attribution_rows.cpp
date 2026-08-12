@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <map>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <unordered_set>
@@ -37,6 +38,23 @@ std::unordered_set<TraceEventId::value_type> anchored_trace_event_ids(
   return out;
 }
 
+std::unordered_set<TraceEventId::value_type> host_runtime_trace_event_ids(
+    const NativeIr& ir) {
+  std::set<std::pair<SourceRefId::value_type, std::uint64_t>> runtime_sources;
+  for (const RuntimeCallRow& call : ir.runtime_calls.rows()) {
+    runtime_sources.emplace(call.source_ref_id.value(), call.source_row_id);
+  }
+  std::unordered_set<TraceEventId::value_type> out;
+  for (const TraceEventRow& event : ir.trace_events.rows()) {
+    if (runtime_sources.find(
+            {event.source_ref_id.value(), event.source_row_id}) !=
+        runtime_sources.end()) {
+      out.insert(event.id.value());
+    }
+  }
+  return out;
+}
+
 const AnchorRow* following_anchor_for_aux_event(const NativeIr& ir,
                                                 const TraceEventRow& event) {
   const AnchorRow* best = nullptr;
@@ -66,12 +84,18 @@ AuxAttributionSqlRows build_aux_attribution_sql_rows(const NativeIr& ir,
                                                      std::uint32_t db_idx) {
   const std::unordered_set<TraceEventId::value_type> anchored_events =
       anchored_trace_event_ids(ir);
+  const std::unordered_set<TraceEventId::value_type> host_runtime_events =
+      host_runtime_trace_event_ids(ir);
   AuxAttributionSqlRows rows;
   std::map<AnchorId::value_type, AuxSlotAccum> slots;
   std::map<AnchorId::value_type, std::uint32_t> next_aux_order;
 
   for (const TraceEventRow& event : ir.trace_events.rows()) {
     if (anchored_events.find(event.id.value()) != anchored_events.end()) {
+      continue;
+    }
+    if (host_runtime_events.find(event.id.value()) !=
+        host_runtime_events.end()) {
       continue;
     }
     const AnchorRow* anchor = following_anchor_for_aux_event(ir, event);

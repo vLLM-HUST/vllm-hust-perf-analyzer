@@ -1071,8 +1071,107 @@ void seed_semantic_tree_fixture(const std::string& db_path) {
   write_semantic_tree_fixture_via_asset_writers(db_path, rows);
 }
 
+void seed_runtime_device_fixture(const std::string& db_path) {
+  using namespace traceloom::compat;
+  RuntimeDeviceSqlRows rows;
+  const auto add_call = [&](const std::string& id, std::int64_t start_ns,
+                            std::int64_t end_ns, const std::string& api_name,
+                            const std::string& correlation) {
+    RuntimeCallSqlRow row;
+    row.runtime_call_id = id;
+    row.provider = "cuda";
+    row.clock_domain = "profiler_host";
+    row.source_table = "CUPTI_ACTIVITY_KIND_RUNTIME";
+    row.source_key = id;
+    row.start_ns = start_ns;
+    row.end_ns = end_ns;
+    row.dur_us = static_cast<double>(end_ns - start_ns) / 1000.0;
+    row.api_name = api_name;
+    row.api_type = "cuda_runtime";
+    row.process_id = "7";
+    row.thread_id = "9";
+    row.correlation_id = correlation;
+    row.match_policy = "cuda_correlation_id";
+    rows.runtime_calls.push_back(std::move(row));
+  };
+  add_call("runtime-call-left", 100, 110, "cudaLaunchKernel", "41");
+  add_call("runtime-call-middle", 150, 160, "cudaEventQuery", "99");
+  add_call("runtime-call-right", 200, 210, "cudaLaunchKernel", "42");
+
+  DeviceWorkSqlRow work;
+  work.device_work_id = "device-work-event-1";
+  work.provider = "cuda";
+  work.work_kind = "event";
+  work.event_id = "event-1";
+  work.task_id = "task-1";
+  work.source_table = "CUPTI_ACTIVITY_KIND_KERNEL";
+  work.source_key = "1";
+  work.start_ns = 1000;
+  work.end_ns = 1100;
+  work.dur_us = 0.1;
+  work.symbol = "kernel";
+  rows.device_works.push_back(work);
+
+  RuntimeDeviceRelationSqlRow relation;
+  relation.relation_id = "runtime-device-relation-1";
+  relation.runtime_call_id = "runtime-call-left";
+  relation.device_work_id = work.device_work_id;
+  relation.relation_kind = "provider_correlation";
+  relation.match_policy = "cuda_correlation_id";
+  relation.evidence_level = "direct_provider_identifier";
+  relation.support_state = "supported_exact";
+  relation.cardinality = "one_to_one";
+  relation.runtime_candidate_count = 1;
+  relation.device_candidate_count = 1;
+  relation.correlation_id = "41";
+  rows.relations.push_back(relation);
+
+  AnchorHostIntervalSqlRow interval;
+  interval.interval_id = "anchor-host-interval-anchor-1-anchor-2";
+  interval.left_anchor_id = "anchor-1";
+  interval.right_anchor_id = "anchor-2";
+  interval.left_runtime_call_id = "runtime-call-left";
+  interval.right_runtime_call_id = "runtime-call-right";
+  interval.left_endpoint_count = 1;
+  interval.right_endpoint_count = 1;
+  interval.provider = "cuda";
+  interval.clock_domain = "profiler_host";
+  interval.host_start_ns = "110";
+  interval.host_end_ns = "200";
+  interval.scope_policy = "same_thread";
+  interval.process_id = "7";
+  interval.thread_id = "9";
+  interval.support_state = "supported_ordered";
+  rows.host_intervals.push_back(interval);
+  rows.host_activities.push_back(
+      AnchorHostActivitySqlRow{interval.interval_id, "runtime-call-middle", 0});
+
+  replace_runtime_device_rows(db_path, rows);
+  materialize_report_compatibility_views(db_path);
+}
+
 std::vector<QueryCase> active_query_cases() {
   return {
+      QueryCase{
+          "anchor-host-activity.sql",
+          {
+              "left_anchor_id",
+              "right_anchor_id",
+              "support_state",
+              "scope_policy",
+              "host_start_ns",
+              "host_end_ns",
+              "observed_runtime_call_id",
+              "api_name",
+              "api_type",
+              "observed_start_ns",
+              "observed_end_ns",
+              "runtime_us",
+              "observed_source_table",
+              "observed_source_key",
+          },
+          1,
+      },
       QueryCase{
           "anchor-aux.sql",
           {
@@ -1279,6 +1378,25 @@ std::vector<QueryCase> active_query_cases() {
           1,
       },
       QueryCase{
+          "runtime-device-relations.sql",
+          {
+              "relation_id",
+              "provider",
+              "api_name",
+              "runtime_start_ns",
+              "runtime_dur_us",
+              "work_kind",
+              "device_symbol",
+              "device_start_ns",
+              "device_dur_us",
+              "match_policy",
+              "evidence_level",
+              "support_state",
+              "cardinality",
+          },
+          1,
+      },
+      QueryCase{
           "replay-cost-hotspots.sql",
           {
               "aggregate_id", "graph_template_id", "slot_role",
@@ -1414,6 +1532,9 @@ int main() {
     const std::string db_path = temp_db_path();
     if (query_case.filename == "anchor-cost-breakdown.sql") {
       seed_anchor_cost_fixture(db_path);
+    } else if (query_case.filename == "anchor-host-activity.sql" ||
+               query_case.filename == "runtime-device-relations.sql") {
+      seed_runtime_device_fixture(db_path);
     } else if (query_case.filename == "anchor-aux.sql") {
       seed_anchor_aux_fixture(db_path);
       require_anchor_aux_invariants(db_path);

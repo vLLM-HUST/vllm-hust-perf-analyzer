@@ -40,6 +40,10 @@ profiler SQLite
 - 在 semantic anchor 序列上发现重复的 decode/layer 结构；
 - 对并发 stream 使用不重复计算的 wall-clock 统计；
 - Repeat 节点的平均值按循环体迭代次数归一化；
+- 用 provider correlation 把 host runtime call 显式关联回 device anchor、
+  graph launch 与 auxiliary work，并保留一对多、歧义和未匹配结果；
+- 查询相邻 device anchor 所关联 host endpoint 之间实际被 profiler 观察到的
+  runtime 调用，而不把这些观测擅自解释成 idle 原因；
 - 保留到原始数据库、表和行的 provenance。
 
 ## 在 Debian 或 Ubuntu 上安装
@@ -139,6 +143,26 @@ member 下钻到内嵌原始证据。最常用的成本列是：
 - `avg_total_us`：普通节点按 occurrence 平均，Repeat 节点按循环体迭代平均；
 - `avg_compute_us`、`avg_comm_us`、`avg_idle_us`：可以直接比较的平均成本；
 - `avg_aux_us`、`avg_self_us`：归因到节点的辅助成本和节点自身成本。
+
+从 device 结构反查 host runtime 行为：
+
+```sql
+-- 哪些 host runtime call 与 anchor 有直接、可审计的 provider 关联？
+SELECT anchor_idx, anchor_symbol, api_name, cardinality, support_state
+FROM traceloom_v_anchor_runtime_call
+ORDER BY device_id, anchor_idx, runtime_start_ns;
+
+-- 相邻 anchor 的 host endpoint 之间，profiler 实际观察到了哪些调用？
+SELECT api_name, count(*) AS occurrences,
+       round(sum(observed_dur_us), 3) AS observed_runtime_us
+FROM traceloom_v_anchor_host_activity
+GROUP BY api_name
+ORDER BY observed_runtime_us DESC
+LIMIT 30;
+```
+
+第二个查询只报告 profiler 可见的 runtime API 活动；它不声称覆盖全部 CPU
+工作，也不会从时间邻近关系推断提交边或 idle 因果。
 
 体验上图完整的横向与纵向分析路径：
 

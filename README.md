@@ -51,6 +51,10 @@ Key capabilities:
 - repeated decode/layer structure discovery over semantic anchors;
 - overlap-safe wall-clock accounting across concurrent streams;
 - repeat-node averages normalized per loop-body iteration;
+- provider-aware runtime-call ↔ device-work relations with explicit
+  cardinality and open/ambiguous outcomes;
+- reverse navigation from device anchors and auxiliary work to host runtime
+  calls, including observed host runtime activity between adjacent anchors;
 - provenance links back to the original database, table, and row.
 
 CUDA auxiliary activity stays explicitly typed and traceable without being
@@ -165,6 +169,22 @@ normalized events, exact graph members, and raw evidence. Important costs are:
 - `avg_compute_us`, `avg_comm_us`, `avg_idle_us`: comparable average cost
   categories;
 - `avg_aux_us` and `avg_self_us`: attributed auxiliary and node-owned cost.
+
+To inspect profiler-observed host runtime behavior corresponding to device
+structure (without assigning an idle cause):
+
+```sql
+SELECT anchor_idx, anchor_symbol, api_name, support_state, cardinality
+FROM traceloom_v_anchor_runtime_call
+ORDER BY device_id, anchor_idx, runtime_start_ns;
+
+SELECT api_name, count(*) AS occurrences,
+       round(sum(observed_dur_us), 3) AS observed_runtime_us
+FROM traceloom_v_anchor_host_activity
+GROUP BY api_name
+ORDER BY observed_runtime_us DESC
+LIMIT 30;
+```
 
 For the complete horizontal-and-vertical experience shown above:
 

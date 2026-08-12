@@ -542,11 +542,18 @@ void load_auxiliary_activity_rows(
     const std::string correlation = find_column(columns, "correlationId");
     const std::string name = first_column(
         columns, {"nameId", "shortName", "copyKind", "syncType", "eventId"});
+    const std::string global_tid = find_column(columns, "globalTid");
+    const std::string process_id =
+        first_column(columns, {"processId", "pid"});
+    const std::string thread_id = first_column(columns, {"threadId", "tid"});
+    const std::string context_id = find_column(columns, "contextId");
     const std::string sql =
         "SELECT rowid, " + quote_identifier(start) + ", " +
         select_or_null(end) + ", " + select_or_null(device) + ", " +
         select_or_null(stream) + ", " + select_or_null(correlation) + ", " +
-        select_or_null(name) + " FROM " + quote_identifier(spec.table) +
+        select_or_null(name) + ", " + select_or_null(global_tid) + ", " +
+        select_or_null(process_id) + ", " + select_or_null(thread_id) + ", " +
+        select_or_null(context_id) + " FROM " + quote_identifier(spec.table) +
         " WHERE " + quote_identifier(start) + " IS NOT NULL ORDER BY " +
         quote_identifier(start) + ", rowid";
 
@@ -573,6 +580,9 @@ void load_auxiliary_activity_rows(
       }
       const std::uint32_t device_id = static_cast<std::uint32_t>(
           std::max<std::int64_t>(0, sqlite_i64(stmt.get(), 3, 0)));
+      const bool row_has_device_id =
+          !device.empty() && sqlite3_column_type(stmt.get(), 3) != SQLITE_NULL &&
+          sqlite_i64(stmt.get(), 3, -1) >= 0;
       const std::uint32_t stream_id = static_cast<std::uint32_t>(
           std::max<std::int64_t>(0, sqlite_i64(stmt.get(), 4, 0)));
       const std::int64_t correlation_id = sqlite_i64(stmt.get(), 5, -1);
@@ -581,9 +591,32 @@ void load_auxiliary_activity_rows(
         label = std::string(spec.fallback_label) + "_" +
                 std::to_string(source_row_id);
       }
+      const std::int64_t raw_global_tid = sqlite_i64(stmt.get(), 7, -1);
+      std::int64_t raw_process_id = sqlite_i64(stmt.get(), 8, -1);
+      std::int64_t raw_thread_id = sqlite_i64(stmt.get(), 9, -1);
+      const std::int64_t raw_context_id = sqlite_i64(stmt.get(), 10, -1);
+      if (raw_global_tid >= 0) {
+        const std::uint64_t packed =
+            static_cast<std::uint64_t>(raw_global_tid);
+        if (raw_process_id < 0 && (packed >> 32u) != 0) {
+          raw_process_id = static_cast<std::int64_t>(packed >> 32u);
+        }
+        if (raw_thread_id < 0) {
+          raw_thread_id = static_cast<std::int64_t>(packed & 0xffffffffULL);
+        }
+      }
       intern_stream(ir, streams, source_ref, device_id, stream_id);
       const SymbolId label_symbol = ir.symbols.intern(label);
       const SymbolId task_type_symbol = ir.symbols.intern(spec.task_type);
+      if (std::string(spec.table) == "CUPTI_ACTIVITY_KIND_RUNTIME") {
+        ir.runtime_calls.append(
+            source_ref, source_row_id, RuntimeCallProvider::kCuda,
+            RuntimeCallClockDomain::kProfilerHost,
+            RuntimeCallMatchPolicy::kCudaCorrelationId, start_ns, end_ns,
+            correlation_id, ir.symbols.intern("cuda_runtime"), label_symbol,
+            raw_process_id, raw_thread_id, raw_global_tid, raw_context_id,
+            row_has_device_id, device_id);
+      }
       const TraceEventId event = ir.trace_events.append(
           source_ref, source_row_id, device_id, stream_id, start_ns, end_ns,
           label_symbol);

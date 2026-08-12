@@ -288,6 +288,12 @@ int main(int argc, char** argv) {
   options.source_kind = "cuda_nsys_sqlite_test";
   const CudaNsightSQLiteAdapter adapter(options);
   NativeIr ir = adapter.load();
+  require(ir.runtime_calls.size() == 1,
+          "CUDA runtime activity was not retained as host-side evidence");
+  require(ir.runtime_calls.row(RuntimeCallId(0)).raw_correlation_id == 9 &&
+              ir.runtime_calls.row(RuntimeCallId(0)).start_ns == 80 &&
+              ir.runtime_calls.row(RuntimeCallId(0)).end_ns == 85,
+          "CUDA runtime-call correlation/timing mismatch");
 
   const std::string expected =
       "sources=4\n"

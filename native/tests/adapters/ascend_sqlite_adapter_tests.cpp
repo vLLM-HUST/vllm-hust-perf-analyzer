@@ -788,6 +788,9 @@ int main() {
           "first TASK connection id mismatch");
   require(ir.tasks.row(TaskId(0)).raw_model_id == 2,
           "first TASK model id mismatch");
+  require(ir.tasks.row(TaskId(0)).raw_global_pid == 1 &&
+              ir.tasks.row(TaskId(0)).raw_context_id == 0,
+          "first TASK process/context identity mismatch");
   require(ir.symbols.value(ir.tasks.row(TaskId(0)).op_name_symbol_id) ==
               "model.layers.0.mlp.gate_up_proj",
           "first TASK op name decode mismatch");
@@ -843,6 +846,12 @@ int main() {
       AscendSQLiteAdapterOptions{(graph_dir / "msprof.db").string(),
                                  "ascend_graph_smoke"});
   NativeIr graph_ir = graph_adapter.load();
+  require(graph_ir.runtime_calls.size() == 10,
+          "CANN_API rows were not retained as host-side runtime calls");
+  require(graph_ir.runtime_calls.row(RuntimeCallId(0)).raw_correlation_id ==
+              9000 &&
+              graph_ir.runtime_calls.row(RuntimeCallId(0)).raw_global_tid == 1,
+          "Ascend runtime-call correlation/thread identity mismatch");
   require(graph_ir.replay_units.size() == 2,
           "ACLGraph replay units were not reconstructed");
   require(graph_ir.graph_templates.size() == 1,
