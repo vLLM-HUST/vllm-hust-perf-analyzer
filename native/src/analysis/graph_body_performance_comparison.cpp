@@ -181,14 +181,35 @@ std::vector<std::uint64_t> rank_critical_samples(
     return {};
   }
   const std::size_t count = accessor(profiles.front()).size();
+  if (profiles.size() == 1) {
+    return accessor(profiles.front());
+  }
+  const std::vector<std::string>& launch_identity =
+      profiles.front().launch_identity;
+  if (launch_identity.size() != count) {
+    return {};
+  }
   std::vector<std::uint64_t> result(count, 0);
   for (const GraphBodyProfileSample& profile : profiles) {
     const auto& values = accessor(profile);
-    if (values.size() != count) {
+    if (values.size() != count || profile.launch_identity.size() != count) {
       return {};
     }
+    std::map<std::string, std::uint64_t> value_by_identity;
     for (std::size_t index = 0; index < count; ++index) {
-      result[index] = std::max(result[index], values[index]);
+      if (profile.launch_identity[index].empty() ||
+          !value_by_identity
+               .emplace(profile.launch_identity[index], values[index])
+               .second) {
+        return {};
+      }
+    }
+    for (std::size_t index = 0; index < count; ++index) {
+      const auto value = value_by_identity.find(launch_identity[index]);
+      if (value == value_by_identity.end()) {
+        return {};
+      }
+      result[index] = std::max(result[index], value->second);
     }
   }
   return result;
@@ -211,7 +232,23 @@ bool homogeneous_variant(const std::vector<GraphBodyProfileSample>& profiles,
   summary.data_move_task_count = first.data_move_task_count;
   summary.replay_unit_launch_count = first.replay_unit_launch_count;
   std::set<std::uint32_t> devices;
+  std::set<std::string> expected_launch_identities;
   bool supported = true;
+  if (profiles.size() > 1) {
+    if (first.launch_identity.size() != summary.rank_critical_sample_count) {
+      reasons.push_back(prefix + "_rank_launch_identity_unavailable");
+      supported = false;
+    } else {
+      expected_launch_identities.insert(first.launch_identity.begin(),
+                                        first.launch_identity.end());
+      if (expected_launch_identities.size() != first.launch_identity.size() ||
+          expected_launch_identities.find("") !=
+              expected_launch_identities.end()) {
+        reasons.push_back(prefix + "_rank_launch_identity_invalid");
+        supported = false;
+      }
+    }
+  }
   for (const GraphBodyProfileSample& profile : profiles) {
     if (!devices.insert(profile.device_id).second) {
       reasons.push_back(prefix + "_duplicate_device_id");
@@ -220,6 +257,21 @@ bool homogeneous_variant(const std::vector<GraphBodyProfileSample>& profiles,
     if (profile.envelope_ns.size() != summary.rank_critical_sample_count) {
       reasons.push_back(prefix + "_rank_sample_count_mismatch");
       supported = false;
+    }
+    if (profiles.size() > 1) {
+      const std::set<std::string> observed_launch_identities(
+          profile.launch_identity.begin(), profile.launch_identity.end());
+      if (profile.launch_identity.size() !=
+              summary.rank_critical_sample_count ||
+          observed_launch_identities.size() != profile.launch_identity.size() ||
+          observed_launch_identities.find("") !=
+              observed_launch_identities.end()) {
+        reasons.push_back(prefix + "_rank_launch_identity_invalid");
+        supported = false;
+      } else if (observed_launch_identities != expected_launch_identities) {
+        reasons.push_back(prefix + "_rank_launch_identity_mismatch");
+        supported = false;
+      }
     }
     const std::size_t count = profile.envelope_ns.size();
     if (profile.busy_union_ns.size() != count ||

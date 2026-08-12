@@ -82,6 +82,8 @@ int main() {
       filtered.symbols.intern("MODEL_MAINTAINCE");
   const SymbolId unknown_kernel_symbol =
       filtered.symbols.intern("FutureFusedKernelV1");
+  const SymbolId compute_task_only_symbol =
+      filtered.symbols.intern("FutureFusedKernelV2");
   const SymbolId filtered_ai_core = filtered.symbols.intern("AI_CORE");
   const TraceEventId skipped_task_event = filtered.trace_events.append(
       filtered_task_source, 201, 0, 3, 0, 10, skip_symbol);
@@ -97,6 +99,8 @@ int main() {
       filtered_task_source, 206, 0, 3, 100, 110, maintenance_symbol);
   const TraceEventId unknown_task_event = filtered.trace_events.append(
       filtered_task_source, 207, 0, 3, 120, 130, unknown_kernel_symbol);
+  const TraceEventId compute_task_only_event = filtered.trace_events.append(
+      filtered_task_source, 208, 0, 3, 140, 150, compute_task_only_symbol);
   const TraceEventId filtered_comm_event = filtered.trace_events.append(
       filtered_comm_source, 1, 0, 3, 18, 32, comm_symbol);
   filtered.tasks.append(filtered_task_source, skipped_task_event, 21, 9201,
@@ -125,6 +129,10 @@ int main() {
                         806, filtered_ai_core, SymbolId::invalid(),
                         unknown_kernel_symbol, SymbolId::invalid(),
                         SymbolId::invalid());
+  filtered.tasks.append(filtered_task_source, compute_task_only_event, 28, 9208,
+                        807, filtered_ai_core, SymbolId::invalid(),
+                        SymbolId::invalid(), compute_task_only_symbol,
+                        SymbolId::invalid());
   filtered.communication_ops.append(filtered_comm_source, filtered_comm_event,
                                     801, 66, 1, 1, comm_symbol);
   FlatAnchorBuildConfig filter_config;
@@ -134,16 +142,21 @@ int main() {
   const FlatAnchorBuildStats filtered_stats =
       build_flat_anchors(filtered, filter_config);
   require(filtered_stats.skipped_task_events == 5);
-  require(filtered_stats.preserved_unclassified_task_events == 1);
-  require(filtered_stats.device_event_anchors == 2);
+  require(filtered_stats.preserved_unclassified_task_events == 2);
+  require(filtered_stats.device_event_anchors == 3);
   require(filtered_stats.communication_anchors == 1);
-  require(filtered.tokens.size() == 3);
+  require(filtered.tokens.size() == 4);
   require(filtered.anchors.row(AnchorId(0)).kind == AnchorKind::kCommunication);
   require(filtered.anchors.row(AnchorId(0)).symbol_id ==
           filtered.symbols.intern("AllReduce"));
   require(filtered.anchors.row(AnchorId(1)).trace_event_id == kept_task_event);
   require(filtered.anchors.row(AnchorId(2)).trace_event_id ==
           unknown_task_event);
+  require(filtered.anchors.row(AnchorId(3)).trace_event_id ==
+              compute_task_only_event &&
+              filtered.anchors.row(AnchorId(3)).symbol_id ==
+                  compute_task_only_symbol,
+          "compute-task-type-only operator is preserved with concrete symbol");
 
   NativeIr normalized_comm;
   const SourceRefId normalized_comm_source =

@@ -20,12 +20,15 @@ traceloom::NativeIr make_ir() {
   const SymbolId aicore = ir.symbols.intern("AI_CORE");
   const SymbolId label = ir.symbols.intern("raw_label");
   const SymbolId future_op = ir.symbols.intern("FutureFusedKernelV1");
+  const SymbolId compute_task_only =
+      ir.symbols.intern("ComputeTaskOnlyFutureKernel");
 
   const TraceEventId e0 = ir.trace_events.append(source, 1, 0, 0, 0, 10, label);
   const TraceEventId e1 = ir.trace_events.append(source, 2, 0, 0, 10, 20, label);
   const TraceEventId e2 = ir.trace_events.append(source, 3, 0, 0, 20, 30, label);
   const TraceEventId e3 = ir.trace_events.append(source, 4, 0, 0, 30, 40, label);
   const TraceEventId e4 = ir.trace_events.append(source, 5, 0, 0, 40, 55, label);
+  const TraceEventId e5 = ir.trace_events.append(source, 6, 0, 0, 55, 75, label);
 
   // AI_CORE with MatMul metadata -> productive_compute via blob rule.
   ir.tasks.append(source, e0, 1, 1001, -1, aicore, matmul, matmul,
@@ -44,6 +47,11 @@ traceloom::NativeIr make_ir() {
                   SymbolId::invalid());
   ir.tasks.append(source, e4, 5, 1005, -1, aicore, SymbolId::invalid(),
                   future_op, SymbolId::invalid(), SymbolId::invalid());
+  // CANN variants may expose only compute_task_type as concrete operator
+  // identity. It must be selected and audited instead of falling back to the
+  // generic AI_CORE task type.
+  ir.tasks.append(source, e5, 6, 1006, -1, aicore, SymbolId::invalid(),
+                  SymbolId::invalid(), compute_task_only, SymbolId::invalid());
   ir.graph_launch_body_members.append(
       GraphLaunchBodyId(0), TaskId(4), 0, 0,
       GraphLaunchBodyMemberRow::Kind::kCompute);
@@ -99,10 +107,10 @@ int main() {
 
   const SemanticOperatorCoverageSummary coverage =
       summarize_semantic_operator_coverage(ir, result);
-  require(coverage.task_count == 5 && coverage.unknown_task_count == 2,
+  require(coverage.task_count == 6 && coverage.unknown_task_count == 3,
           "operator coverage task counts");
-  require(coverage.unregistered_operator_occurrence_count == 2 &&
-              coverage.unregistered_operators.size() == 2,
+  require(coverage.unregistered_operator_occurrence_count == 3 &&
+              coverage.unregistered_operators.size() == 3,
           "operator coverage keeps concrete unknowns separate");
   const auto future = std::find_if(
       coverage.unregistered_operators.begin(),
@@ -115,6 +123,17 @@ int main() {
               future->total_duration_ns == 15 &&
               future->graph_body_member_count == 1,
           "unknown graph-body operator evidence summary");
+  const auto compute_only = std::find_if(
+      coverage.unregistered_operators.begin(),
+      coverage.unregistered_operators.end(),
+      [](const UnregisteredOperatorSummaryRow& row) {
+        return row.operator_name == "ComputeTaskOnlyFutureKernel";
+      });
+  require(compute_only != coverage.unregistered_operators.end() &&
+              compute_only->task_type == "AI_CORE" &&
+              compute_only->semantic_role == "unknown" &&
+              compute_only->total_duration_ns == 20,
+          "compute-task-type-only operator uses concrete identity in audit");
 
   // Classification input composition: blob includes op and task fields.
   const SemanticTaskClassificationInput input =

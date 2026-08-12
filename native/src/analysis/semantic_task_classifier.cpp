@@ -21,6 +21,9 @@ SymbolId choose_task_symbol(const TaskRow& task) {
   if (task.op_name_symbol_id.valid()) {
     return task.op_name_symbol_id;
   }
+  if (task.compute_task_type_symbol_id.valid()) {
+    return task.compute_task_type_symbol_id;
+  }
   if (task.comm_name_symbol_id.valid()) {
     return task.comm_name_symbol_id;
   }
@@ -109,6 +112,7 @@ SemanticOperatorCoverageSummary summarize_semantic_operator_coverage(
     SymbolId operator_symbol = choose_task_symbol(task);
     const bool has_operator = task.op_type_symbol_id.valid() ||
                               task.op_name_symbol_id.valid() ||
+                              task.compute_task_type_symbol_id.valid() ||
                               task.comm_name_symbol_id.valid();
     if (!has_operator || !operator_symbol.valid()) {
       continue;

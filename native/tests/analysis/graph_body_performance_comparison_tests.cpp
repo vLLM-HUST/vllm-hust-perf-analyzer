@@ -12,7 +12,8 @@ traceloom::GraphBodyProfileSample sample(
     std::size_t count,
     std::uint64_t envelope_ns,
     std::uint64_t busy_union_ns,
-    std::uint64_t task_sum_ns) {
+    std::uint64_t task_sum_ns,
+    const std::string& launch_identity_prefix = "launch-") {
   traceloom::GraphBodyProfileSample result;
   result.device_id = device_id;
   result.replay_body_template_id = traceloom::ReplayBodyTemplateId(0);
@@ -20,6 +21,10 @@ traceloom::GraphBodyProfileSample sample(
   result.compute_task_count = 10;
   result.communication_task_count = 2;
   result.replay_unit_launch_count = 1;
+  for (std::size_t index = 0; index < count; ++index) {
+    result.launch_identity.push_back(launch_identity_prefix +
+                                     std::to_string(index));
+  }
   result.envelope_ns.assign(count, envelope_ns);
   result.busy_union_ns.assign(count, busy_union_ns);
   result.task_sum_ns.assign(count, task_sum_ns);
@@ -188,5 +193,28 @@ int main() {
               has_reason(invalid_rank_shape,
                          "baseline_rank_sample_count_mismatch"),
           "rank alignment mismatch remains inconclusive");
+
+  const GraphBodyPerformanceComparison unverified_rank_pairing =
+      compare_graph_body_performance(
+          {sample(0, 12, 100, 95, 90),
+           sample(1, 12, 110, 105, 100, "shifted-launch-")},
+          {sample(0, 9, 90, 85, 80), sample(1, 9, 95, 90, 85)}, config);
+  require(unverified_rank_pairing.verdict ==
+                  GraphBodyPerformanceVerdict::kInconclusive &&
+              has_reason(unverified_rank_pairing,
+                         "baseline_rank_launch_identity_mismatch"),
+          "equal rank sample counts do not prove launch identity");
+
+  GraphBodyProfileSample no_identity_rank = sample(1, 12, 110, 105, 100);
+  no_identity_rank.launch_identity.clear();
+  const GraphBodyPerformanceComparison missing_rank_identity =
+      compare_graph_body_performance(
+          {sample(0, 12, 100, 95, 90), no_identity_rank},
+          {sample(0, 9, 90, 85, 80), sample(1, 9, 95, 90, 85)}, config);
+  require(missing_rank_identity.verdict ==
+                  GraphBodyPerformanceVerdict::kInconclusive &&
+              has_reason(missing_rank_identity,
+                         "baseline_rank_launch_identity_invalid"),
+          "missing cross-rank launch identity fails closed");
   return 0;
 }

@@ -63,6 +63,9 @@ SymbolId choose_task_symbol(const TaskRow& task) {
   if (task.op_name_symbol_id.valid()) {
     return task.op_name_symbol_id;
   }
+  if (task.compute_task_type_symbol_id.valid()) {
+    return task.compute_task_type_symbol_id;
+  }
   if (task.comm_name_symbol_id.valid()) {
     return task.comm_name_symbol_id;
   }

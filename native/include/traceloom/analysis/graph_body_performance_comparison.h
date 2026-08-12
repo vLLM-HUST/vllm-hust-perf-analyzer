@@ -29,6 +29,10 @@ struct GraphBodyProfileSample {
   std::uint32_t communication_task_count = 0;
   std::uint32_t data_move_task_count = 0;
   std::uint32_t replay_unit_launch_count = 0;
+  // Cross-rank aggregation is permitted only when every rank supplies the
+  // same unique logical launch identities. Chronological ordinal alone is not
+  // evidence that two rank-local launches belong to one execution.
+  std::vector<std::string> launch_identity;
   std::vector<std::uint64_t> task_sum_ns;
   std::vector<std::uint64_t> busy_union_ns;
   std::vector<std::uint64_t> envelope_ns;
@@ -87,7 +91,7 @@ struct GraphBodyPerformanceComparison {
   GraphBodyPerformanceVerdict verdict =
       GraphBodyPerformanceVerdict::kInconclusive;
   std::vector<std::string> reason_codes;
-  std::string aggregation_policy = "ordinal_rank_critical_max";
+  std::string aggregation_policy = "verified_launch_identity_rank_critical_max";
   bool same_workload_attested = false;
   GraphBodyVariantSummary baseline;
   GraphBodyVariantSummary candidate;
@@ -95,8 +99,10 @@ struct GraphBodyPerformanceComparison {
 };
 
 // Compares independent baseline/candidate samples without requiring equal
-// sample counts across variants. Within a multi-rank variant, equal-length
-// per-rank sequences are reduced to the ordinal rank-critical maximum.
+// sample counts across variants. Within a multi-rank variant, samples are
+// reduced to the rank-critical maximum only after exact logical launch
+// identities prove the cross-rank pairing. Missing, duplicate, or mismatched
+// identities make the comparison inconclusive.
 // Confidence intervals use a deterministic circular moving-block bootstrap to
 // retain local temporal dependence. The envelope is primary; a confident
 // contradictory task-sum or busy-union direction downgrades the overall
