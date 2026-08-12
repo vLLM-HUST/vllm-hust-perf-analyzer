@@ -401,8 +401,7 @@ void write_graph_launch_occurrences(std::ostream& out, const NativeIr* ir) {
 
 void write_graph_launch_bodies(
     std::ostream& out,
-    const NativeIr* ir,
-    const SemanticTaskClassificationResult* classification) {
+    const NativeIr* ir) {
   out << "  \"replay_body_templates\": [\n";
   if (ir != nullptr) {
     const auto& rows = ir->replay_body_templates.rows();
@@ -519,22 +518,6 @@ void write_graph_launch_bodies(
       } else {
         out << "null";
       }
-      out << ", \"semantic_role\": ";
-      if (classification != nullptr &&
-          row.task_id.value() < classification->rows.size()) {
-        const SemanticTaskClassificationRow& semantic =
-            classification->rows[row.task_id.value()];
-        write_json_string(
-            out, std::string(semantic_task_role_name(semantic.role)));
-        out << ", \"semantic_rule_id\": ";
-        if (semantic.matched_rule_id.has_value()) {
-          write_json_string(out, *semantic.matched_rule_id);
-        } else {
-          out << "null";
-        }
-      } else {
-        out << "null, \"semantic_rule_id\": null";
-      }
       out << ", \"device_id\": " << event.device_id
           << ", \"stream_id\": " << event.stream_id
           << ", \"start_ns\": " << event.start_ns
@@ -547,57 +530,6 @@ void write_graph_launch_bodies(
     }
   }
   out << "  ],\n";
-}
-
-void write_semantic_operator_coverage(
-    std::ostream& out,
-    const NativeIr* ir,
-    const SemanticTaskClassificationResult* classification) {
-  out << "  \"semantic_operator_coverage\": ";
-  if (ir == nullptr || classification == nullptr) {
-    out << "null,\n";
-    return;
-  }
-  const SemanticOperatorCoverageSummary summary =
-      summarize_semantic_operator_coverage(*ir, *classification);
-  out << "{\n";
-  out << "    \"semantic_rules_version\": ";
-  write_json_string(out, classification->semantic_rules_version);
-  out << ",\n    \"semantic_rules_sha256\": ";
-  write_json_string(out, classification->semantic_rules_sha256);
-  out << ",\n    \"task_count\": " << summary.task_count
-      << ",\n    \"unknown_task_count\": " << summary.unknown_task_count
-      << ",\n    \"unregistered_operator_occurrence_count\": "
-      << summary.unregistered_operator_occurrence_count
-      << ",\n    \"unique_unregistered_operator_count\": "
-      << summary.unregistered_operators.size()
-      << ",\n    \"unregistered_operators\": [\n";
-  for (std::size_t index = 0; index < summary.unregistered_operators.size();
-       ++index) {
-    const UnregisteredOperatorSummaryRow& row =
-        summary.unregistered_operators[index];
-    out << "      {\"operator\": ";
-    write_json_string(out, row.operator_name);
-    out << ", \"task_type\": ";
-    write_json_string(out, row.task_type);
-    out << ", \"semantic_role\": ";
-    write_json_string(out, row.semantic_role);
-    out << ", \"matched_rule_id\": ";
-    if (row.matched_rule_id.empty()) {
-      out << "null";
-    } else {
-      write_json_string(out, row.matched_rule_id);
-    }
-    out << ", \"occurrence_count\": " << row.occurrence_count
-        << ", \"total_duration_ns\": " << row.total_duration_ns
-        << ", \"graph_body_member_count\": "
-        << row.graph_body_member_count << "}";
-    if (index + 1 < summary.unregistered_operators.size()) {
-      out << ",";
-    }
-    out << "\n";
-  }
-  out << "    ]\n  },\n";
 }
 
 void write_graph_body_cost_summary(std::ostream& out, const NativeIr* ir) {
@@ -1407,11 +1339,8 @@ void write_native_result_json(std::ostream& out,
 
   write_graph_capture_evidence(out, options.native_ir);
   write_graph_launch_occurrences(out, options.native_ir);
-  write_graph_launch_bodies(out, options.native_ir,
-                            options.semantic_task_classification);
+  write_graph_launch_bodies(out, options.native_ir);
   write_graph_body_cost_summary(out, options.native_ir);
-  write_semantic_operator_coverage(out, options.native_ir,
-                                   options.semantic_task_classification);
   write_graph_launch_activities(out, options.native_ir);
   write_replay_composition_candidates(out, options.native_ir);
   write_replay_units(out, options.native_ir);

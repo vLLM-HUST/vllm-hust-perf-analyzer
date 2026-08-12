@@ -48,11 +48,13 @@ The raw-evidence catalog is itself queryable:
   `traceloom_v_device_work_source_locator`: the same bounded path for both
   endpoints of a runtime/device relation.
 
-`traceloom_operator_audit` is the SQL replacement for the old Markdown-only
-unregistered-operator section. Its availability is explicit in the
-`traceloom_metadata` key `operator_audit_status`; CUDA/Hygon artifacts do not
-claim an Ascend operator taxonomy. Its canonical query is embedded in
-`traceloom_analysis_surface`.
+`traceloom_operator_audit` is a provider-neutral inventory of concrete
+observed operator identities. One row groups an `(operator_name, task_type)`
+pair and records `occurrence_count`, `total_duration_ns`,
+`graph_body_member_count`, and `anchor_event_count`. It does not use an
+allowlist to classify new operators as noise. Availability is explicit in the
+`traceloom_metadata` key `operator_audit_status`, and its canonical query is
+embedded in `traceloom_analysis_surface`.
 
 ## Core Tables
 
@@ -409,67 +411,6 @@ hotspot aggregate -> exact contributors -> same evidence chain
 
 See `replay-cost-hotspots.sql`, `node-replay-cost-members.sql`, and
 `replay-cost-explain.sql` under `docs/report-sql/`.
-
-## Device Idle Evidence
-
-The following tables materialize the Ascend E1→E4 device-only evidence path.
-They are absent or empty for providers without a validated semantic taxonomy.
-Nanosecond columns are authoritative; `duration_us` is a readable derivative.
-
-### `traceloom_run_metadata`
-
-One deterministic analysis record containing status, analysis span, contract
-and ruleset versions/hashes, collection status, source identity, and canonical
-metadata JSON. `run_id` is the lowercase SHA-256 of that canonical JSON with
-the `run_id` field excluded.
-
-### `traceloom_device_interval`
-
-The exact device timeline partition into `productive_active` and
-`visible_productive_idle`. Each interval carries its clock domain and contract,
-semantic-rules, and attribution-rule versions.
-
-### `traceloom_stream_state`
-
-Per-observed-stream mutually exclusive state partitions. Universe size,
-observed-universe scan completeness, and externally attested collection status
-travel with every row so an empty stream interval cannot silently become an
-absence claim.
-
-### `traceloom_idle_explanation`
-
-The exact E4 partition of every visible productive gap. Each slice links to its
-owning `gap_interval_id` and records frozen category, evidence level/relation,
-alignment status, reason, collection status, and version fields.
-
-### `traceloom_evidence_link`
-
-Exact source-row lineage for explanation evidence and E2/E3 provenance.
-`device_event_coverage` links carry a positive overlap extent. Diagnostic
-`relation='none'` links deliberately carry null overlap fields and do not
-support an explanation claim.
-
-### `traceloom_anchor_idle_explanation` and `traceloom_node_idle_explanation`
-
-Exact anchor-prelude intersections and their hierarchical Loop Tree
-aggregation. Node rows are not additive across parents and children; the sum
-over root nodes equals the anchor-attributed total, while the difference from
-device gap duration remains an explicit device-only residual.
-
-Two checked-in report queries form the golden audit surface:
-
-- `docs/report-sql/idle-evidence-summary.sql` emits paper-ready category,
-  evidence, exact duration, and visible-gap share rows.
-- `docs/report-sql/idle-evidence-audit.sql` checks interval/explanation
-  arithmetic, per-gap coverage, non-overlap, stream adjacency, lineage,
-  evidence extents, anchor/node references, and root conservation. Its final
-  `audit_status` is `PASS` only when every checked invariant holds.
-
-`audit_status` and `analysis_status` answer different questions. `PASS` means
-the materialized tables are internally well formed and conserve their stated
-partition; it does not override `analysis_status=invalid_input` or establish
-collection completeness. A positive semantic result requires both a passing
-audit and an analysis/collection status sufficient for that specific claim.
 
 ## Visualization Structure
 

@@ -13,17 +13,10 @@ option(
 set(TRACELOOM_NATIVE_ASCEND_SQLITE_AVAILABLE OFF)
 
 add_library(traceloom_native_core
-  src/analysis/audit_report.cpp
   src/analysis/exact_periodic_suffix.cpp
   src/analysis/flat_anchor_builder.cpp
   src/analysis/graph_body_cost_summary.cpp
-  src/analysis/idle_explanation.cpp
-  src/analysis/idle_evidence_pipeline.cpp
-  src/analysis/idle_evidence_semantic_rules.cpp
-  src/analysis/productive_timeline.cpp
-  src/analysis/semantic_task_classifier.cpp
   src/analysis/signal_classification_rules.cpp
-  src/analysis/stream_state_timeline.cpp
   src/analysis/native_pipeline.cpp
   src/analysis/replay_internal_cost_map.cpp
   src/core/diagnostics.cpp
@@ -84,17 +77,10 @@ target_compile_definitions(
   PRIVATE
     TRACELOOM_SOURCE_DEFAULT_RULESET_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/default_signal_classification_rules.tsv"
     TRACELOOM_INSTALL_DEFAULT_RULESET_PATH="${CMAKE_INSTALL_FULL_DATADIR}/traceloom/default_signal_classification_rules.tsv"
-    TRACELOOM_SOURCE_DEFAULT_IDLE_RULESET_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/idle_evidence_semantic_rules.tsv"
-    TRACELOOM_INSTALL_DEFAULT_IDLE_RULESET_PATH="${CMAKE_INSTALL_FULL_DATADIR}/traceloom/idle_evidence_semantic_rules.tsv"
 )
 
 install(
   FILES data/default_signal_classification_rules.tsv
-  DESTINATION ${CMAKE_INSTALL_DATADIR}/traceloom
-)
-
-install(
-  FILES data/idle_evidence_semantic_rules.tsv
   DESTINATION ${CMAKE_INSTALL_DATADIR}/traceloom
 )
 
@@ -120,8 +106,6 @@ add_library(traceloom_native_materialize
   src/compat/aux_attribution_rows.cpp
   src/compat/collective_tag_rows.cpp
   src/compat/exact_graph_sql_rows.cpp
-  src/compat/idle_explanation_rows.cpp
-  src/compat/idle_evidence_sql_rows.cpp
   src/compat/native_graph_replay_rows.cpp
   src/compat/native_sidecar_materializer.cpp
   src/compat/report_tree_rows.cpp
@@ -206,14 +190,6 @@ if(TRACELOOM_NATIVE_ASCEND_SQLITE_AVAILABLE)
     traceloom PRIVATE
     traceloom_native_adapters
     traceloom_native_materialize
-  )
-
-  add_executable(traceloom-native-idle-evidence-audit
-    src/tools/idle_evidence_audit_main.cpp
-  )
-  target_link_libraries(
-    traceloom-native-idle-evidence-audit PRIVATE
-    traceloom_native_adapters
   )
 
   target_compile_definitions(
@@ -430,30 +406,6 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     COMMAND traceloom_native_signal_classification_rules_tests
   )
 
-  add_executable(traceloom_native_idle_evidence_semantic_rules_tests
-    tests/analysis/idle_evidence_semantic_rules_tests.cpp
-  )
-  target_link_libraries(
-    traceloom_native_idle_evidence_semantic_rules_tests PRIVATE
-    traceloom_native_core
-  )
-  add_test(
-    NAME traceloom_native_idle_evidence_semantic_rules_tests
-    COMMAND traceloom_native_idle_evidence_semantic_rules_tests
-  )
-
-  add_executable(traceloom_native_semantic_task_classifier_tests
-    tests/analysis/semantic_task_classifier_tests.cpp
-  )
-  target_link_libraries(
-    traceloom_native_semantic_task_classifier_tests PRIVATE
-    traceloom_native_core
-  )
-  add_test(
-    NAME traceloom_native_semantic_task_classifier_tests
-    COMMAND traceloom_native_semantic_task_classifier_tests
-  )
-
   add_executable(traceloom_native_graph_body_cost_summary_tests
     tests/analysis/graph_body_cost_summary_tests.cpp
   )
@@ -466,7 +418,7 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     COMMAND traceloom_native_graph_body_cost_summary_tests
   )
 
-add_executable(traceloom_native_replay_internal_cost_map_tests
+  add_executable(traceloom_native_replay_internal_cost_map_tests
     tests/analysis/replay_internal_cost_map_tests.cpp
   )
   target_link_libraries(
@@ -478,8 +430,6 @@ add_executable(traceloom_native_replay_internal_cost_map_tests
     COMMAND traceloom_native_replay_internal_cost_map_tests
   )
 
-
-
   add_executable(traceloom_native_sha256_tests
     tests/core/sha256_tests.cpp
   )
@@ -490,40 +440,6 @@ add_executable(traceloom_native_replay_internal_cost_map_tests
     NAME traceloom_native_sha256_tests
     COMMAND traceloom_native_sha256_tests
   )
-
-  add_executable(traceloom_native_productive_timeline_tests
-    tests/analysis/productive_timeline_tests.cpp
-  )
-  target_link_libraries(
-    traceloom_native_productive_timeline_tests PRIVATE traceloom_native_core
-  )
-  add_test(
-    NAME traceloom_native_productive_timeline_tests
-    COMMAND traceloom_native_productive_timeline_tests
-  )
-
-  add_executable(traceloom_native_stream_state_timeline_tests
-    tests/analysis/stream_state_timeline_tests.cpp
-  )
-  target_link_libraries(
-    traceloom_native_stream_state_timeline_tests PRIVATE traceloom_native_core
-  )
-  add_test(
-    NAME traceloom_native_stream_state_timeline_tests
-    COMMAND traceloom_native_stream_state_timeline_tests
-  )
-
-  add_executable(traceloom_native_idle_explanation_tests
-    tests/analysis/idle_explanation_tests.cpp
-  )
-  target_link_libraries(
-    traceloom_native_idle_explanation_tests PRIVATE traceloom_native_core
-  )
-  add_test(
-    NAME traceloom_native_idle_explanation_tests
-    COMMAND traceloom_native_idle_explanation_tests
-  )
-
   add_executable(traceloom_native_pipeline_tests
     tests/analysis/native_pipeline_tests.cpp
   )
@@ -650,18 +566,6 @@ add_executable(traceloom_native_replay_internal_cost_map_tests
   add_test(
     NAME traceloom_native_anchor_cost_breakdown_rows_tests
     COMMAND traceloom_native_anchor_cost_breakdown_rows_tests
-  )
-
-  add_executable(traceloom_native_idle_explanation_rows_tests
-    tests/compat/idle_explanation_rows_tests.cpp
-  )
-  target_link_libraries(
-    traceloom_native_idle_explanation_rows_tests PRIVATE
-    traceloom_native_materialize
-  )
-  add_test(
-    NAME traceloom_native_idle_explanation_rows_tests
-    COMMAND traceloom_native_idle_explanation_rows_tests
   )
 
   add_executable(traceloom_native_aclgraph_graph_replay_rows_tests
@@ -967,69 +871,6 @@ add_executable(traceloom_native_replay_internal_cost_map_tests
       NAME traceloom_native_cuda_nsys_sqlite_adapter_tests
       COMMAND traceloom_native_cuda_nsys_sqlite_adapter_tests
         ${CMAKE_CURRENT_BINARY_DIR}/cuda_nsys_minimal_fixture.sqlite
-    )
-
-    # Checked-in golden fixture for the idle-evidence counterexample "host
-    # wait exists, but visible idle is zero" (contract sections 5, 10).
-    # Loads the synthetic fixture, asserts the host wait API is present in
-    # the fixture AND the productive timeline over the same fixture has zero
-    # visible_productive_idle. Runs in CI (native-deb.yml).
-    add_executable(traceloom_native_idle_evidence_golden_fixture_tests
-      tests/analysis/idle_evidence_golden_fixture_tests.cpp
-    )
-    target_compile_definitions(
-      traceloom_native_idle_evidence_golden_fixture_tests PRIVATE
-      TRACELOOM_GOLDEN_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/idle_evidence/host_wait_zero_visible_idle"
-    )
-    target_link_libraries(
-      traceloom_native_idle_evidence_golden_fixture_tests PRIVATE
-      traceloom_native_adapters
-    )
-    if(TARGET SQLite::SQLite3)
-      target_link_libraries(
-        traceloom_native_idle_evidence_golden_fixture_tests PRIVATE
-        SQLite::SQLite3
-      )
-    else()
-      target_include_directories(
-        traceloom_native_idle_evidence_golden_fixture_tests
-        PRIVATE ${SQLite3_INCLUDE_DIRS}
-      )
-      target_link_libraries(
-        traceloom_native_idle_evidence_golden_fixture_tests
-        PRIVATE ${SQLite3_LIBRARIES}
-      )
-    endif()
-    add_test(
-      NAME traceloom_native_idle_evidence_golden_fixture_tests
-      COMMAND traceloom_native_idle_evidence_golden_fixture_tests
-    )
-
-    add_executable(traceloom_native_idle_evidence_audit_cli_tests
-      tests/analysis/idle_evidence_audit_cli_tests.cpp
-    )
-    target_link_libraries(
-      traceloom_native_idle_evidence_audit_cli_tests PRIVATE
-      traceloom_native_core
-    )
-    if(TARGET SQLite::SQLite3)
-      target_link_libraries(
-        traceloom_native_idle_evidence_audit_cli_tests PRIVATE SQLite::SQLite3
-      )
-    else()
-      target_include_directories(
-        traceloom_native_idle_evidence_audit_cli_tests
-        PRIVATE ${SQLite3_INCLUDE_DIRS}
-      )
-      target_link_libraries(
-        traceloom_native_idle_evidence_audit_cli_tests
-        PRIVATE ${SQLite3_LIBRARIES}
-      )
-    endif()
-    add_test(
-      NAME traceloom_native_idle_evidence_audit_cli_tests
-      COMMAND traceloom_native_idle_evidence_audit_cli_tests
-        $<TARGET_FILE:traceloom-native-idle-evidence-audit>
     )
 
     add_executable(traceloom_native_sidecar_writer_tests

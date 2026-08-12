@@ -6,19 +6,19 @@
 #include <filesystem>
 #include <iomanip>
 #include <iostream>
+#include <map>
 #include <set>
 #include <sstream>
 #include <string>
+#include <tuple>
+#include <unordered_set>
 #include <vector>
 
-#include "traceloom/analysis/semantic_task_classifier.h"
 #include "traceloom/compat/anchor_cost_breakdown_rows.h"
 #include "traceloom/compat/anchor_sequence_rows.h"
 #include "traceloom/compat/aux_attribution_rows.h"
 #include "traceloom/compat/collective_tag_rows.h"
 #include "traceloom/compat/exact_graph_sql_rows.h"
-#include "traceloom/compat/idle_evidence_sql_rows.h"
-#include "traceloom/compat/idle_explanation_rows.h"
 #include "traceloom/compat/native_graph_replay_rows.h"
 #include "traceloom/compat/report_tree_rows.h"
 #include "traceloom/compat/replay_cost_sql_rows.h"
@@ -89,6 +89,93 @@ struct RawPackagingResult {
   std::vector<RawSourceDatabase> sources;
   std::vector<RawTableCopy> tables;
 };
+
+struct OperatorAuditRow {
+  std::string operator_name;
+  std::string task_type;
+  std::uint64_t occurrence_count = 0;
+  std::uint64_t total_duration_ns = 0;
+  std::uint64_t graph_body_member_count = 0;
+  std::uint64_t anchor_event_count = 0;
+};
+
+std::string symbol_text(const NativeIr& ir, SymbolId id) {
+  return id.valid() ? ir.symbols.value(id) : std::string();
+}
+
+SymbolId task_operator_symbol(const TaskRow& task) {
+  if (task.op_type_symbol_id.valid()) {
+    return task.op_type_symbol_id;
+  }
+  if (task.op_name_symbol_id.valid()) {
+    return task.op_name_symbol_id;
+  }
+  return task.comm_name_symbol_id;
+}
+
+std::vector<OperatorAuditRow> build_operator_audit_rows(const NativeIr& ir) {
+  std::unordered_set<TaskId::value_type> graph_body_tasks;
+  for (const GraphLaunchBodyMemberRow& member :
+       ir.graph_launch_body_members.rows()) {
+    graph_body_tasks.insert(member.task_id.value());
+  }
+  std::unordered_set<TraceEventId::value_type> anchor_events;
+  for (const AnchorRow& anchor : ir.anchors.rows()) {
+    if (anchor.trace_event_id.valid()) {
+      anchor_events.insert(anchor.trace_event_id.value());
+    }
+  }
+
+  using Key = std::pair<std::string, std::string>;
+  std::map<Key, OperatorAuditRow> aggregates;
+  for (const TaskRow& task : ir.tasks.rows()) {
+    const SymbolId operator_symbol = task_operator_symbol(task);
+    if (!operator_symbol.valid() || !task.trace_event_id.valid() ||
+        task.trace_event_id.value() >= ir.trace_events.size()) {
+      continue;
+    }
+    const std::string operator_name = symbol_text(ir, operator_symbol);
+    const std::string task_type = symbol_text(ir, task.task_type_symbol_id);
+    OperatorAuditRow& row = aggregates[{operator_name, task_type}];
+    row.operator_name = operator_name;
+    row.task_type = task_type;
+    ++row.occurrence_count;
+    const TraceEventRow& event = ir.trace_events.row(task.trace_event_id);
+    row.total_duration_ns += static_cast<std::uint64_t>(
+        std::max<std::int64_t>(0, event.end_ns - event.start_ns));
+    if (graph_body_tasks.find(task.id.value()) != graph_body_tasks.end()) {
+      ++row.graph_body_member_count;
+    }
+    if (anchor_events.find(task.trace_event_id.value()) !=
+        anchor_events.end()) {
+      ++row.anchor_event_count;
+    }
+  }
+
+  std::vector<OperatorAuditRow> rows;
+  rows.reserve(aggregates.size());
+  for (auto& item : aggregates) {
+    rows.push_back(std::move(item.second));
+  }
+  std::stable_sort(rows.begin(), rows.end(),
+                   [](const OperatorAuditRow& lhs,
+                      const OperatorAuditRow& rhs) {
+                     if (lhs.graph_body_member_count !=
+                         rhs.graph_body_member_count) {
+                       return lhs.graph_body_member_count >
+                              rhs.graph_body_member_count;
+                     }
+                     if (lhs.total_duration_ns != rhs.total_duration_ns) {
+                       return lhs.total_duration_ns > rhs.total_duration_ns;
+                     }
+                     if (lhs.occurrence_count != rhs.occurrence_count) {
+                       return lhs.occurrence_count > rhs.occurrence_count;
+                     }
+                     return std::tie(lhs.operator_name, lhs.task_type) <
+                            std::tie(rhs.operator_name, rhs.task_type);
+                   });
+  return rows;
+}
 
 std::string quote_identifier(const std::string& value) {
   std::string out = "\"";
@@ -407,9 +494,7 @@ RawPackagingResult copy_multiple_sqlite_sources(
 
 void materialize_augmented_catalog(const std::string& path,
                                    const RawPackagingResult& packaging,
-                                   const NativeIr& ir,
-                                   const IdleEvidencePipelineResult*
-                                       idle_evidence) {
+                                   const NativeIr& ir) {
   sqlite3* db = open_sqlite_readwrite(path);
   try {
     sqlite_exec(db, "BEGIN IMMEDIATE", "failed to begin catalog transaction");
@@ -506,49 +591,36 @@ void materialize_augmented_catalog(const std::string& path,
         db,
         "CREATE TABLE traceloom_operator_audit("
         "operator_name TEXT NOT NULL, task_type TEXT NOT NULL, "
-        "semantic_role TEXT NOT NULL, matched_rule_id TEXT NOT NULL, "
         "occurrence_count INTEGER NOT NULL, total_duration_ns INTEGER NOT NULL, "
         "graph_body_member_count INTEGER NOT NULL, "
-        "PRIMARY KEY(operator_name, task_type, semantic_role, "
-        "matched_rule_id))",
+        "anchor_event_count INTEGER NOT NULL, "
+        "PRIMARY KEY(operator_name, task_type))",
         "failed to create operator audit table");
-    if (idle_evidence != nullptr) {
-      const SemanticOperatorCoverageSummary operator_coverage =
-          summarize_semantic_operator_coverage(ir,
-                                               idle_evidence->classification);
-      for (const UnregisteredOperatorSummaryRow& row :
-           operator_coverage.unregistered_operators) {
-        sqlite_exec(
-            db,
-            "INSERT INTO traceloom_operator_audit VALUES(" +
-                quote_literal(row.operator_name) + "," +
-                quote_literal(row.task_type) + "," +
-                quote_literal(row.semantic_role) + "," +
-                quote_literal(row.matched_rule_id) +
-                "," + std::to_string(row.occurrence_count) + "," +
-                std::to_string(row.total_duration_ns) + "," +
-                std::to_string(row.graph_body_member_count) + ")",
-            "failed to insert operator audit row");
-      }
+    const std::vector<OperatorAuditRow> operator_rows =
+        build_operator_audit_rows(ir);
+    std::uint64_t operator_occurrences = 0;
+    for (const OperatorAuditRow& row : operator_rows) {
+      operator_occurrences += row.occurrence_count;
       sqlite_exec(
           db,
-          "INSERT INTO traceloom_metadata(key, value) VALUES"
-          "('operator_audit_status', 'available'),"
-          "('unknown_task_count', " +
-              quote_literal(
-                  std::to_string(operator_coverage.unknown_task_count)) +
-              "),('unregistered_operator_occurrence_count', " +
-              quote_literal(std::to_string(
-                  operator_coverage.unregistered_operator_occurrence_count)) +
-              ")",
-          "failed to add operator audit metadata");
-    } else {
-      sqlite_exec(
-          db,
-          "INSERT INTO traceloom_metadata(key, value) VALUES"
-          "('operator_audit_status', 'provider_taxonomy_not_enabled')",
-          "failed to add unavailable operator audit metadata");
+          "INSERT INTO traceloom_operator_audit VALUES(" +
+              quote_literal(row.operator_name) + "," +
+              quote_literal(row.task_type) + "," +
+              std::to_string(row.occurrence_count) + "," +
+              std::to_string(row.total_duration_ns) + "," +
+              std::to_string(row.graph_body_member_count) + "," +
+              std::to_string(row.anchor_event_count) + ")",
+          "failed to insert operator audit row");
     }
+    sqlite_exec(
+        db,
+        "INSERT INTO traceloom_metadata(key, value) VALUES"
+        "('operator_audit_status', 'observed_inventory'),"
+        "('operator_identity_count', " +
+            quote_literal(std::to_string(operator_rows.size())) +
+            "),('operator_occurrence_count', " +
+            quote_literal(std::to_string(operator_occurrences)) + ")",
+        "failed to add operator audit metadata");
     const std::vector<std::vector<std::string>> surfaces = {
         {"tree_map", "traceloom_v_tree_node", "one structural node",
          "read the hierarchical cost map from coarse loops to leaves",
@@ -652,16 +724,11 @@ void materialize_augmented_catalog(const std::string& path,
          "audit recognized and unrecognized graph reconstruction evidence",
          "SELECT * FROM traceloom_aclgraph_reconstruction_region ORDER BY "
          "db_idx, device_id, region_order;"},
-        {"idle_evidence", "traceloom_idle_explanation",
-         "one profiler-visible productive-gap explanation",
-         "inspect typed visible-gap evidence without claiming causality",
-         "SELECT * FROM traceloom_idle_explanation ORDER BY device_id, "
-         "start_ns, end_ns, idle_explanation_id;"},
         {"operator_audit", "traceloom_operator_audit",
-         "one unregistered operator identity",
-         "surface concrete operator identities lacking exact registration",
+         "one observed operator identity",
+         "rank concrete device operators without an allowlist",
          "SELECT * FROM traceloom_operator_audit ORDER BY "
-         "graph_body_member_count DESC, occurrence_count DESC, "
+         "graph_body_member_count DESC, total_duration_ns DESC, "
          "operator_name;"},
         {"raw_table", "traceloom_raw_table", "one embedded profiler table",
          "discover collision-free raw evidence storage",
@@ -794,8 +861,7 @@ NodeCoverageSqlRows build_native_loop_tree_node_coverage_rows(
 void write_basic_native_compatibility_sidecar(
     const std::string& sqlite_path,
     const NativeIr& ir,
-    const NativeCompatibilitySidecarOptions& options,
-    const IdleEvidencePipelineResult* idle_evidence) {
+    const NativeCompatibilitySidecarOptions& options) {
   std::vector<MetadataSqlRow> metadata{
       {"traceloom_schema_version", "augmented_db_v1"},
       {"native_compatibility_materializer", "basic_native_ir_v1"},
@@ -872,24 +938,6 @@ void write_basic_native_compatibility_sidecar(
   const NodeAnchorCoverageSqlRows coverage_rows =
       split_node_anchor_coverage_sql_rows(node_rows);
   replace_node_anchor_coverage_rows(sqlite_path, coverage_rows);
-  if (idle_evidence != nullptr) {
-    const IdleExplanationAttributionRows attribution =
-        build_idle_explanation_attribution_rows(
-            report_tokens, idle_evidence->idle_explanations, node_rows,
-            options.db_idx);
-    IdleEvidenceSqlRowOptions idle_options;
-    idle_options.db_idx = options.db_idx;
-    idle_options.source_kind = options.source_kind;
-    idle_options.source_path = options.source_path;
-    replace_idle_evidence_rows(
-        sqlite_path,
-        build_idle_evidence_sql_rows(ir, *idle_evidence, attribution,
-                                     idle_options));
-  } else {
-    // Replacement semantics matter when an existing sidecar is regenerated
-    // for a provider whose idle taxonomy is not enabled.
-    replace_idle_evidence_rows(sqlite_path, IdleEvidenceSqlRows{});
-  }
   if (options.materialize_collective_tags) {
     CollectiveTagMemberInput member;
     member.db_name = options.collective_db_name.empty()
@@ -928,19 +976,16 @@ void write_queryable_database_timeline(
     const std::string& output_path,
     const std::string& source_sqlite_path,
     const NativeIr& ir,
-    const NativeCompatibilitySidecarOptions& options,
-    const IdleEvidencePipelineResult* idle_evidence) {
+    const NativeCompatibilitySidecarOptions& options) {
   write_queryable_database_timeline(
-      output_path, std::vector<std::string>{source_sqlite_path}, ir, options,
-      idle_evidence);
+      output_path, std::vector<std::string>{source_sqlite_path}, ir, options);
 }
 
 void write_queryable_database_timeline(
     const std::string& output_path,
     const std::vector<std::string>& source_sqlite_paths,
     const NativeIr& ir,
-    const NativeCompatibilitySidecarOptions& options,
-    const IdleEvidencePipelineResult* idle_evidence) {
+    const NativeCompatibilitySidecarOptions& options) {
 #if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
   if (source_sqlite_paths.empty()) {
     throw std::invalid_argument(
@@ -1012,9 +1057,8 @@ void write_queryable_database_timeline(
         packaging.sources.size() == 1 ? packaging.sources.front().sha256
                                       : std::string();
     write_basic_native_compatibility_sidecar(
-        temporary.string(), ir, augmented_options, idle_evidence);
-    materialize_augmented_catalog(temporary.string(), packaging, ir,
-                                  idle_evidence);
+        temporary.string(), ir, augmented_options);
+    materialize_augmented_catalog(temporary.string(), packaging, ir);
     std::error_code ec;
     fs::rename(temporary, output, ec);
     if (ec) {
@@ -1031,7 +1075,6 @@ void write_queryable_database_timeline(
   (void)source_sqlite_paths;
   (void)ir;
   (void)options;
-  (void)idle_evidence;
   throw std::runtime_error(
       "self-contained augmented DB requires SQLite support");
 #endif

@@ -7,8 +7,8 @@
 namespace traceloom {
 
 // Streaming SHA-256 (FIPS 180-4) with no external dependencies.
-// Digest is emitted as lowercase hexadecimal, matching the idle evidence
-// contract run_id / ruleset-sha256 conventions.
+// Digest is emitted as lowercase hexadecimal, matching the analysis-artifact
+// provenance contract and common sha256sum output.
 class Sha256 {
  public:
   Sha256();

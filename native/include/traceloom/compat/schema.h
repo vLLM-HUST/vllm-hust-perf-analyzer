@@ -61,14 +61,6 @@ const CompatTableSchema& collective_global_link_table_schema();
 const CompatTableSchema& global_collective_summary_table_schema();
 const CompatTableSchema& global_collective_member_table_schema();
 const CompatTableSchema& anchor_cost_breakdown_table_schema();
-const CompatTableSchema& run_metadata_table_schema();
-const CompatTableSchema& device_interval_table_schema();
-const CompatTableSchema& stream_state_table_schema();
-const CompatTableSchema& idle_explanation_table_schema();
-const CompatTableSchema& evidence_link_table_schema();
-const CompatTableSchema& anchor_idle_explanation_table_schema();
-const CompatTableSchema& node_idle_explanation_table_schema();
-
 std::vector<CompatTableSchema> compatibility_table_schemas();
 std::vector<CompatTableSchema> global_collective_table_schemas();
 
