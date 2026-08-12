@@ -1211,7 +1211,7 @@ int main() {
   const std::string source_hash_before = sha256_file_hex(raw_source_path);
   compat::NativeCompatibilitySidecarOptions augmented_options;
   augmented_options.source_kind = "cuda_nsys_sqlite";
-  compat::write_self_contained_augmented_database(
+  compat::write_queryable_database_timeline(
       augmented_path, raw_source_path, build_exact_cuda_graph_replay_ir(),
       augmented_options);
   require(sha256_file_hex(raw_source_path) == source_hash_before,
@@ -1219,7 +1219,7 @@ int main() {
   require(run_scalar_text(augmented_path,
                           "SELECT value FROM traceloom_metadata WHERE key = "
                           "'artifact_kind'") ==
-          "self_contained_augmented_database");
+          "queryable_database_timeline");
   require(run_scalar_text(augmented_path,
                           "SELECT value FROM traceloom_metadata WHERE key = "
                           "'source_sha256'") == source_hash_before);
@@ -1250,10 +1250,10 @@ int main() {
   deterministic_options.source_kind = "fixture";
   deterministic_options.source_path = "/stable/logical/profile";
   deterministic_options.collective_expected_world_size = 1;
-  compat::write_self_contained_augmented_database(
+  compat::write_queryable_database_timeline(
       collective_augmented_a, deterministic_raw_source,
       build_collective_repeat_ir(), deterministic_options);
-  compat::write_self_contained_augmented_database(
+  compat::write_queryable_database_timeline(
       collective_augmented_b, deterministic_raw_source,
       build_collective_repeat_ir(), deterministic_options);
   require(sha256_file_hex(collective_augmented_a) ==
@@ -1284,7 +1284,7 @@ int main() {
   compat::NativeCompatibilitySidecarOptions split_options;
   split_options.source_kind = "ascend_sqlite_split";
   split_options.source_path = "/portable/original/split-profile";
-  compat::write_self_contained_augmented_database(
+  compat::write_queryable_database_timeline(
       split_augmented,
       std::vector<std::string>{split_source_b, split_source_a},
       build_exact_cuda_graph_replay_ir(), split_options);

@@ -6,74 +6,68 @@ paginate: true
 
 # TraceLoom 是什么
 
-TraceLoom 是一个离线 profiler 产物分析工具。
+TraceLoom 是一个离线 profiler **view analyzer**。
 
 输入：
 
 ```text
-Ascend/CANN msprof_raw
+Ascend/CANN、CUDA/Nsight 等 profiler SQLite
 ```
 
-输出：
+一等输出：
 
 ```text
-增强 SQLite DB + 可读 tree-map + SQL 查询脚本
+queryable DB timeline (`analysis.db`)
 ```
 
-定位：不管理环境，不负责跑通 workload，只负责把已有性能产物变成可读、可查、可比较的证据。
+它不管理 workload，也不猜模型 phase；它把已有性能证据变成可读、可查、可比较
+且能回到原始行的运行时结构。
 
 ---
 
-# 它解决什么问题
+# 为什么是 DB timeline
 
-原始 profiler 产物信息很多，但用户经常不知道从哪里看。
+原始 timeline 有细节，却需要反复缩放和人工维持上下文；top-k 有统计，却丢失
+执行位置。TraceLoom 把二者之间缺少的结构直接 materialize 到数据库：
 
-TraceLoom 做三件事：
+1. 规范化算子、通信、等待和保留的未知事件；
+2. 恢复重复、嵌套与 replay 内部结构；
+3. 把 hierarchy、occurrence、position、cost 和 provenance 放进同一条可查询
+   timeline。
 
-1. 把算子、通信、等待整理成语义 anchor。
-2. 从 timeline 里恢复循环和重复结构。
-3. 生成一张 `tree-map.md`，再配一个增强 DB 让用户继续 SQL 深挖。
+Markdown、JSON 和图只是它的投影，不是第二个产品。
 
-用户先看：
+---
+
+# 两个阅读方向
+
+**横向下钻**
 
 ```text
-summary.md
-tree-map.md
+structure -> occurrence -> event -> embedded raw row
 ```
 
-再查：
+**纵向比较**
 
 ```text
-queries/node-events.sql
-queries/node-cost-breakdown.sql
+same recovered structure -> equivalent occurrences -> cost distribution
 ```
+
+结构定义统计总体；provenance 保证结论可审计。
 
 ---
 
 # 怎么用
 
-开发模式构建：
-
 ```bash
-cd traceloom
-cmake --preset dev
-cmake --build --preset dev -j "$(nproc)"
+traceloom /path/to/msprof_raw
+sqlite3 -readonly /path/to/msprof_raw/traceloom/analysis_db01.db
 ```
 
-分析已有 `msprof` 产物：
-
-```bash
-build/native/native/traceloom /path/to/msprof_raw
+```sql
+SELECT * FROM traceloom_analysis_surface;
+.read examples/db-timeline-tour/tour.sql
 ```
 
-默认输出：
-
-```text
-/path/to/msprof_raw/traceloom/
-  analysis_db01.db
-  analysis_db02.db
-```
-
-推荐读法：先查询 `traceloom_analysis_surface` 和
-`traceloom_v_tree_node`，复制 node id（例如 `N060`），再沿 SQL 关系下钻事件、
-成本与内嵌原始证据。
+先查自描述 catalog，再从层级节点沿 occurrence、anchor、event、graph member
+和 raw row 下钻。

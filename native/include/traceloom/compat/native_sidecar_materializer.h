@@ -42,8 +42,8 @@ void write_basic_native_compatibility_sidecar(
 // Creates a new SQLite artifact by snapshotting a regular input profiler DB,
 // then materializing TraceLoom relations into that snapshot. The input is
 // opened read-only and is never modified. Publication is atomic: the output
-// path is replaced only after the complete augmented database is ready.
-void write_self_contained_augmented_database(
+// path is replaced only after the complete queryable database timeline is ready.
+void write_queryable_database_timeline(
     const std::string& output_path,
     const std::string& source_sqlite_path,
     const NativeIr& ir,
@@ -55,7 +55,7 @@ void write_self_contained_augmented_database(
 // opened read-only and copied into collision-free raw tables in the one
 // output artifact. traceloom_raw_source_database and traceloom_raw_table map
 // original paths/table names to their embedded names.
-void write_self_contained_augmented_database(
+void write_queryable_database_timeline(
     const std::string& output_path,
     const std::vector<std::string>& source_sqlite_paths,
     const NativeIr& ir,

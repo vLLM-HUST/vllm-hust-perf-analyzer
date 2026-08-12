@@ -2,7 +2,7 @@
 
 ## Default Analytical Artifact
 
-For one database, TraceLoom writes:
+For one source database, TraceLoom writes one queryable database timeline:
 
 ```text
 PROF_.../traceloom/analysis.db
@@ -15,7 +15,7 @@ msprof_output/traceloom/analysis_db01.db
 msprof_output/traceloom/analysis_db02.db
 ```
 
-The SQLite artifact contains embedded raw evidence plus the compressed
+The queryable database timeline contains embedded raw evidence plus the compressed
 execution tree, occurrences, repeat counts, cost lenses, replay internals,
 provenance, and typed analysis issues. `traceloom_analysis_surface` is its
 self-describing entry-point catalog. `traceloom_raw_source_database` and
@@ -59,7 +59,7 @@ Use `traceloom --help-advanced` for non-default outputs:
 
 - `--out PATH`: native result JSON;
 - `--grammar-debug-out PATH`: grammar-state diagnostics;
-- `--output PATH`: explicit path for the default self-contained augmented DB;
+- `--output PATH`: explicit path for the default queryable database timeline;
 - `--aug-db-out PATH`: compatibility spelling of `--output`;
 - `--compat-db-out PATH`: legacy queryable compatibility SQLite output without
   a raw-table snapshot;

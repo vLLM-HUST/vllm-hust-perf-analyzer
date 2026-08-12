@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title description">
-<title id="title">TraceLoom augmented database query experience</title>
+<title id="title">TraceLoom queryable database timeline experience</title>
 <desc id="description">A hierarchical execution structure supports horizontal evidence drill-down and vertical cost comparison across equivalent occurrences.</desc>
 <style>
           .bg { fill: #09111f; }
@@ -26,8 +26,8 @@
           .metric { fill: #75ead5; font-size: 20px; font-weight: 700; }
         </style>
 <rect x="0" y="0" width="1600" height="900" rx="0" class="bg"/>
-<text x="64" y="72" class="title">One artifact. Two analytical directions.</text>
-<text x="64" y="106" class="subtitle">TraceLoom turns raw profiler rows into a queryable hierarchical cost map.</text>
+<text x="64" y="72" class="title">One timeline. Two analytical directions.</text>
+<text x="64" y="106" class="subtitle">TraceLoom turns raw profiler rows into a queryable database timeline.</text>
 <rect x="48" y="140" width="1504" height="275" rx="18" class="panel"/>
 <text x="76" y="182" class="section">HORIZONTAL  ·  drill from structure to evidence</text>
 <text x="76" y="213" class="subtitle">One recovered execution path retains ordered children and raw-row provenance.</text>

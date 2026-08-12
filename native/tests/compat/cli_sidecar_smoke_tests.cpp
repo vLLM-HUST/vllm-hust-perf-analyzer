@@ -133,7 +133,7 @@ void require_augmented_database(const std::string& path) {
                                   path,
                                   "SELECT COUNT(*) FROM traceloom_metadata "
                                   "WHERE key = 'artifact_kind' AND value = "
-                                  "'self_contained_augmented_database'") == 1);
+                                  "'queryable_database_timeline'") == 1);
   traceloom::testing::require(run_scalar_int(
                                   path,
                                   "SELECT COUNT(*) FROM "

@@ -3,17 +3,17 @@
 [English](README.md)
 
 TraceLoom 是一个原生 C++17 离线性能分析器。它把原始 profiler 数据库
-转换为自包含的层级分析数据库：从粗到细的执行结构、成本分布、有证据支撑的
+转换为自包含的 **queryable DB timeline（可查询数据库时间线）**：从粗到细的执行结构、成本分布、有证据支撑的
 精确 replay 内部结构，以及返回内嵌原始行的链接。
 
-![TraceLoom augmented database：横向证据下钻与纵向同构比较](docs/assets/augdb-experience.svg)
+![TraceLoom queryable DB timeline：横向证据下钻与纵向同构比较](docs/assets/queryable-db-timeline.svg)
 
 这个层级视图可以沿两个互补方向阅读：横向从结构节点下钻到某次 occurrence、
 normalized event 和内嵌原始 profiler 行；纵向则比较同一恢复结构的所有
 equivalent occurrences。结构固定统计范围，provenance 让结论保持可审计。
 
 可以直接用仓库内的真实 profile 试玩
-[`60 秒 augmented-DB tour`](examples/augdb-tour)，不要求预先熟悉 SQL。
+[`60 秒 DB timeline tour`](examples/db-timeline-tour)，不要求预先熟悉 SQL。
 
 本仓库现在只保留原生实现。安装后的正式入口只有一个：
 
@@ -29,7 +29,7 @@ profiler SQLite
   -> semantic anchor 抽取
   -> 重复模式发现
   -> 不重复计算重叠 stream 的时间线成本归因
-  -> 自包含的 augmented SQLite 分析数据库
+  -> queryable DB timeline
 ```
 
 核心能力：
@@ -89,7 +89,7 @@ cmake --install build/native --prefix "$HOME/.local"
 traceloom /path/to/PROF_.../msprof_YYYYMMDDHHMMSS.db
 ```
 
-默认会在数据库旁边生成一等分析产物：
+默认会在源数据库旁边生成一等产品——自包含的 queryable DB timeline：
 
 ```text
 /path/to/PROF_.../traceloom/analysis.db
@@ -123,7 +123,7 @@ TraceLoom 会给出 warning，并从 split `AscendTask`、`TaskInfo`、`HostTask
 split `PROF_*` 的多张原始 SQLite 会用无冲突表名打包进同一份可移动
 artifact；普通数据库则完整快照原始 schema。
 
-### 3. 从 SQL 开始分析
+### 3. 直接阅读 DB timeline
 
 ```bash
 sqlite3 /path/to/traceloom/analysis.db \
@@ -150,7 +150,7 @@ sqlite3 -readonly \
 然后在 `sqlite>` 提示符后运行：
 
 ```sql
-.read examples/augdb-tour/tour.sql
+.read examples/db-timeline-tour/tour.sql
 ```
 
 ### 4. 生成给人阅读的投影或调试证据
@@ -198,7 +198,7 @@ ctest --preset dev-tests
 - [输入布局](docs/input-profiles.md)
 - [输出约定](docs/output-schema.md)
 - [原生架构](docs/architecture.md)
-- [Loop Tree 阅读指南](docs/tree-map-guide.zh.md)
+- [Queryable DB timeline 阅读指南](docs/db-timeline-guide.zh.md)
 
 ## License
 

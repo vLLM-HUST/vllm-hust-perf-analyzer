@@ -133,7 +133,7 @@ def render(database: Path, theme: str = "dark") -> str:
             "label": "#53657c",
             "highlight": "#087f72",
         }
-        headline = "Queryable hierarchical cost view"
+        headline = "Queryable database timeline"
         subtitle = (
             "Horizontal drill-down preserves evidence; vertical alignment "
             "defines comparable cost populations."
@@ -159,10 +159,9 @@ def render(database: Path, theme: str = "dark") -> str:
             "label": "#a9bad1",
             "highlight": "#75ead5",
         }
-        headline = "One artifact. Two analytical directions."
+        headline = "One timeline. Two analytical directions."
         subtitle = (
-            "TraceLoom turns raw profiler rows into a queryable "
-            "hierarchical cost map."
+            "TraceLoom turns raw profiler rows into a queryable database timeline."
         )
 
     css = """<style>
@@ -194,7 +193,7 @@ def render(database: Path, theme: str = "dark") -> str:
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{WIDTH}" '
         f'height="{HEIGHT}" viewBox="0 0 {WIDTH} {HEIGHT}" role="img" '
         'aria-labelledby="title description">',
-        '<title id="title">TraceLoom augmented database query experience</title>',
+        '<title id="title">TraceLoom queryable database timeline experience</title>',
         '<desc id="description">A hierarchical execution structure supports '
         'horizontal evidence drill-down and vertical cost comparison across '
         'equivalent occurrences.</desc>',

@@ -828,18 +828,18 @@ void write_basic_native_compatibility_sidecar(
   }
 }
 
-void write_self_contained_augmented_database(
+void write_queryable_database_timeline(
     const std::string& output_path,
     const std::string& source_sqlite_path,
     const NativeIr& ir,
     const NativeCompatibilitySidecarOptions& options,
     const IdleEvidencePipelineResult* idle_evidence) {
-  write_self_contained_augmented_database(
+  write_queryable_database_timeline(
       output_path, std::vector<std::string>{source_sqlite_path}, ir, options,
       idle_evidence);
 }
 
-void write_self_contained_augmented_database(
+void write_queryable_database_timeline(
     const std::string& output_path,
     const std::vector<std::string>& source_sqlite_paths,
     const NativeIr& ir,
@@ -906,7 +906,7 @@ void write_self_contained_augmented_database(
           basename_or_default(augmented_options.source_path, "analysis") +
           ".traceloom.db";
     }
-    augmented_options.artifact_kind = "self_contained_augmented_database";
+    augmented_options.artifact_kind = "queryable_database_timeline";
     augmented_options.source_embedded = true;
     augmented_options.source_size_bytes = 0;
     for (const RawSourceDatabase& source : packaging.sources) {

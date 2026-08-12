@@ -9,7 +9,7 @@ profiler SQLite
   -> semantic anchors and protected sequences
   -> repeated-pattern grammar
   -> overlap-safe cost attribution
-  -> Loop Tree / JSON / SQLite materializers
+  -> queryable database timeline materializer
 ```
 
 ## Source Adapters
@@ -47,9 +47,9 @@ making loop nodes comparable with their children.
 
 ## Materialization
 
-The default materializer writes a self-contained augmented SQLite database.
+The default materializer writes a self-contained queryable database timeline.
 It embeds raw evidence and exposes hierarchy, occurrence, cost, replay, issue,
-and provenance relations. Markdown and native JSON are explicit projections;
+and provenance relations in one SQL-addressable timeline. Markdown and native JSON are explicit projections;
 the compatibility sidecar remains available for legacy workflows.
 
 ## CLI

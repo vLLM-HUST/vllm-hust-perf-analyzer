@@ -1,4 +1,4 @@
-# Tutorial: From Package To Queryable Cost Map
+# Tutorial: From Profile To Queryable Database Timeline
 
 TraceLoom is a native offline analyzer:
 
@@ -8,7 +8,7 @@ msprof SQLite output
   -> semantic anchor timeline
   -> repeated-pattern grammar
   -> overlap-safe cost attribution
-  -> self-contained augmented SQLite analysis
+  -> queryable database timeline
 ```
 
 ## 1. Build And Install
@@ -58,8 +58,7 @@ Or analyze one database:
 traceloom /path/to/PROF_.../msprof_YYYYMMDDHHMMSS.db
 ```
 
-Use `--threads N` to control parallelism. TraceLoom writes self-contained
-analysis databases under a neighboring `traceloom/` directory by default:
+Use `--threads N` to control parallelism. TraceLoom writes self-contained queryable database timelines under a neighboring `traceloom/` directory by default:
 
 ```text
 PROF_.../traceloom/analysis.db
@@ -80,7 +79,7 @@ traceloom examples/kickstart_smoke/msprof_raw
 
 ## 4. Query The Hierarchical Cost Map
 
-Discover the supported analysis entry points, then start with the tree map:
+Open the database timeline through its self-describing catalog, then query its hierarchical map:
 
 ```bash
 sqlite3 analysis.db 'SELECT * FROM traceloom_analysis_surface;'

@@ -68,8 +68,7 @@ or a Huawei profiler bundle directory containing monolithic
 traceloom examples/kickstart_smoke/msprof_raw
 ```
 
-TraceLoom discovers the DB files automatically and writes self-contained
-analysis databases under a neighboring `traceloom/` directory:
+TraceLoom discovers the DB files automatically and writes self-contained queryable database timelines under a neighboring `traceloom/` directory:
 
 ```text
 PROF_.../traceloom/analysis.db

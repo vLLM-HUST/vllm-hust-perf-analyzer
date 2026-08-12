@@ -50,7 +50,7 @@ Open `analysis_db01.db` and `analysis_db02.db` with SQLite, then query
 are not the primary product.
 
 For a guided horizontal evidence drill-down and vertical occurrence
-comparison, run the [`60-second augmented-DB tour`](../augdb-tour).
+comparison, run the [`60-second database-timeline tour`](../db-timeline-tour).
 
 ## What To Look For
 

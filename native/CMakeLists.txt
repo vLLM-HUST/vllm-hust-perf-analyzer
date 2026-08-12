@@ -1198,7 +1198,7 @@ add_executable(traceloom_native_replay_internal_cost_map_tests
       PROPERTIES
         DEPENDS traceloom_native_prepare_cuda_nsys_default_input
         PASS_REGULAR_EXPRESSION
-          "wrote analysis database: .*default_cli_input/traceloom/analysis.db"
+          "wrote queryable database timeline: .*default_cli_input/traceloom/analysis.db"
     )
     add_test(
       NAME traceloom_native_analyze_cuda_nsys_default_augmented_db

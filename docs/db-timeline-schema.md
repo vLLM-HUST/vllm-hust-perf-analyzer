@@ -1,7 +1,6 @@
-# Augmented DB Schema
+# Queryable Database Timeline Schema
 
-TraceLoom's primary analytical artifact is a **new, self-contained augmented
-SQLite database**. The analyzer opens the profiler DB read-only, snapshots its
+TraceLoom's primary analytical artifact is a **self-contained queryable database timeline**. The analyzer opens the profiler DB read-only, snapshots its
 raw schema and rows into a new file, and appends TraceLoom-owned relations under
 the `traceloom_*` namespace. It never modifies the input. Reports are SQL
 queries over those relations, not a separate report-specific data model.
@@ -374,7 +373,7 @@ Parent-child edges for the compressed visualization tree.
 ### `traceloom_semantic_tree`
 
 Durable header for a recovered semantic execution tree. This table makes the
-compressed tree a first-class augmented-DB artifact instead of only a Markdown
+compressed tree a first-class database-timeline object instead of only a Markdown
 or JSON report.
 
 Important columns:

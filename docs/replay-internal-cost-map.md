@@ -86,9 +86,9 @@ position, so the family's breadth is never hidden.
 Drill-down to one particular slot is the **member-row contract**: exact
 member rows retain the replay-unit occurrence, the composition slot id, the
 `slot_order`, the body id/template, stream, within-stream position, identity,
-and source provenance for every launch member. No evidence is lost at the map
-surface; a later bounded slice may materialize the same rows into the
-compatibility sidecar / augmented database.
+and source provenance for every launch member. The default queryable database
+timeline materializes these rows and keeps the compact family linked to every
+concrete slot.
 
 - Identity is part of the key, so inconsistent identity can never fuzzy-pair;
   a different identity at the same position produces a separate aggregate.
@@ -198,7 +198,7 @@ keeps its strict base behavior unchanged.
 A unit is `supported` only when every launch member is supported; units with
 zero launch members are explicit `empty_replay_unit` results.
 
-## JSON and augmented-SQL surfaces
+## Queryable database timeline and JSON projection
 
 `traceloom --out PATH` (native result JSON) now includes the
 `replay_internal_cost_map` section with `units` (nested launch members and
@@ -207,7 +207,7 @@ per-stream rows), flat `members`, `aligned_aggregates` (with
 `issues`, and result-level counts/reasons. The section is `null` when no
 native IR is available.
 
-The augmented database publishes the same authoritative result without
+The queryable database timeline publishes the same authoritative result without
 re-deriving it in SQL: `traceloom_replay_cost_{unit,launch,stream,member}` keep
 exact occurrence costs, `traceloom_replay_cost_aggregate` keeps the aligned
 role-collapsed distributions, `traceloom_replay_cost_aggregate_member` records

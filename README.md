@@ -7,11 +7,10 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 TraceLoom is a native C++17 offline analyzer for accelerator profiler traces.
-It turns raw profiler databases into a self-contained hierarchical analytical
-database: a coarse-to-fine execution structure, cost distributions, exact
+It turns raw profiler databases into a self-contained **queryable database timeline**: a coarse-to-fine execution structure, cost distributions, exact
 replay internals where evidence permits, and links back to embedded raw rows.
 
-![TraceLoom augmented database: horizontal evidence drill-down and vertical occurrence comparison](docs/assets/augdb-experience.svg)
+![TraceLoom queryable database timeline: horizontal evidence drill-down and vertical occurrence comparison](docs/assets/queryable-db-timeline.svg)
 
 The hierarchy supports two complementary analysis directions. Drill
 **horizontally** from a structural node through one occurrence and normalized
@@ -20,7 +19,7 @@ equivalent occurrence of the same recovered structure. The structure defines
 the statistical scope; provenance keeps the result auditable.
 
 Try the reproducible, beginner-friendly
-[`60-second augmented-DB tour`](examples/augdb-tour) on the checked-in real
+[`60-second database-timeline tour`](examples/db-timeline-tour) on the checked-in real
 profile—no prior SQL experience is required.
 
 The native implementation is now the only production implementation in this
@@ -38,7 +37,7 @@ profiler SQLite
   -> semantic anchor extraction
   -> repeated-pattern discovery
   -> overlap-safe timeline cost attribution
-  -> self-contained augmented SQLite analysis
+  -> queryable database timeline
 ```
 
 Key capabilities:
@@ -105,7 +104,7 @@ Make sure `$HOME/.local/bin` is in `PATH`, then run `traceloom --version`.
 traceloom /path/to/PROF_.../msprof_YYYYMMDDHHMMSS.db
 ```
 
-The default analytical artifact is written beside the database:
+The default product is a self-contained queryable database timeline written beside the source database:
 
 ```text
 /path/to/PROF_.../traceloom/analysis.db
@@ -145,7 +144,7 @@ For a split `PROF_*` layout, all constituent SQLite files are copied into one
 portable artifact under collision-free names. For a regular profiler DB, its
 raw schema is snapshotted intact.
 
-### 3. Start With SQL
+### 3. Read The Database Timeline
 
 Each database describes its stable entry points:
 
@@ -177,7 +176,7 @@ sqlite3 -readonly \
 Then run this at the `sqlite>` prompt:
 
 ```sql
-.read examples/augdb-tour/tour.sql
+.read examples/db-timeline-tour/tour.sql
 ```
 
 ### 4. Choose An Explicit Output Path
@@ -258,7 +257,7 @@ still run.
 - [Accepted input layouts](docs/input-profiles.md)
 - [Output contract](docs/output-schema.md)
 - [Native architecture](docs/architecture.md)
-- [Loop Tree reading guide](docs/tree-map-guide.zh.md)
+- [Queryable database timeline guide (Chinese)](docs/db-timeline-guide.zh.md)
 
 ## License
 

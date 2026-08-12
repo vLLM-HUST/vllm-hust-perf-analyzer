@@ -101,7 +101,7 @@ void print_usage(const char* argv0) {
                " [--output ANALYSIS.db]"
                " [--loop-tree-out PATH|-]"
                " [--timings]\n\n"
-            << "Writes a self-contained, agent-queryable SQLite artifact "
+            << "Writes a self-contained queryable database timeline "
                "under a neighboring traceloom/ directory by default.\n"
             << "Query its traceloom_analysis_surface catalog to discover "
                "hierarchy, cost, replay, and evidence relations.\n"
@@ -679,11 +679,11 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
           cli.augmented_db_out_path.empty()
               ? default_augmented_db_output_path(cli, db_index)
               : cli.augmented_db_out_path;
-      traceloom::compat::write_self_contained_augmented_database(
+      traceloom::compat::write_queryable_database_timeline(
           augmented_db_out, raw_sqlite_sources(source_db, is_split), ir,
           sidecar_options,
           idle_pipeline ? &*idle_pipeline : nullptr);
-      std::cerr << "wrote analysis database: " << augmented_db_out << "\n";
+      std::cerr << "wrote queryable database timeline: " << augmented_db_out << "\n";
       std::cerr << "  source: " << source_db << "\n";
       std::cerr << "  start: SELECT * FROM traceloom_analysis_surface;\n";
       if (cli.timings) {
