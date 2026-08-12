@@ -327,7 +327,9 @@ Important columns:
   `Nxxx` value must name the same node everywhere in one report.
 - `raw_node_id`: when present inside node JSON payloads, this is the builder's
   pre-normalization id. It is provenance only and is not the SQL/report key.
-- `view_name`: currently `anchor_tree`.
+- `view_name`: currently `native_report_tree` for the primary compressed
+  visualization/occurrence surface. This is distinct from the semantic-tree
+  projection, whose current view name is `anchor_tree`.
 - `node_type`: `Seq`, `Repeat`, `Atom`, `MacroRef`, etc.
 - `kind`: cost kind, such as `seq`, `repeat`, `exec`, `comm`, or `graph`.
   `kind='graph'` rows are device-side graph replay overlays such as Ascend
@@ -350,7 +352,8 @@ or JSON report.
 Important columns:
 
 - `tree_id`: stable tree key.
-- `view_name`: analyzer view, such as `anchor_tree`.
+- `view_name`: semantic-tree analyzer view, currently `anchor_tree` (not the
+  `native_report_tree` name used by `traceloom_viz_node`).
 - `tree_kind`: semantic tree flavor copied from the tree payload.
 - `root_node_id`: root row in `traceloom_semantic_node`.
 - `semantic_projection`, `macro_discovery`, `auxiliary_attribution`: recovery
