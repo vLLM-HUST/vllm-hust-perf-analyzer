@@ -644,6 +644,12 @@ void materialize_augmented_catalog(const std::string& path,
          "or ambiguous outcomes",
          "SELECT * FROM traceloom_v_runtime_device ORDER BY db_idx, provider, "
          "runtime_start_ns, device_start_ns, relation_id LIMIT 200;"},
+        {"synchronization_action", "traceloom_v_sync_runtime_call",
+         "one profiler-visible synchronization action/runtime relation",
+         "inspect typed synchronization observations and their exact, "
+         "deterministic, ambiguous, or rejected runtime endpoints",
+         "SELECT * FROM traceloom_v_sync_runtime_call ORDER BY db_idx, "
+         "device_start_ns, sync_action_id, runtime_start_ns LIMIT 200;"},
         {"anchor_runtime_call", "traceloom_v_anchor_runtime_call",
          "one structural anchor/runtime-call relation",
          "walk backward from anchor or graph launch to observed host runtime",

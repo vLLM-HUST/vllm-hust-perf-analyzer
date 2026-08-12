@@ -1096,6 +1096,11 @@ int main() {
               "SELECT COUNT(*) FROM traceloom_analysis_surface "
               "WHERE surface_name = 'operator_audit' AND "
               "relation_name = 'traceloom_operator_audit'") == 1);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_analysis_surface "
+              "WHERE surface_name = 'synchronization_action' AND "
+              "relation_name = 'traceloom_v_sync_runtime_call'") == 1);
   require_analysis_surface_queries_prepare(augmented_path);
   require(run_scalar_text(augmented_path,
                           "SELECT embedded_table_name FROM "
