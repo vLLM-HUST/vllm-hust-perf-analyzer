@@ -70,8 +70,8 @@ void create_minimal_db(const std::string& path) {
                     "INSERT INTO TASK(startNs, endNs, deviceId, connectionId, "
                     "globalTaskId, globalPid, taskType, contextId, streamId, "
                     "taskId, modelId) VALUES "
-                    "(100, 160, 0, 700, 9001, 1, 10, 0, 3, 99, 2), "
-                    "(170, 210, 0, 701, 9002, 1, 11, 0, 3, 100, 2);"
+                    "(100, 160, 0, 700, 9001, 4242, 10, 7, 3, 99, 2), "
+                    "(170, 210, 0, 701, 9002, 4242, 11, 8, 3, 100, 2);"
                     "CREATE TABLE COMPUTE_TASK_INFO("
                     "globalTaskId INTEGER, "
                     "name INTEGER, "
@@ -175,13 +175,13 @@ void create_split_golden_profiles(const std::filesystem::path& root,
            "stream_id INTEGER, task_id INTEGER, context_id INTEGER, "
            "batch_id INTEGER, start_time NUMERIC, duration NUMERIC, "
            "host_task_type TEXT, device_task_type TEXT, "
-           "connection_id INTEGER);"
+           "connection_id INTEGER, global_pid INTEGER);"
            "INSERT INTO AscendTask VALUES "
-           "(2, -1, 3, 99, 0, 0, 100, 60, 'AI_CORE', 'AI_CORE', 700), "
-           "(2, -1, 3, 100, 0, 0, 170, 40, 'EVENT_WAIT', 'UNKNOWN', 701), "
-           "(2, -1, 4, 101, 0, 0, 220, 40, 'FFTS_PLUS', 'SDMA', 702);"
+           "(2, -1, 3, 99, 0, 0, 100, 60, 'AI_CORE', 'AI_CORE', 700, 1), "
+           "(2, -1, 3, 100, 0, 0, 170, 40, 'EVENT_WAIT', 'UNKNOWN', 701, 1), "
+           "(2, -1, 4, 101, 0, 0, 220, 40, 'FFTS_PLUS', 'SDMA', 702, 1);"
            "INSERT INTO AscendTask VALUES "
-           "(2, -1, 3, 101, 0, 0, -1, -1, 'AI_CORE', 'UNKNOWN', 702);");
+           "(2, -1, 3, 101, 0, 0, -1, -1, 'AI_CORE', 'UNKNOWN', 702, 1);");
   sqlite3_close(db);
 
   rc = sqlite3_open_v2(
@@ -788,9 +788,10 @@ int main() {
           "first TASK connection id mismatch");
   require(ir.tasks.row(TaskId(0)).raw_model_id == 2,
           "first TASK model id mismatch");
-  require(ir.tasks.row(TaskId(0)).raw_global_pid == 1 &&
-              ir.tasks.row(TaskId(0)).raw_context_id == 0,
-          "first TASK process/context identity mismatch");
+  require(ir.tasks.row(TaskId(0)).raw_global_pid == 4242,
+          "first TASK global pid was not retained");
+  require(ir.tasks.row(TaskId(0)).raw_context_id == 7,
+          "first TASK context id was not retained");
   require(ir.symbols.value(ir.tasks.row(TaskId(0)).op_name_symbol_id) ==
               "model.layers.0.mlp.gate_up_proj",
           "first TASK op name decode mismatch");
@@ -1686,6 +1687,10 @@ int main() {
             "split task type does not match monolithic golden");
     require(split_task.raw_model_id == golden_task.raw_model_id,
             "split task model id does not match monolithic golden");
+    require(split_task.raw_global_pid == golden_task.raw_global_pid,
+            "split task global pid does not match monolithic golden");
+    require(split_task.raw_context_id == golden_task.raw_context_id,
+            "split task context id does not match monolithic golden");
   }
   require(split_ir.symbols.value(split_ir.tasks.row(TaskId(0)).op_name_symbol_id) ==
               "linear",

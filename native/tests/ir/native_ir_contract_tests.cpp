@@ -70,7 +70,7 @@ int main() {
   const TaskId task0 =
       tasks.append(source0, event0, 99, 123456, 777, task_type0, op_name0,
                    op_type0, compute_task_type0, comm_name0, 88,
-                   communication_task_type0);
+                   communication_task_type0, 4242, 7);
   require(task0.valid());
   require(tasks.row(task0).trace_event_id == event0);
   require(tasks.row(task0).raw_task_id == 99);
@@ -84,6 +84,8 @@ int main() {
   require(tasks.row(task0).raw_model_id == 88);
   require(tasks.row(task0).communication_task_type_symbol_id ==
           communication_task_type0);
+  require(tasks.row(task0).raw_global_pid == 4242);
+  require(tasks.row(task0).raw_context_id == 7);
 
   CommunicationOpTable communication_ops;
   const CommunicationOpId comm0 =

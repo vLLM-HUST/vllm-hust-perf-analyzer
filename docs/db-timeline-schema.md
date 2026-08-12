@@ -71,6 +71,17 @@ Important columns:
 - `role`: TraceLoom event role, such as `compute`, `collective`, `data_move`.
 - `semantic_role`: `anchor`, `aux`, `transparent`, or `raw`.
 - `label`, `family`, `task_type`.
+- `profiler_global_pid`, `profiler_context_id`: nullable Ascend task identity
+  copied from monolithic `TASK.globalPid` / `TASK.contextId` or split
+  `AscendTask.global_pid` / `AscendTask.context_id`. A missing provider column
+  is represented as SQL `NULL`, not zero.
+
+The two nullable process/context columns are a compatibility commitment adopted
+from [PR #31](https://github.com/vLLM-HUST/vllm-hust-perf-analyzer/pull/31).
+They are retained across the native IR and every `traceloom_event` writer path;
+schema materialization also upgrades an existing pre-#31 event table in place.
+Consumers may use them as profiler-observed identity evidence, but not as a
+standalone scheduler/runtime conformance claim.
 
 ### `traceloom_event_source`
 

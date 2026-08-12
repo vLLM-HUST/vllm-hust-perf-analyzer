@@ -268,6 +268,26 @@ int main() {
       legacy_db_path, traceloom::compat::viz_node_anchor_table_schema());
   std::remove(legacy_db_path.c_str());
 
+  const std::string legacy_event_db_path = temp_db_path();
+  execute_sql(
+      legacy_event_db_path,
+      "CREATE TABLE traceloom_event ("
+      "event_id TEXT NOT NULL, db_idx INTEGER NOT NULL, "
+      "device_id INTEGER NOT NULL, step_idx INTEGER NOT NULL, "
+      "source_table TEXT NOT NULL, source_key TEXT NOT NULL, "
+      "stream_id INTEGER, start_ns INTEGER, end_ns INTEGER, dur_us REAL, "
+      "category TEXT, role TEXT, semantic_role TEXT, "
+      "semantic_role_reason TEXT, symbol TEXT, label TEXT, raw_label TEXT, "
+      "op_type TEXT, compute_task_type TEXT, family TEXT, task_type TEXT, "
+      "raw_json TEXT)");
+  traceloom::compat::materialize_compatibility_schema(
+      legacy_event_db_path, {traceloom::compat::event_table_schema()});
+  const std::vector<ColumnInfo> migrated_event_columns =
+      load_columns(legacy_event_db_path, "traceloom_event");
+  require(has_column(migrated_event_columns, "profiler_global_pid"));
+  require(has_column(migrated_event_columns, "profiler_context_id"));
+  std::remove(legacy_event_db_path.c_str());
+
   const std::string db_path = temp_db_path();
   traceloom::compat::materialize_compatibility_schema(db_path);
   traceloom::compat::materialize_compatibility_schema(db_path);
@@ -394,6 +414,8 @@ int main() {
   event.role = "compute";
   event.semantic_role = "anchor";
   event.symbol = "MatMul";
+  event.profiler_global_pid = 4242;
+  event.profiler_context_id = 7;
   event_rows.events.push_back(event);
   traceloom::compat::EventSourceSqlRow event_source;
   event_source.event_id = event.event_id;
@@ -409,6 +431,12 @@ int main() {
   require(run_scalar_text(db_path,
                           "SELECT symbol FROM traceloom_event "
                           "WHERE event_id = 'event-1'") == "MatMul");
+  require(run_scalar_int(db_path,
+                         "SELECT profiler_global_pid FROM traceloom_event "
+                         "WHERE event_id = 'event-1'") == 4242);
+  require(run_scalar_int(db_path,
+                         "SELECT profiler_context_id FROM traceloom_event "
+                         "WHERE event_id = 'event-1'") == 7);
   event_rows.event_sources.clear();
   traceloom::compat::replace_event_rows(db_path, event_rows);
   require(run_scalar_int(db_path,
@@ -419,10 +447,24 @@ int main() {
   traceloom::compat::EventSqlRow timeline_event = event;
   timeline_event.symbol = "LayerNorm";
   timeline_event.label = "LayerNorm";
-  traceloom::compat::replace_timeline_rows(db_path, {timeline_event});
+  traceloom::compat::EventSqlRow missing_identity_event = timeline_event;
+  missing_identity_event.event_id = "event-2";
+  missing_identity_event.source_key = "task-2";
+  missing_identity_event.profiler_global_pid = -1;
+  missing_identity_event.profiler_context_id = -1;
+  traceloom::compat::replace_timeline_rows(
+      db_path, {timeline_event, missing_identity_event});
   require(run_scalar_text(db_path,
                           "SELECT symbol FROM traceloom_event "
                           "WHERE event_id = 'event-1'") == "LayerNorm");
+  require(run_scalar_int(
+              db_path,
+              "SELECT profiler_global_pid IS NULL FROM traceloom_event "
+              "WHERE event_id = 'event-2'") == 1);
+  require(run_scalar_int(
+              db_path,
+              "SELECT profiler_context_id IS NULL FROM traceloom_event "
+              "WHERE event_id = 'event-2'") == 1);
   require(run_scalar_int(db_path,
                          "SELECT COUNT(*) FROM traceloom_event_source") == 1);
   traceloom::compat::replace_event_source_rows(db_path, {});
