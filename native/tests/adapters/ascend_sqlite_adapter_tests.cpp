@@ -839,6 +839,12 @@ int main() {
       AscendSQLiteAdapterOptions{(graph_dir / "msprof.db").string(),
                                  "ascend_graph_smoke"});
   NativeIr graph_ir = graph_adapter.load();
+  require(graph_ir.runtime_calls.size() == 10,
+          "CANN_API rows were not retained as host-side runtime calls");
+  require(graph_ir.runtime_calls.row(RuntimeCallId(0)).raw_correlation_id ==
+              9000 &&
+              graph_ir.runtime_calls.row(RuntimeCallId(0)).raw_global_tid == 1,
+          "Ascend runtime-call correlation/thread identity mismatch");
   require(graph_ir.replay_units.size() == 2,
           "ACLGraph replay units were not reconstructed");
   require(graph_ir.graph_templates.size() == 1,

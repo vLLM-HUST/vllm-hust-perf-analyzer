@@ -116,6 +116,132 @@ const CompatTableSchema& event_source_table_schema() {
   return schema;
 }
 
+const CompatTableSchema& runtime_call_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_runtime_call",
+      {
+          {"runtime_call_id", CompatColumnType::kText, false},
+          {"db_idx", CompatColumnType::kInteger, false},
+          {"provider", CompatColumnType::kText, false},
+          {"clock_domain", CompatColumnType::kText, false},
+          {"source_table", CompatColumnType::kText, false},
+          {"source_key", CompatColumnType::kText, false},
+          {"start_ns", CompatColumnType::kInteger, false},
+          {"end_ns", CompatColumnType::kInteger, false},
+          {"dur_us", CompatColumnType::kReal, false},
+          {"api_name", CompatColumnType::kText, true},
+          {"api_type", CompatColumnType::kText, true},
+          {"process_id", CompatColumnType::kText, true},
+          {"thread_id", CompatColumnType::kText, true},
+          {"global_tid", CompatColumnType::kText, true},
+          {"context_id", CompatColumnType::kText, true},
+          {"device_id", CompatColumnType::kText, true},
+          {"correlation_id", CompatColumnType::kText, true},
+          {"match_policy", CompatColumnType::kText, false},
+          {"raw_json", CompatColumnType::kText, true},
+      },
+  };
+  return schema;
+}
+
+const CompatTableSchema& device_work_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_device_work",
+      {
+          {"device_work_id", CompatColumnType::kText, false},
+          {"db_idx", CompatColumnType::kInteger, false},
+          {"provider", CompatColumnType::kText, false},
+          {"device_id", CompatColumnType::kInteger, false},
+          {"work_kind", CompatColumnType::kText, false},
+          {"event_id", CompatColumnType::kText, true},
+          {"task_id", CompatColumnType::kText, true},
+          {"graph_launch_occurrence_id", CompatColumnType::kInteger, true},
+          {"source_table", CompatColumnType::kText, false},
+          {"source_key", CompatColumnType::kText, false},
+          {"start_ns", CompatColumnType::kInteger, false},
+          {"end_ns", CompatColumnType::kInteger, false},
+          {"dur_us", CompatColumnType::kReal, false},
+          {"symbol", CompatColumnType::kText, true},
+          {"raw_json", CompatColumnType::kText, true},
+      },
+  };
+  return schema;
+}
+
+const CompatTableSchema& runtime_device_relation_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_runtime_device_relation",
+      {
+          {"relation_id", CompatColumnType::kText, false},
+          {"db_idx", CompatColumnType::kInteger, false},
+          {"runtime_call_id", CompatColumnType::kText, true},
+          {"device_work_id", CompatColumnType::kText, true},
+          {"relation_kind", CompatColumnType::kText, false},
+          {"match_policy", CompatColumnType::kText, false},
+          {"evidence_level", CompatColumnType::kText, false},
+          {"support_state", CompatColumnType::kText, false},
+          {"cardinality", CompatColumnType::kText, false},
+          {"runtime_candidate_count", CompatColumnType::kInteger, false},
+          {"device_candidate_count", CompatColumnType::kInteger, false},
+          {"correlation_id", CompatColumnType::kText, true},
+          {"raw_json", CompatColumnType::kText, true},
+      },
+  };
+  return schema;
+}
+
+const CompatTableSchema& anchor_runtime_relation_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_anchor_runtime_relation",
+      {
+          {"anchor_id", CompatColumnType::kText, false},
+          {"relation_id", CompatColumnType::kText, false},
+          {"runtime_call_id", CompatColumnType::kText, true},
+          {"device_work_id", CompatColumnType::kText, false},
+          {"endpoint_kind", CompatColumnType::kText, false},
+      },
+  };
+  return schema;
+}
+
+const CompatTableSchema& anchor_host_interval_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_anchor_host_interval",
+      {
+          {"interval_id", CompatColumnType::kText, false},
+          {"db_idx", CompatColumnType::kInteger, false},
+          {"device_id", CompatColumnType::kInteger, false},
+          {"left_anchor_id", CompatColumnType::kText, false},
+          {"right_anchor_id", CompatColumnType::kText, false},
+          {"left_runtime_call_id", CompatColumnType::kText, true},
+          {"right_runtime_call_id", CompatColumnType::kText, true},
+          {"left_endpoint_count", CompatColumnType::kInteger, false},
+          {"right_endpoint_count", CompatColumnType::kInteger, false},
+          {"provider", CompatColumnType::kText, true},
+          {"clock_domain", CompatColumnType::kText, true},
+          {"host_start_ns", CompatColumnType::kInteger, true},
+          {"host_end_ns", CompatColumnType::kInteger, true},
+          {"scope_policy", CompatColumnType::kText, false},
+          {"process_id", CompatColumnType::kText, true},
+          {"thread_id", CompatColumnType::kText, true},
+          {"support_state", CompatColumnType::kText, false},
+      },
+  };
+  return schema;
+}
+
+const CompatTableSchema& anchor_host_activity_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_anchor_host_activity",
+      {
+          {"interval_id", CompatColumnType::kText, false},
+          {"runtime_call_id", CompatColumnType::kText, false},
+          {"observed_order", CompatColumnType::kInteger, false},
+      },
+  };
+  return schema;
+}
+
 const CompatTableSchema& anchor_table_schema() {
   static const CompatTableSchema schema{
       "traceloom_anchor",
@@ -799,6 +925,12 @@ std::vector<CompatTableSchema> compatibility_table_schemas() {
       metadata_table_schema(),
       event_table_schema(),
       event_source_table_schema(),
+      runtime_call_table_schema(),
+      device_work_table_schema(),
+      runtime_device_relation_table_schema(),
+      anchor_runtime_relation_table_schema(),
+      anchor_host_interval_table_schema(),
+      anchor_host_activity_table_schema(),
       anchor_table_schema(),
       anchor_aux_slot_table_schema(),
       aux_link_table_schema(),

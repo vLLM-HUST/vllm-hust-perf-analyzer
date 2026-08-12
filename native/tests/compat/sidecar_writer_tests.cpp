@@ -286,11 +286,15 @@ int main() {
               "traceloom_anchor",
               "traceloom_anchor_aux_slot",
               "traceloom_anchor_cost_breakdown",
+              "traceloom_anchor_host_activity",
+              "traceloom_anchor_host_interval",
               "traceloom_anchor_primary_node",
+              "traceloom_anchor_runtime_relation",
               "traceloom_aux_link",
               "traceloom_collective_global_link",
               "traceloom_cuda_graph_envelope",
               "traceloom_cuda_graph_replay",
+              "traceloom_device_work",
               "traceloom_event",
               "traceloom_event_source",
               "traceloom_graph_body_member",
@@ -304,6 +308,8 @@ int main() {
               "traceloom_replay_cost_member",
               "traceloom_replay_cost_stream",
               "traceloom_replay_cost_unit",
+              "traceloom_runtime_call",
+              "traceloom_runtime_device_relation",
               "traceloom_semantic_edge",
               "traceloom_semantic_node",
               "traceloom_semantic_tree",
@@ -970,11 +976,18 @@ int main() {
   require(rejected_bad_schema);
 
   traceloom::compat::materialize_report_compatibility_views(db_path);
-  require(load_sqlite_master_names(db_path, "table") == expected_tables);
+  std::vector<std::string> analyzed_tables = expected_tables;
+  analyzed_tables.push_back("sqlite_stat1");
+  std::sort(analyzed_tables.begin(), analyzed_tables.end());
+  require(load_sqlite_master_names(db_path, "table") == analyzed_tables);
   require(load_sqlite_master_names(db_path, "view") ==
           std::vector<std::string>({
               "traceloom_tree_node_anchor",
               "traceloom_tree_node_occurrence",
+              "traceloom_v_anchor_host_activity",
+              "traceloom_v_anchor_host_interval",
+              "traceloom_v_anchor_runtime_call",
+              "traceloom_v_aux_runtime_call",
               "traceloom_v_cuda_graph_envelope",
               "traceloom_v_cuda_graph_replay",
               "traceloom_v_node_anchor_cost",
@@ -982,9 +995,13 @@ int main() {
               "traceloom_v_node_children",
               "traceloom_v_node_cost",
               "traceloom_v_node_graph_body_member",
+              "traceloom_v_node_host_activity",
               "traceloom_v_node_replay_cost_member",
+              "traceloom_v_node_runtime_call",
+              "traceloom_v_runtime_device",
               "traceloom_v_semantic_tree_node",
               "traceloom_v_semantic_tree_readable",
+              "traceloom_v_sync_runtime_call",
               "traceloom_v_tree_node",
           }));
   const std::vector<ColumnInfo> tree_view_columns =
@@ -996,13 +1013,22 @@ int main() {
           std::vector<std::string>({
               "idx_traceloom_aclgraph_region_status",
               "idx_traceloom_anchor_device_idx",
+              "idx_traceloom_anchor_host_activity_call",
+              "idx_traceloom_anchor_host_activity_interval",
+              "idx_traceloom_anchor_host_interval_id",
+              "idx_traceloom_anchor_host_interval_left",
               "idx_traceloom_anchor_key",
+              "idx_traceloom_anchor_runtime_anchor",
+              "idx_traceloom_anchor_runtime_call",
               "idx_traceloom_aux_anchor",
               "idx_traceloom_collective_key",
               "idx_traceloom_collective_pair",
               "idx_traceloom_cuda_graph_envelope_child",
               "idx_traceloom_cuda_graph_envelope_graph",
               "idx_traceloom_cuda_graph_replay_exec",
+              "idx_traceloom_device_work_event",
+              "idx_traceloom_device_work_graph",
+              "idx_traceloom_device_work_id",
               "idx_traceloom_event_device_step",
               "idx_traceloom_event_id",
               "idx_traceloom_event_identity",
@@ -1023,6 +1049,12 @@ int main() {
               "idx_traceloom_replay_cost_contributor",
               "idx_traceloom_replay_cost_member_event",
               "idx_traceloom_replay_cost_member_launch",
+              "idx_traceloom_runtime_call_correlation",
+              "idx_traceloom_runtime_call_id",
+              "idx_traceloom_runtime_call_time",
+              "idx_traceloom_runtime_relation_call",
+              "idx_traceloom_runtime_relation_id",
+              "idx_traceloom_runtime_relation_work",
               "idx_traceloom_semantic_edge_tree",
               "idx_traceloom_semantic_node_parent",
               "idx_traceloom_semantic_node_tree_order",

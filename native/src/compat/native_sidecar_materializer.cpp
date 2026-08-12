@@ -22,6 +22,7 @@
 #include "traceloom/compat/native_graph_replay_rows.h"
 #include "traceloom/compat/report_tree_rows.h"
 #include "traceloom/compat/replay_cost_sql_rows.h"
+#include "traceloom/compat/runtime_device_rows.h"
 #include "traceloom/compat/sidecar_writer.h"
 #include "traceloom/compat/timeline_rows.h"
 #include "traceloom/core/sha256.h"
@@ -561,6 +562,26 @@ void materialize_augmented_catalog(const std::string& path,
         "failed to create event source locator view");
     sqlite_exec(
         db,
+        "CREATE VIEW traceloom_v_runtime_call_source_locator AS SELECT "
+        "c.*, rt.source_id, rt.embedded_table_name, rt.source_rowid_column, "
+        "CASE WHEN rt.embedded_table_name IS NOT NULL THEN 'embedded_raw' "
+        "ELSE 'unresolved' END AS resolution_status "
+        "FROM traceloom_runtime_call c LEFT JOIN traceloom_raw_table rt ON "
+        "rt.source_path = json_extract(c.raw_json, '$.source_path') AND "
+        "rt.source_table = c.source_table",
+        "failed to create runtime call source locator view");
+    sqlite_exec(
+        db,
+        "CREATE VIEW traceloom_v_device_work_source_locator AS SELECT "
+        "w.*, rt.source_id, rt.embedded_table_name, rt.source_rowid_column, "
+        "CASE WHEN rt.embedded_table_name IS NOT NULL THEN 'embedded_raw' "
+        "ELSE 'unresolved' END AS resolution_status "
+        "FROM traceloom_device_work w LEFT JOIN traceloom_raw_table rt ON "
+        "rt.source_path = json_extract(w.raw_json, '$.source_path') AND "
+        "rt.source_table = w.source_table",
+        "failed to create device work source locator view");
+    sqlite_exec(
+        db,
         "CREATE TABLE traceloom_analysis_surface("
         "surface_name TEXT NOT NULL PRIMARY KEY, relation_name TEXT NOT NULL, "
         "row_grain TEXT NOT NULL, purpose TEXT NOT NULL, "
@@ -617,11 +638,76 @@ void materialize_augmented_catalog(const std::string& path,
         {"normalized_event", "traceloom_event", "one normalized event",
          "inspect fine-grained timing and operator evidence",
          "SELECT * FROM traceloom_event ORDER BY db_idx, device_id, step_idx;"},
+        {"runtime_device_relation", "traceloom_v_runtime_device",
+         "one runtime-call/device-work relation outcome",
+         "inspect direct provider correlation, explicit cardinality, and open "
+         "or ambiguous outcomes",
+         "SELECT * FROM traceloom_v_runtime_device ORDER BY db_idx, provider, "
+         "runtime_start_ns, device_start_ns, relation_id LIMIT 200;"},
+        {"synchronization_action", "traceloom_v_sync_runtime_call",
+         "one profiler-visible synchronization action/runtime relation",
+         "inspect typed synchronization observations and their exact, "
+         "deterministic, ambiguous, or rejected runtime endpoints",
+         "SELECT * FROM traceloom_v_sync_runtime_call ORDER BY db_idx, "
+         "device_start_ns, sync_action_id, runtime_start_ns LIMIT 200;"},
+        {"anchor_runtime_call", "traceloom_v_anchor_runtime_call",
+         "one structural anchor/runtime-call relation",
+         "walk backward from anchor or graph launch to observed host runtime",
+         "SELECT * FROM traceloom_v_anchor_runtime_call ORDER BY db_idx, "
+         "device_id, anchor_idx, runtime_start_ns, relation_id LIMIT 200;"},
+        {"node_runtime_call", "traceloom_v_node_runtime_call",
+         "one tree-node occurrence/anchor/runtime-call placement",
+         "query host/device relations inside recovered structure in either "
+         "direction",
+         "SELECT * FROM traceloom_v_node_runtime_call WHERE coverage_kind = "
+         "'self' ORDER BY db_idx, device_id, node_id, occurrence_idx, "
+         "anchor_order, runtime_start_ns LIMIT 200;"},
+        {"aux_runtime_call", "traceloom_v_aux_runtime_call",
+         "one auxiliary-device-event/runtime-call relation",
+         "walk backward from device auxiliary work to observed host runtime",
+         "SELECT * FROM traceloom_v_aux_runtime_call ORDER BY db_idx, "
+         "device_id, anchor_id, aux_order, runtime_start_ns LIMIT 200;"},
+        {"anchor_host_interval", "traceloom_v_anchor_host_interval",
+         "one adjacent-anchor pair with host runtime endpoints",
+         "inspect whether adjacent device anchors delimit a queryable host "
+         "runtime interval",
+         "SELECT * FROM traceloom_v_anchor_host_interval ORDER BY db_idx, "
+         "device_id, left_anchor_id LIMIT 200;"},
+        {"anchor_host_activity", "traceloom_v_anchor_host_activity",
+         "one observed runtime call overlapping an anchor-delimited host "
+         "interval",
+         "inspect profiler-visible host runtime behavior between device "
+         "structure endpoints without assigning an idle cause",
+         "SELECT * FROM traceloom_v_anchor_host_activity WHERE left_anchor_id "
+         "= (SELECT left_anchor_id FROM traceloom_anchor_host_interval WHERE "
+         "support_state = 'supported_ordered' ORDER BY db_idx, device_id, "
+         "host_start_ns LIMIT 1) ORDER BY observed_start_ns, "
+         "observed_runtime_call_id LIMIT 200;"},
+        {"node_host_activity", "traceloom_v_node_host_activity",
+         "one node-occurrence/anchor-delimited observed runtime call",
+         "compare profiler-visible host runtime distributions after the same "
+         "recovered structural position across occurrences",
+         "SELECT * FROM traceloom_v_node_host_activity WHERE coverage_kind = "
+         "'self' AND node_id = (SELECT node_id FROM "
+         "traceloom_v_tree_node WHERE node_type = 'Atom' AND "
+         "occurrence_count > 1 "
+         "ORDER BY total_us DESC LIMIT 1) ORDER BY occurrence_idx, "
+         "anchor_order, observed_order LIMIT 200;"},
         {"event_source", "traceloom_v_event_source_locator",
          "one event-to-raw-source link",
          "resolve normalized evidence to the embedded profiler table",
          "SELECT * FROM traceloom_v_event_source_locator ORDER BY db_idx, "
          "device_id, event_id, source_ordinal;"},
+        {"runtime_call_source", "traceloom_v_runtime_call_source_locator",
+         "one runtime call-to-raw-source locator",
+         "resolve host runtime observations to embedded profiler rows",
+         "SELECT * FROM traceloom_v_runtime_call_source_locator ORDER BY "
+         "db_idx, provider, start_ns, runtime_call_id;"},
+        {"device_work_source", "traceloom_v_device_work_source_locator",
+         "one device-work-to-raw-source locator",
+         "resolve correlated device work to embedded profiler rows",
+         "SELECT * FROM traceloom_v_device_work_source_locator ORDER BY "
+         "db_idx, device_id, start_ns, device_work_id;"},
         {"exact_graph_member", "traceloom_v_node_graph_body_member",
          "one exact graph body member in one tree occurrence",
          "drill through replay structure to exact member cost and provenance",
@@ -792,6 +878,7 @@ void write_basic_native_compatibility_sidecar(
       {"source_sha256", options.source_sha256},
       {"source_size_bytes", std::to_string(options.source_size_bytes)},
       {"trace_event_count", std::to_string(ir.trace_events.size())},
+      {"runtime_call_count", std::to_string(ir.runtime_calls.size())},
       {"anchor_count", std::to_string(ir.anchors.size())},
       {"graph_template_count", std::to_string(ir.graph_templates.size())},
       {"replay_unit_count", std::to_string(ir.replay_units.size())},
@@ -807,7 +894,22 @@ void write_basic_native_compatibility_sidecar(
            }))},
   };
 
-  replace_metadata_rows(sqlite_path, metadata);
+  {
+    RuntimeDeviceSqlRows runtime_rows =
+        build_runtime_device_sql_rows(ir, options.db_idx);
+    metadata.push_back({"device_work_count",
+                        std::to_string(runtime_rows.device_works.size())});
+    metadata.push_back({"runtime_device_relation_count",
+                        std::to_string(runtime_rows.relations.size())});
+    metadata.push_back({"anchor_runtime_relation_count",
+                        std::to_string(runtime_rows.anchor_relations.size())});
+    metadata.push_back({"anchor_host_interval_count",
+                        std::to_string(runtime_rows.host_intervals.size())});
+    metadata.push_back({"anchor_host_activity_count",
+                        std::to_string(runtime_rows.host_activities.size())});
+    replace_metadata_rows(sqlite_path, metadata);
+    replace_runtime_device_rows(sqlite_path, runtime_rows);
+  }
   const EventSqlRows event_rows = build_timeline_sql_rows(ir, options.db_idx);
   replace_timeline_rows(sqlite_path,
                         split_timeline_event_sql_rows(event_rows));

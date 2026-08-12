@@ -518,11 +518,27 @@ int main() {
   compat::write_basic_native_compatibility_sidecar(db_path, ir, options);
 
   require(run_scalar_int(db_path,
-                         "SELECT COUNT(*) FROM traceloom_metadata") == 14);
+                         "SELECT COUNT(*) FROM traceloom_metadata") == 20);
   require(run_scalar_text(db_path,
                           "SELECT value FROM traceloom_metadata "
                           "WHERE key = 'native_compatibility_materializer'") ==
           "basic_native_ir_v1");
+  require(run_scalar_text(db_path,
+                          "SELECT value FROM traceloom_metadata "
+                          "WHERE key = 'runtime_call_count'") == "0");
+  require(run_scalar_text(db_path,
+                          "SELECT value FROM traceloom_metadata "
+                          "WHERE key = 'device_work_count'") == "1");
+  require(run_scalar_text(db_path,
+                          "SELECT value FROM traceloom_metadata "
+                          "WHERE key = 'runtime_device_relation_count'") ==
+          "1");
+  require(run_scalar_text(db_path,
+                          "SELECT value FROM traceloom_metadata "
+                          "WHERE key = 'anchor_host_interval_count'") == "0");
+  require(run_scalar_text(db_path,
+                          "SELECT value FROM traceloom_metadata "
+                          "WHERE key = 'anchor_host_activity_count'") == "0");
   require(run_scalar_int(db_path, "SELECT COUNT(*) FROM traceloom_event") == 1);
   require(run_scalar_int(db_path,
                          "SELECT COUNT(*) FROM traceloom_event_source") == 1);
@@ -1080,6 +1096,11 @@ int main() {
               "SELECT COUNT(*) FROM traceloom_analysis_surface "
               "WHERE surface_name = 'operator_audit' AND "
               "relation_name = 'traceloom_operator_audit'") == 1);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_analysis_surface "
+              "WHERE surface_name = 'synchronization_action' AND "
+              "relation_name = 'traceloom_v_sync_runtime_call'") == 1);
   require_analysis_surface_queries_prepare(augmented_path);
   require(run_scalar_text(augmented_path,
                           "SELECT embedded_table_name FROM "

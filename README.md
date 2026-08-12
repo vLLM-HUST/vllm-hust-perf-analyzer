@@ -51,6 +51,10 @@ Key capabilities:
 - repeated decode/layer structure discovery over semantic anchors;
 - overlap-safe wall-clock accounting across concurrent streams;
 - repeat-node averages normalized per loop-body iteration;
+- provider-aware runtime-call ↔ device-work relations with explicit
+  cardinality and open/ambiguous outcomes;
+- reverse navigation from device anchors and auxiliary work to host runtime
+  calls, including observed host runtime activity between adjacent anchors;
 - provenance links back to the original database, table, and row.
 
 CUDA auxiliary activity stays explicitly typed and traceable without being
@@ -165,6 +169,55 @@ normalized events, exact graph members, and raw evidence. Important costs are:
 - `avg_compute_us`, `avg_comm_us`, `avg_idle_us`: comparable average cost
   categories;
 - `avg_aux_us` and `avg_self_us`: attributed auxiliary and node-owned cost.
+
+#### Recommended host/device workflow
+
+Start from a recovered structure rather than from a provider table. First pick
+a costly or repeated node, then keep its occurrence and anchor coordinates
+while moving into runtime/device evidence:
+
+```sql
+SELECT node_id, local_node_id, label, occurrence_count, avg_total_us
+FROM traceloom_v_tree_node
+WHERE occurrence_count > 1
+ORDER BY total_us DESC
+LIMIT 20;
+
+SELECT occurrence_idx, anchor_order, anchor_idx, api_name, device_symbol,
+       match_policy, support_state, cardinality
+FROM traceloom_v_node_runtime_call
+WHERE node_id = 'node-N006' AND coverage_kind = 'self'
+ORDER BY occurrence_idx, anchor_order, runtime_start_ns;
+
+SELECT sync_kind, api_name, runtime_dur_us, match_policy, support_state
+FROM traceloom_v_sync_runtime_call
+WHERE support_state IN ('supported_exact', 'supported_deterministic')
+ORDER BY device_start_ns
+LIMIT 100;
+
+SELECT occurrence_idx, anchor_order, right_anchor_symbol, host_interval_us,
+       api_name,
+       count(*) AS observed_calls,
+       round(sum(observed_overlap_us), 3) AS scheduled_overlap_us
+FROM traceloom_v_node_host_activity
+WHERE node_id = 'node-N006' AND coverage_kind = 'self'
+GROUP BY occurrence_idx, anchor_order, right_anchor_symbol,
+         host_interval_us, api_name
+ORDER BY occurrence_idx, anchor_order, scheduled_overlap_us DESC;
+```
+
+Replace `node-N006` with a returned `node_id`. The first runtime view exposes
+provider-supported submission/correlation relations. The synchronization view
+is factual action-to-runtime evidence, not record/wait pairing or idle-cause
+attribution. The final query reports calls
+in the host interval **after** each node-owned anchor; it is contextual runtime
+behavior, not CPU cost owned by that node and not an idle-cause claim. Keep
+`support_state`, `cardinality`, and source keys in any audit. A bounded canned
+projection is available in `docs/report-sql/node-host-activity.sql`; it selects
+the highest-cost repeated atom by default and documents how to substitute a
+chosen `node_id`. Runtime
+calls may overlap each other; even the clipped overlap sum is scheduled-call
+time, not an overlap-safe host busy union.
 
 For the complete horizontal-and-vertical experience shown above:
 

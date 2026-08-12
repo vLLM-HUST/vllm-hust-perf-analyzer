@@ -56,6 +56,105 @@ struct EventSqlRows {
   std::vector<EventSourceSqlRow> event_sources;
 };
 
+struct RuntimeCallSqlRow {
+  std::string runtime_call_id;
+  std::uint32_t db_idx = 0;
+  std::string provider;
+  std::string clock_domain;
+  std::string source_table;
+  std::string source_key;
+  std::int64_t start_ns = 0;
+  std::int64_t end_ns = 0;
+  double dur_us = 0.0;
+  std::string api_name;
+  std::string api_type;
+  std::string process_id;
+  std::string thread_id;
+  std::string global_tid;
+  std::string context_id;
+  std::string device_id;
+  std::string correlation_id;
+  std::string match_policy;
+  std::string raw_json;
+};
+
+struct DeviceWorkSqlRow {
+  std::string device_work_id;
+  std::uint32_t db_idx = 0;
+  std::string provider;
+  std::uint32_t device_id = 0;
+  std::string work_kind;
+  std::string event_id;
+  std::string task_id;
+  std::int64_t graph_launch_occurrence_id = -1;
+  std::string source_table;
+  std::string source_key;
+  std::int64_t start_ns = 0;
+  std::int64_t end_ns = 0;
+  double dur_us = 0.0;
+  std::string symbol;
+  std::string raw_json;
+};
+
+struct RuntimeDeviceRelationSqlRow {
+  std::string relation_id;
+  std::uint32_t db_idx = 0;
+  std::string runtime_call_id;
+  std::string device_work_id;
+  std::string relation_kind;
+  std::string match_policy;
+  std::string evidence_level;
+  std::string support_state;
+  std::string cardinality;
+  std::uint32_t runtime_candidate_count = 0;
+  std::uint32_t device_candidate_count = 0;
+  std::string correlation_id;
+  std::string raw_json;
+};
+
+struct AnchorRuntimeRelationSqlRow {
+  std::string anchor_id;
+  std::string relation_id;
+  std::string runtime_call_id;
+  std::string device_work_id;
+  std::string endpoint_kind;
+};
+
+struct AnchorHostIntervalSqlRow {
+  std::string interval_id;
+  std::uint32_t db_idx = 0;
+  std::uint32_t device_id = 0;
+  std::string left_anchor_id;
+  std::string right_anchor_id;
+  std::string left_runtime_call_id;
+  std::string right_runtime_call_id;
+  std::uint32_t left_endpoint_count = 0;
+  std::uint32_t right_endpoint_count = 0;
+  std::string provider;
+  std::string clock_domain;
+  std::string host_start_ns;
+  std::string host_end_ns;
+  std::string scope_policy;
+  std::string process_id;
+  std::string thread_id;
+  std::string support_state;
+};
+
+struct AnchorHostActivitySqlRow {
+  std::string interval_id;
+  std::string runtime_call_id;
+  std::uint32_t observed_order = 0;
+};
+
+struct RuntimeDeviceSqlRows {
+  std::vector<RuntimeCallSqlRow> runtime_calls;
+  std::vector<DeviceWorkSqlRow> device_works;
+  std::vector<RuntimeDeviceRelationSqlRow> relations;
+  std::vector<AnchorRuntimeRelationSqlRow> anchor_relations;
+  std::vector<AnchorHostIntervalSqlRow> host_intervals;
+  std::vector<AnchorHostActivitySqlRow> host_activities;
+};
+
 struct AnchorSqlRow {
   std::string anchor_id;
   std::uint32_t db_idx = 0;
@@ -493,6 +592,9 @@ void replace_timeline_rows(const std::string& sqlite_path,
 void replace_event_source_rows(
     const std::string& sqlite_path,
     const std::vector<EventSourceSqlRow>& rows);
+
+void replace_runtime_device_rows(const std::string& sqlite_path,
+                                 const RuntimeDeviceSqlRows& rows);
 
 void replace_anchor_rows(const std::string& sqlite_path,
                          const std::vector<AnchorSqlRow>& rows);

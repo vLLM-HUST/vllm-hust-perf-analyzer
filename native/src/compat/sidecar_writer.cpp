@@ -147,6 +147,24 @@ void bind_null(SqliteStmt& stmt, int column) {
   }
 }
 
+void bind_nullable_text(SqliteStmt& stmt, int column,
+                        const std::string& value) {
+  if (value.empty()) {
+    bind_null(stmt, column);
+  } else {
+    bind_text(stmt, column, value);
+  }
+}
+
+void bind_nullable_int64_text(SqliteStmt& stmt, int column,
+                              const std::string& value) {
+  if (value.empty()) {
+    bind_null(stmt, column);
+  } else {
+    bind_int64(stmt, column, std::stoll(value));
+  }
+}
+
 void bind_double(SqliteStmt& stmt, int column, double value) {
   const int rc = sqlite3_bind_double(stmt.get(), column, value);
   if (rc != SQLITE_OK) {
@@ -240,6 +258,146 @@ void insert_event_source_row(SqliteStmt& stmt, const EventSourceSqlRow& row) {
     throw std::runtime_error(
         "failed to insert compatibility event source row: " +
         std::string(sqlite3_errmsg(stmt.db())));
+  }
+  sqlite3_reset(stmt.get());
+  sqlite3_clear_bindings(stmt.get());
+}
+
+void insert_runtime_call_row(SqliteStmt& stmt, const RuntimeCallSqlRow& row) {
+  bind_text(stmt, 1, row.runtime_call_id);
+  bind_int64(stmt, 2, row.db_idx);
+  bind_text(stmt, 3, row.provider);
+  bind_text(stmt, 4, row.clock_domain);
+  bind_text(stmt, 5, row.source_table);
+  bind_text(stmt, 6, row.source_key);
+  bind_int64(stmt, 7, row.start_ns);
+  bind_int64(stmt, 8, row.end_ns);
+  bind_double(stmt, 9, row.dur_us);
+  bind_nullable_text(stmt, 10, row.api_name);
+  bind_nullable_text(stmt, 11, row.api_type);
+  bind_nullable_text(stmt, 12, row.process_id);
+  bind_nullable_text(stmt, 13, row.thread_id);
+  bind_nullable_text(stmt, 14, row.global_tid);
+  bind_nullable_text(stmt, 15, row.context_id);
+  bind_nullable_text(stmt, 16, row.device_id);
+  bind_nullable_text(stmt, 17, row.correlation_id);
+  bind_text(stmt, 18, row.match_policy);
+  bind_nullable_text(stmt, 19, row.raw_json);
+  const int rc = sqlite3_step(stmt.get());
+  if (rc != SQLITE_DONE) {
+    throw std::runtime_error("failed to insert runtime call row: " +
+                             std::string(sqlite3_errmsg(stmt.db())));
+  }
+  sqlite3_reset(stmt.get());
+  sqlite3_clear_bindings(stmt.get());
+}
+
+void insert_device_work_row(SqliteStmt& stmt, const DeviceWorkSqlRow& row) {
+  bind_text(stmt, 1, row.device_work_id);
+  bind_int64(stmt, 2, row.db_idx);
+  bind_text(stmt, 3, row.provider);
+  bind_int64(stmt, 4, row.device_id);
+  bind_text(stmt, 5, row.work_kind);
+  bind_nullable_text(stmt, 6, row.event_id);
+  bind_nullable_text(stmt, 7, row.task_id);
+  if (row.graph_launch_occurrence_id < 0) {
+    bind_null(stmt, 8);
+  } else {
+    bind_int64(stmt, 8, row.graph_launch_occurrence_id);
+  }
+  bind_text(stmt, 9, row.source_table);
+  bind_text(stmt, 10, row.source_key);
+  bind_int64(stmt, 11, row.start_ns);
+  bind_int64(stmt, 12, row.end_ns);
+  bind_double(stmt, 13, row.dur_us);
+  bind_nullable_text(stmt, 14, row.symbol);
+  bind_nullable_text(stmt, 15, row.raw_json);
+  const int rc = sqlite3_step(stmt.get());
+  if (rc != SQLITE_DONE) {
+    throw std::runtime_error("failed to insert device work row: " +
+                             std::string(sqlite3_errmsg(stmt.db())));
+  }
+  sqlite3_reset(stmt.get());
+  sqlite3_clear_bindings(stmt.get());
+}
+
+void insert_runtime_device_relation_row(
+    SqliteStmt& stmt, const RuntimeDeviceRelationSqlRow& row) {
+  bind_text(stmt, 1, row.relation_id);
+  bind_int64(stmt, 2, row.db_idx);
+  bind_nullable_text(stmt, 3, row.runtime_call_id);
+  bind_nullable_text(stmt, 4, row.device_work_id);
+  bind_text(stmt, 5, row.relation_kind);
+  bind_text(stmt, 6, row.match_policy);
+  bind_text(stmt, 7, row.evidence_level);
+  bind_text(stmt, 8, row.support_state);
+  bind_text(stmt, 9, row.cardinality);
+  bind_int64(stmt, 10, row.runtime_candidate_count);
+  bind_int64(stmt, 11, row.device_candidate_count);
+  bind_nullable_text(stmt, 12, row.correlation_id);
+  bind_nullable_text(stmt, 13, row.raw_json);
+  const int rc = sqlite3_step(stmt.get());
+  if (rc != SQLITE_DONE) {
+    throw std::runtime_error("failed to insert runtime/device relation row: " +
+                             std::string(sqlite3_errmsg(stmt.db())));
+  }
+  sqlite3_reset(stmt.get());
+  sqlite3_clear_bindings(stmt.get());
+}
+
+void insert_anchor_runtime_relation_row(
+    SqliteStmt& stmt, const AnchorRuntimeRelationSqlRow& row) {
+  bind_text(stmt, 1, row.anchor_id);
+  bind_text(stmt, 2, row.relation_id);
+  bind_nullable_text(stmt, 3, row.runtime_call_id);
+  bind_text(stmt, 4, row.device_work_id);
+  bind_text(stmt, 5, row.endpoint_kind);
+  const int rc = sqlite3_step(stmt.get());
+  if (rc != SQLITE_DONE) {
+    throw std::runtime_error("failed to insert anchor/runtime relation row: " +
+                             std::string(sqlite3_errmsg(stmt.db())));
+  }
+  sqlite3_reset(stmt.get());
+  sqlite3_clear_bindings(stmt.get());
+}
+
+void insert_anchor_host_interval_row(
+    SqliteStmt& stmt, const AnchorHostIntervalSqlRow& row) {
+  bind_text(stmt, 1, row.interval_id);
+  bind_int64(stmt, 2, row.db_idx);
+  bind_int64(stmt, 3, row.device_id);
+  bind_text(stmt, 4, row.left_anchor_id);
+  bind_text(stmt, 5, row.right_anchor_id);
+  bind_nullable_text(stmt, 6, row.left_runtime_call_id);
+  bind_nullable_text(stmt, 7, row.right_runtime_call_id);
+  bind_int64(stmt, 8, row.left_endpoint_count);
+  bind_int64(stmt, 9, row.right_endpoint_count);
+  bind_nullable_text(stmt, 10, row.provider);
+  bind_nullable_text(stmt, 11, row.clock_domain);
+  bind_nullable_int64_text(stmt, 12, row.host_start_ns);
+  bind_nullable_int64_text(stmt, 13, row.host_end_ns);
+  bind_text(stmt, 14, row.scope_policy);
+  bind_nullable_text(stmt, 15, row.process_id);
+  bind_nullable_text(stmt, 16, row.thread_id);
+  bind_text(stmt, 17, row.support_state);
+  const int rc = sqlite3_step(stmt.get());
+  if (rc != SQLITE_DONE) {
+    throw std::runtime_error("failed to insert anchor host interval row: " +
+                             std::string(sqlite3_errmsg(stmt.db())));
+  }
+  sqlite3_reset(stmt.get());
+  sqlite3_clear_bindings(stmt.get());
+}
+
+void insert_anchor_host_activity_row(
+    SqliteStmt& stmt, const AnchorHostActivitySqlRow& row) {
+  bind_text(stmt, 1, row.interval_id);
+  bind_text(stmt, 2, row.runtime_call_id);
+  bind_int64(stmt, 3, row.observed_order);
+  const int rc = sqlite3_step(stmt.get());
+  if (rc != SQLITE_DONE) {
+    throw std::runtime_error("failed to insert anchor host activity row: " +
+                             std::string(sqlite3_errmsg(stmt.db())));
   }
   sqlite3_reset(stmt.get());
   sqlite3_clear_bindings(stmt.get());
@@ -1321,6 +1479,15 @@ void materialize_semantic_tree_views(SqliteDb& db) {
 
 void materialize_report_compatibility_indexes(SqliteDb& db) {
   db.exec(
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_traceloom_runtime_call_id "
+      "ON traceloom_runtime_call(runtime_call_id)");
+  db.exec(
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_traceloom_device_work_id "
+      "ON traceloom_device_work(device_work_id)");
+  db.exec(
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_traceloom_runtime_relation_id "
+      "ON traceloom_runtime_device_relation(relation_id)");
+  db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_event_device_step "
       "ON traceloom_event(db_idx, device_id, step_idx)");
   db.exec(
@@ -1332,6 +1499,43 @@ void materialize_report_compatibility_indexes(SqliteDb& db) {
   db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_event_source_lookup "
       "ON traceloom_event_source(source_table, source_key)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_runtime_call_time "
+      "ON traceloom_runtime_call(provider, clock_domain, start_ns, end_ns)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_runtime_call_correlation "
+      "ON traceloom_runtime_call(provider, correlation_id)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_device_work_event "
+      "ON traceloom_device_work(event_id)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_device_work_graph "
+      "ON traceloom_device_work(graph_launch_occurrence_id)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_runtime_relation_call "
+      "ON traceloom_runtime_device_relation(runtime_call_id, support_state)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_runtime_relation_work "
+      "ON traceloom_runtime_device_relation(device_work_id, support_state)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_anchor_runtime_anchor "
+      "ON traceloom_anchor_runtime_relation(anchor_id, relation_id)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_anchor_runtime_call "
+      "ON traceloom_anchor_runtime_relation(runtime_call_id, anchor_id)");
+  db.exec(
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_traceloom_anchor_host_interval_id "
+      "ON traceloom_anchor_host_interval(interval_id)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_anchor_host_interval_left "
+      "ON traceloom_anchor_host_interval(db_idx, device_id, left_anchor_id)");
+  db.exec(
+      "CREATE UNIQUE INDEX IF NOT EXISTS "
+      "idx_traceloom_anchor_host_activity_interval "
+      "ON traceloom_anchor_host_activity(interval_id, observed_order)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_anchor_host_activity_call "
+      "ON traceloom_anchor_host_activity(runtime_call_id, interval_id)");
   db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_anchor_device_idx "
       "ON traceloom_anchor(db_idx, device_id, anchor_idx)");
@@ -1483,6 +1687,14 @@ void materialize_compatibility_schema(
 
 #if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
 void drop_report_compatibility_views(SqliteDb& db) {
+  db.exec("DROP VIEW IF EXISTS traceloom_v_node_host_activity");
+  db.exec("DROP VIEW IF EXISTS traceloom_v_node_runtime_call");
+  db.exec("DROP VIEW IF EXISTS traceloom_v_anchor_host_activity");
+  db.exec("DROP VIEW IF EXISTS traceloom_v_anchor_host_interval");
+  db.exec("DROP VIEW IF EXISTS traceloom_v_aux_runtime_call");
+  db.exec("DROP VIEW IF EXISTS traceloom_v_anchor_runtime_call");
+  db.exec("DROP VIEW IF EXISTS traceloom_v_sync_runtime_call");
+  db.exec("DROP VIEW IF EXISTS traceloom_v_runtime_device");
   db.exec("DROP VIEW IF EXISTS traceloom_v_semantic_tree_readable");
   db.exec("DROP VIEW IF EXISTS traceloom_v_semantic_tree_node");
   db.exec("DROP VIEW IF EXISTS traceloom_v_tree_node");
@@ -1497,6 +1709,111 @@ void drop_report_compatibility_views(SqliteDb& db) {
   db.exec("DROP VIEW IF EXISTS traceloom_v_node_replay_cost_member");
   db.exec("DROP VIEW IF EXISTS traceloom_v_node_graph_body_member");
 }
+
+void materialize_runtime_device_views(SqliteDb& db) {
+  db.exec(
+      "CREATE VIEW IF NOT EXISTS traceloom_v_runtime_device AS "
+      "SELECT r.*, COALESCE(c.provider, w.provider) AS provider, "
+      "c.clock_domain, c.source_table AS "
+      "runtime_source_table, c.source_key AS runtime_source_key, c.start_ns "
+      "AS runtime_start_ns, c.end_ns AS runtime_end_ns, c.dur_us AS "
+      "runtime_dur_us, c.api_name, c.api_type, c.process_id, c.thread_id, "
+      "c.global_tid, c.context_id AS runtime_context_id, w.device_id, "
+      "w.work_kind, w.event_id, w.task_id, w.graph_launch_occurrence_id, "
+      "w.source_table AS device_source_table, w.source_key AS "
+      "device_source_key, w.start_ns AS device_start_ns, w.end_ns AS "
+      "device_end_ns, w.dur_us AS device_dur_us, w.symbol AS device_symbol "
+      "FROM traceloom_runtime_device_relation r "
+      "LEFT JOIN traceloom_runtime_call c ON c.runtime_call_id = "
+      "r.runtime_call_id "
+      "LEFT JOIN traceloom_device_work w ON w.device_work_id = "
+      "r.device_work_id");
+
+  db.exec(
+      "CREATE VIEW IF NOT EXISTS traceloom_v_sync_runtime_call AS "
+      "SELECT device_work_id AS sync_action_id, device_symbol AS sync_kind, "
+      "* FROM traceloom_v_runtime_device WHERE "
+      "(provider = 'cuda' AND device_source_table = "
+      "'CUPTI_ACTIVITY_KIND_SYNCHRONIZATION') OR "
+      "(provider = 'ascend' AND device_source_table IN ('TASK', "
+      "'AscendTask') AND device_symbol IN ('EVENT_RECORD', 'EVENT_WAIT'))");
+
+  db.exec(
+      "CREATE VIEW IF NOT EXISTS traceloom_v_anchor_runtime_call AS "
+      "SELECT a.anchor_id, a.db_idx, a.device_id, a.anchor_idx, a.symbol AS "
+      "anchor_symbol, a.role AS anchor_role, a.start_ns AS anchor_start_ns, "
+      "a.end_ns AS anchor_end_ns, l.endpoint_kind, d.* "
+      "FROM traceloom_anchor a "
+      "JOIN traceloom_anchor_runtime_relation l ON l.anchor_id = "
+      "a.anchor_id JOIN traceloom_v_runtime_device d ON d.relation_id = "
+      "l.relation_id");
+
+  db.exec(
+      "CREATE VIEW IF NOT EXISTS traceloom_v_node_runtime_call AS "
+      "SELECT na.node_id, n.local_node_id, na.view_name, "
+      "na.occurrence_idx, na.anchor_order, na.coverage_kind, "
+      "na.repeat_context, a.anchor_idx, d.* "
+      "FROM traceloom_viz_node_anchor na "
+      "JOIN traceloom_viz_node n ON n.node_id = na.node_id "
+      "AND n.db_idx = na.db_idx AND n.device_id = na.device_id "
+      "AND n.view_name = na.view_name "
+      "JOIN traceloom_anchor a ON a.anchor_id = na.anchor_id "
+      "AND a.db_idx = na.db_idx AND a.device_id = na.device_id "
+      "JOIN traceloom_anchor_runtime_relation l ON l.anchor_id = "
+      "na.anchor_id JOIN traceloom_v_runtime_device d ON d.relation_id = "
+      "l.relation_id");
+
+  db.exec(
+      "CREATE VIEW IF NOT EXISTS traceloom_v_aux_runtime_call AS "
+      "SELECT l.anchor_id, l.aux_event_id, l.aux_order, l.aux_kind, "
+      "l.aux_dur_us, d.* FROM traceloom_aux_link l "
+      "JOIN traceloom_device_work w ON w.event_id = l.aux_event_id "
+      "JOIN traceloom_v_runtime_device d ON d.device_work_id = "
+      "w.device_work_id");
+
+  db.exec(
+      "CREATE VIEW IF NOT EXISTS traceloom_v_anchor_host_interval AS "
+      "SELECT * FROM traceloom_anchor_host_interval");
+
+  db.exec(
+      "CREATE VIEW IF NOT EXISTS traceloom_v_anchor_host_activity AS "
+      "SELECT i.*, c.runtime_call_id AS observed_runtime_call_id, c.api_name, "
+      "c.api_type, c.start_ns AS observed_start_ns, c.end_ns AS "
+      "observed_end_ns, c.dur_us AS observed_dur_us, "
+      "ROUND((MIN(c.end_ns, i.host_end_ns) - MAX(c.start_ns, "
+      "i.host_start_ns)) / 1000.0, 3) AS observed_overlap_us, "
+      "CASE WHEN c.start_ns >= i.host_start_ns AND c.end_ns <= "
+      "i.host_end_ns THEN 'contained' ELSE 'boundary_overlap' END AS "
+      "interval_relation, c.process_id AS "
+      "observed_process_id, c.thread_id AS observed_thread_id, "
+      "c.source_table AS observed_source_table, c.source_key AS "
+      "observed_source_key, a.observed_order FROM "
+      "traceloom_anchor_host_activity a JOIN "
+      "traceloom_v_anchor_host_interval i ON i.interval_id = a.interval_id "
+      "JOIN traceloom_runtime_call c ON c.runtime_call_id = "
+      "a.runtime_call_id");
+
+  db.exec(
+      "CREATE VIEW IF NOT EXISTS traceloom_v_node_host_activity AS "
+      "SELECT na.node_id, n.local_node_id, na.view_name, "
+      "na.occurrence_idx, na.anchor_order, na.coverage_kind, "
+      "na.repeat_context, a.anchor_idx, next.anchor_idx AS "
+      "right_anchor_idx, next.symbol AS right_anchor_symbol, next.role AS "
+      "right_anchor_role, ROUND((h.host_end_ns - h.host_start_ns) / 1000.0, "
+      "3) AS host_interval_us, "
+      "'after_anchor_interval' AS placement_semantics, h.* "
+      "FROM traceloom_viz_node_anchor na "
+      "JOIN traceloom_viz_node n ON n.node_id = na.node_id "
+      "AND n.db_idx = na.db_idx AND n.device_id = na.device_id "
+      "AND n.view_name = na.view_name "
+      "JOIN traceloom_anchor a ON a.anchor_id = na.anchor_id "
+      "AND a.db_idx = na.db_idx AND a.device_id = na.device_id "
+      "JOIN traceloom_v_anchor_host_activity h ON h.left_anchor_id = "
+      "na.anchor_id AND h.db_idx = na.db_idx AND h.device_id = "
+      "na.device_id JOIN traceloom_anchor next ON next.anchor_id = "
+      "h.right_anchor_id AND next.db_idx = h.db_idx AND next.device_id = "
+      "h.device_id");
+}
 #endif
 
 void materialize_report_compatibility_views(const std::string& sqlite_path) {
@@ -1508,6 +1825,7 @@ void materialize_report_compatibility_views(const std::string& sqlite_path) {
   try {
     drop_report_compatibility_views(db);
     materialize_report_compatibility_indexes(db);
+    materialize_runtime_device_views(db);
     materialize_cuda_graph_views(db);
     materialize_exact_graph_views(db);
     materialize_replay_cost_views(db);
@@ -1516,6 +1834,15 @@ void materialize_report_compatibility_views(const std::string& sqlite_path) {
     materialize_node_cost_views(db);
     materialize_tree_node_view(db);
     materialize_semantic_tree_views(db);
+    // The queryable DB is a read-mostly analytical artifact. Persist planner
+    // statistics after all materialized relations and indexes exist so agent
+    // drill-downs begin with selective interval/identity indexes instead of a
+    // cold full scan.
+    db.exec("ANALYZE traceloom_runtime_call");
+    db.exec("ANALYZE traceloom_runtime_device_relation");
+    db.exec("ANALYZE traceloom_anchor_runtime_relation");
+    db.exec("ANALYZE traceloom_anchor_host_interval");
+    db.exec("ANALYZE traceloom_anchor_host_activity");
     db.exec("COMMIT");
   } catch (...) {
     try {
@@ -1698,6 +2025,107 @@ void replace_event_source_rows(
         ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
     for (const EventSourceSqlRow& row : rows) {
       insert_event_source_row(event_source_stmt, row);
+    }
+
+    db.exec("COMMIT");
+  } catch (...) {
+    try {
+      db.exec("ROLLBACK");
+    } catch (...) {
+    }
+    throw;
+  }
+#else
+  (void)sqlite_path;
+  (void)rows;
+  throw std::runtime_error(
+      "compatibility sidecar writer requires SQLite support");
+#endif
+}
+
+void replace_runtime_device_rows(const std::string& sqlite_path,
+                                 const RuntimeDeviceSqlRows& rows) {
+#if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
+  materialize_compatibility_schema(
+      sqlite_path,
+      {runtime_call_table_schema(), device_work_table_schema(),
+       runtime_device_relation_table_schema(),
+       anchor_runtime_relation_table_schema(),
+       anchor_host_interval_table_schema(),
+       anchor_host_activity_table_schema()});
+
+  SqliteDb db(sqlite_path);
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.exec("DELETE FROM traceloom_anchor_host_activity");
+    db.exec("DELETE FROM traceloom_anchor_host_interval");
+    db.exec("DELETE FROM traceloom_anchor_runtime_relation");
+    db.exec("DELETE FROM traceloom_runtime_device_relation");
+    db.exec("DELETE FROM traceloom_device_work");
+    db.exec("DELETE FROM traceloom_runtime_call");
+
+    SqliteStmt runtime_stmt(
+        db.get(),
+        "INSERT INTO traceloom_runtime_call ("
+        "runtime_call_id, db_idx, provider, clock_domain, source_table, "
+        "source_key, start_ns, end_ns, dur_us, api_name, api_type, process_id, "
+        "thread_id, global_tid, context_id, device_id, correlation_id, "
+        "match_policy, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+        "?, ?, ?, ?, ?, ?, ?)");
+    for (const RuntimeCallSqlRow& row : rows.runtime_calls) {
+      insert_runtime_call_row(runtime_stmt, row);
+    }
+
+    SqliteStmt work_stmt(
+        db.get(),
+        "INSERT INTO traceloom_device_work ("
+        "device_work_id, db_idx, provider, device_id, work_kind, event_id, "
+        "task_id, "
+        "graph_launch_occurrence_id, source_table, source_key, start_ns, "
+        "end_ns, dur_us, symbol, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, "
+        "?, ?, ?, ?, ?, ?)");
+    for (const DeviceWorkSqlRow& row : rows.device_works) {
+      insert_device_work_row(work_stmt, row);
+    }
+
+    SqliteStmt relation_stmt(
+        db.get(),
+        "INSERT INTO traceloom_runtime_device_relation ("
+        "relation_id, db_idx, runtime_call_id, device_work_id, relation_kind, "
+        "match_policy, evidence_level, support_state, cardinality, "
+        "runtime_candidate_count, device_candidate_count, correlation_id, "
+        "raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    for (const RuntimeDeviceRelationSqlRow& row : rows.relations) {
+      insert_runtime_device_relation_row(relation_stmt, row);
+    }
+
+    SqliteStmt anchor_relation_stmt(
+        db.get(),
+        "INSERT INTO traceloom_anchor_runtime_relation ("
+        "anchor_id, relation_id, runtime_call_id, device_work_id, "
+        "endpoint_kind) VALUES (?, ?, ?, ?, ?)");
+    for (const AnchorRuntimeRelationSqlRow& row : rows.anchor_relations) {
+      insert_anchor_runtime_relation_row(anchor_relation_stmt, row);
+    }
+
+    SqliteStmt interval_stmt(
+        db.get(),
+        "INSERT INTO traceloom_anchor_host_interval ("
+        "interval_id, db_idx, device_id, left_anchor_id, right_anchor_id, "
+        "left_runtime_call_id, right_runtime_call_id, left_endpoint_count, "
+        "right_endpoint_count, provider, clock_domain, host_start_ns, "
+        "host_end_ns, scope_policy, process_id, thread_id, support_state) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    for (const AnchorHostIntervalSqlRow& row : rows.host_intervals) {
+      insert_anchor_host_interval_row(interval_stmt, row);
+    }
+
+    SqliteStmt activity_stmt(
+        db.get(),
+        "INSERT INTO traceloom_anchor_host_activity ("
+        "interval_id, runtime_call_id, observed_order) VALUES (?, ?, ?)");
+    for (const AnchorHostActivitySqlRow& row : rows.host_activities) {
+      insert_anchor_host_activity_row(activity_stmt, row);
     }
 
     db.exec("COMMIT");

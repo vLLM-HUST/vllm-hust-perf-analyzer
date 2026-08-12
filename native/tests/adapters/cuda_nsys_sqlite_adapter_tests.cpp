@@ -257,6 +257,17 @@ int main(int argc, char** argv) {
       "start INTEGER, end INTEGER, deviceId INTEGER, streamId INTEGER, "
       "correlationId INTEGER);"
       "INSERT INTO CUPTI_ACTIVITY_KIND_MEMCPY VALUES (86, 89, 0, 7, 10);"
+      "CREATE TABLE ENUM_CUPTI_SYNC_TYPE("
+      "id INTEGER PRIMARY KEY, name TEXT, label TEXT);"
+      "INSERT INTO ENUM_CUPTI_SYNC_TYPE VALUES "
+      "(2, 'CUPTI_ACTIVITY_SYNCHRONIZATION_TYPE_STREAM_WAIT_EVENT', "
+      "'Stream wait sync');"
+      "CREATE TABLE CUPTI_ACTIVITY_KIND_SYNCHRONIZATION("
+      "start INTEGER, end INTEGER, deviceId INTEGER, contextId INTEGER, "
+      "streamId INTEGER, correlationId INTEGER, syncType INTEGER, "
+      "eventId INTEGER);"
+      "INSERT INTO CUPTI_ACTIVITY_KIND_SYNCHRONIZATION VALUES "
+      "(87, 88, 0, 1, 7, 10, 2, 3);"
       "CREATE TABLE CUPTI_ACTIVITY_KIND_CUDA_EVENT("
       "deviceId INTEGER, contextId INTEGER, streamId INTEGER, "
       "correlationId INTEGER, eventId INTEGER);"
@@ -274,7 +285,7 @@ int main(int argc, char** argv) {
   require(inventory.kernel_row_count == 3, "kernel row count mismatch");
   require(inventory.missing_required_kernel_columns.empty(),
           "valid kernel schema was rejected");
-  require(inventory.present_activity_tables.size() == 4 &&
+  require(inventory.present_activity_tables.size() == 5 &&
               inventory.present_activity_tables.front() ==
                   "CUPTI_ACTIVITY_KIND_RUNTIME" &&
               inventory.present_activity_tables.back() ==
@@ -288,35 +299,45 @@ int main(int argc, char** argv) {
   options.source_kind = "cuda_nsys_sqlite_test";
   const CudaNsightSQLiteAdapter adapter(options);
   NativeIr ir = adapter.load();
+  require(ir.runtime_calls.size() == 1,
+          "CUDA runtime activity was not retained as host-side evidence");
+  require(ir.runtime_calls.row(RuntimeCallId(0)).raw_correlation_id == 9 &&
+              ir.runtime_calls.row(RuntimeCallId(0)).start_ns == 80 &&
+              ir.runtime_calls.row(RuntimeCallId(0)).end_ns == 85,
+          "CUDA runtime-call correlation/timing mismatch");
 
   const std::string expected =
-      "sources=4\n"
+      "sources=5\n"
       "source[0]=cuda_nsys_sqlite_test|CUPTI_ACTIVITY_KIND_KERNEL\n"
       "source[1]=cuda_nsys_sqlite_test|CUPTI_ACTIVITY_KIND_RUNTIME\n"
       "source[2]=cuda_nsys_sqlite_test|CUPTI_ACTIVITY_KIND_MEMCPY\n"
-      "source[3]=cuda_nsys_sqlite_test|CUPTI_ACTIVITY_KIND_GRAPH_TRACE\n"
-      "streams=7\n"
+      "source[3]=cuda_nsys_sqlite_test|CUPTI_ACTIVITY_KIND_SYNCHRONIZATION\n"
+      "source[4]=cuda_nsys_sqlite_test|CUPTI_ACTIVITY_KIND_GRAPH_TRACE\n"
+      "streams=8\n"
       "stream[0]=0:7\n"
       "stream[1]=0:9\n"
       "stream[2]=1:4\n"
       "stream[3]=0:0\n"
       "stream[4]=0:7\n"
       "stream[5]=0:7\n"
-      "stream[6]=1:4\n"
-      "events=7\n"
+      "stream[6]=0:7\n"
+      "stream[7]=1:4\n"
+      "events=8\n"
       "event[0]=2|0:7|100-140|flash_fwd_kernel_bf16\n"
       "event[1]=3|0:9|200-215|vectorized_elementwise_kernel\n"
       "event[2]=1|1:4|300-360|void cutlass_gemm_kernel()\n"
       "event[3]=1|0:0|80-85|kernel\n"
       "event[4]=1|0:7|86-89|CudaMemcpy_1\n"
-      "event[5]=1|0:7|90-150|CudaGraphReplay T1\n"
-      "event[6]=2|1:4|290-370|CudaGraphReplay T1\n"
-      "tasks=5\n"
+      "event[5]=1|0:7|87-88|STREAM_WAIT_EVENT\n"
+      "event[6]=1|0:7|90-150|CudaGraphReplay T1\n"
+      "event[7]=2|1:4|290-370|CudaGraphReplay T1\n"
+      "tasks=6\n"
       "task[0]=11|11|CUDA_KERNEL|flash_fwd_kernel_bf16|CudaFlashAttention\n"
       "task[1]=22|22|CUDA_KERNEL_AUX|vectorized_elementwise_kernel|CudaAux:Pointwise\n"
       "task[2]=33|33|CUDA_KERNEL|void cutlass_gemm_kernel()|CudaMatMul\n"
       "task[3]=9|9|CUDA_RUNTIME_AUX|kernel|CUDA_RUNTIME_AUX\n"
-      "task[4]=10|10|CUDA_MEMCPY_AUX|CudaMemcpy_1|CUDA_MEMCPY_AUX\n";
+      "task[4]=10|10|CUDA_MEMCPY_AUX|CudaMemcpy_1|CUDA_MEMCPY_AUX\n"
+      "task[5]=10|10|CUDA_SYNC_AUX|STREAM_WAIT_EVENT|CUDA_SYNC_AUX\n";
   require(snapshot(ir) == expected,
           "CUDA adapter output changed from its deterministic golden snapshot");
   require(snapshot(adapter.load()) == expected,

@@ -51,6 +51,109 @@ structural node
 | `traceloom_v_node_graph_body_member` | 展开 exact replay 内部成员。 |
 | `traceloom_event` | 查看规范化事件及时间、stream、role。 |
 | `traceloom_v_event_source_locator` | 定位内嵌原始表和原始 row。 |
+| `traceloom_v_anchor_runtime_call` | 从 device anchor 反查关联的 host runtime call。 |
+| `traceloom_v_node_runtime_call` | 在 tree node / occurrence / anchor order 中双向查询 runtime/device 关系。 |
+| `traceloom_v_aux_runtime_call` | 从 device aux 反查关联的 host runtime call。 |
+| `traceloom_v_sync_runtime_call` | 查询 profiler 明确标记的同步动作及其 runtime/device 关系。 |
+| `traceloom_v_anchor_host_activity` | 查看相邻 device anchors 对应的 host endpoints 之间，profiler 实际观察到的 runtime calls。 |
+| `traceloom_v_node_host_activity` | 按 node occurrence 与 anchor position 比较 anchor 之后的 host runtime 分布。 |
+
+### 从 device 结构反看 host runtime 行为
+
+TraceLoom 不把某段 device idle 直接命名成一个“原因”。它先保留更一般、也更
+可复核的关系：device anchor/aux 对应哪些 host runtime calls，以及相邻 anchors
+所对应的 host endpoints 之间观察到了什么。
+
+```sql
+SELECT anchor_idx, anchor_symbol, api_name, match_policy,
+       support_state, cardinality
+FROM traceloom_v_anchor_runtime_call
+ORDER BY device_id, anchor_idx, runtime_start_ns;
+```
+
+如果起点是压缩结构，直接保留 node occurrence 与位置：
+
+```sql
+SELECT node_id, occurrence_idx, anchor_order, anchor_idx,
+       api_name, device_symbol, support_state
+FROM traceloom_v_node_runtime_call
+WHERE node_id = 'node-42' AND coverage_kind = 'self'
+ORDER BY occurrence_idx, anchor_order, runtime_start_ns;
+```
+
+反过来按 `runtime_call_id` 过滤同一视图，就能看到它对应的 device work
+落在哪些 node occurrences 中，不需要重建 provider join。
+
+如果问题专门针对 profiler 已明确标记的同步动作，使用窄视图，而不是重新解释
+所有 aux：
+
+```sql
+SELECT sync_action_id, sync_kind, api_name, runtime_dur_us,
+       match_policy, evidence_level, support_state, cardinality
+FROM traceloom_v_sync_runtime_call
+WHERE support_state IN ('supported_exact', 'supported_deterministic')
+ORDER BY device_start_ns;
+```
+
+CUDA 的 `sync_kind` 会被解码成 `EVENT_SYNCHRONIZE`、
+`STREAM_WAIT_EVENT` 或 `STREAM_SYNCHRONIZE` 等 CUPTI 类型；Ascend 当前只纳入
+有直接 `connectionId` 关系的 `EVENT_RECORD`/`EVENT_WAIT` device tasks。
+这个视图表示“同步动作与哪个 runtime call 有可审计关系”，不表示某个 wait 一定
+由哪个 record 触发，也不把它解释成 idle 原因。若 Nsight 在同一 DB 里复用了
+`correlationId`，TraceLoom 只会在该 ID 已选出的候选内，用唯一的 interval
+containment 消歧；结果标成 `supported_deterministic`，被排除的候选也仍保留。
+
+然后查询两个相邻 anchors 之间的 host runtime activity：
+
+```sql
+SELECT left_anchor_id, right_anchor_id, support_state,
+       observed_runtime_call_id, api_name,
+       round(observed_dur_us, 3) AS runtime_us
+FROM traceloom_v_anchor_host_activity
+WHERE left_anchor_id = 'anchor-42'
+ORDER BY device_id, left_anchor_id, observed_start_ns;
+```
+
+把示例中的 `anchor-42` 换成当前结构下钻得到的 left anchor；不要无条件打印一份
+大 profile 的全部 interval/call links。
+
+如果目标是比较同一个结构位置在各 occurrence 后面的 host 行为，不必自己把 node、
+anchor 和 interval 重新连接：
+
+```sql
+SELECT occurrence_idx, anchor_order, right_anchor_symbol, host_interval_us,
+       api_name,
+       count(*) AS observed_calls,
+       round(sum(observed_overlap_us), 3) AS scheduled_overlap_us
+FROM traceloom_v_node_host_activity
+WHERE node_id = 'node-42' AND coverage_kind = 'self'
+GROUP BY occurrence_idx, anchor_order, right_anchor_symbol,
+         host_interval_us, api_name
+ORDER BY occurrence_idx, anchor_order, scheduled_overlap_us DESC;
+```
+
+这个视图显式携带 `placement_semantics = 'after_anchor_interval'`。因此它描述的是
+“这个结构位置之后观察到了什么”，不能被读成“这段 CPU cost 归该 node 所有”。
+比较 occurrence 时应同时保留 `right_anchor_symbol` 和 `host_interval_us`：右侧结构
+邻居或 interval 宽度变化，本身就是需要解释的 runtime 行为差异。
+`observed_overlap_us` 已把跨界 call 裁剪到当前 interval，但 runtime calls 彼此仍
+可能嵌套或重叠；其和不是 overlap-safe host busy time。
+
+`docs/report-sql/node-host-activity.sql` 是这条路径的有界现成版本：它默认下钻
+成本最高的重复 atom；把文件顶部的 selector 换成指定 `node_id` 即可检查任意
+热点。不要删除 selector 后直接对整库 occurrence 做排序聚合：在大型产物上，
+那会把一个交互式下钻误写成数百万关系行的全库报表。
+
+这里的结论严格限于 profiler 可见的 runtime API；API 之间没有记录的空白不等于
+CPU 没有工作。`support_state`、`cardinality` 和原始 row locator 应与结果一起读，
+不要把缺失或多义关系误解为“没有 host call”。
+
+这条查询路径不是每次临时做区间连接。augDB 会一次性物化
+`traceloom_anchor_runtime_relation`、`traceloom_anchor_host_interval` 和
+`traceloom_anchor_host_activity` 三层窄关系，并持久化索引与 planner statistics。
+对于 runtime calls 很密集的大 profile，这会让分析数据库明显大于原始运输包；
+取舍是有意的：TraceLoom 生成一次，然后人和 agents 反复做普通关系查询，而不再
+各自重建昂贵且容易漂移的 host/device 关系。
 
 ### 纵向：固定结构，比较同构 occurrence
 

@@ -35,6 +35,7 @@ add_library(traceloom_native_core
   src/ir/protected_interval_table.cpp
   src/ir/replay_composition_candidate_table.cpp
   src/ir/replay_unit_table.cpp
+  src/ir/runtime_call_table.cpp
   src/ir/source_ref_table.cpp
   src/ir/stream_table.cpp
   src/ir/task_table.cpp
@@ -109,6 +110,7 @@ add_library(traceloom_native_materialize
   src/compat/native_sidecar_materializer.cpp
   src/compat/report_tree_rows.cpp
   src/compat/replay_cost_sql_rows.cpp
+  src/compat/runtime_device_rows.cpp
   src/compat/schema.cpp
   src/compat/sidecar_writer.cpp
   src/compat/timeline_rows.cpp
@@ -602,6 +604,33 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     NAME traceloom_native_aux_attribution_rows_tests
     COMMAND traceloom_native_aux_attribution_rows_tests
   )
+
+  if(TRACELOOM_NATIVE_ASCEND_SQLITE_AVAILABLE)
+    add_executable(traceloom_native_runtime_device_rows_tests
+      tests/compat/runtime_device_rows_tests.cpp
+    )
+    target_link_libraries(
+      traceloom_native_runtime_device_rows_tests PRIVATE
+      traceloom_native_materialize
+    )
+    if(TARGET SQLite::SQLite3)
+      target_link_libraries(
+        traceloom_native_runtime_device_rows_tests PRIVATE SQLite::SQLite3
+      )
+    else()
+      target_include_directories(
+        traceloom_native_runtime_device_rows_tests
+        PRIVATE ${SQLite3_INCLUDE_DIRS}
+      )
+      target_link_libraries(
+        traceloom_native_runtime_device_rows_tests PRIVATE ${SQLite3_LIBRARIES}
+      )
+    endif()
+    add_test(
+      NAME traceloom_native_runtime_device_rows_tests
+      COMMAND traceloom_native_runtime_device_rows_tests
+    )
+  endif()
 
   add_executable(traceloom_native_collective_tag_rows_tests
     tests/compat/collective_tag_rows_tests.cpp

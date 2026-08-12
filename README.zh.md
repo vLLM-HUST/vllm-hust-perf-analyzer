@@ -40,6 +40,10 @@ profiler SQLite
 - 在 semantic anchor 序列上发现重复的 decode/layer 结构；
 - 对并发 stream 使用不重复计算的 wall-clock 统计；
 - Repeat 节点的平均值按循环体迭代次数归一化；
+- 用 provider correlation 把 host runtime call 显式关联回 device anchor、
+  graph launch 与 auxiliary work，并保留一对多、歧义和未匹配结果；
+- 查询相邻 device anchor 所关联 host endpoint 之间实际被 profiler 观察到的
+  runtime 调用，而不把这些观测擅自解释成 idle 原因；
 - 保留到原始数据库、表和行的 provenance。
 
 ## 在 Debian 或 Ubuntu 上安装
@@ -139,6 +143,45 @@ member 下钻到内嵌原始证据。最常用的成本列是：
 - `avg_total_us`：普通节点按 occurrence 平均，Repeat 节点按循环体迭代平均；
 - `avg_compute_us`、`avg_comm_us`、`avg_idle_us`：可以直接比较的平均成本；
 - `avg_aux_us`、`avg_self_us`：归因到节点的辅助成本和节点自身成本。
+
+#### 推荐的 host/device 分析路径
+
+不要从 provider 原始表起步。先在恢复结构中选一个高成本或重复 node，再带着
+occurrence 与 anchor 坐标进入 runtime/device 证据：
+
+```sql
+SELECT node_id, local_node_id, label, occurrence_count, avg_total_us
+FROM traceloom_v_tree_node
+WHERE occurrence_count > 1
+ORDER BY total_us DESC
+LIMIT 20;
+
+SELECT occurrence_idx, anchor_order, anchor_idx, api_name, device_symbol,
+       match_policy, support_state, cardinality
+FROM traceloom_v_node_runtime_call
+WHERE node_id = 'node-N006' AND coverage_kind = 'self'
+ORDER BY occurrence_idx, anchor_order, runtime_start_ns;
+
+SELECT occurrence_idx, anchor_order, right_anchor_symbol, host_interval_us,
+       api_name,
+       count(*) AS observed_calls,
+       round(sum(observed_overlap_us), 3) AS scheduled_overlap_us
+FROM traceloom_v_node_host_activity
+WHERE node_id = 'node-N006' AND coverage_kind = 'self'
+GROUP BY occurrence_idx, anchor_order, right_anchor_symbol,
+         host_interval_us, api_name
+ORDER BY occurrence_idx, anchor_order, scheduled_overlap_us DESC;
+```
+
+把 `node-N006` 换成第一条查询返回的 `node_id`。第一条 runtime 视图报告有
+provider 证据的提交/关联关系；第二条报告每个 node-owned anchor **之后**的 host
+区间里 profiler 可见的 runtime calls。后者是结构上下文，不是归属于该 node 的
+CPU 成本，也不是 idle 因果。审计时保留 `support_state`、`cardinality` 与原始
+source key。仓库还提供了有界投影
+`docs/report-sql/node-host-activity.sql`；它默认选择成本最高的重复 atom，并说明
+如何替换成指定 `node_id`。runtime calls 彼此可能嵌套或重叠；即使
+按 interval 裁剪后求和，得到的也只是 scheduled-call time，不是 overlap-safe
+的 host busy union。
 
 体验上图完整的横向与纵向分析路径：
 
