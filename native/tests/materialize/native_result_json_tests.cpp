@@ -123,10 +123,6 @@ int main() {
   json_options.thread_count = 2;
   json_options.top_candidate_limit = 2;
   json_options.native_ir = &ir;
-  const SemanticTaskClassificationResult semantic_classification =
-      classify_semantic_tasks(ir,
-                              load_default_idle_evidence_semantic_ruleset());
-  json_options.semantic_task_classification = &semantic_classification;
 
   AnchorInternalCostBreakdown breakdown;
   AnchorInternalCostBreakdownRow row;
@@ -176,12 +172,6 @@ int main() {
           std::string::npos);
   require(json.find("\"operator\": \"A\"") != std::string::npos);
   require(json.find("\"duration_ns\": 10") != std::string::npos);
-  require(json.find("\"semantic_role\": \"unknown\"") !=
-          std::string::npos);
-  require(json.find("\"semantic_operator_coverage\": {") !=
-          std::string::npos);
-  require(json.find("\"unique_unregistered_operator_count\": 2") !=
-          std::string::npos);
   require(json.find("\"graph_body_cost_summary\": {") !=
           std::string::npos);
   require(json.find("\"task_sum_ns\": 10") != std::string::npos);

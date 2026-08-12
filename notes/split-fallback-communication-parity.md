@@ -24,7 +24,7 @@ carry useful evidence rather than mere noise?
   operation envelopes become explicit events.
 - **Falsifier:** operation evidence cannot be matched unambiguously to task
   groups, task-derived envelopes disagree with monolithic
-  `COMMUNICATION_OP`, or graph/idle evidence changes beyond storage-layout
+  `COMMUNICATION_OP`, or graph/analysis-semantic changes beyond storage-layout
   provenance.
 - **Budget:** one focused adapter change, synthetic layout-parity tests, and
   validation on both retained TP2 ranks before considering a broader IR or

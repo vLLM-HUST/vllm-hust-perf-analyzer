@@ -41,14 +41,14 @@ int main() {
       std::filesystem::temp_directory_path() / "traceloom-sha256-test.txt";
   {
     std::ofstream out(file, std::ios::binary);
-    out << "idle-evidence-semantic-v1\n";
+    out << "analysis-artifact-v1\n";
   }
   const std::string first = sha256_file_hex(file.string());
   require(first == sha256_file_hex(file.string()),
           "sha256 file hash stable for identical bytes");
   {
     std::ofstream out(file, std::ios::binary);
-    out << "idle-evidence-semantic-v2\n";
+    out << "analysis-artifact-v2\n";
   }
   require(sha256_file_hex(file.string()) != first,
           "sha256 file hash changes with content");

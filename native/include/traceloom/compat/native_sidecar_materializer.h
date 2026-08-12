@@ -5,7 +5,6 @@
 #include <string>
 #include <vector>
 
-#include "traceloom/analysis/idle_evidence_pipeline.h"
 #include "traceloom/compat/sidecar_writer.h"
 #include "traceloom/ir/native_ir.h"
 
@@ -36,8 +35,7 @@ void write_basic_native_compatibility_sidecar(
     const std::string& sqlite_path,
     const NativeIr& ir,
     const NativeCompatibilitySidecarOptions& options =
-        NativeCompatibilitySidecarOptions{},
-    const IdleEvidencePipelineResult* idle_evidence = nullptr);
+        NativeCompatibilitySidecarOptions{});
 
 // Creates a new SQLite artifact by snapshotting a regular input profiler DB,
 // then materializing TraceLoom relations into that snapshot. The input is
@@ -48,8 +46,7 @@ void write_queryable_database_timeline(
     const std::string& source_sqlite_path,
     const NativeIr& ir,
     const NativeCompatibilitySidecarOptions& options =
-        NativeCompatibilitySidecarOptions{},
-    const IdleEvidencePipelineResult* idle_evidence = nullptr);
+        NativeCompatibilitySidecarOptions{});
 
 // Multi-file form used by split profiler layouts. Every input database is
 // opened read-only and copied into collision-free raw tables in the one
@@ -60,8 +57,7 @@ void write_queryable_database_timeline(
     const std::vector<std::string>& source_sqlite_paths,
     const NativeIr& ir,
     const NativeCompatibilitySidecarOptions& options =
-        NativeCompatibilitySidecarOptions{},
-    const IdleEvidencePipelineResult* idle_evidence = nullptr);
+        NativeCompatibilitySidecarOptions{});
 
 NodeCoverageSqlRows build_native_loop_tree_node_coverage_rows(
     const NativeIr& ir,
