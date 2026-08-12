@@ -910,7 +910,7 @@ void seed_runtime_device_fixture(const std::string& db_path) {
   work.work_kind = "event";
   work.event_id = "event-1";
   work.task_id = "task-1";
-  work.source_table = "CUPTI_ACTIVITY_KIND_KERNEL";
+  work.source_table = "CUPTI_ACTIVITY_KIND_SYNCHRONIZATION";
   work.source_key = "1";
   work.start_ns = 1000;
   work.end_ns = 1100;
@@ -1227,6 +1227,27 @@ std::vector<QueryCase> active_query_cases() {
           1,
       },
       QueryCase{
+          "synchronization-actions.sql",
+          {
+              "sync_action_id",
+              "provider",
+              "sync_kind",
+              "api_name",
+              "runtime_dur_us",
+              "device_start_ns",
+              "device_dur_us",
+              "match_policy",
+              "evidence_level",
+              "support_state",
+              "cardinality",
+              "runtime_source_table",
+              "runtime_source_key",
+              "device_source_table",
+              "device_source_key",
+          },
+          1,
+      },
+      QueryCase{
           "replay-cost-hotspots.sql",
           {
               "aggregate_id", "graph_template_id", "slot_role",
@@ -1364,7 +1385,8 @@ int main() {
       seed_anchor_cost_fixture(db_path);
     } else if (query_case.filename == "anchor-host-activity.sql" ||
                query_case.filename == "node-host-activity.sql" ||
-               query_case.filename == "runtime-device-relations.sql") {
+               query_case.filename == "runtime-device-relations.sql" ||
+               query_case.filename == "synchronization-actions.sql") {
       seed_runtime_device_fixture(db_path);
     } else if (query_case.filename == "anchor-aux.sql") {
       seed_anchor_aux_fixture(db_path);

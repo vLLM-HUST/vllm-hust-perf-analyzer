@@ -1693,6 +1693,7 @@ void drop_report_compatibility_views(SqliteDb& db) {
   db.exec("DROP VIEW IF EXISTS traceloom_v_anchor_host_interval");
   db.exec("DROP VIEW IF EXISTS traceloom_v_aux_runtime_call");
   db.exec("DROP VIEW IF EXISTS traceloom_v_anchor_runtime_call");
+  db.exec("DROP VIEW IF EXISTS traceloom_v_sync_runtime_call");
   db.exec("DROP VIEW IF EXISTS traceloom_v_runtime_device");
   db.exec("DROP VIEW IF EXISTS traceloom_v_semantic_tree_readable");
   db.exec("DROP VIEW IF EXISTS traceloom_v_semantic_tree_node");
@@ -1727,6 +1728,15 @@ void materialize_runtime_device_views(SqliteDb& db) {
       "r.runtime_call_id "
       "LEFT JOIN traceloom_device_work w ON w.device_work_id = "
       "r.device_work_id");
+
+  db.exec(
+      "CREATE VIEW IF NOT EXISTS traceloom_v_sync_runtime_call AS "
+      "SELECT device_work_id AS sync_action_id, device_symbol AS sync_kind, "
+      "* FROM traceloom_v_runtime_device WHERE "
+      "(provider = 'cuda' AND device_source_table = "
+      "'CUPTI_ACTIVITY_KIND_SYNCHRONIZATION') OR "
+      "(provider = 'ascend' AND device_source_table IN ('TASK', "
+      "'AscendTask') AND device_symbol IN ('EVENT_RECORD', 'EVENT_WAIT'))");
 
   db.exec(
       "CREATE VIEW IF NOT EXISTS traceloom_v_anchor_runtime_call AS "

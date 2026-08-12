@@ -106,6 +106,16 @@ produces an exact submission edge. Useful open states such as
 `missing_runtime_identifier`, `unmatched_device_work`,
 `ambiguous_runtime_candidates`, and `ambiguous_device_scope` remain rows.
 
+Nsight exports may reuse a CUDA `correlationId` within one database. For a
+typed `CUPTI_ACTIVITY_KIND_SYNCHRONIZATION` observation only, TraceLoom may use
+runtime-interval containment to select a unique call **after** the provider
+identifier has formed the candidate set. Such rows are named
+`cuda_correlation_id_time_containment`, carry
+`direct_identifier_time_disambiguated` evidence, and are
+`supported_deterministic` rather than `supported_exact`. Rejected reused-ID
+candidates remain visible. Zero or multiple containing candidates remain
+ambiguous; timestamps never discover a relation on their own.
+
 One input profile database is the default isolation and ownership boundary.
 Multi-process or multi-rank analysis is an explicit composition step: callers
 map each source DB to its known rank/process identity and join the resulting
@@ -121,6 +131,14 @@ their evidence semantics. It is the canonical bidirectional path:
 runtime call -> relation outcome -> device work -> normalized event
 device work  -> relation outcome -> runtime call
 ```
+
+`traceloom_v_sync_runtime_call` is the first narrow synchronization surface.
+It selects typed CUDA synchronization observations and Ascend
+`EVENT_RECORD`/`EVENT_WAIT` device tasks from that same factual relation. It
+does not pair record with wait, construct a synchronization region, or explain
+idle time. In retained Nsight SQLite exports the CUDA `syncType` enum is decoded
+to stable names such as `EVENT_SYNCHRONIZE`, `STREAM_WAIT_EVENT`, and
+`STREAM_SYNCHRONIZE` rather than being confused with `StringIds`.
 
 Anchors and auxiliary device events reuse the same relation:
 

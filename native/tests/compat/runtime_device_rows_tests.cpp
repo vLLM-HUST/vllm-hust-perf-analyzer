@@ -227,6 +227,90 @@ int main() {
   require(ambiguous_rows.relations[2].support_state ==
           "unsupported_provider_schema");
 
+  // Nsight may reuse a CUDA correlationId in one exported DB. For a typed
+  // CUPTI synchronization observation only, interval containment may
+  // disambiguate candidates already selected by that documented provider
+  // identifier. It must retain the rejected candidate and must not turn a
+  // non-unique containment into an exact edge.
+  NativeIr reused_sync_ir;
+  const SourceRefId reused_runtime_source = reused_sync_ir.source_refs.append(
+      "cuda_nsys_sqlite", "memory", "CUPTI_ACTIVITY_KIND_RUNTIME", 0);
+  const SourceRefId reused_sync_source = reused_sync_ir.source_refs.append(
+      "cuda_nsys_sqlite", "memory",
+      "CUPTI_ACTIVITY_KIND_SYNCHRONIZATION", 0);
+  const SymbolId reused_symbol = reused_sync_ir.symbols.intern("sync");
+  const SymbolId reused_type = reused_sync_ir.symbols.intern("cuda_runtime");
+  reused_sync_ir.runtime_calls.append(
+      reused_runtime_source, 1, RuntimeCallProvider::kCuda,
+      RuntimeCallClockDomain::kProfilerHost,
+      RuntimeCallMatchPolicy::kCudaCorrelationId, 100, 200, 77, reused_type,
+      reused_symbol);
+  reused_sync_ir.runtime_calls.append(
+      reused_runtime_source, 2, RuntimeCallProvider::kCuda,
+      RuntimeCallClockDomain::kProfilerHost,
+      RuntimeCallMatchPolicy::kCudaCorrelationId, 300, 400, 77, reused_type,
+      reused_symbol);
+  const TraceEventId reused_sync_event = reused_sync_ir.trace_events.append(
+      reused_sync_source, 1, 0, 1, 320, 330, reused_symbol);
+  reused_sync_ir.tasks.append(
+      reused_sync_source, reused_sync_event, 77, 77, 77, reused_symbol,
+      reused_symbol, reused_symbol, reused_symbol, SymbolId::invalid());
+  const compat::RuntimeDeviceSqlRows reused_sync_rows =
+      compat::build_runtime_device_sql_rows(reused_sync_ir);
+  require(reused_sync_rows.relations.size() == 2);
+  require(reused_sync_rows.relations[0].support_state ==
+          "rejected_reused_correlation_id");
+  require(reused_sync_rows.relations[1].support_state ==
+          "supported_deterministic");
+  require(reused_sync_rows.relations[1].match_policy ==
+          "cuda_correlation_id_time_containment");
+  require(reused_sync_rows.relations[1].evidence_level ==
+          "direct_identifier_time_disambiguated");
+  const std::string reused_sync_path = temp_db_path();
+  compat::materialize_compatibility_schema(reused_sync_path);
+  compat::replace_runtime_device_rows(reused_sync_path, reused_sync_rows);
+  compat::materialize_report_compatibility_views(reused_sync_path);
+  require(scalar_int(reused_sync_path,
+                     "SELECT COUNT(*) FROM traceloom_v_sync_runtime_call") ==
+          2);
+  require(scalar_text(reused_sync_path,
+                      "SELECT sync_kind FROM traceloom_v_sync_runtime_call "
+                      "WHERE support_state='supported_deterministic'") ==
+          "sync");
+  std::remove(reused_sync_path.c_str());
+
+  NativeIr overlapping_sync_ir;
+  const SourceRefId overlap_runtime_source =
+      overlapping_sync_ir.source_refs.append(
+          "cuda_nsys_sqlite", "memory", "CUPTI_ACTIVITY_KIND_RUNTIME", 0);
+  const SourceRefId overlap_sync_source = overlapping_sync_ir.source_refs.append(
+      "cuda_nsys_sqlite", "memory",
+      "CUPTI_ACTIVITY_KIND_SYNCHRONIZATION", 0);
+  const SymbolId overlap_symbol = overlapping_sync_ir.symbols.intern("sync");
+  overlapping_sync_ir.runtime_calls.append(
+      overlap_runtime_source, 1, RuntimeCallProvider::kCuda,
+      RuntimeCallClockDomain::kProfilerHost,
+      RuntimeCallMatchPolicy::kCudaCorrelationId, 100, 400, 88,
+      overlap_symbol, overlap_symbol);
+  overlapping_sync_ir.runtime_calls.append(
+      overlap_runtime_source, 2, RuntimeCallProvider::kCuda,
+      RuntimeCallClockDomain::kProfilerHost,
+      RuntimeCallMatchPolicy::kCudaCorrelationId, 200, 300, 88,
+      overlap_symbol, overlap_symbol);
+  const TraceEventId overlap_sync_event =
+      overlapping_sync_ir.trace_events.append(
+          overlap_sync_source, 1, 0, 1, 220, 230, overlap_symbol);
+  overlapping_sync_ir.tasks.append(
+      overlap_sync_source, overlap_sync_event, 88, 88, 88, overlap_symbol,
+      overlap_symbol, overlap_symbol, overlap_symbol, SymbolId::invalid());
+  const compat::RuntimeDeviceSqlRows overlapping_sync_rows =
+      compat::build_runtime_device_sql_rows(overlapping_sync_ir);
+  require(overlapping_sync_rows.relations.size() == 2);
+  require(overlapping_sync_rows.relations[0].support_state ==
+              "ambiguous_runtime_candidates" &&
+          overlapping_sync_rows.relations[1].support_state ==
+              "ambiguous_runtime_candidates");
+
   NativeIr cross_provider_ir;
   const SourceRefId cuda_runtime = cross_provider_ir.source_refs.append(
       "cuda_nsys_sqlite", "memory", "CUPTI_ACTIVITY_KIND_RUNTIME", 0);
@@ -322,6 +406,9 @@ int main() {
   require(scalar_int(path,
                      "SELECT COUNT(*) FROM traceloom_v_anchor_runtime_call "
                      "WHERE support_state='supported_exact'") == 2);
+  require(scalar_int(path,
+                     "SELECT COUNT(*) FROM traceloom_v_sync_runtime_call") ==
+          0);
   require(scalar_text(path,
                       "SELECT support_state FROM "
                       "traceloom_v_anchor_host_interval") ==

@@ -138,6 +138,16 @@ struct WorkRef {
   std::uint32_t device_id = 0;
 };
 
+bool is_cuda_synchronization_work(const DeviceWorkSqlRow& work) {
+  return work.provider == "cuda" &&
+         work.source_table == "CUPTI_ACTIVITY_KIND_SYNCHRONIZATION";
+}
+
+bool runtime_interval_contains_work(const RuntimeCallRow& call,
+                                    const DeviceWorkSqlRow& work) {
+  return call.start_ns <= work.start_ns && call.end_ns >= work.end_ns;
+}
+
 using CorrelationKey = std::pair<RuntimeCallProvider, std::int64_t>;
 
 using ActivityGroupKey =
@@ -374,11 +384,38 @@ RuntimeDeviceSqlRows build_runtime_device_sql_rows(const NativeIr& ir,
 
     std::set<std::uint32_t> devices;
     for (const WorkRef& work : works) devices.insert(work.device_id);
-    for (const RuntimeCallRow* call : calls) {
-      for (const WorkRef& work : works) {
+    for (const WorkRef& work : works) {
+      const DeviceWorkSqlRow& work_row = rows.device_works[work.row_index];
+      const bool disambiguate_reused_cuda_sync_correlation =
+          calls.size() > 1 && is_cuda_synchronization_work(work_row);
+      std::vector<const RuntimeCallRow*> containing_calls;
+      if (disambiguate_reused_cuda_sync_correlation) {
+        for (const RuntimeCallRow* call : calls) {
+          if (runtime_interval_contains_work(*call, work_row)) {
+            containing_calls.push_back(call);
+          }
+        }
+      }
+      for (const RuntimeCallRow* call : calls) {
         std::string support = "supported_exact";
         std::string evidence = "direct_provider_identifier";
-        if (calls.size() > 1) {
+        std::string policy = match_policy_name(call->match_policy);
+        if (disambiguate_reused_cuda_sync_correlation &&
+            containing_calls.size() == 1) {
+          policy = "cuda_correlation_id_time_containment";
+          if (call == containing_calls.front()) {
+            // CUPTI documents correlationId as the associated API. Nsight
+            // exports can reuse that identifier within one DB, so interval
+            // containment only disambiguates candidates already selected by
+            // the provider identifier; it never discovers a relation by
+            // timestamp proximity alone.
+            support = "supported_deterministic";
+            evidence = "direct_identifier_time_disambiguated";
+          } else {
+            support = "rejected_reused_correlation_id";
+            evidence = "rejected_by_time_containment";
+          }
+        } else if (calls.size() > 1) {
           support = "ambiguous_runtime_candidates";
           evidence = "candidate_provider_identifier";
         } else if (call->has_device_id && call->device_id != work.device_id) {
@@ -389,8 +426,7 @@ RuntimeDeviceSqlRows build_runtime_device_sql_rows(const NativeIr& ir,
           evidence = "candidate_provider_identifier";
         }
         append_relation(rows, db_idx, runtime_call_id(call->id),
-                        rows.device_works[work.row_index].device_work_id,
-                        "provider_correlation", match_policy_name(call->match_policy),
+                        work_row.device_work_id, "provider_correlation", policy,
                         evidence, support, calls.size(), works.size(), key.second);
       }
     }

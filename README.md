@@ -189,6 +189,12 @@ FROM traceloom_v_node_runtime_call
 WHERE node_id = 'node-N006' AND coverage_kind = 'self'
 ORDER BY occurrence_idx, anchor_order, runtime_start_ns;
 
+SELECT sync_kind, api_name, runtime_dur_us, match_policy, support_state
+FROM traceloom_v_sync_runtime_call
+WHERE support_state IN ('supported_exact', 'supported_deterministic')
+ORDER BY device_start_ns
+LIMIT 100;
+
 SELECT occurrence_idx, anchor_order, right_anchor_symbol, host_interval_us,
        api_name,
        count(*) AS observed_calls,
@@ -201,7 +207,9 @@ ORDER BY occurrence_idx, anchor_order, scheduled_overlap_us DESC;
 ```
 
 Replace `node-N006` with a returned `node_id`. The first runtime view exposes
-provider-supported submission/correlation relations. The second reports calls
+provider-supported submission/correlation relations. The synchronization view
+is factual action-to-runtime evidence, not record/wait pairing or idle-cause
+attribution. The final query reports calls
 in the host interval **after** each node-owned anchor; it is contextual runtime
 behavior, not CPU cost owned by that node and not an idle-cause claim. Keep
 `support_state`, `cardinality`, and source keys in any audit. A bounded canned

@@ -25,6 +25,7 @@ namespace {
 
 constexpr const char* kKernelTable = "CUPTI_ACTIVITY_KIND_KERNEL";
 constexpr const char* kStringIdsTable = "StringIds";
+constexpr const char* kSyncTypeTable = "ENUM_CUPTI_SYNC_TYPE";
 
 const std::vector<std::string>& optional_activity_table_names() {
   static const std::vector<std::string> names{
@@ -328,6 +329,40 @@ std::unordered_map<std::int64_t, std::string> load_string_ids(SqliteDb& db) {
   }
 }
 
+std::unordered_map<std::int64_t, std::string> load_optional_enum_names(
+    SqliteDb& db, const std::string& table) {
+  const std::vector<std::string> tables = table_names(db);
+  if (!has_name(tables, table)) {
+    return {};
+  }
+  const ColumnMap columns = table_columns(db, table);
+  const std::string id_column = find_column(columns, "id");
+  const std::string name_column = find_column(columns, "name");
+  if (id_column.empty() || name_column.empty()) {
+    throw std::runtime_error("unsupported CUDA/Nsight " + table +
+                             " schema: expected id and name columns");
+  }
+  SqliteStmt stmt(db.get(), "SELECT " + quote_identifier(id_column) + ", " +
+                                quote_identifier(name_column) + " FROM " +
+                                quote_identifier(table) + " ORDER BY " +
+                                quote_identifier(id_column));
+  std::unordered_map<std::int64_t, std::string> out;
+  while (true) {
+    const int rc = sqlite3_step(stmt.get());
+    if (rc == SQLITE_ROW) {
+      if (sqlite3_column_type(stmt.get(), 0) != SQLITE_NULL) {
+        out.emplace(sqlite_i64(stmt.get(), 0), sqlite_text(stmt.get(), 1));
+      }
+      continue;
+    }
+    if (rc == SQLITE_DONE) {
+      return out;
+    }
+    throw std::runtime_error("failed to load CUDA/Nsight " + table + ": " +
+                             std::string(sqlite3_errmsg(stmt.db())));
+  }
+}
+
 std::string resolved_name(
     sqlite3_stmt* stmt, int column,
     const std::unordered_map<std::int64_t, std::string>& strings) {
@@ -342,6 +377,28 @@ std::string resolved_name(
     }
   }
   return {};
+}
+
+std::string resolved_sync_type(
+    sqlite3_stmt* stmt, int column,
+    const std::unordered_map<std::int64_t, std::string>& sync_types) {
+  const int type = sqlite3_column_type(stmt, column);
+  if (type == SQLITE_TEXT) {
+    return sqlite_text(stmt, column);
+  }
+  if (type != SQLITE_INTEGER) {
+    return {};
+  }
+  const std::int64_t raw_type = sqlite_i64(stmt, column, -1);
+  const auto found = sync_types.find(raw_type);
+  if (found == sync_types.end()) {
+    return "CUDA_SYNC_TYPE_" + std::to_string(raw_type);
+  }
+  constexpr const char* prefix = "CUPTI_ACTIVITY_SYNCHRONIZATION_TYPE_";
+  if (found->second.rfind(prefix, 0) == 0) {
+    return found->second.substr(std::char_traits<char>::length(prefix));
+  }
+  return found->second;
 }
 
 std::string choose_kernel_label(const std::string& short_name,
@@ -500,6 +557,13 @@ void load_auxiliary_activity_rows(
     SqliteDb& db, NativeIr& ir, const CudaNsightSQLiteAdapterOptions& options,
     const CudaNsightSQLiteInventory& inventory,
     const std::unordered_map<std::int64_t, std::string>& strings) {
+  const bool has_sync_activity =
+      has_name(inventory.present_activity_tables,
+               "CUPTI_ACTIVITY_KIND_SYNCHRONIZATION") &&
+      table_row_count(db, "CUPTI_ACTIVITY_KIND_SYNCHRONIZATION") > 0;
+  const std::unordered_map<std::int64_t, std::string> sync_types =
+      has_sync_activity ? load_optional_enum_names(db, kSyncTypeTable)
+                        : std::unordered_map<std::int64_t, std::string>{};
   for (const AuxiliaryActivitySpec& spec : auxiliary_activity_specs()) {
     if (!has_name(inventory.present_activity_tables, spec.table) ||
         table_row_count(db, spec.table) == 0) {
@@ -586,7 +650,10 @@ void load_auxiliary_activity_rows(
       const std::uint32_t stream_id = static_cast<std::uint32_t>(
           std::max<std::int64_t>(0, sqlite_i64(stmt.get(), 4, 0)));
       const std::int64_t correlation_id = sqlite_i64(stmt.get(), 5, -1);
-      std::string label = resolved_name(stmt.get(), 6, strings);
+      std::string label =
+          std::string(spec.table) == "CUPTI_ACTIVITY_KIND_SYNCHRONIZATION"
+              ? resolved_sync_type(stmt.get(), 6, sync_types)
+              : resolved_name(stmt.get(), 6, strings);
       if (label.empty()) {
         label = std::string(spec.fallback_label) + "_" +
                 std::to_string(source_row_id);

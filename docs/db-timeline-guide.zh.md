@@ -54,6 +54,7 @@ structural node
 | `traceloom_v_anchor_runtime_call` | 从 device anchor 反查关联的 host runtime call。 |
 | `traceloom_v_node_runtime_call` | 在 tree node / occurrence / anchor order 中双向查询 runtime/device 关系。 |
 | `traceloom_v_aux_runtime_call` | 从 device aux 反查关联的 host runtime call。 |
+| `traceloom_v_sync_runtime_call` | 查询 profiler 明确标记的同步动作及其 runtime/device 关系。 |
 | `traceloom_v_anchor_host_activity` | 查看相邻 device anchors 对应的 host endpoints 之间，profiler 实际观察到的 runtime calls。 |
 | `traceloom_v_node_host_activity` | 按 node occurrence 与 anchor position 比较 anchor 之后的 host runtime 分布。 |
 
@@ -82,6 +83,25 @@ ORDER BY occurrence_idx, anchor_order, runtime_start_ns;
 
 反过来按 `runtime_call_id` 过滤同一视图，就能看到它对应的 device work
 落在哪些 node occurrences 中，不需要重建 provider join。
+
+如果问题专门针对 profiler 已明确标记的同步动作，使用窄视图，而不是重新解释
+所有 aux：
+
+```sql
+SELECT sync_action_id, sync_kind, api_name, runtime_dur_us,
+       match_policy, evidence_level, support_state, cardinality
+FROM traceloom_v_sync_runtime_call
+WHERE support_state IN ('supported_exact', 'supported_deterministic')
+ORDER BY device_start_ns;
+```
+
+CUDA 的 `sync_kind` 会被解码成 `EVENT_SYNCHRONIZE`、
+`STREAM_WAIT_EVENT` 或 `STREAM_SYNCHRONIZE` 等 CUPTI 类型；Ascend 当前只纳入
+有直接 `connectionId` 关系的 `EVENT_RECORD`/`EVENT_WAIT` device tasks。
+这个视图表示“同步动作与哪个 runtime call 有可审计关系”，不表示某个 wait 一定
+由哪个 record 触发，也不把它解释成 idle 原因。若 Nsight 在同一 DB 里复用了
+`correlationId`，TraceLoom 只会在该 ID 已选出的候选内，用唯一的 interval
+containment 消歧；结果标成 `supported_deterministic`，被排除的候选也仍保留。
 
 然后查询两个相邻 anchors 之间的 host runtime activity：
 

@@ -1001,6 +1001,7 @@ int main() {
               "traceloom_v_runtime_device",
               "traceloom_v_semantic_tree_node",
               "traceloom_v_semantic_tree_readable",
+              "traceloom_v_sync_runtime_call",
               "traceloom_v_tree_node",
           }));
   const std::vector<ColumnInfo> tree_view_columns =
