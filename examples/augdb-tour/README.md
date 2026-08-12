@@ -40,3 +40,7 @@ python3 examples/augdb-tour/render_showcase.py \
   examples/kickstart_smoke/msprof_raw/traceloom/analysis_db01.db \
   docs/assets/augdb-experience.svg
 ```
+
+Use `--theme paper` to emit a light, print-friendly SVG from the same query
+results. The dark and paper views differ only in presentation; their structure,
+costs, occurrence population, and provenance path come from the same database.

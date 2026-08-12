@@ -42,7 +42,7 @@ def query_one(db: sqlite3.Connection, sql: str) -> sqlite3.Row:
     return row
 
 
-def render(database: Path) -> str:
+def render(database: Path, theme: str = "dark") -> str:
     db = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
     db.row_factory = sqlite3.Row
     target = query_one(
@@ -112,6 +112,84 @@ def render(database: Path) -> str:
     mean = sum(values) / len(values)
     child_names = [row["label"] for row in children]
 
+    if theme == "paper":
+        colors = {
+            "bg": "#ffffff",
+            "panel": "#f7f9fc",
+            "panel_stroke": "#a9b6c8",
+            "terminal": "#f3f6fa",
+            "terminal_stroke": "#8ea0b8",
+            "chip": "#eef3f9",
+            "chip_stroke": "#9aabc1",
+            "chip_hot": "#e1f5f1",
+            "hot": "#087f72",
+            "bar": "#5274c8",
+            "bar_hot": "#16a394",
+            "guide": "#b2bfce",
+            "title": "#172235",
+            "section": "#172235",
+            "body": "#26364c",
+            "muted": "#53657c",
+            "label": "#53657c",
+            "highlight": "#087f72",
+        }
+        headline = "Queryable hierarchical cost view"
+        subtitle = (
+            "Horizontal drill-down preserves evidence; vertical alignment "
+            "defines comparable cost populations."
+        )
+    else:
+        colors = {
+            "bg": "#09111f",
+            "panel": "#101b2d",
+            "panel_stroke": "#2b3b55",
+            "terminal": "#0b1424",
+            "terminal_stroke": "#344765",
+            "chip": "#172840",
+            "chip_stroke": "#3b5477",
+            "chip_hot": "#243c5f",
+            "hot": "#62d9c5",
+            "bar": "#5d78d8",
+            "bar_hot": "#62d9c5",
+            "guide": "#354964",
+            "title": "#f5f7fb",
+            "section": "#f0f4fb",
+            "body": "#dce6f4",
+            "muted": "#9eb0c9",
+            "label": "#a9bad1",
+            "highlight": "#75ead5",
+        }
+        headline = "One artifact. Two analytical directions."
+        subtitle = (
+            "TraceLoom turns raw profiler rows into a queryable "
+            "hierarchical cost map."
+        )
+
+    css = """<style>
+          .bg {{ fill: {bg}; }}
+          .panel {{ fill: {panel}; stroke: {panel_stroke}; stroke-width: 1.5; }}
+          .terminal {{ fill: {terminal}; stroke: {terminal_stroke}; stroke-width: 1.5; }}
+          .chip {{ fill: {chip}; stroke: {chip_stroke}; stroke-width: 1; }}
+          .chip-hot {{ fill: {chip_hot}; stroke: {hot}; stroke-width: 1.5; }}
+          .bar {{ fill: {bar}; }}
+          .bar-hot {{ fill: {bar_hot}; }}
+          .guide {{ stroke: {guide}; stroke-width: 1; }}
+          .arrow {{ stroke: {hot}; stroke-width: 2.5; fill: none; }}
+          text {{ font-family: Inter, ui-sans-serif, system-ui, sans-serif; }}
+          .title {{ fill: {title}; font-size: 38px; font-weight: 700; }}
+          .subtitle {{ fill: {muted}; font-size: 19px; }}
+          .section {{ fill: {section}; font-size: 23px; font-weight: 650; }}
+          .label {{ fill: {label}; font-size: 15px; font-weight: 600; }}
+          .body {{ fill: {body}; font-size: 16px; }}
+          .small {{ fill: {muted}; font-size: 13px; }}
+          .mono {{ fill: {body}; font-size: 15px; font-family: ui-monospace,
+                  SFMono-Regular, Menlo, Consolas, monospace; }}
+          .mono-hot {{ fill: {highlight}; font-size: 15px; font-weight: 650;
+                      font-family: ui-monospace, SFMono-Regular, Menlo,
+                      Consolas, monospace; }}
+          .metric {{ fill: {highlight}; font-size: 20px; font-weight: 700; }}
+        </style>""".format(**colors)
+
     out = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{WIDTH}" '
         f'height="{HEIGHT}" viewBox="0 0 {WIDTH} {HEIGHT}" role="img" '
@@ -120,38 +198,10 @@ def render(database: Path) -> str:
         '<desc id="description">A hierarchical execution structure supports '
         'horizontal evidence drill-down and vertical cost comparison across '
         'equivalent occurrences.</desc>',
-        """<style>
-          .bg { fill: #09111f; }
-          .panel { fill: #101b2d; stroke: #2b3b55; stroke-width: 1.5; }
-          .terminal { fill: #0b1424; stroke: #344765; stroke-width: 1.5; }
-          .chip { fill: #172840; stroke: #3b5477; stroke-width: 1; }
-          .chip-hot { fill: #243c5f; stroke: #62d9c5; stroke-width: 1.5; }
-          .bar { fill: #5d78d8; }
-          .bar-hot { fill: #62d9c5; }
-          .guide { stroke: #354964; stroke-width: 1; }
-          .arrow { stroke: #62d9c5; stroke-width: 2.5; fill: none; }
-          text { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
-          .title { fill: #f5f7fb; font-size: 38px; font-weight: 700; }
-          .subtitle { fill: #9eb0c9; font-size: 19px; }
-          .section { fill: #f0f4fb; font-size: 23px; font-weight: 650; }
-          .label { fill: #a9bad1; font-size: 15px; font-weight: 600; }
-          .body { fill: #dce6f4; font-size: 16px; }
-          .small { fill: #9eb0c9; font-size: 13px; }
-          .mono { fill: #dce6f4; font-size: 15px; font-family: ui-monospace,
-                  SFMono-Regular, Menlo, Consolas, monospace; }
-          .mono-hot { fill: #75ead5; font-size: 15px; font-weight: 650;
-                      font-family: ui-monospace, SFMono-Regular, Menlo,
-                      Consolas, monospace; }
-          .metric { fill: #75ead5; font-size: 20px; font-weight: 700; }
-        </style>""",
+        css,
         rect(0, 0, WIDTH, HEIGHT, "bg", 0),
-        text(64, 72, "One artifact. Two analytical directions.", "title"),
-        text(
-            64,
-            106,
-            "TraceLoom turns raw profiler rows into a queryable hierarchical cost map.",
-            "subtitle",
-        ),
+        text(64, 72, headline, "title"),
+        text(64, 106, subtitle, "subtitle"),
     ]
 
     # Horizontal structure panel.
@@ -292,9 +342,12 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("analysis_db", type=Path)
     parser.add_argument("output_svg", type=Path)
+    parser.add_argument("--theme", choices=("dark", "paper"), default="dark")
     args = parser.parse_args()
     args.output_svg.parent.mkdir(parents=True, exist_ok=True)
-    args.output_svg.write_text(render(args.analysis_db), encoding="utf-8")
+    args.output_svg.write_text(
+        render(args.analysis_db, theme=args.theme), encoding="utf-8"
+    )
 
 
 if __name__ == "__main__":
