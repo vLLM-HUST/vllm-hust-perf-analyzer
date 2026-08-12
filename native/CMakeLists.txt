@@ -1148,6 +1148,7 @@ add_executable(traceloom_native_replay_internal_cost_map_tests
         --threads 2
         --timings
         --sidecar-only
+        --no-aug-db
         --compat-sidecar-out ${CMAKE_CURRENT_BINARY_DIR}/cuda_nsys_cli_compat.db
         --loop-tree-out ${CMAKE_CURRENT_BINARY_DIR}/cuda_nsys_loop_tree_v2.md
     )
@@ -1167,6 +1168,48 @@ add_executable(traceloom_native_replay_internal_cost_map_tests
       traceloom_native_analyze_cuda_nsys_compat_sidecar_db
       PROPERTIES
         DEPENDS traceloom_native_analyze_cuda_nsys_compat_sidecar_cli
+    )
+
+    add_test(
+      NAME traceloom_native_prepare_cuda_nsys_default_input_dir
+      COMMAND ${CMAKE_COMMAND} -E make_directory
+        ${CMAKE_CURRENT_BINARY_DIR}/default_cli_input
+    )
+    add_test(
+      NAME traceloom_native_prepare_cuda_nsys_default_input
+      COMMAND ${CMAKE_COMMAND} -E copy
+        ${CMAKE_CURRENT_BINARY_DIR}/cuda_nsys_minimal_fixture.sqlite
+        ${CMAKE_CURRENT_BINARY_DIR}/default_cli_input/profile.sqlite
+    )
+    set_tests_properties(
+      traceloom_native_prepare_cuda_nsys_default_input
+      PROPERTIES
+        DEPENDS
+          "traceloom_native_cuda_nsys_sqlite_adapter_tests;traceloom_native_prepare_cuda_nsys_default_input_dir"
+    )
+    add_test(
+      NAME traceloom_native_analyze_cuda_nsys_default_augmented_db_cli
+      COMMAND traceloom
+        ${CMAKE_CURRENT_BINARY_DIR}/default_cli_input/profile.sqlite
+        --threads 2
+    )
+    set_tests_properties(
+      traceloom_native_analyze_cuda_nsys_default_augmented_db_cli
+      PROPERTIES
+        DEPENDS traceloom_native_prepare_cuda_nsys_default_input
+        PASS_REGULAR_EXPRESSION
+          "wrote analysis database: .*default_cli_input/traceloom/analysis.db"
+    )
+    add_test(
+      NAME traceloom_native_analyze_cuda_nsys_default_augmented_db
+      COMMAND traceloom_native_cli_sidecar_smoke_tests
+        ${CMAKE_CURRENT_BINARY_DIR}/default_cli_input/traceloom/analysis.db
+        augmented
+    )
+    set_tests_properties(
+      traceloom_native_analyze_cuda_nsys_default_augmented_db
+      PROPERTIES
+        DEPENDS traceloom_native_analyze_cuda_nsys_default_augmented_db_cli
     )
 
     add_test(

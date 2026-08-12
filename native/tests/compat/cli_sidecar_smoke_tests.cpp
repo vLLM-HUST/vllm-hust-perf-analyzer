@@ -2,6 +2,7 @@
 
 #include <sqlite3.h>
 
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -127,6 +128,31 @@ void require_cuda_sidecar(const std::string& path) {
                                   "AND role != 'aux'") == 0);
 }
 
+void require_augmented_database(const std::string& path) {
+  traceloom::testing::require(run_scalar_int(
+                                  path,
+                                  "SELECT COUNT(*) FROM traceloom_metadata "
+                                  "WHERE key = 'artifact_kind' AND value = "
+                                  "'self_contained_augmented_database'") == 1);
+  traceloom::testing::require(run_scalar_int(
+                                  path,
+                                  "SELECT COUNT(*) FROM "
+                                  "traceloom_raw_source_database") == 1);
+  traceloom::testing::require(run_scalar_int(
+                                  path,
+                                  "SELECT COUNT(*) FROM "
+                                  "traceloom_analysis_surface") >= 8);
+  traceloom::testing::require(run_scalar_int(
+                                  path,
+                                  "SELECT COUNT(*) FROM sqlite_master WHERE "
+                                  "type = 'table' AND name = "
+                                  "'CUPTI_ACTIVITY_KIND_KERNEL'") == 1);
+  traceloom::testing::require(
+      !std::filesystem::exists(std::filesystem::path(path).parent_path() /
+                               "loop_tree_v2.md"),
+      "default augmented-DB UX unexpectedly emitted Markdown");
+}
+
 void require_cuda_markdown(const std::string& path) {
   std::ifstream input(path);
   traceloom::testing::require(input.good(),
@@ -159,6 +185,10 @@ int main(int argc, char** argv) {
         argc == 4, "CUDA sidecar smoke test requires Loop Tree Markdown");
     require_cuda_sidecar(path);
     require_cuda_markdown(argv[3]);
+  } else if (mode == "augmented") {
+    traceloom::testing::require(argc == 3);
+    require_cuda_sidecar(path);
+    require_augmented_database(path);
   } else {
     traceloom::testing::require(argc == 3);
     traceloom::testing::require(mode == "fixture");

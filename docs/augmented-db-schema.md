@@ -5,11 +5,14 @@ SQLite database**. The analyzer opens the profiler DB read-only, snapshots its
 raw schema and rows into a new file, and appends TraceLoom-owned relations under
 the `traceloom_*` namespace. It never modifies the input. Reports are SQL
 queries over those relations, not a separate report-specific data model.
+The artifact is built at a temporary sibling path and atomically replaces the
+destination only after all raw and analytical relations are complete.
 
-Create one explicitly for a regular profiler SQLite file:
+Create one with the default command:
 
 ```bash
-traceloom profile.db --aug-db-out profile.traceloom.db
+traceloom profile.db
+# writes profile-directory/traceloom/analysis.db
 ```
 
 The result retains every original raw table plus TraceLoom augmentation tables.
@@ -19,10 +22,35 @@ vendor relations. `traceloom_metadata` records `artifact_kind`,
 `source_embedded`, original path, size, and SHA-256. The path and digest are
 provenance, not query-time dependencies.
 
-The first production slice snapshots one regular SQLite input. Ascend split
-profiles still use the compatibility DB path until their multiple raw SQLite
-files receive an explicit collision-free packaging contract; TraceLoom fails
-closed rather than calling such an artifact self-contained.
+For a regular input, TraceLoom snapshots its schema and rows unchanged. For an
+Ascend split profile, it copies every constituent SQLite database into the one
+artifact under collision-free names. `traceloom_raw_source_database` records
+each source path, size, hash, and packaging mode;
+`traceloom_raw_table` maps `(source_path, source_table)` to the embedded table
+and its explicit preserved-rowid column.
+
+Start by querying `traceloom_analysis_surface`. It catalogs the first-class
+hierarchy, occurrence, event, replay, issue, provenance, and raw-evidence
+relations together with runnable example SQL. Markdown is an optional human
+projection requested with `--loop-tree-out`, not a separate analytical model.
+
+The raw-evidence catalog is itself queryable:
+
+- `traceloom_raw_source_database`: one row per embedded source SQLite file;
+- `traceloom_raw_table`: original source path/table to embedded table mapping;
+- `traceloom_v_event_source_locator`: normalized event lineage joined to that
+  mapping. Its `resolution_status` distinguishes `embedded_raw`, intentional
+  `analysis_synthetic`, and a genuine `unresolved` locator. For split profiles,
+  query the named embedded table using
+  `source_rowid_column = source_key`; SQL cannot dynamically substitute a table
+  name, so agents first read the locator row and then issue the bounded raw
+  lookup.
+
+`traceloom_operator_audit` is the SQL replacement for the old Markdown-only
+unregistered-operator section. Its availability is explicit in the
+`traceloom_metadata` key `operator_audit_status`; CUDA/Hygon artifacts do not
+claim an Ascend operator taxonomy. Its canonical query is embedded in
+`traceloom_analysis_surface`.
 
 ## Core Tables
 

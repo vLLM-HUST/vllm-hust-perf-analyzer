@@ -1,25 +1,31 @@
 # Output Schema
 
-## Default Report
+## Default Analytical Artifact
 
 For one database, TraceLoom writes:
 
 ```text
-PROF_.../traceloom/loop_tree_v2.md
+PROF_.../traceloom/analysis.db
 ```
 
 For a profiler directory containing multiple device databases:
 
 ```text
-msprof_output/traceloom/device0_loop_tree_v2.md
-msprof_output/traceloom/device1_loop_tree_v2.md
+msprof_output/traceloom/analysis_db01.db
+msprof_output/traceloom/analysis_db02.db
 ```
 
-The report contains the compressed execution tree, occurrence and repeat
-counts, total wall-clock cost, per-occurrence/per-iteration averages, compute,
-communication, idle, active, auxiliary, and self-cost columns.
+The SQLite artifact contains embedded raw evidence plus the compressed
+execution tree, occurrences, repeat counts, cost lenses, replay internals,
+provenance, and typed analysis issues. `traceloom_analysis_surface` is its
+self-describing entry-point catalog. `traceloom_raw_source_database` and
+`traceloom_raw_table` describe raw packaging, including split profiles.
 
-Ascend reports also contain a `Visible Productive Idle Evidence` section. It
+## Optional Markdown Projection
+
+`--loop-tree-out PATH` renders a compact human projection over the same
+analysis choices. Ascend projections include a `Visible Productive Idle
+Evidence` section. It
 is the device-level E1→E4 explanation partition: profiler-visible wait,
 capture/control, runtime-control, and explicit unattributed residual. The
 default real-profile `collection_status` is `unknown`, so TraceLoom does not
@@ -47,19 +53,19 @@ rows are hierarchical: a parent's duration includes its descendants, so
 parent and child rows are not additive. Nanosecond fields are authoritative;
 microsecond fields are readable rounded summaries.
 
-## Explicit Native Artifacts
+## Explicit Projections And Compatibility Artifacts
 
 Use `traceloom --help-advanced` for non-default outputs:
 
 - `--out PATH`: native result JSON;
 - `--grammar-debug-out PATH`: grammar-state diagnostics;
-- `--aug-db-out PATH`: new self-contained augmented SQLite database containing
-  copied raw profiler tables and TraceLoom analysis relations (one regular
-  SQLite input in the current production slice);
+- `--output PATH`: explicit path for the default self-contained augmented DB;
+- `--aug-db-out PATH`: compatibility spelling of `--output`;
 - `--compat-db-out PATH`: legacy queryable compatibility SQLite output without
   a raw-table snapshot;
-- `--loop-tree-out PATH`: explicit Loop Tree output path;
-- `--loop-tree-aux`: include auxiliary attribution in the Loop Tree build.
+- `--loop-tree-out PATH`: explicit human-readable Markdown projection;
+- `--loop-tree-aux` / `--loop-tree-no-aux`: enable or disable auxiliary
+  attribution (enabled by default for both database and Markdown projections);
 - `--idle-evidence-rules PATH`: override the Ascend idle-evidence semantic
   ruleset; an invalid override fails rather than falling back silently.
 

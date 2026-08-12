@@ -1,5 +1,7 @@
 #include "traceloom/compat/timeline_rows.h"
 
+#include <filesystem>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -70,6 +72,55 @@ bool ends_with(const std::string& value, const std::string& suffix) {
              0;
 }
 
+std::string json_escape(const std::string& value) {
+  std::ostringstream out;
+  for (const unsigned char ch : value) {
+    switch (ch) {
+      case '\\':
+        out << "\\\\";
+        break;
+      case '"':
+        out << "\\\"";
+        break;
+      case '\b':
+        out << "\\b";
+        break;
+      case '\f':
+        out << "\\f";
+        break;
+      case '\n':
+        out << "\\n";
+        break;
+      case '\r':
+        out << "\\r";
+        break;
+      case '\t':
+        out << "\\t";
+        break;
+      default:
+        if (ch < 0x20) {
+          const char* digits = "0123456789abcdef";
+          out << "\\u00" << digits[(ch >> 4) & 0xf] << digits[ch & 0xf];
+        } else {
+          out << static_cast<char>(ch);
+        }
+    }
+  }
+  return out.str();
+}
+
+std::string source_lineage_json(const SourceRefRow& source) {
+  std::error_code ec;
+  const std::filesystem::path absolute =
+      std::filesystem::absolute(source.source_path, ec).lexically_normal();
+  const std::string source_path = ec ? source.source_path : absolute.string();
+  std::ostringstream out;
+  out << "{\"source_ref_id\":" << source.id.value()
+      << ",\"source_path\":\"" << json_escape(source_path)
+      << "\"}";
+  return out.str();
+}
+
 }  // namespace
 
 std::string trace_event_compat_id(TraceEventId id) {
@@ -108,6 +159,7 @@ EventSqlRows build_timeline_sql_rows(const NativeIr& ir, std::uint32_t db_idx) {
     row.end_ns = event.end_ns;
     row.dur_us = ns_to_us(event.end_ns - event.start_ns);
     row.raw_label = symbol_value_or_empty(ir, event.raw_name_symbol_id);
+    row.raw_json = source_lineage_json(source);
 
     if (task != nullptr) {
       row.symbol = symbol_value_or_empty(ir, choose_task_symbol(*task, event));
@@ -147,6 +199,7 @@ EventSqlRows build_timeline_sql_rows(const NativeIr& ir, std::uint32_t db_idx) {
     source_row.source_table = source.table_name;
     source_row.source_key = source_key_for_event(event);
     source_row.source_role = "primary";
+    source_row.raw_json = source_lineage_json(source);
     rows.event_sources.push_back(std::move(source_row));
   }
 

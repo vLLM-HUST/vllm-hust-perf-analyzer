@@ -68,13 +68,13 @@ or a Huawei profiler bundle directory containing monolithic
 traceloom examples/kickstart_smoke/msprof_raw
 ```
 
-TraceLoom discovers the DB files automatically and writes reports under a
-neighboring `traceloom/` directory:
+TraceLoom discovers the DB files automatically and writes self-contained
+analysis databases under a neighboring `traceloom/` directory:
 
 ```text
-PROF_.../traceloom/loop_tree_v2.md
-msprof_raw/traceloom/device0_loop_tree_v2.md
-msprof_raw/traceloom/device1_loop_tree_v2.md
+PROF_.../traceloom/analysis.db
+msprof_raw/traceloom/analysis_db01.db
+msprof_raw/traceloom/analysis_db02.db
 ```
 
 A nonempty monolithic `TASK` table takes priority. When it is missing,
@@ -222,4 +222,3 @@ composition is `run_idle_evidence_pipeline`; its results feed the CLI, SQL
 sidecar, anchor/node attribution, and Loop Tree summaries. Host correlation
 remains a separate later stage that requires calibrated clocks and validated
 host/device links.
-

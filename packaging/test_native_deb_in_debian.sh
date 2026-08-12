@@ -4,7 +4,7 @@ set -eu
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends \
-  ca-certificates cmake g++ libsqlite3-dev make
+  ca-certificates cmake g++ libsqlite3-dev make sqlite3
 
 build_dir=/tmp/traceloom-native-package
 rm -rf "$build_dir"
@@ -24,8 +24,12 @@ traceloom --help
 sample=examples/kickstart_smoke/msprof_raw/PROF_000001_20260609064648517_AJJGNKPPJMEGGLFA/msprof_20260609064817.db
 traceloom "$sample" \
   --threads 2 \
+  --output /tmp/traceloom-analysis.db \
   --loop-tree-out /tmp/loop_tree_v2.md \
   --out /tmp/native_result.json
+test -s /tmp/traceloom-analysis.db
+sqlite3 -readonly /tmp/traceloom-analysis.db \
+  "SELECT COUNT(*) FROM traceloom_analysis_surface" | grep -Eq '^[1-9][0-9]*$'
 test -s /tmp/loop_tree_v2.md
 test -s /tmp/native_result.json
 

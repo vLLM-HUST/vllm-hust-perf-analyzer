@@ -44,7 +44,10 @@ TraceLoom writes the analysis back into:
 examples/kickstart_smoke/msprof_raw/traceloom/
 ```
 
-Open `device0_loop_tree_v2.md` and `device1_loop_tree_v2.md` first.
+Open `analysis_db01.db` and `analysis_db02.db` with SQLite, then query
+`traceloom_analysis_surface` and `traceloom_v_tree_node` first. The checked-in
+`summary.md` and `tree-map.md` are compact historical human projections; they
+are not the primary product.
 
 ## What To Look For
 

@@ -76,6 +76,37 @@ void run_sql(const std::string& path, const std::string& sql) {
   traceloom::testing::require(rc == SQLITE_OK);
 }
 
+void require_analysis_surface_queries_prepare(const std::string& path) {
+  sqlite3* db = nullptr;
+  traceloom::testing::require(
+      sqlite3_open_v2(path.c_str(), &db, SQLITE_OPEN_READONLY, nullptr) ==
+      SQLITE_OK);
+  sqlite3_stmt* catalog = nullptr;
+  traceloom::testing::require(
+      sqlite3_prepare_v2(db,
+                         "SELECT surface_name, example_sql FROM "
+                         "traceloom_analysis_surface ORDER BY surface_name",
+                         -1, &catalog, nullptr) == SQLITE_OK);
+  while (sqlite3_step(catalog) == SQLITE_ROW) {
+    const unsigned char* surface_text = sqlite3_column_text(catalog, 0);
+    const unsigned char* sql_text = sqlite3_column_text(catalog, 1);
+    traceloom::testing::require(surface_text != nullptr && sql_text != nullptr);
+    sqlite3_stmt* example = nullptr;
+    const int rc = sqlite3_prepare_v2(
+        db, reinterpret_cast<const char*>(sql_text), -1, &example, nullptr);
+    if (example != nullptr) {
+      sqlite3_finalize(example);
+    }
+    const std::string error_message =
+        "analysis surface example SQL did not prepare: " +
+        std::string(reinterpret_cast<const char*>(surface_text)) + ": " +
+        sqlite3_errmsg(db);
+    traceloom::testing::require(rc == SQLITE_OK, error_message.c_str());
+  }
+  sqlite3_finalize(catalog);
+  sqlite3_close(db);
+}
+
 NativeIr build_collective_repeat_ir() {
   NativeIr ir;
   const SourceRefId source =
@@ -1199,6 +1230,94 @@ int main() {
   require(run_scalar_int(augmented_path,
                          "SELECT COUNT(*) FROM "
                          "traceloom_v_node_replay_cost_member") == 3);
+  require(run_scalar_int(augmented_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_analysis_surface") >= 8);
+  require_analysis_surface_queries_prepare(augmented_path);
+  require(run_scalar_text(augmented_path,
+                          "SELECT embedded_table_name FROM "
+                          "traceloom_raw_table WHERE source_table = "
+                          "'RAW_SENTINEL'") == "RAW_SENTINEL");
   std::remove(augmented_path.c_str());
+
+  const std::string deterministic_raw_source = temp_db_path();
+  run_sql(deterministic_raw_source,
+          "CREATE TABLE RAW_SENTINEL(id INTEGER, payload TEXT);"
+          "INSERT INTO RAW_SENTINEL VALUES(7, 'retained profiler evidence')");
+  const std::string collective_augmented_a = temp_db_path();
+  const std::string collective_augmented_b = temp_db_path();
+  compat::NativeCompatibilitySidecarOptions deterministic_options;
+  deterministic_options.source_kind = "fixture";
+  deterministic_options.source_path = "/stable/logical/profile";
+  deterministic_options.collective_expected_world_size = 1;
+  compat::write_self_contained_augmented_database(
+      collective_augmented_a, deterministic_raw_source,
+      build_collective_repeat_ir(), deterministic_options);
+  compat::write_self_contained_augmented_database(
+      collective_augmented_b, deterministic_raw_source,
+      build_collective_repeat_ir(), deterministic_options);
+  require(sha256_file_hex(collective_augmented_a) ==
+              sha256_file_hex(collective_augmented_b),
+          "augmented DB bytes depend on output/temp path");
+  require(run_scalar_text(collective_augmented_a,
+                          "SELECT DISTINCT db_name FROM "
+                          "traceloom_collective_global_link") ==
+          "profile.traceloom.db");
+  std::remove(collective_augmented_a.c_str());
+  std::remove(collective_augmented_b.c_str());
+  std::remove(deterministic_raw_source.c_str());
+
+  // Split layouts package every raw DB in one portable artifact. Identical
+  // vendor table names must remain distinct and preserve the original rowid
+  // as an explicit queryable column.
+  const std::string split_source_a = temp_db_path();
+  const std::string split_source_b = temp_db_path();
+  const std::string split_augmented = temp_db_path();
+  run_sql(split_source_a,
+          "CREATE TABLE RAW_SHARED(id INTEGER, payload TEXT);"
+          "INSERT INTO RAW_SHARED VALUES(1, 'source-a')");
+  run_sql(split_source_b,
+          "CREATE TABLE RAW_SHARED(id INTEGER, payload TEXT);"
+          "INSERT INTO RAW_SHARED VALUES(2, 'source-b')");
+  const std::string split_source_a_hash = sha256_file_hex(split_source_a);
+  const std::string split_source_b_hash = sha256_file_hex(split_source_b);
+  compat::NativeCompatibilitySidecarOptions split_options;
+  split_options.source_kind = "ascend_sqlite_split";
+  split_options.source_path = "/portable/original/split-profile";
+  compat::write_self_contained_augmented_database(
+      split_augmented,
+      std::vector<std::string>{split_source_b, split_source_a},
+      build_exact_cuda_graph_replay_ir(), split_options);
+  require(sha256_file_hex(split_source_a) == split_source_a_hash &&
+              sha256_file_hex(split_source_b) == split_source_b_hash,
+          "multi-source augmented DB construction modified a raw input");
+  require(run_scalar_int(split_augmented,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_raw_source_database") == 2);
+  require(run_scalar_int(split_augmented,
+                         "SELECT COUNT(*) FROM traceloom_raw_table WHERE "
+                         "source_table = 'RAW_SHARED'") == 2);
+  require(run_scalar_int(split_augmented,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_raw_000__RAW_SHARED") == 1);
+  require(run_scalar_int(split_augmented,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_raw_001__RAW_SHARED") == 1);
+  require(run_scalar_text(split_augmented,
+                          "SELECT source_rowid_column FROM "
+                          "traceloom_raw_table WHERE source_id = "
+                          "'raw-source-000' AND source_table = "
+                          "'RAW_SHARED'") ==
+          "__traceloom_source_rowid__");
+  require(run_scalar_int(split_augmented,
+                         "SELECT __traceloom_source_rowid__ FROM "
+                         "traceloom_raw_000__RAW_SHARED") == 1);
+  std::remove(split_source_a.c_str());
+  std::remove(split_source_b.c_str());
+  require(run_scalar_int(split_augmented,
+                         "SELECT sum(id) FROM (SELECT id FROM "
+                         "traceloom_raw_000__RAW_SHARED UNION ALL SELECT id "
+                         "FROM traceloom_raw_001__RAW_SHARED)") == 3);
+  std::remove(split_augmented.c_str());
   return 0;
 }

@@ -66,13 +66,14 @@ struct CliOptions {
   std::string grammar_debug_out_path;
   std::string compat_sidecar_out_path;
   std::string augmented_db_out_path;
+  bool augmented_db_enabled = true;
   std::string loop_tree_out_path;
   bool loop_tree_out_path_set = false;
   std::string loop_tree_db_label;
   bool has_loop_tree_device_id = false;
   std::uint32_t loop_tree_device_id = 0;
   bool loop_tree_grammar = true;
-  bool loop_tree_aux = false;
+  bool loop_tree_aux = true;
   std::size_t loop_tree_full_discovery_cap = 5000000;
   bool sidecar_only = false;
   bool timings = false;
@@ -97,11 +98,15 @@ std::size_t default_thread_count() {
 void print_usage(const char* argv0) {
   std::cerr << "usage: " << argv0
             << " <profile.db-or-profile-dir> [--threads N]"
+               " [--output ANALYSIS.db]"
                " [--loop-tree-out PATH|-]"
-               " [--loop-tree-db-label LABEL]"
                " [--timings]\n\n"
-            << "Writes loop-tree reports under a neighboring traceloom/ "
-               "directory by default.\n"
+            << "Writes a self-contained, agent-queryable SQLite artifact "
+               "under a neighboring traceloom/ directory by default.\n"
+            << "Query its traceloom_analysis_surface catalog to discover "
+               "hierarchy, cost, replay, and evidence relations.\n"
+            << "Use --loop-tree-out only when a Markdown projection is "
+               "needed for a human reader.\n"
             << "Use --help-advanced for compatibility and debug options.\n";
 }
 
@@ -113,13 +118,13 @@ void print_advanced_usage(const char* argv0) {
                " [--out PATH|-] [--top-candidates N]"
                " [--grammar-debug-out PATH|-]"
                " [--compat-db-out PATH]"
-               " [--aug-db-out PATH]"
+               " [--output PATH|--aug-db-out PATH|--no-aug-db]"
                " [--loop-tree-out PATH|-]"
                " [--loop-tree-db-label LABEL]"
                " [--loop-tree-device-id N]"
                " [--loop-tree-grammar|--loop-tree-no-grammar]"
                " [--loop-tree-full-discovery-cap N]"
-               " [--loop-tree-aux]"
+               " [--loop-tree-aux|--loop-tree-no-aux]"
                " [--classification-rules PATH]"
                " [--extend-classification-rules PATH]"
                " [--idle-evidence-rules PATH]"
@@ -138,7 +143,6 @@ std::size_t parse_size(const std::string& text, const std::string& flag) {
 CliOptions parse_args(int argc, char** argv) {
   CliOptions options;
   options.executable_path = argc > 0 ? argv[0] : "traceloom";
-  bool source_db_from_flag = false;
   for (int index = 1; index < argc; ++index) {
     const std::string arg = argv[index];
     auto require_value = [&](const std::string& flag) -> std::string {
@@ -154,7 +158,6 @@ CliOptions parse_args(int argc, char** argv) {
                    "'traceloom <path>'\n";
     } else if (arg == "--source-db") {
       options.source_input = require_value(arg);
-      source_db_from_flag = true;
     } else if (arg == "--source-kind") {
       options.source_kind = require_value(arg);
     } else if (arg == "--threads") {
@@ -166,8 +169,11 @@ CliOptions parse_args(int argc, char** argv) {
       options.grammar_debug_out_path = require_value(arg);
     } else if (arg == "--compat-db-out" || arg == "--compat-sidecar-out") {
       options.compat_sidecar_out_path = require_value(arg);
-    } else if (arg == "--aug-db-out") {
+    } else if (arg == "--output" || arg == "--aug-db-out") {
       options.augmented_db_out_path = require_value(arg);
+      options.augmented_db_enabled = true;
+    } else if (arg == "--no-aug-db") {
+      options.augmented_db_enabled = false;
     } else if (arg == "--loop-tree-out") {
       options.loop_tree_out_path = require_value(arg);
       options.loop_tree_out_path_set = true;
@@ -185,6 +191,8 @@ CliOptions parse_args(int argc, char** argv) {
       options.loop_tree_full_discovery_cap = parse_size(require_value(arg), arg);
     } else if (arg == "--loop-tree-aux") {
       options.loop_tree_aux = true;
+    } else if (arg == "--loop-tree-no-aux") {
+      options.loop_tree_aux = false;
     } else if (arg == "--classification-rules") {
       options.classification_rules_path = require_value(arg);
     } else if (arg == "--extend-classification-rules") {
@@ -248,15 +256,20 @@ CliOptions parse_args(int argc, char** argv) {
   if (options.threads == 0) {
     throw std::invalid_argument("--threads must be greater than zero");
   }
-  const bool has_explicit_output =
-      options.out_path_set || !options.grammar_debug_out_path.empty() ||
-      !options.compat_sidecar_out_path.empty() ||
-      !options.augmented_db_out_path.empty() || options.loop_tree_out_path_set;
-  if (!has_explicit_output && !source_db_from_flag) {
-    options.loop_tree_out_path_set = true;
+  if (!options.augmented_db_enabled &&
+      !options.augmented_db_out_path.empty()) {
+    throw std::invalid_argument(
+        "--no-aug-db cannot be combined with --output/--aug-db-out");
   }
-  if (!has_explicit_output && source_db_from_flag) {
-    options.loop_tree_out_path_set = true;
+  if (options.augmented_db_out_path == "-") {
+    throw std::invalid_argument("SQLite analysis output cannot use '-'");
+  }
+  if (!options.augmented_db_enabled && !options.out_path_set &&
+      options.grammar_debug_out_path.empty() &&
+      options.compat_sidecar_out_path.empty() &&
+      !options.loop_tree_out_path_set) {
+    throw std::invalid_argument(
+        "--no-aug-db requires another explicit output");
   }
   int stdout_outputs = 0;
   if (!options.sidecar_only && options.out_path_set && options.out_path == "-") {
@@ -272,10 +285,10 @@ CliOptions parse_args(int argc, char** argv) {
     throw std::invalid_argument("multiple outputs cannot use '-' together");
   }
   if (options.sidecar_only && options.compat_sidecar_out_path.empty() &&
-      options.augmented_db_out_path.empty() &&
+      !options.augmented_db_enabled &&
       !options.loop_tree_out_path_set) {
     throw std::invalid_argument(
-        "--sidecar-only requires --aug-db-out, --compat-db-out, or "
+        "--sidecar-only requires database output, --compat-db-out, or "
         "--loop-tree-out");
   }
   return options;
@@ -342,7 +355,13 @@ std::vector<std::string> discover_profile_dbs(const std::string& input,
         traceloom::looks_like_ascend_split_sqlite_profile(root.string())) {
       split_profiles.push_back(root);
     }
-    for (const auto& entry : fs::recursive_directory_iterator(root)) {
+    for (fs::recursive_directory_iterator iterator(root), end;
+         iterator != end; ++iterator) {
+      const auto& entry = *iterator;
+      if (entry.is_directory() && entry.path().filename() == "traceloom") {
+        iterator.disable_recursion_pending();
+        continue;
+      }
       if (looks_like_supported_profile_db(entry.path(), source_kind)) {
         dbs.push_back(entry.path());
       }
@@ -409,6 +428,35 @@ std::string default_loop_tree_output_path(const CliOptions& cli,
   return (output_root / filename.str()).string();
 }
 
+std::string default_augmented_db_output_path(const CliOptions& cli,
+                                             std::size_t db_index) {
+  const fs::path output_root = default_output_root(cli.source_input);
+  if (cli.source_dbs.size() == 1) {
+    return (output_root / "analysis.db").string();
+  }
+  std::ostringstream filename;
+  filename << "analysis_db" << std::setw(2) << std::setfill('0')
+           << (db_index + 1) << ".db";
+  return (output_root / filename.str()).string();
+}
+
+std::vector<std::string> raw_sqlite_sources(const std::string& source_db,
+                                            bool is_split) {
+  if (!is_split) {
+    return {source_db};
+  }
+  std::set<std::string> paths;
+  for (const auto& table :
+       traceloom::inventory_ascend_split_sqlite_profile(source_db)) {
+    paths.insert(table.db_path);
+  }
+  if (paths.empty()) {
+    throw std::invalid_argument(
+        "split profile contains no raw SQLite databases: " + source_db);
+  }
+  return {paths.begin(), paths.end()};
+}
+
 std::string default_db_label(const std::string& source_db,
                              std::size_t db_index,
                              std::size_t db_count) {
@@ -466,10 +514,8 @@ void write_text_output(const std::string& path, const std::string& contents) {
 int analyze_one_db(const CliOptions& cli, const std::string& source_db,
                    std::size_t db_index) {
   const bool report_only =
-      cli.sidecar_only || (!cli.out_path_set &&
-                           cli.grammar_debug_out_path.empty() &&
-                           cli.compat_sidecar_out_path.empty() &&
-                           cli.augmented_db_out_path.empty());
+      cli.sidecar_only ||
+      (!cli.out_path_set && cli.grammar_debug_out_path.empty());
 
   const bool is_cuda =
       cli.source_kind == "cuda_nsys_sqlite" ||
@@ -574,6 +620,10 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
     sidecar_options.grammar_worker_count = cli.threads;
     sidecar_options.grammar_target_nodes_per_chunk =
         pipeline_options.partition_config.target_tokens_per_partition;
+    sidecar_options.grammar_full_discovery_cap =
+        cli.loop_tree_full_discovery_cap;
+    sidecar_options.materialize_grammar_report_tree = cli.loop_tree_grammar;
+    sidecar_options.materialize_aux_attribution = cli.loop_tree_aux;
     sidecar_options.timing_diagnostics = cli.timings;
 
     std::optional<traceloom::IdleEvidencePipelineResult> idle_pipeline;
@@ -590,7 +640,7 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
     }
     if (!is_cuda && !is_hygon &&
         (!cli.compat_sidecar_out_path.empty() ||
-         !cli.augmented_db_out_path.empty() || cli.loop_tree_out_path_set)) {
+         cli.augmented_db_enabled || cli.loop_tree_out_path_set)) {
       const Stopwatch idle_evidence_watch;
       // Trace contents cannot attest collection completeness. The main CLI
       // keeps the default kUnknown and never upgrades observed emptiness into
@@ -623,30 +673,27 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
                   << sidecar_watch.elapsed_ms() << "\n";
       }
     }
-    if (!cli.augmented_db_out_path.empty()) {
+    if (cli.augmented_db_enabled) {
       const Stopwatch augmented_db_watch;
+      const std::string augmented_db_out =
+          cli.augmented_db_out_path.empty()
+              ? default_augmented_db_output_path(cli, db_index)
+              : cli.augmented_db_out_path;
       traceloom::compat::write_self_contained_augmented_database(
-          cli.augmented_db_out_path, source_db, ir, sidecar_options,
+          augmented_db_out, raw_sqlite_sources(source_db, is_split), ir,
+          sidecar_options,
           idle_pipeline ? &*idle_pipeline : nullptr);
+      std::cerr << "wrote analysis database: " << augmented_db_out << "\n";
+      std::cerr << "  source: " << source_db << "\n";
+      std::cerr << "  start: SELECT * FROM traceloom_analysis_surface;\n";
       if (cli.timings) {
         std::cerr << "timing augmented_db_ms="
                   << augmented_db_watch.elapsed_ms() << "\n";
       }
     }
     if (cli.loop_tree_out_path_set) {
-      traceloom::compat::NativeCompatibilitySidecarOptions loop_tree_options;
-      loop_tree_options.source_kind = sidecar_options.source_kind;
-      loop_tree_options.source_path = sidecar_options.source_path;
-      loop_tree_options.grammar_worker_count =
-          sidecar_options.grammar_worker_count;
-      loop_tree_options.grammar_target_nodes_per_chunk =
-          sidecar_options.grammar_target_nodes_per_chunk;
-      loop_tree_options.grammar_full_discovery_cap =
-          cli.loop_tree_full_discovery_cap;
-      loop_tree_options.materialize_grammar_report_tree =
-          cli.loop_tree_grammar;
-      loop_tree_options.materialize_aux_attribution = cli.loop_tree_aux;
-      loop_tree_options.timing_diagnostics = cli.timings;
+      const traceloom::compat::NativeCompatibilitySidecarOptions
+          loop_tree_options = sidecar_options;
       const Stopwatch loop_tree_rows_watch;
       const traceloom::compat::NodeCoverageSqlRows loop_tree_rows =
           traceloom::compat::build_native_loop_tree_node_coverage_rows(

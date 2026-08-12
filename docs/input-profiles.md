@@ -67,5 +67,5 @@ git lfs fsck --objects
 traceloom /path/to/restored/msprof_output
 ```
 
-Treat the neighboring `traceloom/` report directory as derived output unless
+Treat the neighboring `traceloom/` analysis directory as derived output unless
 the repository has an explicit artifact policy for it.

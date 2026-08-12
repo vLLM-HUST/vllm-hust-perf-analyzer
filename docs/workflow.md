@@ -1,4 +1,4 @@
-# Tutorial: From Package To Loop Tree
+# Tutorial: From Package To Queryable Cost Map
 
 TraceLoom is a native offline analyzer:
 
@@ -8,7 +8,7 @@ msprof SQLite output
   -> semantic anchor timeline
   -> repeated-pattern grammar
   -> overlap-safe cost attribution
-  -> Loop Tree report and optional SQLite/JSON evidence
+  -> self-contained augmented SQLite analysis
 ```
 
 ## 1. Build And Install
@@ -58,12 +58,12 @@ Or analyze one database:
 traceloom /path/to/PROF_.../msprof_YYYYMMDDHHMMSS.db
 ```
 
-Use `--threads N` to control parallelism. TraceLoom writes reports under a
-neighboring `traceloom/` directory by default:
+Use `--threads N` to control parallelism. TraceLoom writes self-contained
+analysis databases under a neighboring `traceloom/` directory by default:
 
 ```text
-PROF_.../traceloom/loop_tree_v2.md
-msprof_output/traceloom/device0_loop_tree_v2.md
+PROF_.../traceloom/analysis.db
+msprof_output/traceloom/analysis_db01.db
 ```
 
 TraceLoom prefers a nonempty monolithic `TASK` table. If none is usable, it
@@ -78,10 +78,17 @@ For a self-contained smoke test, run:
 traceloom examples/kickstart_smoke/msprof_raw
 ```
 
-## 4. Read The Loop Tree
+## 4. Query The Hierarchical Cost Map
 
-Start with an outer `Repeat xN`, then compare its children. Read the cost
-columns using these rules:
+Discover the supported analysis entry points, then start with the tree map:
+
+```bash
+sqlite3 analysis.db 'SELECT * FROM traceloom_analysis_surface;'
+sqlite3 -header -column analysis.db < docs/report-sql/tree-map.sql
+```
+
+Start with an outer `Repeat xN`, then compare and drill into its children.
+Read the cost columns using these rules:
 
 - `total_us` is a disjoint wall-clock union, so overlapping streams are not
   counted twice;
@@ -94,26 +101,24 @@ This normalization makes a loop node directly comparable with its loop body.
 
 ## 5. Drill Down When Needed
 
-The normal report is intentionally compact. For portable, queryable evidence
-from one regular profiler database, request native JSON and a self-contained
-augmented database:
+The database is already portable and queryable. Request Markdown or native
+JSON only as an explicit human/debug projection:
 
 ```bash
 traceloom /path/to/msprof.db \
   --loop-tree-out /tmp/loop_tree_v2.md \
-  --aug-db-out /tmp/traceloom-analysis.db \
+  --output /tmp/traceloom-analysis.db \
   --out /tmp/native_result.json
 ```
 
-Inspect the augmented database with `sqlite3` or another SQLite client. It
-contains the copied raw profiler tables as well as the TraceLoom hierarchy and
-cost relations, so source references remain queryable after the input is moved.
+It contains embedded raw profiler tables as well as the TraceLoom hierarchy and
+cost relations, so source references remain queryable after inputs are moved.
 Run
 `traceloom --help-advanced` for grammar and auxiliary-attribution options.
 
 ## 6. Share A Reproducible Diagnosis
 
-Share the TraceLoom version and command, the Loop Tree report, selected SQL
+Share the TraceLoom version and command, the analysis database, selected SQL
 results, and profile metadata/checksums. Avoid committing large raw profiler
 databases or generated reports to this repository.
 

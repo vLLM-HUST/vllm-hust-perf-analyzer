@@ -20,7 +20,7 @@ profiler SQLite
   -> semantic anchor 抽取
   -> 重复模式发现
   -> 不重复计算重叠 stream 的时间线成本归因
-  -> Loop Tree 报告和可选 SQLite/JSON 证据
+  -> 自包含的 augmented SQLite 分析数据库
 ```
 
 核心能力：
@@ -80,10 +80,10 @@ cmake --install build/native --prefix "$HOME/.local"
 traceloom /path/to/PROF_.../msprof_YYYYMMDDHHMMSS.db
 ```
 
-默认报告会写在数据库旁边：
+默认会在数据库旁边生成一等分析产物：
 
 ```text
-/path/to/PROF_.../traceloom/loop_tree_v2.md
+/path/to/PROF_.../traceloom/analysis.db
 ```
 
 ### 2. 分析 profiler 目录
@@ -93,11 +93,11 @@ traceloom /path/to/msprof_output
 ```
 
 TraceLoom 会自动发现 monolithic `PROF_*/msprof_*.db` 和 split
-`PROF_*/{host,device_*}/sqlite/*.db`，并为每张设备数据库生成报告：
+`PROF_*/{host,device_*}/sqlite/*.db`，并为每个发现到的分析输入生成数据库：
 
 ```text
-/path/to/msprof_output/traceloom/device0_loop_tree_v2.md
-/path/to/msprof_output/traceloom/device1_loop_tree_v2.md
+/path/to/msprof_output/traceloom/analysis_db01.db
+/path/to/msprof_output/traceloom/analysis_db02.db
 ```
 
 对于大型 trace，可以显式设置并行度：
@@ -111,23 +111,34 @@ TraceLoom 会给出 warning，并从 split `AscendTask`、`TaskInfo`、`HostTask
 `ApiData` 构建基础时间线。split 的细粒度通信、Graph Replay 和 PMU 归因仍按
 增量阶段继续完善。
 
-### 3. 阅读 Loop Tree
+split `PROF_*` 的多张原始 SQLite 会用无冲突表名打包进同一份可移动
+artifact；普通数据库则完整快照原始 schema。
 
-先从最外层的 `Repeat xN` 开始，再比较它的子节点。最常用的列是：
+### 3. 从 SQL 开始分析
+
+```bash
+sqlite3 /path/to/traceloom/analysis.db \
+  'SELECT surface_name, relation_name, purpose FROM traceloom_analysis_surface;'
+sqlite3 -header -column /path/to/traceloom/analysis.db \
+  'SELECT local_node_id, label, depth, occurrence_count, avg_total_us FROM traceloom_v_tree_node ORDER BY display_order;'
+```
+
+先从最外层的 `Repeat xN` 开始，再沿 occurrence、anchor、event、graph
+member 下钻到内嵌原始证据。最常用的成本列是：
 
 - `total_us`：互不相交的 wall-clock 区间并集，stream 重叠不会重复计算；
 - `avg_total_us`：普通节点按 occurrence 平均，Repeat 节点按循环体迭代平均；
 - `avg_compute_us`、`avg_comm_us`、`avg_idle_us`：可以直接比较的平均成本；
 - `avg_aux_us`、`avg_self_us`：归因到节点的辅助成本和节点自身成本。
 
-### 4. 生成高级证据
+### 4. 生成给人阅读的投影或调试证据
 
-普通流程只生成 Loop Tree。单张数据库需要更多证据时，可以使用：
+Markdown 不再是默认产物；需要时显式导出。`--output` 设置一等数据库路径：
 
 ```bash
 traceloom /path/to/msprof.db \
   --loop-tree-out /tmp/loop_tree_v2.md \
-  --compat-db-out /tmp/traceloom-sidecar.db \
+  --output /tmp/traceloom-analysis.db \
   --out /tmp/native_result.json
 ```
 

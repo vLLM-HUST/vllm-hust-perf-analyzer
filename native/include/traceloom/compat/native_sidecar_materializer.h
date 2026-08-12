@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include "traceloom/analysis/idle_evidence_pipeline.h"
 #include "traceloom/compat/sidecar_writer.h"
@@ -45,6 +46,18 @@ void write_basic_native_compatibility_sidecar(
 void write_self_contained_augmented_database(
     const std::string& output_path,
     const std::string& source_sqlite_path,
+    const NativeIr& ir,
+    const NativeCompatibilitySidecarOptions& options =
+        NativeCompatibilitySidecarOptions{},
+    const IdleEvidencePipelineResult* idle_evidence = nullptr);
+
+// Multi-file form used by split profiler layouts. Every input database is
+// opened read-only and copied into collision-free raw tables in the one
+// output artifact. traceloom_raw_source_database and traceloom_raw_table map
+// original paths/table names to their embedded names.
+void write_self_contained_augmented_database(
+    const std::string& output_path,
+    const std::vector<std::string>& source_sqlite_paths,
     const NativeIr& ir,
     const NativeCompatibilitySidecarOptions& options =
         NativeCompatibilitySidecarOptions{},

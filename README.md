@@ -7,9 +7,9 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 TraceLoom is a native C++17 offline analyzer for accelerator profiler traces.
-It turns dense Ascend/CANN `msprof` SQLite timelines into compact, comparable
-Pattern Compression Trees with compute, communication, idle, auxiliary, and
-self-cost statistics.
+It turns raw profiler databases into a self-contained hierarchical analytical
+database: a coarse-to-fine execution structure, cost distributions, exact
+replay internals where evidence permits, and links back to embedded raw rows.
 
 The native implementation is now the only production implementation in this
 repository. The installed CLI has one stable name:
@@ -26,7 +26,7 @@ profiler SQLite
   -> semantic anchor extraction
   -> repeated-pattern discovery
   -> overlap-safe timeline cost attribution
-  -> Loop Tree report and self-contained augmented SQLite analysis
+  -> self-contained augmented SQLite analysis
 ```
 
 Key capabilities:
@@ -93,10 +93,10 @@ Make sure `$HOME/.local/bin` is in `PATH`, then run `traceloom --version`.
 traceloom /path/to/PROF_.../msprof_YYYYMMDDHHMMSS.db
 ```
 
-The default report is written beside the database:
+The default analytical artifact is written beside the database:
 
 ```text
-/path/to/PROF_.../traceloom/loop_tree_v2.md
+/path/to/PROF_.../traceloom/analysis.db
 ```
 
 ### 2. Analyze A Profiler Directory
@@ -106,12 +106,12 @@ traceloom /path/to/msprof_output
 ```
 
 TraceLoom discovers monolithic `PROF_*/msprof_*.db` files and split
-`PROF_*/{host,device_*}/sqlite/*.db` layouts, then writes one report per
-device/database:
+`PROF_*/{host,device_*}/sqlite/*.db` layouts, then writes one self-contained
+database per discovered analysis input:
 
 ```text
-/path/to/msprof_output/traceloom/device0_loop_tree_v2.md
-/path/to/msprof_output/traceloom/device1_loop_tree_v2.md
+/path/to/msprof_output/traceloom/analysis_db01.db
+/path/to/msprof_output/traceloom/analysis_db02.db
 ```
 
 Use an explicit worker count for large traces:
@@ -129,10 +129,23 @@ device-task decomposition as auxiliary evidence. Graph replay uses the same
 exact reconstruction contract in both layouts; PMU attribution remains
 incremental.
 
-### 3. Read The Loop Tree
+For a split `PROF_*` layout, all constituent SQLite files are copied into one
+portable artifact under collision-free names. For a regular profiler DB, its
+raw schema is snapshotted intact.
 
-Start at the outer `Repeat xN` nodes, then compare their children. The most
-useful columns are:
+### 3. Start With SQL
+
+Each database describes its stable entry points:
+
+```bash
+sqlite3 /path/to/traceloom/analysis.db \
+  'SELECT surface_name, relation_name, purpose FROM traceloom_analysis_surface;'
+sqlite3 -header -column /path/to/traceloom/analysis.db \
+  'SELECT local_node_id, label, depth, occurrence_count, avg_total_us FROM traceloom_v_tree_node ORDER BY display_order;'
+```
+
+Start at outer Repeat nodes, then drill through node occurrences, anchors,
+normalized events, exact graph members, and raw evidence. Important costs are:
 
 - `total_us`: disjoint wall-clock union; overlapping streams are not counted
   twice;
@@ -142,12 +155,13 @@ useful columns are:
   categories;
 - `avg_aux_us` and `avg_self_us`: attributed auxiliary and node-owned cost.
 
-### 4. Create An Agent-Queryable Analysis Database
+### 4. Choose An Explicit Output Path
 
-For one profiler SQLite file, ask TraceLoom for a new self-contained database:
+`--output` changes the first-class database path; `--aug-db-out` remains a
+compatibility spelling:
 
 ```bash
-traceloom /path/to/msprof.db --aug-db-out /tmp/run.traceloom.db
+traceloom /path/to/msprof.db --output /tmp/run.traceloom.db
 ```
 
 The input is opened read-only. TraceLoom snapshots every raw profiler table
@@ -164,19 +178,19 @@ Use `source_table` and `source_row_id` to audit a selected member directly in
 the copied vendor table. `traceloom_metadata` records the original path,
 byte-size, and SHA-256 as provenance; they are not runtime dependencies.
 
-The first production slice accepts one regular profiler SQLite file. Ascend
-split-profile directories continue to support Loop Tree and compatibility DB
-output while their multi-file self-contained packaging contract is developed.
+For split layouts, inspect `traceloom_raw_source_database` and
+`traceloom_raw_table` to resolve each original `(source_path, source_table)` to
+its embedded table and preserved source-rowid column.
 
 ### 5. Request Other Advanced Evidence
 
-The normal workflow only writes the Loop Tree. Use advanced flags when a
-single database needs additional evidence:
+Markdown and native JSON are explicit projections/debug products, not a second
+analytical model:
 
 ```bash
 traceloom /path/to/msprof.db \
   --loop-tree-out /tmp/loop_tree_v2.md \
-  --aug-db-out /tmp/traceloom-analysis.db \
+  --output /tmp/traceloom-analysis.db \
   --out /tmp/native_result.json
 ```
 

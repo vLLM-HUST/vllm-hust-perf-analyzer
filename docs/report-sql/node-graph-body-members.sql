@@ -1,6 +1,6 @@
 -- Exact graph members for one concrete tree-node occurrence.
 -- Replace the fallback target with a report-local node_id/occurrence_idx when
--- following a node from loop_tree_v2.md.
+-- following a node from traceloom_v_tree_node or a Markdown projection.
 with target_occurrence as (
   select db_idx, device_id, view_name, node_id, occurrence_idx
   from traceloom_v_node_graph_body_member

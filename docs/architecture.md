@@ -47,9 +47,10 @@ making loop nodes comparable with their children.
 
 ## Materialization
 
-The default materializer writes `loop_tree_v2.md`. Advanced flags can also
-write native result JSON, grammar diagnostics, and a compatibility SQLite
-sidecar with evidence views.
+The default materializer writes a self-contained augmented SQLite database.
+It embeds raw evidence and exposes hierarchy, occurrence, cost, replay, issue,
+and provenance relations. Markdown and native JSON are explicit projections;
+the compatibility sidecar remains available for legacy workflows.
 
 ## CLI
 
