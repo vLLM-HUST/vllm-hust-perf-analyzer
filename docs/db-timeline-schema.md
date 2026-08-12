@@ -85,7 +85,9 @@ than pretending they are one timestamped event stream:
 
 - `traceloom_runtime_call` is one observed host/runtime API interval. It keeps
   provider, host clock domain, API identity, correlation/connection key,
-  process/thread/context/device identity when observed, and raw-row lineage.
+  process/thread/context/device metadata when observed, and raw-row lineage.
+  These runtime-side fields delimit local host observations; they are not
+  device-task binding keys.
 - `traceloom_device_work` is one normalized device event or graph-launch
   composite that can participate in a host/device relation.
 - `traceloom_runtime_device_relation` is one supported, candidate, rejected,
@@ -94,11 +96,21 @@ than pretending they are one timestamped event stream:
   multiplicity from collapsing into an implicit one-to-one join.
 
 CUDA uses profiler `correlationId`; Ascend uses CANN `connectionId` or an
-already validated graph-launch adapter relation. Matching identifiers are not
-silently strengthened when process/device scope is contradictory. Timestamp
-proximity never produces an exact submission edge. Useful open states such as
+already validated graph-launch adapter relation. These identifiers are matched
+only inside one input/source database and retain that database's `db_idx`.
+TraceLoom does not bind device tasks to host processes or runtime contexts and
+does not infer cross-database rank membership. Timestamp proximity never
+produces an exact submission edge. Useful open states such as
 `missing_runtime_identifier`, `unmatched_device_work`,
 `ambiguous_runtime_candidates`, and `ambiguous_device_scope` remain rows.
+
+One input profile database is the default isolation and ownership boundary.
+Multi-process or multi-rank analysis is an explicit composition step: callers
+map each source DB to its known rank/process identity and join the resulting
+local structural relations. PID/context guessing is not a default analyzer
+feature. This follows TraceLoom's compression contract: recover the critical
+ordered device structure and its local observation context rather than
+reconstructing a hidden global runtime topology.
 
 `traceloom_v_runtime_device` joins the three base relations without changing
 their evidence semantics. It is the canonical bidirectional path:
@@ -186,12 +198,14 @@ is `docs/report-sql/node-host-activity.sql`.
 
 Implementation lineage: the provider host-API ingestion pattern was adapted
 and generalized from
-[PR #26](https://github.com/vLLM-HUST/vllm-hust-perf-analyzer/pull/26), and
-Ascend task process/context retention comes from
-[PR #31](https://github.com/vLLM-HUST/vllm-hust-perf-analyzer/pull/31), both by
-Luqhhh. TraceLoom uses that substrate for explicit runtime/device and
+[PR #26](https://github.com/vLLM-HUST/vllm-hust-perf-analyzer/pull/26) by
+Luqhhh. TraceLoom uses that ingestion pattern for explicit runtime/device and
 anchor-delimited observation relations; it does not adopt PR #26's idle-cause
-classification as part of this surface.
+classification as part of this surface. The scheduler-profiler process/context
+binding proposed by
+[PR #31](https://github.com/vLLM-HUST/vllm-hust-perf-analyzer/pull/31) remains
+an independent opt-in integration and is deliberately not part of this local
+timeline model.
 
 ### `traceloom_anchor`
 
@@ -706,6 +720,10 @@ local member anchor for drill-down.
 ## Design Rules
 
 - Raw profiler tables remain untouched.
+- One source DB is the default process/rank isolation boundary; cross-DB
+  identity and rank composition require an explicit caller-provided mapping.
+- Do not promote profiler PID/context fields into normalized device events or
+  use them to infer an implicit multi-process topology.
 - Aux links attach to anchors.
 - Anchors are leaves.
 - Visualization nodes are compressed structural nodes.

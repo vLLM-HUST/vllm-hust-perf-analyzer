@@ -788,9 +788,6 @@ int main() {
           "first TASK connection id mismatch");
   require(ir.tasks.row(TaskId(0)).raw_model_id == 2,
           "first TASK model id mismatch");
-  require(ir.tasks.row(TaskId(0)).raw_global_pid == 1 &&
-              ir.tasks.row(TaskId(0)).raw_context_id == 0,
-          "first TASK process/context identity mismatch");
   require(ir.symbols.value(ir.tasks.row(TaskId(0)).op_name_symbol_id) ==
               "model.layers.0.mlp.gate_up_proj",
           "first TASK op name decode mismatch");

@@ -135,8 +135,6 @@ std::string source_json(const SourceRefRow& source, const char* kind) {
 
 struct WorkRef {
   std::size_t row_index = 0;
-  std::int64_t process_id = -1;
-  std::int64_t context_id = -1;
   std::uint32_t device_id = 0;
 };
 
@@ -330,8 +328,7 @@ RuntimeDeviceSqlRows build_runtime_device_sql_rows(const NativeIr& ir,
     rows.device_works.push_back(std::move(work));
     if (task.raw_connection_id >= 0) {
       works_by_key[{provider, task.raw_connection_id}].push_back(
-          WorkRef{row_index, task.raw_global_pid, task.raw_context_id,
-                  event.device_id});
+          WorkRef{row_index, event.device_id});
     } else {
       append_relation(rows, db_idx, {}, rows.device_works.back().device_work_id,
                       "provider_correlation", "missing_provider_identifier",
@@ -390,14 +387,6 @@ RuntimeDeviceSqlRows build_runtime_device_sql_rows(const NativeIr& ir,
         } else if (!call->has_device_id && devices.size() > 1) {
           support = "ambiguous_device_scope";
           evidence = "candidate_provider_identifier";
-        } else if (call->raw_process_id >= 0 && work.process_id >= 0 &&
-                   call->raw_process_id != work.process_id) {
-          support = "process_identity_mismatch";
-          evidence = "rejected_provider_identifier";
-        } else if (call->raw_context_id >= 0 && work.context_id >= 0 &&
-                   call->raw_context_id != work.context_id) {
-          support = "context_identity_mismatch";
-          evidence = "rejected_provider_identifier";
         }
         append_relation(rows, db_idx, runtime_call_id(call->id),
                         rows.device_works[work.row_index].device_work_id,

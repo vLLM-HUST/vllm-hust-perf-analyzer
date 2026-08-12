@@ -102,17 +102,16 @@ int main() {
       ir.trace_events.append(kernel_source, 11, 0, 5, 2000, 2100, kernel);
   const TraceEventId auxiliary =
       ir.trace_events.append(kernel_source, 12, 0, 7, 1500, 1550, kernel);
-  const TraceEventId context_mismatch =
+  const TraceEventId context_annotated =
       ir.trace_events.append(kernel_source, 13, 0, 7, 2500, 2550, kernel);
   ir.tasks.append(kernel_source, first, 1, 1, 41, kernel, kernel, kernel,
-                  kernel, SymbolId::invalid(), -1, SymbolId::invalid(), 7, 3);
+                  kernel, SymbolId::invalid());
   ir.tasks.append(kernel_source, second, 2, 2, 42, kernel, kernel, kernel,
-                  kernel, SymbolId::invalid(), -1, SymbolId::invalid(), 7, 3);
+                  kernel, SymbolId::invalid());
   ir.tasks.append(kernel_source, auxiliary, 3, 3, 41, kernel, kernel, kernel,
-                  kernel, SymbolId::invalid(), -1, SymbolId::invalid(), 7, 4);
-  ir.tasks.append(kernel_source, context_mismatch, 4, 4, 55, kernel, kernel,
-                  kernel, kernel, SymbolId::invalid(), -1,
-                  SymbolId::invalid(), 7, 9);
+                  kernel, SymbolId::invalid());
+  ir.tasks.append(kernel_source, context_annotated, 4, 4, 55, kernel, kernel,
+                  kernel, kernel, SymbolId::invalid());
   const AnchorId first_anchor = ir.anchors.append(
       kernel_source, first, ReplayUnitId::invalid(), AnchorKind::kDeviceEvent,
       kernel, 0, 5, 1000, 1100);
@@ -132,7 +131,9 @@ int main() {
   require(rows.relations[1].support_state == "supported_exact");
   require(rows.relations[1].cardinality == "one_to_many");
   require(rows.relations[2].support_state == "supported_exact");
-  require(rows.relations[3].support_state == "context_identity_mismatch");
+  // Runtime context metadata is observation only. A direct provider key is
+  // scoped by this source DB; it is not joined to device-task PID/context.
+  require(rows.relations[3].support_state == "supported_exact");
   require(rows.relations[4].support_state == "unmatched_runtime_call");
   require(rows.relations[5].support_state == "missing_runtime_identifier");
   require(rows.anchor_relations.size() == 2);
@@ -140,6 +141,15 @@ int main() {
   require(rows.host_intervals[0].support_state == "supported_ordered");
   require(rows.host_intervals[0].scope_policy == "same_thread");
   require(rows.host_activities.size() == 1);
+  for (const compat::RuntimeCallSqlRow& row : rows.runtime_calls) {
+    require(row.db_idx == 3);
+  }
+  for (const compat::DeviceWorkSqlRow& row : rows.device_works) {
+    require(row.db_idx == 3);
+  }
+  for (const compat::RuntimeDeviceRelationSqlRow& row : rows.relations) {
+    require(row.db_idx == 3);
+  }
 
   // A graph DeviceWork locator must point to its device-side execute row. The
   // host launch remains reachable through the relation's runtime endpoint.
@@ -161,7 +171,7 @@ int main() {
   const TaskId graph_task = graph_ir.tasks.append(
       graph_task_source, graph_event, 8, 8, 500, graph_execute,
       graph_execute, graph_execute, graph_execute, SymbolId::invalid(), -1,
-      SymbolId::invalid(), 7, 3);
+      SymbolId::invalid());
   graph_ir.graph_launch_occurrences.append(
       graph_task_source, graph_host_source, 0, 77, 500, -1, -1,
       StreamId::invalid(), StreamId::invalid(),
