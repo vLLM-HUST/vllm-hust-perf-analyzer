@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "traceloom/analysis/signal_classification_rules.h"
+#include "traceloom/analysis/structural_symbol_normalization.h"
 #include "traceloom/ir/native_ir.h"
 
 namespace traceloom {
@@ -17,6 +18,7 @@ struct FlatAnchorBuildConfig {
   bool filter_auxiliary_task_anchors = false;
   SignalClassificationRuleset classification_rules;
   std::vector<SignalClassificationOverride> classification_overrides;
+  StructuralSymbolNormalizationRuleset structural_symbol_rules;
 };
 
 struct FlatAnchorBuildStats {

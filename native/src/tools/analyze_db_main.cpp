@@ -78,6 +78,8 @@ struct CliOptions {
   std::string classification_rules_path;
   std::string extend_classification_rules_path;
   std::vector<std::string> classification_rule_overrides;
+  std::string symbol_rules_path;
+  std::string extend_symbol_rules_path;
 };
 
 std::vector<std::string> discover_profile_dbs(const std::string& input,
@@ -124,6 +126,8 @@ void print_advanced_usage(const char* argv0) {
                " [--classification-rules PATH]"
                " [--extend-classification-rules PATH]"
                " [--classification-rule-override RULE_ID.FIELD=VALUE]"
+               " [--symbol-rules PATH]"
+               " [--extend-symbol-rules PATH]"
                " [--timings]\n";
 }
 
@@ -195,6 +199,10 @@ CliOptions parse_args(int argc, char** argv) {
       options.extend_classification_rules_path = require_value(arg);
     } else if (arg == "--classification-rule-override") {
       options.classification_rule_overrides.push_back(require_value(arg));
+    } else if (arg == "--symbol-rules") {
+      options.symbol_rules_path = require_value(arg);
+    } else if (arg == "--extend-symbol-rules") {
+      options.extend_symbol_rules_path = require_value(arg);
     } else if (arg == "--sidecar-only") {
       options.sidecar_only = true;
     } else if (arg == "--timings") {
@@ -592,6 +600,19 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
               pipeline_options.anchor_config.classification_rules,
               pipeline_options.anchor_config.classification_overrides);
       pipeline_options.anchor_config.classification_overrides.clear();
+    }
+    pipeline_options.anchor_config.structural_symbol_rules =
+        cli.symbol_rules_path.empty()
+            ? traceloom::load_default_structural_symbol_ruleset(
+                  cli.executable_path)
+            : traceloom::load_structural_symbol_ruleset(
+                  cli.symbol_rules_path);
+    if (!cli.extend_symbol_rules_path.empty()) {
+      pipeline_options.anchor_config.structural_symbol_rules =
+          traceloom::extend_structural_symbol_ruleset(
+              pipeline_options.anchor_config.structural_symbol_rules,
+              traceloom::load_structural_symbol_ruleset(
+                  cli.extend_symbol_rules_path));
     }
 
     traceloom::NativePipelineResult pipeline;

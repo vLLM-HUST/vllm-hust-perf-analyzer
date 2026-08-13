@@ -75,6 +75,36 @@ regions, graph body members, replay units, and protected intervals; and
 `traceloom_evidence_role_issue` retains conflict, unsupported, missing-
 capability, and orphan outcomes. `traceloom_v_evidence_role_cost_coverage`
 makes retained cost outside identity matching explicit.
+Structural-symbol normalization is independently auditable:
+
+- `traceloom_symbol_normalization_policy` identifies the versioned policy;
+- `traceloom_symbol_normalization_rule` catalogs explicit provider rules and
+  typed identity/unsupported fallbacks;
+- `traceloom_anchor_symbol_normalization` records the decision actually used
+  for every structural anchor;
+- `traceloom_v_anchor_symbol_lineage` joins decisions to their rule and anchor
+  interval;
+- `traceloom_v_symbol_normalization_placement` connects the same decision to
+  recovered node, occurrence, and position coordinates;
+- `traceloom_v_symbol_variant_cost` groups occurrence counts and anchor costs
+  by structural position and concrete observed backend label.
+
+The model deliberately separates symbol comparability from structural
+correspondence. A rule may map several supported backend labels to one
+`structural_symbol`, but only the recovered node/occurrence/position relations
+say that two concrete anchors play the same role. Unrecognized labels use the
+identity fallback; they are not guessed into a known class. Each decision also
+retains `source_path`, `source_table`, and `source_key` for raw-evidence
+drill-down.
+
+The default input is `native/data/default_structural_symbol_rules.tsv`.
+`--symbol-rules` replaces it and `--extend-symbol-rules` composes a
+higher-priority extension. `source_manifest`, `manifest_sha256`, `rule_origin`,
+`rule_origin_sha256`, and `source_line` record the exact effective input in the
+database artifact. A zero-rule replacement is a valid identity-only policy.
+Equal-precedence runtime ambiguity is identity-preserving and appears as a
+typed `conflict` decision whose `candidate_rule_ids` names every competing
+rule.
 
 Native JSON also emits `replay_internal_cost_map`, the replay-internal
 query surface: ReplayUnit -> ordered launch/composition slots -> body

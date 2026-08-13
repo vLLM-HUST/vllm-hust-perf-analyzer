@@ -154,7 +154,7 @@ int main() {
 
   NativeIr normalized_comm;
   const SourceRefId normalized_comm_source =
-      normalized_comm.source_refs.append("fixture", "memory",
+      normalized_comm.source_refs.append("ascend", "memory",
                                          "COMMUNICATION_OP", 0);
   const SymbolId unique_all_reduce0 =
       normalized_comm.symbols.intern("hcom_allReduce__503_0_1");
@@ -179,10 +179,18 @@ int main() {
   require(normalized_comm.symbols.value(
               normalized_comm.tokens.row(TokenId(0)).symbol_id) ==
           "AllReduce");
+  require(normalized_comm.anchors.row(AnchorId(0)).symbol_decision.rule_id ==
+          "collective.communication.allreduce-alias");
+  require(normalized_comm.anchors.row(AnchorId(0)).symbol_decision.outcome ==
+          StructuralSymbolOutcome::kCanonicalized);
+  require(normalized_comm.symbols.value(
+              normalized_comm.anchors.row(AnchorId(0))
+                  .symbol_decision.observed_symbol_id) ==
+          "hcom_allReduce__503_0_1");
 
   NativeIr normalized_aiv;
   const SourceRefId normalized_aiv_source =
-      normalized_aiv.source_refs.append("fixture", "memory", "TASK", 0);
+      normalized_aiv.source_refs.append("ascend", "memory", "TASK", 0);
   const SymbolId aiv_all_reduce =
       normalized_aiv.symbols.intern("aiv_all_reduce_bfloat16_t");
   const TraceEventId aiv_event = normalized_aiv.trace_events.append(
@@ -197,10 +205,12 @@ int main() {
   require(normalized_aiv.symbols.value(
               normalized_aiv.tokens.row(TokenId(0)).symbol_id) ==
           "AIV_AllReduce");
+  require(normalized_aiv.anchors.row(AnchorId(0)).symbol_decision.rule_id ==
+          "ascend.task.aiv-allreduce");
 
   NativeIr normalized_matmul;
   const SourceRefId normalized_matmul_source =
-      normalized_matmul.source_refs.append("fixture", "memory", "TASK", 0);
+      normalized_matmul.source_refs.append("ascend", "memory", "TASK", 0);
   const SymbolId ai_core_task = normalized_matmul.symbols.intern("AI_CORE");
   const SymbolId matmul_v2 = normalized_matmul.symbols.intern("MatMulV2");
   const SymbolId matmul_v3 = normalized_matmul.symbols.intern("MatMulV3");
@@ -225,6 +235,19 @@ int main() {
   require(normalized_matmul.symbols.value(
               normalized_matmul.tokens.row(TokenId(0)).symbol_id) ==
           "MatMul");
+  require(normalized_matmul.anchors.row(AnchorId(0)).symbol_decision.rule_id ==
+          "ascend.task.matmul-backend-variant");
+  require(normalized_matmul.anchors.row(AnchorId(0))
+              .symbol_decision.observed_source ==
+          StructuralSymbolSource::kTaskOpType);
+  require(normalized_matmul.symbols.value(
+              normalized_matmul.anchors.row(AnchorId(0))
+                  .symbol_decision.observed_symbol_id) ==
+          "MatMulV2");
+  require(normalized_matmul.symbols.value(
+              normalized_matmul.anchors.row(AnchorId(1))
+                  .symbol_decision.observed_symbol_id) ==
+          "MatMulV3");
 
   return 0;
 }

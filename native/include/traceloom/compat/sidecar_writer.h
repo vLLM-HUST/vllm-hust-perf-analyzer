@@ -181,6 +181,58 @@ struct AnchorSqlRow {
   double dur_us = 0.0;
 };
 
+struct SymbolNormalizationPolicySqlRow {
+  std::string policy_id;
+  std::string policy_version;
+  std::string policy_kind;
+  std::string source_manifest;
+  std::string manifest_sha256;
+  std::string description;
+};
+
+struct SymbolNormalizationRuleSqlRow {
+  std::string policy_id;
+  std::string policy_version;
+  std::string rule_id;
+  std::int32_t precedence = 0;
+  std::string provider_scope;
+  std::string source_domain;
+  std::string match_mode;
+  std::string match_expression;
+  std::string structural_symbol;
+  std::string required_fields;
+  std::string rule_origin;
+  std::string rule_origin_sha256;
+  std::uint64_t source_line = 0;
+  std::string description;
+};
+
+struct AnchorSymbolNormalizationSqlRow {
+  std::string anchor_id;
+  std::uint32_t db_idx = 0;
+  std::uint32_t device_id = 0;
+  std::uint32_t anchor_idx = 0;
+  std::string event_id;
+  std::string source_path;
+  std::string source_table;
+  std::string source_key;
+  std::string observed_symbol;
+  std::string observed_symbol_source;
+  std::string structural_symbol;
+  std::string policy_id;
+  std::string policy_version;
+  std::string rule_id;
+  std::string candidate_rule_ids;
+  std::string outcome;
+  std::string reason_code;
+};
+
+struct SymbolNormalizationSqlRows {
+  std::vector<SymbolNormalizationPolicySqlRow> policies;
+  std::vector<SymbolNormalizationRuleSqlRow> rules;
+  std::vector<AnchorSymbolNormalizationSqlRow> decisions;
+};
+
 struct AuxLinkSqlRow {
   std::string anchor_id;
   std::string aux_event_id;
@@ -608,6 +660,9 @@ void replace_runtime_device_rows(const std::string& sqlite_path,
 
 void replace_anchor_rows(const std::string& sqlite_path,
                          const std::vector<AnchorSqlRow>& rows);
+void replace_symbol_normalization_rows(
+    const std::string& sqlite_path,
+    const SymbolNormalizationSqlRows& rows);
 
 void replace_anchor_cost_breakdown_rows(
     const std::string& sqlite_path,

@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "traceloom/core/ids.h"
+#include "traceloom/ir/structural_symbol.h"
 
 namespace traceloom {
 
@@ -33,6 +34,7 @@ struct AnchorRow {
       ReplayUnitLaunchMemberId::invalid();
   AnchorKind kind = AnchorKind::kUnknown;
   SymbolId symbol_id;
+  StructuralSymbolDecision symbol_decision;
   std::uint32_t device_id = 0;
   std::uint32_t stream_id = 0;
   std::int64_t start_ns = 0;
@@ -51,7 +53,8 @@ class AnchorTable {
                   std::int64_t start_ns,
                   std::int64_t end_ns,
                   ReplayUnitLaunchMemberId replay_unit_launch_member_id =
-                      ReplayUnitLaunchMemberId::invalid());
+                      ReplayUnitLaunchMemberId::invalid(),
+                  StructuralSymbolDecision symbol_decision = {});
 
   std::size_t size() const noexcept { return rows_.size(); }
   bool empty() const noexcept { return rows_.empty(); }
