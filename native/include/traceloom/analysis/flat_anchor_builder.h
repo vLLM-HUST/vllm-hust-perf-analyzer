@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "traceloom/analysis/event_reconciliation.h"
 #include "traceloom/analysis/signal_classification_rules.h"
 #include "traceloom/analysis/structural_symbol_normalization.h"
 #include "traceloom/ir/native_ir.h"
@@ -19,6 +20,7 @@ struct FlatAnchorBuildConfig {
   SignalClassificationRuleset classification_rules;
   std::vector<SignalClassificationOverride> classification_overrides;
   StructuralSymbolNormalizationRuleset structural_symbol_rules;
+  EventReconciliationRuleset event_reconciliation_rules;
 };
 
 struct FlatAnchorBuildStats {
@@ -26,6 +28,13 @@ struct FlatAnchorBuildStats {
   std::string classification_policy_id;
   std::string classification_policy_version;
   std::string classification_manifest_sha256;
+  std::string event_reconciliation_policy_id;
+  std::string event_reconciliation_policy_version;
+  std::string event_reconciliation_manifest_sha256;
+  std::size_t event_reconciliation_decisions = 0;
+  std::size_t reconciled_event_groups = 0;
+  std::size_t reconciled_event_members = 0;
+  std::size_t suppressed_duplicate_observations = 0;
   std::size_t device_event_anchors = 0;
   std::size_t communication_anchors = 0;
   std::size_t skipped_task_events = 0;

@@ -249,5 +249,54 @@ int main() {
                   .symbol_decision.observed_symbol_id) ==
           "MatMulV3");
 
+  NativeIr reconciled;
+  const SourceRefId reconciled_source =
+      reconciled.source_refs.append("ascend", "memory", "TASK", 0);
+  const SymbolId profiling_enable =
+      reconciled.symbols.intern("PROFILING_ENABLE");
+  const SymbolId profiling_disable =
+      reconciled.symbols.intern("PROFILING_DISABLE");
+  const SymbolId mix_aiv = reconciled.symbols.intern("KERNEL_MIX_AIV");
+  const SymbolId reduce_all = reconciled.symbols.intern("ReduceAll");
+  const TraceEventId enable_event = reconciled.trace_events.append(
+      reconciled_source, 601, 0, 46, 0, 1, profiling_enable);
+  const TraceEventId envelope_event = reconciled.trace_events.append(
+      reconciled_source, 602, 0, 46, 10, 30, mix_aiv);
+  const TraceEventId detail_event = reconciled.trace_events.append(
+      reconciled_source, 603, 0, 46, 12, 28, mix_aiv);
+  const TraceEventId disable_event = reconciled.trace_events.append(
+      reconciled_source, 604, 0, 46, 40, 40, profiling_disable);
+  reconciled.tasks.append(
+      reconciled_source, enable_event, 1, 1, 1, profiling_enable,
+      SymbolId::invalid(), SymbolId::invalid(), SymbolId::invalid(),
+      SymbolId::invalid(), -1, SymbolId::invalid(), 4294967295LL);
+  reconciled.tasks.append(
+      reconciled_source, envelope_event, 2, 2, 2, mix_aiv,
+      SymbolId::invalid(), SymbolId::invalid(), SymbolId::invalid(),
+      SymbolId::invalid(), -1, SymbolId::invalid(), 4294967295LL);
+  reconciled.tasks.append(
+      reconciled_source, detail_event, 2, 3, 2, mix_aiv,
+      SymbolId::invalid(), reduce_all, SymbolId::invalid(),
+      SymbolId::invalid(), -1, SymbolId::invalid(), 0);
+  reconciled.tasks.append(
+      reconciled_source, disable_event, 3, 4, 3, profiling_disable,
+      SymbolId::invalid(), SymbolId::invalid(), SymbolId::invalid(),
+      SymbolId::invalid(), -1, SymbolId::invalid(), 4294967295LL);
+  FlatAnchorBuildConfig reconciled_config;
+  reconciled_config.filter_auxiliary_task_anchors = true;
+  const FlatAnchorBuildStats reconciled_stats =
+      build_flat_anchors(reconciled, reconciled_config);
+  require(reconciled.trace_events.size() == 4);
+  require(reconciled.anchors.size() == 3);
+  require(reconciled_stats.reconciled_event_groups == 1);
+  require(reconciled_stats.reconciled_event_members == 2);
+  require(reconciled_stats.suppressed_duplicate_observations == 1);
+  require(reconciled.anchors.row(AnchorId(0)).symbol_id == profiling_enable);
+  require(reconciled.anchors.row(AnchorId(1)).trace_event_id == detail_event);
+  require(reconciled.anchors.row(AnchorId(1)).symbol_id == reduce_all);
+  require(reconciled.anchors.row(AnchorId(1)).start_ns == 10);
+  require(reconciled.anchors.row(AnchorId(1)).end_ns == 30);
+  require(reconciled.anchors.row(AnchorId(2)).symbol_id == profiling_disable);
+
   return 0;
 }

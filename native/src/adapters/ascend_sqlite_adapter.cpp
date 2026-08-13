@@ -244,6 +244,7 @@ struct RawTaskRow {
   std::uint64_t raw_task_id = 0;
   std::int64_t raw_global_task_id = -1;
   std::int64_t raw_connection_id = -1;
+  std::int64_t raw_context_id = -1;
   std::int64_t raw_task_type_id = -1;
   std::int64_t raw_model_id = -1;
 };
@@ -1554,10 +1555,13 @@ std::vector<RowidRange> task_rowid_ranges(SqliteDb& db,
 std::vector<RawTaskRow> read_task_raw_rows(SqliteDb& db,
                                            const RowidRange* range,
                                            bool ordered,
-                                           bool has_model_id) {
+                                           bool has_model_id,
+                                           bool has_context_id) {
   std::string sql =
       "SELECT rowid, startNs, endNs, deviceId, streamId, taskId, "
-      "globalTaskId, connectionId, taskType, " +
+      "globalTaskId, connectionId, " +
+      std::string(has_context_id ? "contextId, " : "-1, ") +
+      "taskType, " +
       std::string(has_model_id ? "modelId " : "-1 ") +
       "FROM TASK ";
   if (range != nullptr) {
@@ -1582,8 +1586,8 @@ std::vector<RawTaskRow> read_task_raw_rows(SqliteDb& db,
           sqlite_i64(stmt.get(), 2, 0), sqlite_u32(stmt.get(), 3),
           sqlite_u64(stmt.get(), 4), sqlite_u64(stmt.get(), 5),
           sqlite_i64(stmt.get(), 6), sqlite_i64(stmt.get(), 7),
-          sqlite_i64(stmt.get(), 8),
-          normalize_raw_model_id(sqlite_i64(stmt.get(), 9, -1))});
+          sqlite_i64(stmt.get(), 8), sqlite_i64(stmt.get(), 9),
+          normalize_raw_model_id(sqlite_i64(stmt.get(), 10, -1))});
       continue;
     }
     if (rc == SQLITE_DONE) {
@@ -1602,12 +1606,15 @@ std::vector<RawTaskRow> load_task_raw_rows(SqliteDb& db,
   const std::size_t reader_count =
       std::min(std::max<std::size_t>(1, thread_count), kMaxTaskReaderThreads);
   const bool has_model_id = table_has_column(db, "TASK", "modelId");
+  const bool has_context_id = table_has_column(db, "TASK", "contextId");
   if (reader_count <= 1) {
-    return read_task_raw_rows(db, nullptr, true, has_model_id);
+    return read_task_raw_rows(db, nullptr, true, has_model_id,
+                              has_context_id);
   }
   const std::vector<RowidRange> ranges = task_rowid_ranges(db, reader_count);
   if (ranges.size() <= 1) {
-    return read_task_raw_rows(db, nullptr, true, has_model_id);
+    return read_task_raw_rows(db, nullptr, true, has_model_id,
+                              has_context_id);
   }
 
   std::vector<std::vector<RawTaskRow>> chunks(ranges.size());
@@ -1615,7 +1622,8 @@ std::vector<RawTaskRow> load_task_raw_rows(SqliteDb& db,
   pool.parallel_for(ranges.size(), [&](std::size_t index) {
     SqliteDb worker_db(db_path);
     chunks[index] =
-        read_task_raw_rows(worker_db, &ranges[index], false, has_model_id);
+        read_task_raw_rows(worker_db, &ranges[index], false, has_model_id,
+                           has_context_id);
   });
 
   std::size_t total_rows = 0;
@@ -1691,7 +1699,7 @@ void load_task_rows(
                     compute.op_type_symbol_id,
                     compute.compute_task_type_symbol_id,
                     comm_task.comm_name_symbol_id, row.raw_model_id,
-                    comm_task.task_type_symbol_id);
+                    comm_task.task_type_symbol_id, row.raw_context_id);
   }
 }
 
@@ -4244,8 +4252,8 @@ NativeIr load_split_profile(const AscendSQLiteAdapterOptions& options) {
       raw_tasks.push_back(SplitRawTask{
           RawTaskRow{sqlite_u64(stmt.get(), 0), start_ns,
                      start_ns + duration_ns, table_device_id, stream_id, task_id,
-                     compute.synthetic_global_task_id, connection_id, -1,
-                     model_id},
+                     compute.synthetic_global_task_id, connection_id,
+                     static_cast<std::int64_t>(context_id), -1, model_id},
           source_ref, ir.symbols.intern(normalized_task_type), compute,
           communication});
     }
@@ -4272,7 +4280,8 @@ NativeIr load_split_profile(const AscendSQLiteAdapterOptions& options) {
                     raw.compute.symbols.compute_task_type_symbol_id,
                     raw.communication.comm_name_symbol_id,
                     raw.row.raw_model_id,
-                    raw.communication.task_type_symbol_id);
+                    raw.communication.task_type_symbol_id,
+                    raw.row.raw_context_id);
   }
   materialize_split_communication_ops(inventory, table_refs,
                                       communication_envelopes, ir, streams);

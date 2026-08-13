@@ -55,6 +55,27 @@ std::unordered_set<TraceEventId::value_type> host_runtime_trace_event_ids(
   return out;
 }
 
+std::unordered_set<TraceEventId::value_type>
+reconciled_timing_envelope_event_ids(const NativeIr& ir) {
+  std::unordered_set<TraceEventId::value_type> out;
+  for (const EventReconciliationMemberRow& member :
+       ir.event_reconciliation.members) {
+    if (member.role != EventReconciliationMemberRole::kTimingEnvelope ||
+        !member.decision_id.valid() ||
+        member.decision_id.value() >=
+            ir.event_reconciliation.decisions.size()) {
+      continue;
+    }
+    const EventReconciliationDecisionRow& decision =
+        ir.event_reconciliation.decisions[member.decision_id.value()];
+    if (decision.status == EventReconciliationStatus::kReconciled &&
+        member.event_id.valid()) {
+      out.insert(member.event_id.value());
+    }
+  }
+  return out;
+}
+
 const AnchorRow* following_anchor_for_aux_event(const NativeIr& ir,
                                                 const TraceEventRow& event) {
   const AnchorRow* best = nullptr;
@@ -86,6 +107,9 @@ AuxAttributionSqlRows build_aux_attribution_sql_rows(const NativeIr& ir,
       anchored_trace_event_ids(ir);
   const std::unordered_set<TraceEventId::value_type> host_runtime_events =
       host_runtime_trace_event_ids(ir);
+  const std::unordered_set<TraceEventId::value_type>
+      reconciled_timing_envelopes =
+          reconciled_timing_envelope_event_ids(ir);
   AuxAttributionSqlRows rows;
   std::map<AnchorId::value_type, AuxSlotAccum> slots;
   std::map<AnchorId::value_type, std::uint32_t> next_aux_order;
@@ -96,6 +120,13 @@ AuxAttributionSqlRows build_aux_attribution_sql_rows(const NativeIr& ir,
     }
     if (host_runtime_events.find(event.id.value()) !=
         host_runtime_events.end()) {
+      continue;
+    }
+    // A timing envelope reconciled into a canonical anchor is retained as
+    // normalized evidence, but is not additional device work.  Counting it as
+    // prelude auxiliary cost would charge the same physical interval twice.
+    if (reconciled_timing_envelopes.find(event.id.value()) !=
+        reconciled_timing_envelopes.end()) {
       continue;
     }
     const AnchorRow* anchor = following_anchor_for_aux_event(ir, event);

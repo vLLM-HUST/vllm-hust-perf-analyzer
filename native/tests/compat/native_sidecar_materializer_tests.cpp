@@ -571,7 +571,7 @@ int main() {
   compat::write_basic_native_compatibility_sidecar(db_path, ir, options);
 
   require(run_scalar_int(db_path,
-                         "SELECT COUNT(*) FROM traceloom_metadata") == 27);
+                         "SELECT COUNT(*) FROM traceloom_metadata") == 34);
   require(run_scalar_text(db_path,
                           "SELECT value FROM traceloom_metadata "
                           "WHERE key = 'native_compatibility_materializer'") ==
@@ -1220,13 +1220,13 @@ int main() {
               "SELECT COUNT(*) FROM traceloom_projection_recipe WHERE "
               "scope_kind != '' AND population_mode != '' AND "
               "resolution != '' AND observation_domain != '' AND "
-              "measure_lens != ''") == 9);
+              "measure_lens != ''") == 10);
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_projection_parameter WHERE "
               "parameter_name != '' AND sqlite_type IN ('TEXT', 'INTEGER') "
               "AND selection_relation != '' AND selection_column != ''") ==
-          16);
+          17);
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_projection_parameter p LEFT "

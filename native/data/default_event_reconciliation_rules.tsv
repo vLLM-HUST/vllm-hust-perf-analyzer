@@ -1,0 +1,6 @@
+# manifest_schema=traceloom.event-reconciliation-policy/v1
+# policy_id=traceloom.default.event-reconciliation
+# policy_version=1
+# unmatched_behavior=independent
+priority	rule_id	provider_scope	source_domain	task_type	generic_context_id	concrete_context_id	min_contained_fraction	note
+100	ascend.task.mix-aiv.context-detail	ascend	task	KERNEL_MIX_AIV	4294967295	0	0.99	Reconcile one generic mixed-AIV timing envelope with one context-specific operator record sharing exact task identity

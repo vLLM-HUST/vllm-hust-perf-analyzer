@@ -205,6 +205,41 @@ Important costs are:
   categories;
 - `avg_aux_us` and `avg_self_us`: attributed auxiliary and node-owned cost.
 
+#### Audit sparse event reconciliation
+
+Some profiler schemas can expose two rows for one physical device action: a
+generic timing envelope and a context-specific row carrying the operator
+identity. TraceLoom reconciles only explicitly supported, uniquely paired
+observations before projecting anchors. Both normalized events and both raw
+source locators remain in the database; the canonical anchor takes its
+interval/cost once from the envelope and its symbol from the detail row.
+Missing, ambiguous, or conflicting peers stay independent.
+
+The default policy is the small, versioned table
+[`native/data/default_event_reconciliation_rules.tsv`](native/data/default_event_reconciliation_rules.tsv).
+`--event-reconciliation-rules PATH` replaces it for one analysis and
+`--extend-event-reconciliation-rules PATH` overlays rules by stable `rule_id`
+(a repeated ID overwrites the default rule). The effective files and digests,
+every decision, and every member contribution are queryable:
+
+```sql
+SELECT policy_id, policy_version, rule_id, task_type,
+       generic_context_id, concrete_context_id, min_contained_fraction
+FROM traceloom_event_reconciliation_rule;
+
+SELECT decision_id, status, reason_code, event_id, member_role,
+       contributes_timing, contributes_symbol, contributes_cost,
+       canonical_anchor_id, observed_symbol, canonical_symbol
+FROM traceloom_v_event_reconciliation
+WHERE event_id = 'event-109' OR canonical_event_id = 'event-109'
+ORDER BY decision_id, member_order;
+```
+
+This is deliberately not a general temporal containment hierarchy. Rules must
+name the provider evidence that establishes shared identity, and uncertainty
+preserves the original timeline. See
+[`docs/report-sql/event-reconciliation-audit.sql`](docs/report-sql/event-reconciliation-audit.sql).
+
 #### Audit structural-symbol normalization
 
 TraceLoom keeps two operator identities when constructing the anchor sequence:

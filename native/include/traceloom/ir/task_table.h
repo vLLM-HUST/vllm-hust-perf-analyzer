@@ -15,6 +15,7 @@ struct TaskRow {
   std::uint64_t raw_task_id = 0;
   std::int64_t raw_global_task_id = -1;
   std::int64_t raw_connection_id = -1;
+  std::int64_t raw_context_id = -1;
   SymbolId task_type_symbol_id;
   SymbolId op_name_symbol_id;
   SymbolId op_type_symbol_id;
@@ -38,7 +39,8 @@ class TaskTable {
                 SymbolId comm_name_symbol_id,
                 std::int64_t raw_model_id = -1,
                 SymbolId communication_task_type_symbol_id =
-                    SymbolId::invalid());
+                    SymbolId::invalid(),
+                std::int64_t raw_context_id = -1);
 
   std::size_t size() const noexcept { return rows_.size(); }
   bool empty() const noexcept { return rows_.empty(); }

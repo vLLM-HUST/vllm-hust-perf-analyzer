@@ -19,6 +19,7 @@
 #include "traceloom/adapters/ascend_sqlite_adapter.h"
 #include "traceloom/adapters/cuda_nsys_sqlite_adapter.h"
 #include "traceloom/adapters/hygon_sqlite_adapter.h"
+#include "traceloom/analysis/event_reconciliation.h"
 #include "traceloom/analysis/flat_anchor_builder.h"
 #include "traceloom/analysis/native_pipeline.h"
 #include "traceloom/compat/native_sidecar_materializer.h"
@@ -80,6 +81,8 @@ struct CliOptions {
   std::vector<std::string> classification_rule_overrides;
   std::string symbol_rules_path;
   std::string extend_symbol_rules_path;
+  std::string event_reconciliation_rules_path;
+  std::string extend_event_reconciliation_rules_path;
 };
 
 std::vector<std::string> discover_profile_dbs(const std::string& input,
@@ -130,6 +133,8 @@ void print_advanced_usage(const char* argv0) {
                " [--classification-rule-override RULE_ID.FIELD=VALUE]"
                " [--symbol-rules PATH]"
                " [--extend-symbol-rules PATH]"
+               " [--event-reconciliation-rules PATH]"
+               " [--extend-event-reconciliation-rules PATH]"
                " [--timings]\n";
 }
 
@@ -205,6 +210,10 @@ CliOptions parse_args(int argc, char** argv) {
       options.symbol_rules_path = require_value(arg);
     } else if (arg == "--extend-symbol-rules") {
       options.extend_symbol_rules_path = require_value(arg);
+    } else if (arg == "--event-reconciliation-rules") {
+      options.event_reconciliation_rules_path = require_value(arg);
+    } else if (arg == "--extend-event-reconciliation-rules") {
+      options.extend_event_reconciliation_rules_path = require_value(arg);
     } else if (arg == "--sidecar-only") {
       options.sidecar_only = true;
     } else if (arg == "--timings") {
@@ -615,6 +624,19 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
               pipeline_options.anchor_config.structural_symbol_rules,
               traceloom::load_structural_symbol_ruleset(
                   cli.extend_symbol_rules_path));
+    }
+    pipeline_options.anchor_config.event_reconciliation_rules =
+        cli.event_reconciliation_rules_path.empty()
+            ? traceloom::load_default_event_reconciliation_ruleset(
+                  cli.executable_path)
+            : traceloom::load_event_reconciliation_ruleset(
+                  cli.event_reconciliation_rules_path);
+    if (!cli.extend_event_reconciliation_rules_path.empty()) {
+      pipeline_options.anchor_config.event_reconciliation_rules =
+          traceloom::overlay_event_reconciliation_ruleset(
+              pipeline_options.anchor_config.event_reconciliation_rules,
+              traceloom::load_event_reconciliation_ruleset(
+                  cli.extend_event_reconciliation_rules_path));
     }
 
     traceloom::NativePipelineResult pipeline;

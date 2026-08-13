@@ -186,3 +186,12 @@ observation at the same highest precedence, the analyzer preserves that
 observation and records a typed conflict rather than choosing silently.
 Unmatched symbols follow an identity fallback. The effective policy, manifest
 hash, rule catalog, and per-anchor decisions are materialized in `analysis.db`.
+
+Sparse duplicate-observation reconciliation is independently configured by
+`data/default_event_reconciliation_rules.tsv`. Use
+`--event-reconciliation-rules PATH` for full replacement or
+`--extend-event-reconciliation-rules PATH` for an overlay; an overlay row with
+the same stable `rule_id` overwrites the default. Reconciliation retains every
+normalized event, fails open to independent anchors on ambiguity, and records
+policy/rule/decision/member rows plus the member-centric
+`traceloom_v_event_reconciliation` audit view.

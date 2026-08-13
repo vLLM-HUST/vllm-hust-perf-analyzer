@@ -104,6 +104,38 @@ forward event explanation, reverse member lookup, provider/policy cost
 coverage, unknown anchors within a tree occurrence, positively omitted events
 within a between-anchor region, and typed issues.
 
+## Sparse event-reconciliation audit
+
+Event reconciliation is a narrow pre-projection relation for profiler rows
+that an explicit provider contract identifies as complementary observations of
+one device action. It does not delete or rewrite `traceloom_event`.
+
+- `traceloom_event_reconciliation_policy`: effective manifest identity,
+  digest, and unmatched behavior;
+- `traceloom_event_reconciliation_rule`: exact provider/task/context predicate
+  and containment threshold, including per-rule source file and digest;
+- `traceloom_event_reconciliation_decision`: one candidate identity group with
+  `reconciled`, `independent`, `ambiguous`, or `conflict` status;
+- `traceloom_event_reconciliation_member`: every candidate event and whether
+  it contributes timing, structural symbol, or cost;
+- `traceloom_v_event_reconciliation`: member rows joined to the observed event
+  and, when supported, the canonical structural anchor.
+
+Only a unique supported pair suppresses a duplicate structural candidate. The
+timing envelope supplies the canonical interval and cost, while semantic detail
+supplies the anchor label; this charges the physical action once. Every member
+retains `source_path`, `source_table`, `source_key`, raw task/connection/context
+identity, and a normalized `event_id`. An absent peer stays `independent`;
+multiple candidates become `ambiguous`; interval or protected-membership
+disagreement becomes `conflict`. These outcomes leave the original candidates
+independent in the structural sequence.
+
+The installed default can be fully replaced with
+`--event-reconciliation-rules PATH`. An extension supplied through
+`--extend-event-reconciliation-rules PATH` adds new rules and replaces a base
+rule when the stable `rule_id` repeats. The composite digest and each retained
+rule origin make the effective overlay auditable.
+
 ## Core Tables
 
 ### `traceloom_event`

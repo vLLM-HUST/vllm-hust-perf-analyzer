@@ -19,6 +19,7 @@
 #include "traceloom/compat/aux_attribution_rows.h"
 #include "traceloom/compat/collective_tag_rows.h"
 #include "traceloom/compat/evidence_role_sql_rows.h"
+#include "traceloom/compat/event_reconciliation_rows.h"
 #include "traceloom/compat/exact_graph_sql_rows.h"
 #include "traceloom/compat/native_graph_replay_rows.h"
 #include "traceloom/compat/report_tree_rows.h"
@@ -674,6 +675,12 @@ void materialize_augmented_catalog(const std::string& path,
         {"normalized_event", "traceloom_event", "one normalized event",
          "inspect fine-grained timing and operator evidence",
          "SELECT * FROM traceloom_event ORDER BY db_idx, device_id, step_idx;"},
+        {"event_reconciliation", "traceloom_v_event_reconciliation",
+         "one candidate observation in one sparse reconciliation decision",
+         "audit when multiple profiler rows contribute timing, symbol, and "
+         "cost to one canonical anchor without deleting raw evidence",
+         "SELECT * FROM traceloom_v_event_reconciliation ORDER BY db_idx, "
+         "decision_id, member_order;"},
         {"evidence_role_policy", "traceloom_evidence_role_policy",
          "one effective projection policy",
          "audit the flat input table identity and explicit config precedence",
@@ -979,6 +986,14 @@ void materialize_augmented_catalog(const std::string& path,
          "traceloom_event WHERE db_idx = :db_idx AND device_id = :device_id "
          "AND start_ns < :end_ns AND end_ns > :start_ns ORDER BY start_ns, "
          "end_ns, stream_id, event_id;"},
+        {"event_reconciliation_audit", "85", "normalized_event",
+         "one_event", "reconciliation_members", "device",
+         "identity_contribution", ":event_id",
+         "inspect whether an event stayed independent or contributed timing, "
+         "symbol, or cost to one canonical structural anchor",
+         "SELECT * FROM traceloom_v_event_reconciliation WHERE event_id = "
+         ":event_id OR canonical_event_id = :event_id OR envelope_event_id = "
+         ":event_id ORDER BY decision_id, member_order;"},
         {"event_audit", "90", "normalized_event", "one_event",
          "source_rows", "profiler_evidence", "raw_observation",
          ":event_id",
@@ -1043,6 +1058,8 @@ void materialize_augmented_catalog(const std::string& path,
          "traceloom_event", "start_ns", "inclusive window start"},
         {"device_window_events", "40", "end_ns", "INTEGER", "0",
          "traceloom_event", "end_ns", "exclusive window end"},
+        {"event_reconciliation_audit", "10", "event_id", "TEXT", "0",
+         "traceloom_event", "event_id", "selected normalized event"},
         {"event_audit", "10", "event_id", "TEXT", "0",
          "traceloom_event", "event_id", "selected normalized event"},
     };
@@ -1192,6 +1209,26 @@ void write_basic_native_compatibility_sidecar(
       {"anchor_count", std::to_string(ir.anchors.size())},
       {"graph_template_count", std::to_string(ir.graph_templates.size())},
       {"replay_unit_count", std::to_string(ir.replay_units.size())},
+      {"event_reconciliation_policy_id",
+       ir.event_reconciliation.policy.policy_id},
+      {"event_reconciliation_policy_version",
+       ir.event_reconciliation.policy.policy_version},
+      {"event_reconciliation_manifest_sha256",
+       ir.event_reconciliation.policy.manifest_sha256},
+      {"event_reconciliation_rule_count",
+       std::to_string(ir.event_reconciliation.policy.rules.size())},
+      {"event_reconciliation_decision_count",
+       std::to_string(ir.event_reconciliation.decisions.size())},
+      {"event_reconciliation_member_count",
+       std::to_string(ir.event_reconciliation.members.size())},
+      {"event_reconciliation_reconciled_count",
+       std::to_string(std::count_if(
+           ir.event_reconciliation.decisions.begin(),
+           ir.event_reconciliation.decisions.end(),
+           [](const EventReconciliationDecisionRow& decision) {
+             return decision.status ==
+                    EventReconciliationStatus::kReconciled;
+           }))},
       {"replay_composition_region_count",
        std::to_string(ir.replay_composition_regions.size())},
       {"unrecognized_replay_composition_region_count",
@@ -1276,6 +1313,7 @@ void write_basic_native_compatibility_sidecar(
   const std::vector<AnchorSqlRow> anchor_rows =
       build_anchor_sequence_sql_rows(ir, options.db_idx);
   replace_anchor_rows(sqlite_path, anchor_rows);
+  replace_event_reconciliation_rows(sqlite_path, ir, options.db_idx);
   replace_symbol_normalization_rows(sqlite_path, symbol_normalization_rows);
   const AuxAttributionSqlRows aux_rows =
       options.materialize_aux_attribution
