@@ -12,11 +12,13 @@ replay internals where evidence permits, and links back to embedded raw rows.
 
 ![TraceLoom queryable database timeline: horizontal evidence drill-down and vertical occurrence comparison](docs/assets/queryable-db-timeline.svg)
 
-The hierarchy supports two complementary analysis directions. Drill
-**horizontally** from a structural node through one occurrence and normalized
-event to its embedded raw profiler row. Compare **vertically** across every
-equivalent occurrence of the same recovered structure. The structure defines
-the statistical scope; provenance keeps the result auditable.
+Every analysis starts from a structural scope and composes a projection. Select
+one occurrence to read realized behavior, or range over all occurrences for a
+statistical population; keep the scope folded, expand its children and events,
+enter supported host-window context, or change the compatible cost lens without
+reconstructing its boundary. Horizontal drill-down, vertical comparison,
+hierarchical navigation, and cross-domain context are views over the same
+coordinates. See [Composable Analytical Projections](docs/composable-analytical-projections.md).
 
 Try the reproducible, beginner-friendly
 [`60-second database-timeline tour`](examples/db-timeline-tour) on the checked-in real
@@ -51,6 +53,8 @@ Key capabilities:
 - repeated decode/layer structure discovery over semantic anchors;
 - overlap-safe wall-clock accounting across concurrent streams;
 - repeat-node averages normalized per loop-body iteration;
+- first-class analytical projection recipes that compose structural scope,
+  occurrence population, hierarchy depth, observation domain, and measure lens;
 - provider-aware runtime-call ↔ device-work relations with explicit
   cardinality and open/ambiguous outcomes;
 - reverse navigation from device anchors and auxiliary work to host runtime
@@ -163,8 +167,35 @@ sqlite3 -header -column /path/to/traceloom/analysis.db \
   'SELECT local_node_id, label, depth, occurrence_count, avg_total_us FROM traceloom_v_tree_node ORDER BY display_order;'
 ```
 
-Start at outer Repeat nodes, then drill through node occurrences, anchors,
-normalized events, exact graph members, and raw evidence. Important costs are:
+Start at an outer Repeat node or another structural scope. The database itself
+describes how that scope can be projected:
+
+```sql
+SELECT projection_name, population_mode, resolution,
+       observation_domain, measure_lens, selector_parameters, purpose
+FROM traceloom_projection_recipe
+ORDER BY display_order;
+```
+
+`traceloom_projection_parameter` gives agents and UIs a normalized catalog of
+each selector's type, nullability, purpose, and source relation/column.
+
+Bind one scope once in the `sqlite3` shell, then reuse it across recipes:
+
+```sql
+.parameter init
+.parameter set :node_id 'node-N006'
+.parameter set :occurrence_idx NULL
+```
+
+`NULL` selects the full occurrence population; setting
+`:occurrence_idx` to a number selects one realized execution. The same
+`:node_id` can then remain folded, expand to ordered children or events, enter
+supported host windows, or change cost lens. A bounded device window is also a
+valid query scope, but selecting it does not promote it into a recovered
+pattern. See the [complete projection UX](docs/composable-analytical-projections.md).
+
+Important costs are:
 
 - `total_us`: disjoint wall-clock union; overlapping streams are not counted
   twice;
@@ -282,7 +313,7 @@ chosen `node_id`. Runtime
 calls may overlap each other; even the clipped overlap sum is scheduled-call
 time, not an overlap-safe host busy union.
 
-For the complete horizontal-and-vertical experience shown above:
+For the complete composable-projection experience shown above:
 
 ```bash
 sqlite3 -readonly \

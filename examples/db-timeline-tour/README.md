@@ -1,11 +1,16 @@
 # 60-Second Queryable Database Timeline Tour
 
-This tour demonstrates the two analytical directions enabled by TraceLoom's self-contained queryable database timeline:
+This tour demonstrates TraceLoom's core composable-projection UX. It selects
+one high-level structural scope once, then derives several views:
 
-- **horizontal drill-down**: structure → occurrence → event → embedded raw
-  profiler row;
-- **vertical comparison**: one recovered structure → all equivalent
-  occurrences → comparable cost distribution.
+- **population**: one recovered structure → all equivalent occurrences →
+  comparable cost distribution;
+- **realized behavior**: the same scope → occurrence 1 → ordered device
+  members;
+- **hierarchy**: the same scope → ordered child patterns;
+- **cross-domain context**: the same scope → supported host windows → runtime
+  API distribution; and
+- **audit**: one member → normalized event → embedded profiler row.
 
 From the repository root, analyze the checked-in two-device profile:
 
@@ -27,8 +32,11 @@ At the `sqlite>` prompt:
 ```
 
 No SQL expertise is required. The script finds a nested `Rep x24` region,
-shows its ordered children, compares all instances of the same recovered
-structure, and follows one event to its embedded profiler-row locator.
+stores its `node_id` as the selected scope, then changes population,
+resolution, observation domain, and measure lens without reconstructing the
+region boundary. It also prints the reusable recipes embedded in the database.
+Their selector types and candidate-coordinate relations are queryable rather
+than hidden in a separate client API.
 
 The checked-in profile is the source of truth for both this tour and
 [`docs/assets/queryable-db-timeline.svg`](../../docs/assets/queryable-db-timeline.svg).

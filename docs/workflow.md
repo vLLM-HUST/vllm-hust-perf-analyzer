@@ -77,16 +77,24 @@ For a self-contained smoke test, run:
 traceloom examples/kickstart_smoke/msprof_raw
 ```
 
-## 4. Query The Hierarchical Cost Map
+## 4. Select A Scope And Compose A Projection
 
-Open the database timeline through its self-describing catalog, then query its hierarchical map:
+Open the database timeline through its self-describing catalogs:
 
 ```bash
+sqlite3 analysis.db 'SELECT * FROM traceloom_projection_recipe ORDER BY display_order;'
+sqlite3 analysis.db 'SELECT * FROM traceloom_projection_parameter ORDER BY projection_name, parameter_order;'
 sqlite3 analysis.db 'SELECT * FROM traceloom_analysis_surface;'
 sqlite3 -header -column analysis.db < docs/report-sql/tree-map.sql
 ```
 
-Start with an outer `Repeat xN`, then compare and drill into its children.
+Start with an outer `Repeat xN` and retain its `node_id`. The recipes let the
+same selected scope switch between one realized occurrence and all
+occurrences, remain folded or expand to children/events, enter supported host
+windows, and change measure lens without rebuilding its boundary. See
+[`composable-analytical-projections.md`](composable-analytical-projections.md)
+and the executable [`database-timeline tour`](../examples/db-timeline-tour).
+
 Read the cost columns using these rules:
 
 - `total_us` is a disjoint wall-clock union, so overlapping streams are not

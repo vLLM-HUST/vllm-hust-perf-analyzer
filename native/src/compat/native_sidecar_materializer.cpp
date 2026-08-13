@@ -591,6 +591,27 @@ void materialize_augmented_catalog(const std::string& path,
         "failed to create analysis surface catalog");
     sqlite_exec(
         db,
+        "CREATE TABLE traceloom_projection_recipe("
+        "projection_name TEXT NOT NULL PRIMARY KEY, "
+        "display_order INTEGER NOT NULL, scope_kind TEXT NOT NULL, "
+        "population_mode TEXT NOT NULL, resolution TEXT NOT NULL, "
+        "observation_domain TEXT NOT NULL, measure_lens TEXT NOT NULL, "
+        "selector_parameters TEXT NOT NULL, purpose TEXT NOT NULL, "
+        "example_sql TEXT NOT NULL)",
+        "failed to create projection recipe catalog");
+    sqlite_exec(
+        db,
+        "CREATE TABLE traceloom_projection_parameter("
+        "projection_name TEXT NOT NULL, parameter_order INTEGER NOT NULL, "
+        "parameter_name TEXT NOT NULL, sqlite_type TEXT NOT NULL, "
+        "is_nullable INTEGER NOT NULL CHECK(is_nullable IN (0, 1)), "
+        "selection_relation TEXT NOT NULL, selection_column TEXT NOT NULL, "
+        "purpose TEXT NOT NULL, PRIMARY KEY(projection_name, parameter_name), "
+        "FOREIGN KEY(projection_name) REFERENCES "
+        "traceloom_projection_recipe(projection_name))",
+        "failed to create projection parameter catalog");
+    sqlite_exec(
+        db,
         "CREATE TABLE traceloom_operator_audit("
         "operator_name TEXT NOT NULL, task_type TEXT NOT NULL, "
         "occurrence_count INTEGER NOT NULL, total_duration_ns INTEGER NOT NULL, "
@@ -624,6 +645,19 @@ void materialize_augmented_catalog(const std::string& path,
             quote_literal(std::to_string(operator_occurrences)) + ")",
         "failed to add operator audit metadata");
     const std::vector<std::vector<std::string>> surfaces = {
+        {"composable_projection", "traceloom_projection_recipe",
+         "one reusable analytical projection recipe",
+         "select a scope and compose population, resolution, observation "
+         "domain, and measure lens",
+         "SELECT projection_name, scope_kind, population_mode, resolution, "
+         "observation_domain, measure_lens, selector_parameters, purpose "
+         "FROM traceloom_projection_recipe ORDER BY display_order;"},
+        {"projection_parameter", "traceloom_projection_parameter",
+         "one named parameter accepted by one projection recipe",
+         "discover typed selectors and the public relation that supplies "
+         "candidate coordinates",
+         "SELECT * FROM traceloom_projection_parameter ORDER BY "
+         "projection_name, parameter_order;"},
         {"tree_map", "traceloom_v_tree_node", "one structural node",
          "read the hierarchical cost map from coarse loops to leaves",
          "SELECT * FROM traceloom_v_tree_node ORDER BY db_idx, device_id, "
@@ -843,8 +877,191 @@ void materialize_augmented_catalog(const std::string& path,
                       quote_literal(surface[4]) + ")",
                   "failed to insert analysis surface row");
     }
+    const std::vector<std::vector<std::string>> projection_recipes = {
+        {"scope_occurrences", "10", "structural_node",
+         "one_or_all_occurrences", "folded", "device",
+         "occurrence_cost",
+         ":node_id, :occurrence_idx (NULL selects all)",
+         "inspect one realized occurrence or the full cost population of the "
+         "same structural scope",
+         "SELECT node_id, local_node_id, occurrence_idx, repeat_context, "
+         "start_ns, end_ns, anchor_count, compute_us, comm_us, idle_us, "
+         "total_us, self_us, aux_us FROM traceloom_tree_node_occurrence "
+         "WHERE node_id = :node_id AND (:occurrence_idx IS NULL OR "
+         "occurrence_idx = :occurrence_idx) ORDER BY occurrence_idx;"},
+        {"scope_hierarchy", "20", "structural_node", "definition",
+         "immediate_children", "device", "node_cost",
+         ":node_id",
+         "keep a selected scope folded while reading its ordered child "
+         "patterns and costs",
+         "SELECT parent_node_id, child_node_id, edge_order, local_node_id, "
+         "label, node_type, repeat_count, occurrence_count, total_us, "
+         "avg_total_us FROM traceloom_v_node_children WHERE parent_node_id = "
+         ":node_id ORDER BY edge_order;"},
+        {"scope_members", "30", "structural_node",
+         "one_or_all_occurrences", "anchors_and_events", "device",
+         "member_cost",
+         ":node_id, :occurrence_idx (NULL selects all)",
+         "expand a selected scope to ordered anchors and normalized event "
+         "evidence",
+         "SELECT na.node_id, na.occurrence_idx, na.anchor_order, "
+         "na.coverage_kind, a.anchor_id, a.anchor_idx, a.symbol, e.event_id, "
+         "e.stream_id, e.start_ns, e.end_ns, e.dur_us, e.role, "
+         "e.semantic_role FROM traceloom_tree_node_anchor na JOIN "
+         "traceloom_anchor a ON a.anchor_id = na.anchor_id LEFT JOIN "
+         "traceloom_event e ON e.event_id = a.event_id WHERE na.node_id = "
+         ":node_id AND (:occurrence_idx IS NULL OR na.occurrence_idx = "
+         ":occurrence_idx) ORDER BY na.occurrence_idx, na.anchor_order;"},
+        {"scope_exact_replay_members", "40", "structural_node",
+         "one_or_all_occurrences", "exact_replay_members", "device",
+         "scheduled_member_cost_and_provenance",
+         ":node_id, :occurrence_idx (NULL selects all)",
+         "expand supported graph/replay anchors to exact ordered body members "
+         "without inferring membership from time overlap",
+         "SELECT node_id, occurrence_idx, node_member_order, lane_ordinal, "
+         "task_ordinal, event_id, member_symbol, start_ns, end_ns, dur_us, "
+         "source_table, source_row_id, evidence_level FROM "
+         "traceloom_v_node_graph_body_member WHERE node_id = :node_id AND "
+         "(:occurrence_idx IS NULL OR occurrence_idx = :occurrence_idx) "
+         "ORDER BY occurrence_idx, node_member_order, lane_ordinal, "
+         "task_ordinal;"},
+        {"position_population", "50", "structural_node",
+         "all_occurrences", "aligned_positions", "device",
+         "position_cost_distribution", ":node_id",
+         "compare corresponding ordered positions across every occurrence of "
+         "the selected scope",
+         "SELECT na.node_id, na.anchor_order, na.coverage_kind, a.symbol, "
+         "count(DISTINCT na.occurrence_idx) AS occurrence_count, "
+         "avg(na.total_us) AS avg_total_us, min(na.total_us) AS min_total_us, "
+         "max(na.total_us) AS max_total_us, avg(na.compute_us) AS "
+         "avg_compute_us, avg(na.comm_us) AS avg_comm_us, avg(na.idle_us) AS "
+         "avg_idle_us, avg(na.aux_us) AS avg_aux_us FROM "
+         "traceloom_tree_node_anchor na JOIN traceloom_anchor a ON "
+         "a.anchor_id = na.anchor_id WHERE na.node_id = :node_id GROUP BY "
+         "na.node_id, na.anchor_order, na.coverage_kind, a.symbol ORDER BY "
+         "na.anchor_order, a.symbol;"},
+        {"scope_host_context", "60", "structural_node",
+         "one_or_all_occurrences", "anchor_pair_windows", "host",
+         "runtime_api_distribution",
+         ":node_id, :occurrence_idx (NULL selects all)",
+         "project the same device scope into supported host windows and "
+         "compare profiler-visible runtime API distributions",
+         "SELECT node_id, occurrence_idx, anchor_order, right_anchor_symbol, "
+         "coverage_kind, host_interval_us, api_name, count(*) AS "
+         "observed_calls, "
+         "sum(observed_overlap_us) AS scheduled_overlap_us FROM "
+         "traceloom_v_node_host_activity WHERE node_id = :node_id AND "
+         "(:occurrence_idx IS NULL OR occurrence_idx "
+         "= :occurrence_idx) GROUP BY node_id, occurrence_idx, anchor_order, "
+         "right_anchor_symbol, coverage_kind, host_interval_us, api_name ORDER BY "
+         "occurrence_idx, anchor_order, scheduled_overlap_us DESC;"},
+        {"bubble_host_context", "70", "structural_position",
+         "all_occurrences", "bubble_population", "device_and_host",
+         "bubble_and_runtime_api_distribution",
+         ":structural_position_id",
+         "compare recurrent uncovered-device cost with supported upstream "
+         "host API-family observations without assigning a cause",
+         "SELECT structural_position_id, bubble_occurrence_count, "
+         "host_observable_occurrence_count, host_observation_coverage, "
+         "total_bubble_us, avg_bubble_us, api_family, presence_count, "
+         "avg_calls_per_observable_bubble, "
+         "avg_scheduled_overlap_us_per_bubble FROM "
+         "traceloom_v_structure_bubble_api_stats WHERE "
+         "structural_position_id = :structural_position_id ORDER BY "
+         "total_bubble_us DESC, api_family;"},
+        {"device_window_events", "80", "bounded_device_window",
+         "one_window", "events", "device", "event_duration",
+         ":db_idx, :device_id, :start_ns, :end_ns",
+         "inspect normalized events overlapping a user-selected device "
+         "window without promoting that window to a recovered pattern",
+         "SELECT event_id, step_idx, symbol, role, semantic_role, stream_id, "
+         "start_ns, end_ns, dur_us, source_table, source_key FROM "
+         "traceloom_event WHERE db_idx = :db_idx AND device_id = :device_id "
+         "AND start_ns < :end_ns AND end_ns > :start_ns ORDER BY start_ns, "
+         "end_ns, stream_id, event_id;"},
+        {"event_audit", "90", "normalized_event", "one_event",
+         "source_rows", "profiler_evidence", "raw_observation",
+         ":event_id",
+         "audit any projected event through its embedded profiler source "
+         "locator",
+         "SELECT * FROM traceloom_v_event_source_locator WHERE event_id = "
+         ":event_id ORDER BY source_ordinal;"},
+    };
+    for (const auto& recipe : projection_recipes) {
+      sqlite_exec(db,
+                  "INSERT INTO traceloom_projection_recipe VALUES(" +
+                      quote_literal(recipe[0]) + "," + recipe[1] + "," +
+                      quote_literal(recipe[2]) + "," +
+                      quote_literal(recipe[3]) + "," +
+                      quote_literal(recipe[4]) + "," +
+                      quote_literal(recipe[5]) + "," +
+                      quote_literal(recipe[6]) + "," +
+                      quote_literal(recipe[7]) + "," +
+                      quote_literal(recipe[8]) + "," +
+                      quote_literal(recipe[9]) + ")",
+                  "failed to insert projection recipe row");
+    }
+    const std::vector<std::vector<std::string>> projection_parameters = {
+        {"scope_occurrences", "10", "node_id", "TEXT", "0",
+         "traceloom_v_tree_node", "node_id",
+         "selected structural scope"},
+        {"scope_occurrences", "20", "occurrence_idx", "INTEGER", "1",
+         "traceloom_tree_node_occurrence", "occurrence_idx",
+         "NULL selects all occurrences; a value selects one execution"},
+        {"scope_hierarchy", "10", "node_id", "TEXT", "0",
+         "traceloom_v_tree_node", "node_id",
+         "selected structural scope"},
+        {"scope_members", "10", "node_id", "TEXT", "0",
+         "traceloom_v_tree_node", "node_id",
+         "selected structural scope"},
+        {"scope_members", "20", "occurrence_idx", "INTEGER", "1",
+         "traceloom_tree_node_occurrence", "occurrence_idx",
+         "NULL selects all occurrences; a value selects one execution"},
+        {"scope_exact_replay_members", "10", "node_id", "TEXT", "0",
+         "traceloom_v_tree_node", "node_id",
+         "selected structural scope containing supported replay evidence"},
+        {"scope_exact_replay_members", "20", "occurrence_idx", "INTEGER",
+         "1", "traceloom_tree_node_occurrence", "occurrence_idx",
+         "NULL selects all occurrences; a value selects one execution"},
+        {"position_population", "10", "node_id", "TEXT", "0",
+         "traceloom_v_tree_node", "node_id",
+         "selected structural scope whose ordered positions are aligned"},
+        {"scope_host_context", "10", "node_id", "TEXT", "0",
+         "traceloom_v_tree_node", "node_id",
+         "selected structural scope"},
+        {"scope_host_context", "20", "occurrence_idx", "INTEGER", "1",
+         "traceloom_tree_node_occurrence", "occurrence_idx",
+         "NULL selects all occurrences; a value selects one execution"},
+        {"bubble_host_context", "10", "structural_position_id", "TEXT",
+         "0", "traceloom_v_structure_bubble_api_stats",
+         "structural_position_id", "selected recurrent bubble position"},
+        {"device_window_events", "10", "db_idx", "INTEGER", "0",
+         "traceloom_event", "db_idx", "source database coordinate"},
+        {"device_window_events", "20", "device_id", "INTEGER", "0",
+         "traceloom_event", "device_id", "device coordinate"},
+        {"device_window_events", "30", "start_ns", "INTEGER", "0",
+         "traceloom_event", "start_ns", "inclusive window start"},
+        {"device_window_events", "40", "end_ns", "INTEGER", "0",
+         "traceloom_event", "end_ns", "exclusive window end"},
+        {"event_audit", "10", "event_id", "TEXT", "0",
+         "traceloom_event", "event_id", "selected normalized event"},
+    };
+    for (const auto& parameter : projection_parameters) {
+      sqlite_exec(
+          db,
+          "INSERT INTO traceloom_projection_parameter VALUES(" +
+              quote_literal(parameter[0]) + "," + parameter[1] + "," +
+              quote_literal(parameter[2]) + "," +
+              quote_literal(parameter[3]) + "," + parameter[4] + "," +
+              quote_literal(parameter[5]) + "," +
+              quote_literal(parameter[6]) + "," +
+              quote_literal(parameter[7]) + ")",
+          "failed to insert projection parameter row");
+    }
     sqlite_exec(db,
                 "INSERT INTO traceloom_metadata(key, value) VALUES"
+                "('analytical_projection_contract', "
+                "'scope_population_resolution_domain_lens_v1'),"
                 "('raw_source_database_count', " +
                     quote_literal(std::to_string(packaging.sources.size())) +
                     "),('raw_table_count', " +

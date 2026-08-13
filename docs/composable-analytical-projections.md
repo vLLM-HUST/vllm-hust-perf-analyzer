@@ -1,0 +1,140 @@
+# Composable Analytical Projections
+
+TraceLoom does not materialize one privileged report. It materializes stable
+execution coordinates from which a human, agent, or UI can compose analytical
+views.
+
+Every projection makes five choices:
+
+| Axis | Typical choices | Question answered |
+| --- | --- | --- |
+| **Scope** | structural node/pattern, position, occurrence, bounded device window | What part of the observed execution am I selecting? |
+| **Population** | one occurrence, all occurrences at the same structural coordinate | Do I want one realized behavior or a statistical population? |
+| **Resolution** | folded node, immediate children, anchors/events, exact replay members, raw rows | How far should the view expand? |
+| **Observation domain** | device, supported host windows, embedded profiler evidence | Which observation domain should contextualize the scope? |
+| **Measure lens** | overlap-safe cost, occurrence cost, scheduled work, bubble cost, host API distribution | Which compatible cost or behavior measure should the view expose? |
+
+Presentation is a sixth, downstream choice: SQL rows, a tree, a timeline, a
+Web view, or a paper figure may all project the same selected coordinates.
+
+## Start from one scope
+
+Pick a high-level structural handle from the tree map:
+
+```sql
+SELECT node_id, local_node_id, label, occurrence_count,
+       round(avg_total_us, 3) AS avg_total_us,
+       round(total_us, 3) AS total_us
+FROM traceloom_v_tree_node
+WHERE occurrence_count > 1
+ORDER BY total_us DESC
+LIMIT 20;
+```
+
+Inside the `sqlite3` shell, bind that handle once:
+
+```sql
+.parameter init
+.parameter set :node_id 'node-N006'
+.parameter set :occurrence_idx NULL
+```
+
+Every generated database describes the reusable recipes that accept these
+coordinates:
+
+```sql
+SELECT projection_name, population_mode, resolution,
+       observation_domain, measure_lens, selector_parameters, purpose
+FROM traceloom_projection_recipe
+ORDER BY display_order;
+```
+
+Parameter discovery is relational too; agents do not need to parse prose to
+learn selector types or where candidate coordinates come from:
+
+```sql
+SELECT parameter_name, sqlite_type, is_nullable,
+       selection_relation, selection_column, purpose
+FROM traceloom_projection_parameter
+WHERE projection_name = 'scope_members'
+ORDER BY parameter_order;
+```
+
+Copy the `example_sql` for a recipe to run it. The SQL is deliberately the
+semantic interface: a CLI, agent, notebook, or UI may bind the parameters and
+render the returned rows without defining a second analysis API.
+
+## Switch between one occurrence and the population
+
+`scope_occurrences` uses the same query for both readings:
+
+```sql
+SELECT node_id, local_node_id, occurrence_idx, repeat_context,
+       start_ns, end_ns, anchor_count,
+       compute_us, comm_us, idle_us, total_us, self_us, aux_us
+FROM traceloom_tree_node_occurrence
+WHERE node_id = :node_id
+  AND (:occurrence_idx IS NULL OR occurrence_idx = :occurrence_idx)
+ORDER BY occurrence_idx;
+```
+
+With `:occurrence_idx = NULL`, the rows are the vertical cost population for
+the selected structure. Bind `:occurrence_idx = 7` to obtain the seventh
+realized occurrence without changing scope identity or reconstructing its
+boundary.
+
+## Change resolution without losing the coordinate
+
+Use `scope_hierarchy` to keep the scope folded and read its ordered children.
+Use `scope_members` to expand one or all occurrences to anchors and normalized
+events. Exact graph/replay relations extend the same route where provider
+evidence supports visible members. Event/source locators then continue to the
+embedded profiler rows.
+
+The selected structural node remains the coordinate throughout:
+
+```text
+node-N006
+  -> all occurrences          population view
+  -> occurrence 7             one realized view
+  -> ordered children         hierarchical view
+  -> anchors and events       expanded device view
+  -> supported host windows   cross-domain context
+  -> profiler rows            evidence audit
+```
+
+## Change observation domain or measure lens
+
+`scope_host_context` projects the same `:node_id` and optional
+`:occurrence_idx` into host windows delimited by supported runtime endpoints of
+adjacent device anchors. It reports profiler-visible API distributions; it
+does not charge host duration to the device node or assign a cause.
+
+`bubble_host_context` starts from a recovered structural position, holds that
+position fixed across bubble occurrences, and combines overlap-safe uncovered
+device cost with supported upstream API-family observations. A selected bubble
+can then drill down to exact runtime calls and source rows.
+
+Cost columns remain named lenses. Scheduled task sums, overlap-safe busy time,
+wall-span envelopes, device bubble cost, and host scheduled-call duration are
+not silently added or substituted for one another.
+
+## Select a raw device window
+
+A user-selected time interval is also a valid query scope. Bind
+`:db_idx`, `:device_id`, `:start_ns`, and `:end_ns`, then use the
+`device_window_events` recipe to inspect overlapping normalized events.
+
+Selecting an interval does **not** promote it into a recovered pattern. The
+window can be intersected with TraceLoom's materialized structures, but pattern
+identity, occurrence correspondence, and hierarchy remain governed by the
+analyzer's evidence contracts.
+
+## Product invariant
+
+> TraceLoom materializes not one answer, but reusable coordinates from which
+> analysts and agents compose evidence-backed answers.
+
+The original profiler observations remain embedded and authoritative outside
+the supported model. Missing or ambiguous relations remain typed unsupported
+outcomes rather than empty successful projections.
