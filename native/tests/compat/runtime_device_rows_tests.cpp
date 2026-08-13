@@ -478,6 +478,10 @@ int main() {
   require(scalar_int(path,
                      "SELECT COUNT(*) FROM "
                      "traceloom_v_structure_bubble_occurrence") == 1);
+  require(scalar_int(path,
+                     "SELECT COUNT(*) FROM "
+                     "traceloom_v_structure_bubble_occurrence "
+                     "WHERE bubble_us <= 0.0") == 0);
   require(scalar_text(path,
                       "SELECT structural_position_id FROM "
                       "traceloom_v_structure_bubble_occurrence") ==

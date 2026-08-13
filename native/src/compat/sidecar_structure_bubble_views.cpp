@@ -76,7 +76,11 @@ void materialize_structure_bubble_views(SqliteDb& db) {
       "JOIN traceloom_anchor left_anchor ON left_anchor.anchor_id = "
       "host.left_anchor_id AND left_anchor.db_idx = host.db_idx AND "
       "left_anchor.device_id = host.device_id "
-      "WHERE right_na.coverage_kind = 'self' AND right_na.idle_us > 0.0");
+      // Costs in the public timeline are expressed at nanosecond resolution
+      // (0.001 us).  Drop sub-resolution floating-point residue rather than
+      // exposing a row whose materialized bubble_us rounds to zero.
+      "WHERE right_na.coverage_kind = 'self' AND "
+      "ROUND(right_na.idle_us, 3) > 0.0");
 
   db.exec(
       "CREATE UNIQUE INDEX idx_traceloom_structure_bubble_id ON "
