@@ -1423,6 +1423,34 @@ std::vector<QueryCase> active_query_cases() {
           0,
       },
       QueryCase{
+          "event-reconciliation-audit.sql",
+          {
+              "decision_id",
+              "status",
+              "reason_code",
+              "event_id",
+              "member_role",
+              "contributes_timing",
+              "contributes_symbol",
+              "contributes_cost",
+              "canonical_event_id",
+              "envelope_event_id",
+              "canonical_anchor_id",
+              "observed_symbol",
+              "canonical_symbol",
+              "observed_dur_us",
+              "canonical_anchor_dur_us",
+              "source_path",
+              "source_table",
+              "source_key",
+              "raw_task_id",
+              "raw_global_task_id",
+              "raw_connection_id",
+              "raw_context_id",
+          },
+          0,
+      },
+      QueryCase{
           "replay-cost-hotspots.sql",
           {
               "aggregate_id", "graph_template_id", "slot_role",
@@ -1611,7 +1639,8 @@ int main() {
       seed_node_event_fixture(db_path);
       seed_exact_graph_query_fixture(db_path);
       seed_replay_cost_query_fixture(db_path);
-    } else if (query_case.filename == "symbol-normalization-audit.sql") {
+    } else if (query_case.filename == "symbol-normalization-audit.sql" ||
+               query_case.filename == "event-reconciliation-audit.sql") {
       traceloom::compat::materialize_report_compatibility_views(db_path);
     }
 

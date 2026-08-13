@@ -5,6 +5,7 @@
 #include "traceloom/ir/capture_slot_table.h"
 #include "traceloom/ir/captured_graph_instance_table.h"
 #include "traceloom/ir/communication_op_table.h"
+#include "traceloom/ir/event_reconciliation.h"
 #include "traceloom/ir/graph_launch_activity_table.h"
 #include "traceloom/ir/graph_launch_body_table.h"
 #include "traceloom/ir/graph_launch_occurrence_table.h"
@@ -53,6 +54,7 @@ struct NativeIr {
   ReplayUnitTable replay_units;
   ReplayUnitLaunchMemberTable replay_unit_launch_members;
   StructuralSymbolPolicySnapshot structural_symbol_policy;
+  EventReconciliationState event_reconciliation;
 };
 
 }  // namespace traceloom

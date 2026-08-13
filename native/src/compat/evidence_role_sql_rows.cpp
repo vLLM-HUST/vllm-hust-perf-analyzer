@@ -475,6 +475,29 @@ std::vector<DecisionRow> build_decisions(
     }
   }
 
+  struct ReconciliationPlacement {
+    const EventReconciliationDecisionRow* decision = nullptr;
+    const EventReconciliationMemberRow* member = nullptr;
+  };
+  std::unordered_map<TraceEventId::value_type, ReconciliationPlacement>
+      reconciliation_by_event;
+  for (const EventReconciliationMemberRow& member :
+       ir.event_reconciliation.members) {
+    if (!member.decision_id.valid() ||
+        member.decision_id.value() >=
+            ir.event_reconciliation.decisions.size()) {
+      continue;
+    }
+    const EventReconciliationDecisionRow& decision =
+        ir.event_reconciliation.decisions[member.decision_id.value()];
+    if (decision.status == EventReconciliationStatus::kReconciled &&
+        member.event_id.valid()) {
+      reconciliation_by_event.emplace(
+          member.event_id.value(),
+          ReconciliationPlacement{&decision, &member});
+    }
+  }
+
   std::unordered_map<ReplayUnitId::value_type, ProtectedIntervalId>
       protected_by_replay;
   for (const ReplayUnitRow& replay : ir.replay_units.rows()) {
@@ -670,6 +693,37 @@ std::vector<DecisionRow> build_decisions(
       }
     }
 
+    const auto reconciliation =
+        reconciliation_by_event.find(event.id.value());
+    if (reconciliation != reconciliation_by_event.end()) {
+      const EventReconciliationDecisionRow& decision =
+          *reconciliation->second.decision;
+      const EventReconciliationMemberRow& member =
+          *reconciliation->second.member;
+      std::string canonical_anchor;
+      const auto canonical =
+          anchors_by_event.find(decision.canonical_event_id.value());
+      if (canonical != anchors_by_event.end() &&
+          canonical->second.size() == 1) {
+        canonical_anchor = anchor_compat_id(canonical->second.front());
+      }
+      if (member.role == EventReconciliationMemberRole::kTimingEnvelope) {
+        apply_system_decision(
+            row, "anchor", "identity", "system.event_reconciliation",
+            "provider_relation", "supported",
+            "represented_by_reconciled_canonical_anchor",
+            "event_reconciliation_membership");
+      }
+      add_placement(
+          row, "reconciliation_member",
+          "reconciliation-decision-" +
+              std::to_string(decision.id.value()),
+          canonical_anchor, "traceloom_event_reconciliation_member",
+          member.role == EventReconciliationMemberRole::kTimingEnvelope
+              ? "timing_envelope_for_canonical_anchor"
+              : "semantic_detail_for_canonical_anchor");
+    }
+
     const auto direct_anchors = anchors_by_event.find(event.id.value());
     if (direct_anchors != anchors_by_event.end()) {
       if (direct_anchors->second.size() > 1) {
@@ -729,7 +783,8 @@ std::vector<DecisionRow> build_decisions(
         row.placements.begin(), row.placements.end(),
         [](const PlacementRow& placement) {
           return placement.placement_kind == "anchor" ||
-                 placement.placement_kind == "graph_body_member";
+                 placement.placement_kind == "graph_body_member" ||
+                 placement.placement_kind == "reconciliation_member";
         });
     const bool has_aux_placement = std::any_of(
         row.placements.begin(), row.placements.end(),

@@ -782,6 +782,8 @@ int main() {
           "first TASK global task id mismatch");
   require(ir.tasks.row(TaskId(0)).raw_connection_id == 700,
           "first TASK connection id mismatch");
+  require(ir.tasks.row(TaskId(0)).raw_context_id == 0,
+          "first TASK context id mismatch");
   require(ir.tasks.row(TaskId(0)).raw_model_id == 2,
           "first TASK model id mismatch");
   require(ir.symbols.value(ir.tasks.row(TaskId(0)).op_name_symbol_id) ==
@@ -1679,6 +1681,8 @@ int main() {
             "split task type does not match monolithic golden");
     require(split_task.raw_model_id == golden_task.raw_model_id,
             "split task model id does not match monolithic golden");
+    require(split_task.raw_context_id == golden_task.raw_context_id,
+            "split task context id does not match monolithic golden");
   }
   require(split_ir.symbols.value(split_ir.tasks.row(TaskId(0)).op_name_symbol_id) ==
               "linear",

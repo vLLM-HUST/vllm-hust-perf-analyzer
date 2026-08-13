@@ -279,6 +279,97 @@ const CompatTableSchema& anchor_table_schema() {
   return schema;
 }
 
+const CompatTableSchema& event_reconciliation_policy_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_event_reconciliation_policy",
+      {
+          {"policy_id", CompatColumnType::kText, false},
+          {"policy_version", CompatColumnType::kText, false},
+          {"manifest_schema", CompatColumnType::kText, false},
+          {"source_manifest", CompatColumnType::kText, false},
+          {"manifest_sha256", CompatColumnType::kText, false},
+          {"unmatched_behavior", CompatColumnType::kText, false},
+          {"description", CompatColumnType::kText, false},
+      },
+  };
+  return schema;
+}
+
+const CompatTableSchema& event_reconciliation_rule_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_event_reconciliation_rule",
+      {
+          {"policy_id", CompatColumnType::kText, false},
+          {"policy_version", CompatColumnType::kText, false},
+          {"rule_id", CompatColumnType::kText, false},
+          {"priority", CompatColumnType::kInteger, false},
+          {"provider_scope", CompatColumnType::kText, false},
+          {"source_domain", CompatColumnType::kText, false},
+          {"task_type", CompatColumnType::kText, false},
+          {"generic_context_id", CompatColumnType::kInteger, false},
+          {"concrete_context_id", CompatColumnType::kInteger, false},
+          {"min_contained_fraction", CompatColumnType::kReal, false},
+          {"rule_origin", CompatColumnType::kText, false},
+          {"rule_origin_sha256", CompatColumnType::kText, false},
+          {"source_line", CompatColumnType::kInteger, false},
+          {"note", CompatColumnType::kText, false},
+      },
+  };
+  return schema;
+}
+
+const CompatTableSchema& event_reconciliation_decision_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_event_reconciliation_decision",
+      {
+          {"decision_id", CompatColumnType::kText, false},
+          {"db_idx", CompatColumnType::kInteger, false},
+          {"policy_id", CompatColumnType::kText, false},
+          {"policy_version", CompatColumnType::kText, false},
+          {"rule_id", CompatColumnType::kText, false},
+          {"status", CompatColumnType::kText, false},
+          {"reason_code", CompatColumnType::kText, false},
+          {"canonical_event_id", CompatColumnType::kText, true},
+          {"envelope_event_id", CompatColumnType::kText, true},
+          {"canonical_anchor_id", CompatColumnType::kText, true},
+          {"canonical_start_ns", CompatColumnType::kInteger, true},
+          {"canonical_end_ns", CompatColumnType::kInteger, true},
+          {"contained_fraction", CompatColumnType::kReal, true},
+          {"member_count", CompatColumnType::kInteger, false},
+      },
+  };
+  return schema;
+}
+
+const CompatTableSchema& event_reconciliation_member_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_event_reconciliation_member",
+      {
+          {"decision_id", CompatColumnType::kText, false},
+          {"member_order", CompatColumnType::kInteger, false},
+          {"db_idx", CompatColumnType::kInteger, false},
+          {"event_id", CompatColumnType::kText, false},
+          {"task_id", CompatColumnType::kInteger, false},
+          {"source_path", CompatColumnType::kText, false},
+          {"source_table", CompatColumnType::kText, false},
+          {"source_key", CompatColumnType::kText, false},
+          {"device_id", CompatColumnType::kInteger, false},
+          {"stream_id", CompatColumnType::kInteger, false},
+          {"raw_task_id", CompatColumnType::kInteger, false},
+          {"raw_global_task_id", CompatColumnType::kInteger, true},
+          {"raw_connection_id", CompatColumnType::kInteger, true},
+          {"raw_context_id", CompatColumnType::kInteger, true},
+          {"member_role", CompatColumnType::kText, false},
+          {"contributes_timing", CompatColumnType::kInteger, false},
+          {"contributes_symbol", CompatColumnType::kInteger, false},
+          {"contributes_cost", CompatColumnType::kInteger, false},
+          {"retained_as_normalized_evidence", CompatColumnType::kInteger,
+           false},
+      },
+  };
+  return schema;
+}
+
 const CompatTableSchema& symbol_normalization_policy_table_schema() {
   static const CompatTableSchema schema{
       "traceloom_symbol_normalization_policy",
@@ -1012,6 +1103,10 @@ std::vector<CompatTableSchema> compatibility_table_schemas() {
       anchor_host_activity_table_schema(),
       anchor_host_api_summary_table_schema(),
       anchor_table_schema(),
+      event_reconciliation_policy_table_schema(),
+      event_reconciliation_rule_table_schema(),
+      event_reconciliation_decision_table_schema(),
+      event_reconciliation_member_table_schema(),
       symbol_normalization_policy_table_schema(),
       symbol_normalization_rule_table_schema(),
       anchor_symbol_normalization_table_schema(),

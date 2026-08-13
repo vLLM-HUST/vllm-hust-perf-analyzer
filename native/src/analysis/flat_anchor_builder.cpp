@@ -6,8 +6,10 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
+#include "traceloom/analysis/event_reconciliation.h"
 #include "traceloom/analysis/structural_symbol_normalization.h"
 
 namespace traceloom {
@@ -366,12 +368,62 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
         load_default_structural_symbol_ruleset();
   }
   ir.structural_symbol_policy = config.structural_symbol_rules.snapshot();
+  if (config.event_reconciliation_rules.empty()) {
+    config.event_reconciliation_rules =
+        load_default_event_reconciliation_ruleset();
+  }
+  ir.event_reconciliation = reconcile_event_observations(
+      ir, config.event_reconciliation_rules);
+  stats.event_reconciliation_policy_id =
+      ir.event_reconciliation.policy.policy_id;
+  stats.event_reconciliation_policy_version =
+      ir.event_reconciliation.policy.policy_version;
+  stats.event_reconciliation_manifest_sha256 =
+      ir.event_reconciliation.policy.manifest_sha256;
+  stats.event_reconciliation_decisions =
+      ir.event_reconciliation.decisions.size();
+
+  std::unordered_set<TraceEventId::value_type> suppressed_events;
+  std::unordered_map<TraceEventId::value_type,
+                     const EventReconciliationDecisionRow*>
+      canonical_decisions;
+  for (const EventReconciliationDecisionRow& decision :
+       ir.event_reconciliation.decisions) {
+    if (decision.status != EventReconciliationStatus::kReconciled) {
+      continue;
+    }
+    ++stats.reconciled_event_groups;
+    canonical_decisions.emplace(decision.canonical_event_id.value(),
+                                &decision);
+  }
+  for (const EventReconciliationMemberRow& member :
+       ir.event_reconciliation.members) {
+    if (member.decision_id.value() >=
+        ir.event_reconciliation.decisions.size()) {
+      throw std::logic_error(
+          "event-reconciliation member decision_id is out of range");
+    }
+    const EventReconciliationDecisionRow& decision =
+        ir.event_reconciliation.decisions[member.decision_id.value()];
+    if (decision.status != EventReconciliationStatus::kReconciled) {
+      continue;
+    }
+    ++stats.reconciled_event_members;
+    if (member.role == EventReconciliationMemberRole::kTimingEnvelope) {
+      suppressed_events.insert(member.event_id.value());
+    }
+  }
   if (config.filter_auxiliary_task_anchors) {
     stats.projection_kind = "anchor_compute_collective_only";
   }
 
   for (const TaskRow& task : ir.tasks.rows()) {
     if (!task.trace_event_id.valid()) {
+      continue;
+    }
+    if (suppressed_events.find(task.trace_event_id.value()) !=
+        suppressed_events.end()) {
+      ++stats.suppressed_duplicate_observations;
       continue;
     }
     if (task_type_is_skipped(ir, task, config)) {
@@ -417,11 +469,18 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
         comm_event_ids.end()) {
       continue;
     }
-    candidates.push_back(anchor_candidate_from_event(
+    AnchorCandidate candidate = anchor_candidate_from_event(
         ir, task.trace_event_id, ReplayUnitId::invalid(),
         AnchorKind::kDeviceEvent,
         normalize_task_structural_symbol(ir, task,
-                                         config.structural_symbol_rules)));
+                                         config.structural_symbol_rules));
+    const auto reconciled =
+        canonical_decisions.find(task.trace_event_id.value());
+    if (reconciled != canonical_decisions.end()) {
+      candidate.start_ns = reconciled->second->canonical_start_ns;
+      candidate.end_ns = reconciled->second->canonical_end_ns;
+    }
+    candidates.push_back(std::move(candidate));
   }
 
   for (const ReplayUnitRow& replay : ir.replay_units.rows()) {
