@@ -141,6 +141,10 @@ int main() {
   require(rows.host_intervals[0].support_state == "supported_ordered");
   require(rows.host_intervals[0].scope_policy == "same_thread");
   require(rows.host_activities.size() == 1);
+  require(rows.host_api_summaries.size() == 1);
+  require(rows.host_api_summaries[0].api_family == "query");
+  require(rows.host_api_summaries[0].call_count == 1);
+  require(rows.host_api_summaries[0].distinct_api_name_count == 1);
   for (const compat::RuntimeCallSqlRow& row : rows.runtime_calls) {
     require(row.db_idx == 3);
   }
@@ -391,6 +395,7 @@ int main() {
   node.label = "kernel";
   node.category = "compute";
   node.path = "root/kernel";
+  node.occurrence_count = 2;
   node_rows.nodes.push_back(node);
   compat::VizNodeAnchorSqlRow node_anchor;
   node_anchor.node_id = node.node_id;
@@ -398,8 +403,27 @@ int main() {
   node_anchor.db_idx = 3;
   node_anchor.device_id = 0;
   node_anchor.view_name = "anchor_tree";
+  node_anchor.occurrence_idx = 1;
+  node_anchor.anchor_order = 1;
   node_anchor.coverage_kind = "self";
+  node_anchor.compute_us = 0.1;
+  node_anchor.total_us = 0.1;
   node_rows.node_anchors.push_back(node_anchor);
+  node_anchor.anchor_id = "anchor-1";
+  node_anchor.occurrence_idx = 2;
+  node_anchor.idle_us = 0.9;
+  node_anchor.total_us = 1.0;
+  node_rows.node_anchors.push_back(node_anchor);
+  compat::AnchorPrimaryNodeSqlRow primary;
+  primary.node_id = node.node_id;
+  primary.db_idx = 3;
+  primary.device_id = 0;
+  primary.view_name = "anchor_tree";
+  primary.anchor_id = "anchor-0";
+  primary.reason = "atom_leaf";
+  node_rows.anchor_primary_nodes.push_back(primary);
+  primary.anchor_id = "anchor-1";
+  node_rows.anchor_primary_nodes.push_back(primary);
   compat::replace_node_coverage_rows(path, node_rows);
   compat::materialize_report_compatibility_views(path);
 
@@ -432,7 +456,7 @@ int main() {
           "same_thread");
   require(scalar_int(path,
                      "SELECT COUNT(*) FROM traceloom_v_node_runtime_call "
-                     "WHERE node_id='node-1' AND occurrence_idx=0 AND "
+                     "WHERE node_id='node-1' AND occurrence_idx=1 AND "
                      "runtime_call_id='runtime-call-0' AND "
                      "support_state='supported_exact'") == 1);
   require(scalar_text(path,
@@ -442,7 +466,7 @@ int main() {
           "local-node-1");
   require(scalar_int(path,
                      "SELECT COUNT(*) FROM traceloom_v_node_host_activity "
-                     "WHERE node_id='node-1' AND occurrence_idx=0 AND "
+                     "WHERE node_id='node-1' AND occurrence_idx=1 AND "
                      "observed_runtime_call_id='runtime-call-1'") == 1);
   require(scalar_text(path,
                       "SELECT placement_semantics FROM "
@@ -451,6 +475,30 @@ int main() {
   require(scalar_text(path,
                       "SELECT right_anchor_symbol FROM "
                       "traceloom_v_node_host_activity") == "kernel");
+  require(scalar_int(path,
+                     "SELECT COUNT(*) FROM "
+                     "traceloom_v_structure_bubble_occurrence") == 1);
+  require(scalar_text(path,
+                      "SELECT structural_position_id FROM "
+                      "traceloom_v_structure_bubble_occurrence") ==
+          "node-1");
+  require(scalar_text(path,
+                      "SELECT host_observation_status FROM "
+                      "traceloom_v_structure_bubble_occurrence") ==
+          "supported_ordered");
+  require(scalar_int(path,
+                     "SELECT COUNT(*) FROM "
+                     "traceloom_v_structure_bubble_runtime_call") == 1);
+  require(scalar_text(path,
+                      "SELECT api_family FROM "
+                      "traceloom_v_structure_bubble_runtime_call") ==
+          "query");
+  require(scalar_int(path,
+                     "SELECT call_count FROM "
+                     "traceloom_v_structure_bubble_api_occurrence") == 1);
+  require(scalar_int(path,
+                     "SELECT total_call_count FROM "
+                     "traceloom_v_structure_bubble_api_stats") == 1);
 
   std::remove(path.c_str());
   return 0;

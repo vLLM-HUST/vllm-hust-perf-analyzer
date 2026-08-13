@@ -287,6 +287,7 @@ int main() {
               "traceloom_anchor_aux_slot",
               "traceloom_anchor_cost_breakdown",
               "traceloom_anchor_host_activity",
+              "traceloom_anchor_host_api_summary",
               "traceloom_anchor_host_interval",
               "traceloom_anchor_primary_node",
               "traceloom_anchor_runtime_relation",
@@ -977,6 +978,9 @@ int main() {
 
   traceloom::compat::materialize_report_compatibility_views(db_path);
   std::vector<std::string> analyzed_tables = expected_tables;
+  analyzed_tables.push_back("traceloom_structure_bubble_api_occurrence");
+  analyzed_tables.push_back("traceloom_structure_bubble_api_stats");
+  analyzed_tables.push_back("traceloom_structure_bubble_occurrence");
   analyzed_tables.push_back("sqlite_stat1");
   std::sort(analyzed_tables.begin(), analyzed_tables.end());
   require(load_sqlite_master_names(db_path, "table") == analyzed_tables);
@@ -1001,6 +1005,10 @@ int main() {
               "traceloom_v_runtime_device",
               "traceloom_v_semantic_tree_node",
               "traceloom_v_semantic_tree_readable",
+              "traceloom_v_structure_bubble_api_occurrence",
+              "traceloom_v_structure_bubble_api_stats",
+              "traceloom_v_structure_bubble_occurrence",
+              "traceloom_v_structure_bubble_runtime_call",
               "traceloom_v_sync_runtime_call",
               "traceloom_v_tree_node",
           }));
@@ -1015,8 +1023,10 @@ int main() {
               "idx_traceloom_anchor_device_idx",
               "idx_traceloom_anchor_host_activity_call",
               "idx_traceloom_anchor_host_activity_interval",
+              "idx_traceloom_anchor_host_api_summary",
               "idx_traceloom_anchor_host_interval_id",
               "idx_traceloom_anchor_host_interval_left",
+              "idx_traceloom_anchor_host_interval_right",
               "idx_traceloom_anchor_key",
               "idx_traceloom_anchor_runtime_anchor",
               "idx_traceloom_anchor_runtime_call",
@@ -1058,6 +1068,12 @@ int main() {
               "idx_traceloom_semantic_edge_tree",
               "idx_traceloom_semantic_node_parent",
               "idx_traceloom_semantic_node_tree_order",
+              "idx_traceloom_structure_bubble_api_hotspot",
+              "idx_traceloom_structure_bubble_api_occurrence",
+              "idx_traceloom_structure_bubble_api_stats",
+              "idx_traceloom_structure_bubble_host_interval",
+              "idx_traceloom_structure_bubble_id",
+              "idx_traceloom_structure_bubble_transition",
               "idx_traceloom_viz_node_id",
           }));
 

@@ -212,8 +212,15 @@ is factual action-to-runtime evidence, not record/wait pairing or idle-cause
 attribution. The final query reports calls
 in the host interval **after** each node-owned anchor; it is contextual runtime
 behavior, not CPU cost owned by that node and not an idle-cause claim. Keep
-`support_state`, `cardinality`, and source keys in any audit. A bounded canned
-projection is available in `docs/report-sql/node-host-activity.sql`; it selects
+`support_state`, `cardinality`, and source keys in any audit. For recurring
+uncovered device intervals, start with
+`docs/report-sql/structure-bubble-statistics.sql`. It ranks bubble cost by
+recovered structural position, reports host-observation coverage and upstream
+API-family distributions, and drills a selected `bubble_id` into exact runtime
+calls. These are contextual observations, not a cause label.
+
+A bounded canned projection is available in
+`docs/report-sql/node-host-activity.sql`; it selects
 the highest-cost repeated atom by default and documents how to substitute a
 chosen `node_id`. Runtime
 calls may overlap each other; even the clipped overlap sum is scheduled-call

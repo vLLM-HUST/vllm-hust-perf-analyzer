@@ -518,7 +518,7 @@ int main() {
   compat::write_basic_native_compatibility_sidecar(db_path, ir, options);
 
   require(run_scalar_int(db_path,
-                         "SELECT COUNT(*) FROM traceloom_metadata") == 20);
+                         "SELECT COUNT(*) FROM traceloom_metadata") == 21);
   require(run_scalar_text(db_path,
                           "SELECT value FROM traceloom_metadata "
                           "WHERE key = 'native_compatibility_materializer'") ==

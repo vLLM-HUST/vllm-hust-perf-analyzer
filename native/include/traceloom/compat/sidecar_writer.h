@@ -146,6 +146,15 @@ struct AnchorHostActivitySqlRow {
   std::uint32_t observed_order = 0;
 };
 
+struct AnchorHostApiSummarySqlRow {
+  std::string interval_id;
+  std::string api_family;
+  std::uint64_t call_count = 0;
+  std::uint64_t distinct_api_name_count = 0;
+  double scheduled_call_us = 0.0;
+  double scheduled_overlap_us = 0.0;
+};
+
 struct RuntimeDeviceSqlRows {
   std::vector<RuntimeCallSqlRow> runtime_calls;
   std::vector<DeviceWorkSqlRow> device_works;
@@ -153,6 +162,7 @@ struct RuntimeDeviceSqlRows {
   std::vector<AnchorRuntimeRelationSqlRow> anchor_relations;
   std::vector<AnchorHostIntervalSqlRow> host_intervals;
   std::vector<AnchorHostActivitySqlRow> host_activities;
+  std::vector<AnchorHostApiSummarySqlRow> host_api_summaries;
 };
 
 struct AnchorSqlRow {

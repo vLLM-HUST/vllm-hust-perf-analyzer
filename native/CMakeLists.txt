@@ -121,6 +121,7 @@ add_library(traceloom_native_materialize
   src/compat/sidecar_graph_writer.cpp
   src/compat/sidecar_indexes.cpp
   src/compat/sidecar_runtime_views.cpp
+  src/compat/sidecar_structure_bubble_views.cpp
   src/compat/sidecar_semantic_bindings.cpp
   src/compat/sidecar_semantic_views.cpp
   src/compat/sidecar_semantic_writer.cpp

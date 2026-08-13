@@ -242,6 +242,21 @@ const CompatTableSchema& anchor_host_activity_table_schema() {
   return schema;
 }
 
+const CompatTableSchema& anchor_host_api_summary_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_anchor_host_api_summary",
+      {
+          {"interval_id", CompatColumnType::kText, false},
+          {"api_family", CompatColumnType::kText, false},
+          {"call_count", CompatColumnType::kInteger, false},
+          {"distinct_api_name_count", CompatColumnType::kInteger, false},
+          {"scheduled_call_us", CompatColumnType::kReal, false},
+          {"scheduled_overlap_us", CompatColumnType::kReal, false},
+      },
+  };
+  return schema;
+}
+
 const CompatTableSchema& anchor_table_schema() {
   static const CompatTableSchema schema{
       "traceloom_anchor",
@@ -931,6 +946,7 @@ std::vector<CompatTableSchema> compatibility_table_schemas() {
       anchor_runtime_relation_table_schema(),
       anchor_host_interval_table_schema(),
       anchor_host_activity_table_schema(),
+      anchor_host_api_summary_table_schema(),
       anchor_table_schema(),
       anchor_aux_slot_table_schema(),
       aux_link_table_schema(),

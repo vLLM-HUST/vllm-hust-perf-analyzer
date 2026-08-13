@@ -693,6 +693,28 @@ void materialize_augmented_catalog(const std::string& path,
          "occurrence_count > 1 "
          "ORDER BY total_us DESC LIMIT 1) ORDER BY occurrence_idx, "
          "anchor_order, observed_order LIMIT 200;"},
+        {"structure_bubble", "traceloom_v_structure_bubble_occurrence",
+         "one uncovered device interval before one structural occurrence",
+         "rank overlap-safe device bubbles and inspect their supported host "
+         "observation scope without assigning a cause",
+         "SELECT * FROM traceloom_v_structure_bubble_occurrence ORDER BY "
+         "bubble_us DESC, bubble_id LIMIT 200;"},
+        {"structure_bubble_api_distribution",
+         "traceloom_v_structure_bubble_api_stats",
+         "one structural position and public runtime API family",
+         "compare bubble costs with upstream API-family occurrence, count, "
+         "duration, and observation-coverage distributions",
+         "SELECT * FROM traceloom_v_structure_bubble_api_stats ORDER BY "
+         "total_bubble_us DESC, structural_position_id, api_family;"},
+        {"structure_bubble_runtime_call",
+         "traceloom_v_structure_bubble_runtime_call",
+         "one profiler-visible runtime call in one bubble observation scope",
+         "drill from a selected bubble distribution to exact runtime calls "
+         "and source locators without causal attribution",
+         "SELECT * FROM traceloom_v_structure_bubble_runtime_call WHERE "
+         "bubble_id = (SELECT bubble_id FROM "
+         "traceloom_v_structure_bubble_occurrence ORDER BY bubble_us DESC "
+         "LIMIT 1) ORDER BY observed_order LIMIT 200;"},
         {"event_source", "traceloom_v_event_source_locator",
          "one event-to-raw-source link",
          "resolve normalized evidence to the embedded profiler table",
@@ -895,8 +917,13 @@ void write_basic_native_compatibility_sidecar(
   };
 
   {
+    const Stopwatch runtime_rows_watch;
     RuntimeDeviceSqlRows runtime_rows =
         build_runtime_device_sql_rows(ir, options.db_idx);
+    if (options.timing_diagnostics) {
+      std::cerr << "timing runtime_device_rows_ms="
+                << runtime_rows_watch.elapsed_ms() << "\n";
+    }
     metadata.push_back({"device_work_count",
                         std::to_string(runtime_rows.device_works.size())});
     metadata.push_back({"runtime_device_relation_count",
@@ -907,8 +934,15 @@ void write_basic_native_compatibility_sidecar(
                         std::to_string(runtime_rows.host_intervals.size())});
     metadata.push_back({"anchor_host_activity_count",
                         std::to_string(runtime_rows.host_activities.size())});
+    metadata.push_back({"anchor_host_api_summary_count",
+                        std::to_string(runtime_rows.host_api_summaries.size())});
+    const Stopwatch runtime_write_watch;
     replace_metadata_rows(sqlite_path, metadata);
     replace_runtime_device_rows(sqlite_path, runtime_rows);
+    if (options.timing_diagnostics) {
+      std::cerr << "timing runtime_device_write_ms="
+                << runtime_write_watch.elapsed_ms() << "\n";
+    }
   }
   const EventSqlRows event_rows = build_timeline_sql_rows(ir, options.db_idx);
   replace_timeline_rows(sqlite_path,
@@ -974,7 +1008,12 @@ void write_basic_native_compatibility_sidecar(
   replace_semantic_graph_rows(sqlite_path,
                               split_semantic_graph_sql_rows(semantic_rows));
   if (options.materialize_report_views) {
+    const Stopwatch report_views_watch;
     materialize_report_compatibility_views(sqlite_path);
+    if (options.timing_diagnostics) {
+      std::cerr << "timing report_views_ms="
+                << report_views_watch.elapsed_ms() << "\n";
+    }
   }
 }
 

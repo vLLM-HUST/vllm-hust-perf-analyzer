@@ -19,6 +19,7 @@ void materialize_report_compatibility_views(const std::string& sqlite_path) {
     drop_report_compatibility_views(db);
     materialize_report_compatibility_indexes(db);
     materialize_runtime_device_views(db);
+    materialize_structure_bubble_views(db);
     materialize_cuda_graph_views(db);
     materialize_exact_graph_views(db);
     materialize_replay_cost_views(db);
@@ -36,6 +37,9 @@ void materialize_report_compatibility_views(const std::string& sqlite_path) {
     db.exec("ANALYZE traceloom_anchor_runtime_relation");
     db.exec("ANALYZE traceloom_anchor_host_interval");
     db.exec("ANALYZE traceloom_anchor_host_activity");
+    db.exec("ANALYZE traceloom_structure_bubble_occurrence");
+    db.exec("ANALYZE traceloom_structure_bubble_api_occurrence");
+    db.exec("ANALYZE traceloom_structure_bubble_api_stats");
     db.exec("COMMIT");
   } catch (...) {
     try {

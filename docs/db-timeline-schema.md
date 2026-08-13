@@ -212,6 +212,41 @@ the right anchor's identity and the host-interval width; occurrence comparisons
 must retain these fields so a changed structural neighbor is not mistaken for
 a changed node-owned CPU cost.
 
+### Structure-conditioned bubble statistics
+
+`traceloom_v_structure_bubble_occurrence` exposes overlap-safe uncovered device
+time immediately before each self-owned anchor occurrence. It keeps the
+recovered `structural_position_id`, occurrence and anchor bounds, compute/comm/
+aux cost lenses, and the status of the host observation interval delimited by
+the adjacent anchors' supported runtime endpoints. `bubble_us` is device cost;
+`host_interval_us` is a contextual host-clock interval and is not charged as
+device cost.
+
+`traceloom_anchor_host_api_summary` is a compact intermediate relation built
+while TraceLoom constructs host-activity links. Its grain is one supported host
+interval and one public API family. It preserves call count, distinct API-name
+count, scheduled call duration, and clipped scheduled overlap. This avoids
+rejoining millions of activity links to the provenance-heavy runtime table for
+every analytical query.
+
+`traceloom_v_structure_bubble_api_occurrence` associates those family summaries
+with individual bubble occurrences. `traceloom_v_structure_bubble_api_stats`
+then aggregates equivalent recovered structural positions and reports bubble
+cost, host-observation coverage, API-family presence, average counts, and
+scheduled duration measures. Presence against all bubbles and against only
+host-observable bubbles are separate columns so unsupported host endpoints do
+not silently become zero API activity.
+
+`traceloom_v_structure_bubble_runtime_call` is the exact drill-down surface for
+a chosen `bubble_id`; it retains runtime source table/key and observed order.
+None of these relations assigns `scheduler_delay`, `synchronization_cause`, or
+another causal label. They expose the distributions an engineer or agent needs
+to test such hypotheses. Calls may nest or overlap, so scheduled duration sums
+are not overlap-safe host busy time.
+
+The canonical workflow is in
+`docs/report-sql/structure-bubble-statistics.sql`.
+
 Canonical examples are in `docs/report-sql/runtime-device-relations.sql` and
 `docs/report-sql/anchor-host-activity.sql`; the occurrence-oriented aggregate
 is `docs/report-sql/node-host-activity.sql`.

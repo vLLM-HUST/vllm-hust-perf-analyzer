@@ -1,6 +1,7 @@
 #include "traceloom/compat/runtime_device_rows.h"
 
 #include <algorithm>
+#include <cctype>
 #include <limits>
 #include <map>
 #include <set>
@@ -27,6 +28,56 @@ std::string nullable_i64(std::int64_t value) {
 
 std::string symbol_value_or_empty(const NativeIr& ir, SymbolId id) {
   return id.valid() ? ir.symbols.value(id) : std::string();
+}
+
+std::string lowercase(std::string value) {
+  std::transform(value.begin(), value.end(), value.begin(),
+                 [](unsigned char c) {
+                   return static_cast<char>(std::tolower(c));
+                 });
+  return value;
+}
+
+bool contains(const std::string& value, const char* needle) {
+  return value.find(needle) != std::string::npos;
+}
+
+std::string public_api_family(const std::string& api_name) {
+  const std::string name = lowercase(api_name);
+  if (!(name.rfind("acl", 0) == 0 || name.rfind("cuda", 0) == 0 ||
+        name.rfind("hip", 0) == 0)) {
+    return {};
+  }
+  if (contains(name, "wait")) {
+    return "wait";
+  }
+  if (contains(name, "synchronize")) {
+    return "synchronize";
+  }
+  if (contains(name, "query")) {
+    return "query";
+  }
+  if (contains(name, "eventrecord") || contains(name, "recordevent")) {
+    return "event_record";
+  }
+  if (contains(name, "eventcreate") || contains(name, "createevent") ||
+      contains(name, "eventdestroy") || contains(name, "destroyevent")) {
+    return "event_lifecycle";
+  }
+  if (contains(name, "graphlaunch") || contains(name, "aclmdlriexecuteasync")) {
+    return "graph_launch";
+  }
+  if (contains(name, "launch")) {
+    return "launch";
+  }
+  if (contains(name, "memcpy") || contains(name, "memset") ||
+      contains(name, "inplacecopy")) {
+    return "memory";
+  }
+  if (contains(name, "capture") || contains(name, "graph")) {
+    return "graph_control";
+  }
+  return "other";
 }
 
 const char* provider_name(RuntimeCallProvider provider) {
@@ -717,11 +768,41 @@ RuntimeDeviceSqlRows build_runtime_device_sql_rows(const NativeIr& ir,
     const std::size_t lo =
         static_cast<std::size_t>(lo_it - group.prefix_max_ends.begin());
     std::uint32_t observed_order = 0;
+    struct ApiSummary {
+      std::uint64_t call_count = 0;
+      std::set<std::string> api_names;
+      double scheduled_call_us = 0.0;
+      double scheduled_overlap_us = 0.0;
+    };
+    std::map<std::string, ApiSummary> summaries;
     for (std::size_t index = lo; index < hi; ++index) {
       const RuntimeCallSqlRow& call = *group.calls[index];
       if (call.end_ns <= host_start) continue;
+      const std::int64_t overlap_ns =
+          std::min(call.end_ns, host_end) - std::max(call.start_ns, host_start);
       rows.host_activities.push_back(AnchorHostActivitySqlRow{
-          interval.interval_id, call.runtime_call_id, observed_order++});
+          interval.interval_id,
+          call.runtime_call_id,
+          observed_order++,
+      });
+      const std::string api_family = public_api_family(call.api_name);
+      if (!api_family.empty()) {
+        ApiSummary& summary = summaries[api_family];
+        ++summary.call_count;
+        summary.api_names.insert(call.api_name);
+        summary.scheduled_call_us += call.dur_us;
+        summary.scheduled_overlap_us += ns_to_us(overlap_ns);
+      }
+    }
+    for (const auto& [api_family, summary] : summaries) {
+      rows.host_api_summaries.push_back(AnchorHostApiSummarySqlRow{
+          interval.interval_id,
+          api_family,
+          summary.call_count,
+          summary.api_names.size(),
+          summary.scheduled_call_us,
+          summary.scheduled_overlap_us,
+      });
     }
   }
 
