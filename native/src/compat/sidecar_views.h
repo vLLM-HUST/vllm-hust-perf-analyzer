@@ -13,6 +13,7 @@ void materialize_node_cost_views(SqliteDb& db);
 void materialize_replay_cost_views(SqliteDb& db);
 void materialize_report_compatibility_indexes(SqliteDb& db);
 void materialize_runtime_device_views(SqliteDb& db);
+void materialize_structure_bubble_views(SqliteDb& db);
 void materialize_semantic_tree_views(SqliteDb& db);
 void materialize_tree_node_anchor_view(SqliteDb& db);
 void materialize_tree_node_occurrence_view(SqliteDb& db);

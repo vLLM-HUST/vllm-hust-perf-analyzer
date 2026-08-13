@@ -951,6 +951,8 @@ void seed_runtime_device_fixture(const std::string& db_path) {
   rows.host_intervals.push_back(interval);
   rows.host_activities.push_back(
       AnchorHostActivitySqlRow{interval.interval_id, "runtime-call-middle", 0});
+  rows.host_api_summaries.push_back(AnchorHostApiSummarySqlRow{
+      interval.interval_id, "query", 1, 1, 0.01, 0.01});
 
   replace_runtime_device_rows(db_path, rows);
   std::vector<AnchorSqlRow> anchors;
@@ -995,6 +997,19 @@ void seed_runtime_device_fixture(const std::string& db_path) {
   node_anchor.anchor_order = 1;
   node_anchor.coverage_kind = "self";
   node_rows.node_anchors.push_back(node_anchor);
+  node_anchor.anchor_id = right_anchor.anchor_id;
+  node_anchor.occurrence_idx = 2;
+  node_anchor.anchor_order = 2;
+  node_anchor.idle_us = 0.9;
+  node_anchor.total_us = 1.0;
+  node_rows.node_anchors.push_back(node_anchor);
+  AnchorPrimaryNodeSqlRow primary;
+  primary.anchor_id = left_anchor.anchor_id;
+  primary.node_id = node.node_id;
+  primary.view_name = node.view_name;
+  node_rows.anchor_primary_nodes.push_back(primary);
+  primary.anchor_id = right_anchor.anchor_id;
+  node_rows.anchor_primary_nodes.push_back(primary);
   replace_node_coverage_rows(db_path, node_rows);
   materialize_report_compatibility_views(db_path);
 }
@@ -1227,6 +1242,54 @@ std::vector<QueryCase> active_query_cases() {
           1,
       },
       QueryCase{
+          "structure-bubble-drilldown.sql",
+          {
+              "bubble_id",
+              "structural_position_id",
+              "right_occurrence_idx",
+              "left_anchor_symbol",
+              "right_anchor_symbol",
+              "bubble_us",
+              "host_observation_status",
+              "host_start_ns",
+              "host_end_ns",
+              "host_interval_us",
+              "observed_order",
+              "api_name",
+              "api_family",
+              "runtime_start_ns",
+              "runtime_end_ns",
+              "runtime_dur_us",
+              "observed_overlap_us",
+              "interval_relation",
+              "thread_id",
+              "runtime_source_table",
+              "runtime_source_key",
+              "api_association_semantics",
+          },
+          1,
+      },
+      QueryCase{
+          "structure-bubble-statistics.sql",
+          {
+              "structural_position_id",
+              "right_node_symbol",
+              "bubble_occurrence_count",
+              "host_observable_occurrence_count",
+              "host_observation_coverage",
+              "total_bubble_us",
+              "avg_bubble_us",
+              "api_family",
+              "presence_count",
+              "presence_fraction_of_all_bubbles",
+              "presence_fraction_of_observable_bubbles",
+              "avg_calls_per_bubble",
+              "avg_calls_per_observable_bubble",
+              "avg_scheduled_overlap_us_per_bubble",
+          },
+          1,
+      },
+      QueryCase{
           "synchronization-actions.sql",
           {
               "sync_action_id",
@@ -1386,6 +1449,8 @@ int main() {
     } else if (query_case.filename == "anchor-host-activity.sql" ||
                query_case.filename == "node-host-activity.sql" ||
                query_case.filename == "runtime-device-relations.sql" ||
+               query_case.filename == "structure-bubble-drilldown.sql" ||
+               query_case.filename == "structure-bubble-statistics.sql" ||
                query_case.filename == "synchronization-actions.sql") {
       seed_runtime_device_fixture(db_path);
     } else if (query_case.filename == "anchor-aux.sql") {

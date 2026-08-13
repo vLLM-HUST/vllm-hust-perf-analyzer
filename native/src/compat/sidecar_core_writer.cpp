@@ -178,12 +178,14 @@ void replace_runtime_device_rows(const std::string& sqlite_path,
        runtime_device_relation_table_schema(),
        anchor_runtime_relation_table_schema(),
        anchor_host_interval_table_schema(),
-       anchor_host_activity_table_schema()});
+       anchor_host_activity_table_schema(),
+       anchor_host_api_summary_table_schema()});
 
   SqliteDb db(sqlite_path);
   db.exec("BEGIN IMMEDIATE");
   try {
     db.exec("DELETE FROM traceloom_anchor_host_activity");
+    db.exec("DELETE FROM traceloom_anchor_host_api_summary");
     db.exec("DELETE FROM traceloom_anchor_host_interval");
     db.exec("DELETE FROM traceloom_anchor_runtime_relation");
     db.exec("DELETE FROM traceloom_runtime_device_relation");
@@ -252,6 +254,15 @@ void replace_runtime_device_rows(const std::string& sqlite_path,
         "interval_id, runtime_call_id, observed_order) VALUES (?, ?, ?)");
     for (const AnchorHostActivitySqlRow& row : rows.host_activities) {
       insert_anchor_host_activity_row(activity_stmt, row);
+    }
+
+    SqliteStmt summary_stmt(
+        db.get(),
+        "INSERT INTO traceloom_anchor_host_api_summary ("
+        "interval_id, api_family, call_count, distinct_api_name_count, "
+        "scheduled_call_us, scheduled_overlap_us) VALUES (?, ?, ?, ?, ?, ?)");
+    for (const AnchorHostApiSummarySqlRow& row : rows.host_api_summaries) {
+      insert_anchor_host_api_summary_row(summary_stmt, row);
     }
 
     db.exec("COMMIT");

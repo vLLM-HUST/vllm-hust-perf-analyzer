@@ -17,6 +17,8 @@ void insert_runtime_device_relation_row(SqliteStmt& stmt, const RuntimeDeviceRel
 void insert_anchor_runtime_relation_row(SqliteStmt& stmt, const AnchorRuntimeRelationSqlRow& row);
 void insert_anchor_host_interval_row(SqliteStmt& stmt, const AnchorHostIntervalSqlRow& row);
 void insert_anchor_host_activity_row(SqliteStmt& stmt, const AnchorHostActivitySqlRow& row);
+void insert_anchor_host_api_summary_row(
+    SqliteStmt& stmt, const AnchorHostApiSummarySqlRow& row);
 void insert_anchor_row(SqliteStmt& stmt, const AnchorSqlRow& row);
 void insert_aux_link_row(SqliteStmt& stmt, const AuxLinkSqlRow& row);
 void insert_anchor_aux_slot_row(SqliteStmt& stmt, const AnchorAuxSlotSqlRow& row);

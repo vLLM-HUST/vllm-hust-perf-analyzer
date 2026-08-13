@@ -34,6 +34,7 @@ const CompatTableSchema& runtime_device_relation_table_schema();
 const CompatTableSchema& anchor_runtime_relation_table_schema();
 const CompatTableSchema& anchor_host_interval_table_schema();
 const CompatTableSchema& anchor_host_activity_table_schema();
+const CompatTableSchema& anchor_host_api_summary_table_schema();
 const CompatTableSchema& anchor_table_schema();
 const CompatTableSchema& anchor_aux_slot_table_schema();
 const CompatTableSchema& aux_link_table_schema();

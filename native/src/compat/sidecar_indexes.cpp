@@ -66,6 +66,12 @@ void materialize_report_compatibility_indexes(SqliteDb& db) {
       "CREATE INDEX IF NOT EXISTS idx_traceloom_anchor_host_activity_call "
       "ON traceloom_anchor_host_activity(runtime_call_id, interval_id)");
   db.exec(
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_traceloom_anchor_host_api_summary "
+      "ON traceloom_anchor_host_api_summary(interval_id, api_family)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_anchor_host_interval_right "
+      "ON traceloom_anchor_host_interval(db_idx, device_id, right_anchor_id)");
+  db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_anchor_device_idx "
       "ON traceloom_anchor(db_idx, device_id, anchor_idx)");
   db.exec(
