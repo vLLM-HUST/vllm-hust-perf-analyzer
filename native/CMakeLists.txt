@@ -112,6 +112,22 @@ add_library(traceloom_native_materialize
   src/compat/replay_cost_sql_rows.cpp
   src/compat/runtime_device_rows.cpp
   src/compat/schema.cpp
+  src/compat/sidecar_collective_bindings.cpp
+  src/compat/sidecar_collective_writer.cpp
+  src/compat/sidecar_core_bindings.cpp
+  src/compat/sidecar_core_writer.cpp
+  src/compat/sidecar_graph_bindings.cpp
+  src/compat/sidecar_graph_views.cpp
+  src/compat/sidecar_graph_writer.cpp
+  src/compat/sidecar_indexes.cpp
+  src/compat/sidecar_runtime_views.cpp
+  src/compat/sidecar_semantic_bindings.cpp
+  src/compat/sidecar_semantic_views.cpp
+  src/compat/sidecar_semantic_writer.cpp
+  src/compat/sidecar_structure_bindings.cpp
+  src/compat/sidecar_structure_writer.cpp
+  src/compat/sidecar_tree_views.cpp
+  src/compat/sidecar_views.cpp
   src/compat/sidecar_writer.cpp
   src/compat/timeline_rows.cpp
   src/materialize/grammar_debug_json.cpp
