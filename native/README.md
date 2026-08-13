@@ -163,5 +163,9 @@ rules with `--extend-classification-rules PATH`. `TRACELOOM_CLASSIFICATION_RULES
 can also select a complete ruleset. Unknown columns, roles, match modes, and
 equal-precedence conflicts fail before analysis starts. Rules may match the
 normalized `task_type`, the full evidence `blob`, or an exact raw `operator`
-identity. Only an explicit `ignore` rule may remove a concrete operator row;
-an unmatched operator remains in the structural sequence.
+identity. Only a positive auxiliary or transparent rule may remove an
+observation from identity matching; every unfamiliar observation becomes an
+explicit unknown anchor and may disrupt a match. The policy ID, version, and
+exact manifest digest are recorded in output provenance. See
+[`docs/evidence-role-projection.md`](../docs/evidence-role-projection.md) for
+the provider-neutral contract, accounting behavior, and extension rules.

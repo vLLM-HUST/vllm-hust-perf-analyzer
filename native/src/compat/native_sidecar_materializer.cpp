@@ -915,6 +915,14 @@ void write_basic_native_compatibility_sidecar(
                                          kRecognizedCompletePattern;
            }))},
   };
+  if (!options.evidence_role_policy_id.empty()) {
+    metadata.push_back(
+        {"evidence_role_policy_id", options.evidence_role_policy_id});
+    metadata.push_back({"evidence_role_policy_version",
+                        options.evidence_role_policy_version});
+    metadata.push_back({"evidence_role_manifest_sha256",
+                        options.evidence_role_manifest_sha256});
+  }
 
   {
     const Stopwatch runtime_rows_watch;

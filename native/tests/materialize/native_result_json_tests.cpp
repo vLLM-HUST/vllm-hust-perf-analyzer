@@ -146,6 +146,12 @@ int main() {
           std::string::npos);
   require(json.find("\"kind\": \"fixture\"") != std::string::npos);
   require(json.find("\"trace_event_count\": 4") != std::string::npos);
+  require(json.find(
+              "\"policy_id\": "
+              "\"traceloom.default.accelerator-task-projection\"") !=
+          std::string::npos);
+  require(json.find("\"policy_version\": \"1\"") != std::string::npos);
+  require(json.find("\"manifest_sha256\": \"") != std::string::npos);
   require(json.find("\"graph_launch_occurrence_count\": 1") !=
           std::string::npos);
   require(json.find("\"graph_slot_template_count\": 1") !=

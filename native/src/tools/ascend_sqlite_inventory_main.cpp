@@ -71,7 +71,6 @@ int main(int argc, char** argv) {
     pipeline_options.partition_config = traceloom::PartitionPlanConfig{4096, 3};
     pipeline_options.candidate_scan_config =
         traceloom::CandidateScanConfig{2, 3};
-    pipeline_options.anchor_config.skipped_task_type_symbols = {"CAPTURE_WAIT"};
     pipeline_options.anchor_config.skip_tasks_covered_by_communication_ops =
         true;
     pipeline_options.anchor_config.filter_auxiliary_task_anchors = true;
@@ -108,6 +107,12 @@ int main(int argc, char** argv) {
     std::cout << "communication_ops=" << ir.communication_ops.size() << "\n";
     std::cout << "anchor_projection="
               << pipeline.anchor_stats.projection_kind << "\n";
+    std::cout << "evidence_role_policy_id="
+              << pipeline.anchor_stats.classification_policy_id << "\n";
+    std::cout << "evidence_role_policy_version="
+              << pipeline.anchor_stats.classification_policy_version << "\n";
+    std::cout << "evidence_role_manifest_sha256="
+              << pipeline.anchor_stats.classification_manifest_sha256 << "\n";
     std::cout << "anchors=" << ir.anchors.size() << "\n";
     std::cout << "tokens=" << ir.tokens.size() << "\n";
     std::cout << "device_event_anchors="
@@ -116,6 +121,12 @@ int main(int argc, char** argv) {
               << pipeline.anchor_stats.communication_anchors << "\n";
     std::cout << "skipped_task_events="
               << pipeline.anchor_stats.skipped_task_events << "\n";
+    std::cout << "auxiliary_task_events="
+              << pipeline.anchor_stats.auxiliary_task_events << "\n";
+    std::cout << "transparent_task_events="
+              << pipeline.anchor_stats.transparent_task_events << "\n";
+    std::cout << "unknown_anchor_task_events="
+              << pipeline.anchor_stats.unknown_anchor_task_events << "\n";
     std::cout << "candidate_projection=raw_event_bootstrap_len2_3\n";
     std::cout << "candidate_occurrences="
               << pipeline.pattern_candidate_table.rows.size() << "\n";

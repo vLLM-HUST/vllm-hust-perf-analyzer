@@ -29,6 +29,9 @@ struct NativeCompatibilitySidecarOptions {
   bool source_embedded = false;
   std::string source_sha256;
   std::uint64_t source_size_bytes = 0;
+  std::string evidence_role_policy_id;
+  std::string evidence_role_policy_version;
+  std::string evidence_role_manifest_sha256;
 };
 
 void write_basic_native_compatibility_sidecar(

@@ -36,6 +36,17 @@ void require_basic_sidecar(const std::string& path) {
                                   "AND value = 'basic_native_ir_v1'") == 1);
   traceloom::testing::require(run_scalar_int(
                                   path,
+                                  "SELECT COUNT(*) FROM traceloom_metadata "
+                                  "WHERE key = 'evidence_role_policy_id' "
+                                  "AND length(value) > 0") == 1);
+  traceloom::testing::require(run_scalar_int(
+                                  path,
+                                  "SELECT COUNT(*) FROM traceloom_metadata "
+                                  "WHERE key = "
+                                  "'evidence_role_manifest_sha256' "
+                                  "AND length(value) = 64") == 1);
+  traceloom::testing::require(run_scalar_int(
+                                  path,
                                   "SELECT COUNT(*) FROM sqlite_master "
                                   "WHERE type = 'view' AND "
                                   "name = 'traceloom_v_tree_node'") == 1);

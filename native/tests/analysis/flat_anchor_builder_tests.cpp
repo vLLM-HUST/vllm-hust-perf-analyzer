@@ -134,7 +134,14 @@ int main() {
   const FlatAnchorBuildStats filtered_stats =
       build_flat_anchors(filtered, filter_config);
   require(filtered_stats.skipped_task_events == 5);
+  require(filtered_stats.auxiliary_task_events == 3);
+  require(filtered_stats.transparent_task_events == 0);
+  require(filtered_stats.unknown_anchor_task_events == 1);
   require(filtered_stats.preserved_unclassified_task_events == 1);
+  require(filtered_stats.classification_policy_id ==
+          "traceloom.default.accelerator-task-projection");
+  require(filtered_stats.classification_policy_version == "1");
+  require(filtered_stats.classification_manifest_sha256.size() == 64);
   require(filtered_stats.device_event_anchors == 2);
   require(filtered_stats.communication_anchors == 1);
   require(filtered.tokens.size() == 3);

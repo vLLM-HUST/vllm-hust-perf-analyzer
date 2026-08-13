@@ -20,9 +20,16 @@ struct FlatAnchorBuildConfig {
 
 struct FlatAnchorBuildStats {
   std::string projection_kind = "raw_event_bootstrap";
+  std::string classification_policy_id;
+  std::string classification_policy_version;
+  std::string classification_manifest_sha256;
   std::size_t device_event_anchors = 0;
   std::size_t communication_anchors = 0;
   std::size_t skipped_task_events = 0;
+  std::size_t auxiliary_task_events = 0;
+  std::size_t transparent_task_events = 0;
+  std::size_t unknown_anchor_task_events = 0;
+  // Backward-compatible name for unknown_anchor_task_events.
   std::size_t preserved_unclassified_task_events = 0;
   std::size_t tokens = 0;
 };

@@ -1275,12 +1275,27 @@ void write_native_result_json(std::ostream& out,
   out << "    \"kind\": ";
   write_json_string(out, result.anchor_stats.projection_kind);
   out << ",\n";
+  out << "    \"policy_id\": ";
+  write_json_string(out, result.anchor_stats.classification_policy_id);
+  out << ",\n";
+  out << "    \"policy_version\": ";
+  write_json_string(out, result.anchor_stats.classification_policy_version);
+  out << ",\n";
+  out << "    \"manifest_sha256\": ";
+  write_json_string(out, result.anchor_stats.classification_manifest_sha256);
+  out << ",\n";
   out << "    \"device_event_anchors\": "
       << result.anchor_stats.device_event_anchors << ",\n";
   out << "    \"communication_anchors\": "
       << result.anchor_stats.communication_anchors << ",\n";
   out << "    \"skipped_task_events\": "
       << result.anchor_stats.skipped_task_events << ",\n";
+  out << "    \"auxiliary_task_events\": "
+      << result.anchor_stats.auxiliary_task_events << ",\n";
+  out << "    \"transparent_task_events\": "
+      << result.anchor_stats.transparent_task_events << ",\n";
+  out << "    \"unknown_anchor_task_events\": "
+      << result.anchor_stats.unknown_anchor_task_events << ",\n";
   out << "    \"preserved_unclassified_task_events\": "
       << result.anchor_stats.preserved_unclassified_task_events << "\n";
   out << "  },\n";

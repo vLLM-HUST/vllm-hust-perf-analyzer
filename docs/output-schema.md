@@ -60,6 +60,13 @@ reports occurrence count, total duration, graph-body membership, and anchor
 membership without using a provider allowlist to decide whether an operator is
 important. New operator identities therefore remain visible and sortable.
 
+`traceloom_metadata` binds structural output to the selected evidence-role
+projection through `evidence_role_policy_id`,
+`evidence_role_policy_version`, and `evidence_role_manifest_sha256`. The same
+identity appears in native JSON under `anchor_projection`; see
+[`evidence-role-projection.md`](evidence-role-projection.md) for the role and
+fallback contract.
+
 Native JSON also emits `replay_internal_cost_map`, the replay-internal
 query surface: ReplayUnit -> ordered launch/composition slots -> body
 template -> per-stream ordered members -> fine-grained costs and provenance.
