@@ -70,6 +70,13 @@ struct SignalClassificationPolicyMetadata {
   SignalMissingEvidenceBehavior missing_evidence_behavior =
       SignalMissingEvidenceBehavior::kContinueOrFallback;
   std::string manifest_sha256;
+  // The policy is intentionally a flat delimiter-separated input table.  The
+  // source path is provenance only; the digest remains the stable content
+  // identity and composite policies list their base/extension paths in order.
+  std::string manifest_format = "flat_tsv";
+  std::string manifest_source_path;
+  std::string effective_config_sha256;
+  std::string config_overrides;
 };
 
 struct SignalClassificationRule {
@@ -109,6 +116,14 @@ struct SignalClassificationInput {
   std::string provider_scope = "any";
 };
 
+// A single explicit per-analysis overwrite of one typed field in the flat
+// policy table. Stable rule_id keys avoid row-order coupling.
+struct SignalClassificationOverride {
+  std::string rule_id;
+  std::string field;
+  std::string value;
+};
+
 struct SignalClassificationDecision {
   SignalRole role = SignalRole::kUnknownAnchor;
   SignalStructuralParticipation structural_participation =
@@ -129,6 +144,11 @@ struct SignalClassificationDecision {
   std::string rule_id;
   std::string provider_scope;
   std::string required_fields;
+  // Canonically ordered comma lists used by the database audit surface.
+  std::string available_fields;
+  std::string missing_required_fields;
+  std::string missing_capability_rule_ids;
+  std::string support_state;
   std::string reason_code;
   std::int32_t priority = 0;
   std::size_t declaration_order = 0;
@@ -159,6 +179,8 @@ class SignalClassificationRuleset {
 };
 
 const char* signal_role_name(SignalRole role) noexcept;
+const char* signal_match_field_name(SignalMatchField field) noexcept;
+const char* signal_match_kind_name(SignalMatchKind match) noexcept;
 const char* signal_structural_participation_name(
     SignalStructuralParticipation participation) noexcept;
 const char* signal_cost_treatment_name(SignalCostTreatment treatment) noexcept;
@@ -178,5 +200,10 @@ SignalClassificationRuleset load_default_signal_classification_ruleset(
 SignalClassificationRuleset extend_signal_classification_ruleset(
     const SignalClassificationRuleset& base,
     const SignalClassificationRuleset& extension);
+SignalClassificationOverride parse_signal_classification_override(
+    const std::string& specification);
+SignalClassificationRuleset override_signal_classification_ruleset(
+    const SignalClassificationRuleset& base,
+    const std::vector<SignalClassificationOverride>& overrides);
 
 }  // namespace traceloom

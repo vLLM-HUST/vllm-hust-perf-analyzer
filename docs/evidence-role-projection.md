@@ -9,7 +9,9 @@ intervals, context, and source-row provenance remain available in the native
 IR and the self-contained queryable database timeline.
 
 The public contract is provider-neutral. Provider-specific predicates and
-their stable identities live in the installed machine-readable manifest,
+their stable identities live in the installed machine-readable **flat TSV
+table** (a delimiter-separated table suitable for version review and
+spreadsheet editing),
 [`native/data/default_signal_classification_rules.tsv`](../native/data/default_signal_classification_rules.tsv).
 
 ## Roles and boundaries
@@ -90,13 +92,43 @@ version, and digest include both inputs. Legacy seven-column rule files remain
 loadable for compatibility, but receive a content-addressed legacy policy
 version and deterministic synthetic rule IDs. New policies should use v1.
 
+The final per-analysis override is explicit and stable-ID keyed:
+
+```bash
+traceloom profile.db \
+  --classification-rules policy.tsv \
+  --classification-rule-override rule.id.priority=250 \
+  --classification-rule-override rule.id.role=anchor \
+  --classification-rule-override rule.id.structural_participation=identity
+```
+
+Each `RULE_ID.FIELD=VALUE` changes one typed column after the base table and
+optional extension are loaded. Unknown rule IDs, unsupported fields, duplicate
+overrides, or a role/participation conflict fail before analysis. The effective
+precedence is:
+
+```text
+bundled/install default or TRACELOOM_CLASSIFICATION_RULES
+  < explicit --classification-rules replacement
+  < --extend-classification-rules
+  < --classification-rule-override
+```
+
+`--classification-rules` therefore explicitly supersedes the environment
+selection. The database keeps both the exact flat-table digest and a separate
+effective-config digest plus canonical override list; an override never
+pretends to be a different input table.
+
 ## Audit surfaces
 
 The selected `policy_id`, `policy_version`, and exact manifest SHA-256 are
 emitted in native JSON under `anchor_projection` and in the queryable database
-timeline's `traceloom_metadata`. Build statistics separately report auxiliary,
-transparent, and unknown-first preservation counts. These values let an
-artifact consumer bind recovered structure to the exact projection policy.
+timeline's `traceloom_metadata`. `traceloom_evidence_role_policy` and
+`traceloom_evidence_role_rule` embed the effective flat table; per-event
+decisions, placements, cost coverage, and typed issues live in the corresponding
+`traceloom_evidence_role_*` relations. Build statistics separately report
+auxiliary, transparent, and unknown-first preservation counts. These values let
+an artifact consumer bind recovered structure to the exact projection policy.
 
 The manifest explains **why an observation may participate in structural
 identity**. The original row and normalized event remain the authority for

@@ -1,5 +1,7 @@
 #include "traceloom/compat/schema.h"
 #include "traceloom/compat/sidecar_writer.h"
+#include "traceloom/compat/evidence_role_sql_rows.h"
+#include "traceloom/compat/native_sidecar_materializer.h"
 #include "traceloom/testing/test_util.h"
 
 #include <sqlite3.h>
@@ -148,6 +150,46 @@ void require_anchor_aux_invariants(const std::string& db_path) {
                                   "LEFT JOIN traceloom_event e ON "
                                   "e.event_id = al.aux_event_id "
                                   "WHERE e.event_id IS NULL") == 0);
+}
+
+void seed_evidence_role_fixture(const std::string& db_path) {
+  using namespace traceloom;
+  NativeIr ir;
+  const SourceRefId source = ir.source_refs.append(
+      "ascend_sqlite_hot_path", "memory", "TASK", 0);
+  const SymbolId ai_core = ir.symbols.intern("AI_CORE");
+  const SymbolId wait = ir.symbols.intern("EVENT_WAIT");
+  const SymbolId matmul = ir.symbols.intern("MatMulV2");
+  const SymbolId future = ir.symbols.intern("FutureFusedKernel");
+  const auto append_task = [&](std::uint64_t row_id, std::int64_t start_ns,
+                               SymbolId task_type, SymbolId op) {
+    const TraceEventId event = ir.trace_events.append(
+        source, row_id, 0, 3, start_ns, start_ns + 10, op.valid() ? op : task_type);
+    ir.tasks.append(source, event, row_id, row_id, -1, task_type, op, op,
+                    op.valid() ? task_type : SymbolId::invalid(),
+                    SymbolId::invalid());
+  };
+  append_task(1, 0, wait, SymbolId::invalid());
+  append_task(2, 20, ai_core, matmul);
+  append_task(3, 40, ai_core, future);
+  append_task(4, 60, wait, SymbolId::invalid());
+
+  FlatAnchorBuildConfig config;
+  config.filter_auxiliary_task_anchors = true;
+  config.classification_rules = load_default_signal_classification_ruleset();
+  build_flat_anchors(ir, config);
+
+  compat::NativeCompatibilitySidecarOptions options;
+  options.source_kind = "ascend_sqlite_hot_path";
+  options.source_path = "memory";
+  options.evidence_role_config = config;
+  options.evidence_role_policy_id =
+      config.classification_rules.metadata().policy_id;
+  options.evidence_role_policy_version =
+      config.classification_rules.metadata().policy_version;
+  options.evidence_role_manifest_sha256 =
+      config.classification_rules.metadata().manifest_sha256;
+  compat::write_basic_native_compatibility_sidecar(db_path, ir, options);
 }
 
 void require_node_coverage_invariants(const std::string& db_path) {
@@ -1017,6 +1059,56 @@ void seed_runtime_device_fixture(const std::string& db_path) {
 std::vector<QueryCase> active_query_cases() {
   return {
       QueryCase{
+          "evidence-role-event.sql",
+          {"event_id", "source_path", "source_table", "source_key",
+           "provider",
+           "policy_id", "rule_id", "rule_class", "final_role",
+           "structural_participation", "support_state", "reason_code",
+           "available_fields", "required_fields",
+           "missing_required_fields", "missing_capability_rule_ids",
+           "cost_treatment", "context_treatment", "provenance_treatment",
+           "retained_duration_ns", "placement_kind",
+           "placement_id", "owner_id", "node_id", "occurrence_idx"},
+          1,
+      },
+      QueryCase{
+          "evidence-role-member.sql",
+          {"placement_kind", "placement_id", "owner_id", "event_id",
+           "final_role", "policy_id", "rule_id", "support_state",
+           "reason_code", "retained_duration_ns", "source_table",
+           "source_key"},
+          1,
+      },
+      QueryCase{
+          "evidence-role-cost-coverage.sql",
+          {"provider", "policy_id", "policy_version", "final_role",
+           "support_state", "event_count", "retained_duration_ns",
+           "identity_duration_ns", "non_identity_duration_ns"},
+          1,
+      },
+      QueryCase{
+          "evidence-role-unknown.sql",
+          {"node_id", "occurrence_idx", "event_id", "final_role",
+           "rule_id", "support_state", "reason_code", "symbol",
+           "retained_duration_ns", "source_table", "source_key"},
+          1,
+      },
+      QueryCase{
+          "evidence-role-omissions.sql",
+          {"following_anchor_id", "event_id", "final_role", "rule_id",
+           "support_state", "reason_code", "retained_duration_ns",
+           "source_table", "source_key"},
+          1,
+      },
+      QueryCase{
+          "evidence-role-issues.sql",
+          {"issue_id", "code", "support_state", "event_id", "final_role",
+           "policy_id", "rule_id", "reason_code",
+           "missing_required_fields", "missing_capability_rule_ids",
+           "related_ids", "source_table", "source_key"},
+          1,
+      },
+      QueryCase{
           "anchor-host-activity.sql",
           {
               "left_anchor_id",
@@ -1435,6 +1527,11 @@ int main() {
 
   const std::string empty_db_path = temp_db_path();
   traceloom::compat::materialize_report_compatibility_views(empty_db_path);
+  traceloom::FlatAnchorBuildConfig empty_config;
+  empty_config.classification_rules =
+      traceloom::load_default_signal_classification_ruleset();
+  traceloom::compat::replace_evidence_role_sql_rows(
+      empty_db_path, traceloom::NativeIr{}, empty_config, 0, true);
   for (const QueryCase& query_case : query_cases) {
     const QueryResult result = run_query(empty_db_path, query_case);
     require(result.columns == query_case.expected_columns);
@@ -1444,7 +1541,9 @@ int main() {
 
   for (const QueryCase& query_case : query_cases) {
     const std::string db_path = temp_db_path();
-    if (query_case.filename == "anchor-cost-breakdown.sql") {
+    if (query_case.filename.rfind("evidence-role-", 0) == 0) {
+      seed_evidence_role_fixture(db_path);
+    } else if (query_case.filename == "anchor-cost-breakdown.sql") {
       seed_anchor_cost_fixture(db_path);
     } else if (query_case.filename == "anchor-host-activity.sql" ||
                query_case.filename == "node-host-activity.sql" ||

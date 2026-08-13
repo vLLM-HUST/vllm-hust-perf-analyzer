@@ -18,6 +18,7 @@
 #include "traceloom/compat/anchor_sequence_rows.h"
 #include "traceloom/compat/aux_attribution_rows.h"
 #include "traceloom/compat/collective_tag_rows.h"
+#include "traceloom/compat/evidence_role_sql_rows.h"
 #include "traceloom/compat/exact_graph_sql_rows.h"
 #include "traceloom/compat/native_graph_replay_rows.h"
 #include "traceloom/compat/report_tree_rows.h"
@@ -638,6 +639,50 @@ void materialize_augmented_catalog(const std::string& path,
         {"normalized_event", "traceloom_event", "one normalized event",
          "inspect fine-grained timing and operator evidence",
          "SELECT * FROM traceloom_event ORDER BY db_idx, device_id, step_idx;"},
+        {"evidence_role_policy", "traceloom_evidence_role_policy",
+         "one effective projection policy",
+         "audit the flat input table identity and explicit config precedence",
+         "SELECT * FROM traceloom_evidence_role_policy ORDER BY policy_id;"},
+        {"evidence_role_rule", "traceloom_evidence_role_rule",
+         "one effective policy or system rule",
+         "explain stable rule identifiers, predicates, capabilities, and "
+         "retention treatments",
+         "SELECT * FROM traceloom_evidence_role_rule ORDER BY policy_id, "
+         "priority DESC, declaration_order, rule_id;"},
+        {"evidence_role_decision", "traceloom_v_evidence_role_decision",
+         "one normalized event projection decision",
+         "walk from an event or raw-source locator to its typed role outcome",
+         "SELECT * FROM traceloom_v_evidence_role_decision WHERE event_id = "
+         "'event-0';"},
+        {"evidence_role_placement", "traceloom_v_evidence_role_placement",
+         "one role-decision structural placement",
+         "walk in either direction between a role decision and retained "
+         "anchor, auxiliary, graph, replay, or boundary membership",
+         "SELECT * FROM traceloom_v_evidence_role_placement WHERE "
+         "placement_id = 'anchor-0' OR owner_id = 'anchor-0' ORDER BY "
+         "decision_id, placement_order;"},
+        {"evidence_role_structure", "traceloom_v_evidence_role_structure",
+         "one role-decision placement in recovered structure",
+         "locate anchor, omitted, and protected evidence in tree occurrences",
+         "SELECT * FROM traceloom_v_evidence_role_structure WHERE event_id = "
+         "'event-0' ORDER BY node_id, occurrence_idx, placement_kind;"},
+        {"evidence_role_cost_coverage",
+         "traceloom_v_evidence_role_cost_coverage",
+         "one provider, policy, role, and support-state cost aggregate",
+         "compare retained cost inside and outside identity matching",
+         "SELECT * FROM traceloom_v_evidence_role_cost_coverage ORDER BY "
+         "db_idx, input_provider_scope, final_role, support_state;"},
+        {"evidence_role_issue", "traceloom_evidence_role_issue",
+         "one typed projection audit issue",
+         "find conflicts, missing placement, and unsupported outcomes",
+         "SELECT * FROM traceloom_evidence_role_issue ORDER BY code, "
+         "decision_id, issue_id;"},
+        {"protected_interval", "traceloom_protected_interval",
+         "one typed generic-discovery boundary",
+         "audit exact and typed-open protected composites without inferring "
+         "membership from timestamps",
+         "SELECT * FROM traceloom_protected_interval ORDER BY db_idx, "
+         "device_id, start_ns, protected_interval_id;"},
         {"runtime_device_relation", "traceloom_v_runtime_device",
          "one runtime-call/device-work relation outcome",
          "inspect direct provider correlation, explicit cardinality, and open "
@@ -1023,6 +1068,9 @@ void write_basic_native_compatibility_sidecar(
                 << report_views_watch.elapsed_ms() << "\n";
     }
   }
+  replace_evidence_role_sql_rows(sqlite_path, ir, options.evidence_role_config,
+                                 options.db_idx,
+                                 options.materialize_aux_attribution);
 }
 
 void write_queryable_database_timeline(

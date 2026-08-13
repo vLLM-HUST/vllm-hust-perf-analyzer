@@ -56,6 +56,39 @@ allowlist to classify new operators as noise. Availability is explicit in the
 `traceloom_metadata` key `operator_audit_status`, and its canonical query is
 embedded in `traceloom_analysis_surface`.
 
+## Evidence-role decision audit
+
+The installed projection policy is a flat TSV input table. Analysis can select
+a replacement with `--classification-rules`, extend it, and finally overwrite
+individual typed fields with repeatable
+`--classification-rule-override RULE_ID.FIELD=VALUE`. The policy relation
+records the table digest separately from the effective config digest and
+canonical override list.
+
+- `traceloom_evidence_role_policy`: one effective policy and its input/config
+  provenance;
+- `traceloom_evidence_role_rule`: the effective positive, fallback, and typed
+  system rule catalog;
+- `traceloom_evidence_role_decision`: one typed outcome per normalized event;
+- `traceloom_evidence_role_placement`: normalized forward/reverse links to
+  anchors, auxiliary regions, exact graph members, replay units, and protected
+  intervals;
+- `traceloom_protected_interval`: materialized exact or typed-open generic-
+  discovery boundaries;
+- `traceloom_evidence_role_issue`: missing-capability, conflict, unsupported,
+  retained-unplaced, and orphan outcomes;
+- `traceloom_v_evidence_role_decision`,
+  `traceloom_v_evidence_role_placement`,
+  `traceloom_v_evidence_role_structure`, and
+  `traceloom_v_evidence_role_cost_coverage`: the narrow canonical query views.
+
+The database never treats absence from identity matching as evidence deletion:
+every decision retains timing, cost treatment, and the normalized-event/source
+locator path. The checked-in canonical SQL under `docs/report-sql/` covers
+forward event explanation, reverse member lookup, provider/policy cost
+coverage, unknown anchors within a tree occurrence, positively omitted events
+within a between-anchor region, and typed issues.
+
 ## Core Tables
 
 ### `traceloom_event`

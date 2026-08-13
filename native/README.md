@@ -169,3 +169,7 @@ explicit unknown anchor and may disrupt a match. The policy ID, version, and
 exact manifest digest are recorded in output provenance. See
 [`docs/evidence-role-projection.md`](../docs/evidence-role-projection.md) for
 the provider-neutral contract, accounting behavior, and extension rules.
+The manifest is deliberately a flat TSV table. Repeat
+`--classification-rule-override RULE_ID.FIELD=VALUE` for explicit per-analysis
+typed overwrites after table replacement/extension; the exact table digest and
+effective override digest are independently queryable in `analysis.db`.

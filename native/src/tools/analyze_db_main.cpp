@@ -77,6 +77,7 @@ struct CliOptions {
   std::size_t top_candidate_limit = 16;
   std::string classification_rules_path;
   std::string extend_classification_rules_path;
+  std::vector<std::string> classification_rule_overrides;
 };
 
 std::vector<std::string> discover_profile_dbs(const std::string& input,
@@ -122,6 +123,7 @@ void print_advanced_usage(const char* argv0) {
                " [--loop-tree-aux|--loop-tree-no-aux]"
                " [--classification-rules PATH]"
                " [--extend-classification-rules PATH]"
+               " [--classification-rule-override RULE_ID.FIELD=VALUE]"
                " [--timings]\n";
 }
 
@@ -191,6 +193,8 @@ CliOptions parse_args(int argc, char** argv) {
       options.classification_rules_path = require_value(arg);
     } else if (arg == "--extend-classification-rules") {
       options.extend_classification_rules_path = require_value(arg);
+    } else if (arg == "--classification-rule-override") {
+      options.classification_rule_overrides.push_back(require_value(arg));
     } else if (arg == "--sidecar-only") {
       options.sidecar_only = true;
     } else if (arg == "--timings") {
@@ -577,6 +581,18 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
               traceloom::load_signal_classification_ruleset(
                   cli.extend_classification_rules_path));
     }
+    for (const std::string& specification :
+         cli.classification_rule_overrides) {
+      pipeline_options.anchor_config.classification_overrides.push_back(
+          traceloom::parse_signal_classification_override(specification));
+    }
+    if (!pipeline_options.anchor_config.classification_overrides.empty()) {
+      pipeline_options.anchor_config.classification_rules =
+          traceloom::override_signal_classification_ruleset(
+              pipeline_options.anchor_config.classification_rules,
+              pipeline_options.anchor_config.classification_overrides);
+      pipeline_options.anchor_config.classification_overrides.clear();
+    }
 
     traceloom::NativePipelineResult pipeline;
     if (report_only) {
@@ -624,6 +640,7 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
     sidecar_options.evidence_role_manifest_sha256 =
         pipeline_options.anchor_config.classification_rules.metadata()
             .manifest_sha256;
+    sidecar_options.evidence_role_config = pipeline_options.anchor_config;
 
     if (!cli.compat_sidecar_out_path.empty()) {
       const Stopwatch sidecar_watch;
