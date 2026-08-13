@@ -26,6 +26,7 @@
 #include "traceloom/compat/runtime_device_rows.h"
 #include "traceloom/compat/sidecar_writer.h"
 #include "traceloom/compat/timeline_rows.h"
+#include "traceloom/compat/symbol_normalization_rows.h"
 #include "traceloom/core/sha256.h"
 #include "traceloom/pattern/grammar_engine.h"
 #include "traceloom/pattern/grammar_state.h"
@@ -683,6 +684,31 @@ void materialize_augmented_catalog(const std::string& path,
          "membership from timestamps",
          "SELECT * FROM traceloom_protected_interval ORDER BY db_idx, "
          "device_id, start_ns, protected_interval_id;"},
+        {"symbol_normalization_rule",
+         "traceloom_symbol_normalization_rule",
+         "one versioned structural-symbol rule",
+         "audit explicit provider aliases and typed fallback behavior",
+         "SELECT * FROM traceloom_symbol_normalization_rule ORDER BY "
+         "policy_id, policy_version, precedence, rule_id;"},
+        {"anchor_symbol_lineage", "traceloom_v_anchor_symbol_lineage",
+         "one structural anchor symbol decision",
+         "explain an anchor's observed provider symbol, structural symbol, "
+         "rule, and source locator",
+         "SELECT * FROM traceloom_v_anchor_symbol_lineage ORDER BY db_idx, "
+         "device_id, anchor_idx;"},
+        {"symbol_normalization_placement",
+         "traceloom_v_symbol_normalization_placement",
+         "one symbol decision in one recovered structural placement",
+         "walk between backend identity and family occurrence position",
+         "SELECT * FROM traceloom_v_symbol_normalization_placement WHERE "
+         "coverage_kind = 'self' ORDER BY db_idx, device_id, node_id, "
+         "occurrence_idx, anchor_order;"},
+        {"symbol_variant_cost", "traceloom_v_symbol_variant_cost",
+         "one structural position and observed backend symbol",
+         "compare counts and cost distributions across backend variants",
+         "SELECT * FROM traceloom_v_symbol_variant_cost ORDER BY total_us "
+         "DESC, db_idx, device_id, node_id, anchor_order, "
+         "observed_symbol;"},
         {"runtime_device_relation", "traceloom_v_runtime_device",
          "one runtime-call/device-work relation outcome",
          "inspect direct provider correlation, explicit cardinality, and open "
@@ -968,6 +994,26 @@ void write_basic_native_compatibility_sidecar(
     metadata.push_back({"evidence_role_manifest_sha256",
                         options.evidence_role_manifest_sha256});
   }
+  const SymbolNormalizationSqlRows symbol_normalization_rows =
+      build_symbol_normalization_sql_rows(ir, options.db_idx);
+  metadata.push_back(
+      {"symbol_normalization_policy_id",
+       symbol_normalization_rows.policies.front().policy_id});
+  metadata.push_back(
+      {"symbol_normalization_policy_version",
+       symbol_normalization_rows.policies.front().policy_version});
+  metadata.push_back(
+      {"symbol_normalization_source_manifest",
+       symbol_normalization_rows.policies.front().source_manifest});
+  metadata.push_back(
+      {"symbol_normalization_manifest_sha256",
+       symbol_normalization_rows.policies.front().manifest_sha256});
+  metadata.push_back(
+      {"symbol_normalization_rule_count",
+       std::to_string(symbol_normalization_rows.rules.size())});
+  metadata.push_back(
+      {"symbol_normalization_decision_count",
+       std::to_string(symbol_normalization_rows.decisions.size())});
 
   {
     const Stopwatch runtime_rows_watch;
@@ -1013,6 +1059,7 @@ void write_basic_native_compatibility_sidecar(
   const std::vector<AnchorSqlRow> anchor_rows =
       build_anchor_sequence_sql_rows(ir, options.db_idx);
   replace_anchor_rows(sqlite_path, anchor_rows);
+  replace_symbol_normalization_rows(sqlite_path, symbol_normalization_rows);
   const AuxAttributionSqlRows aux_rows =
       options.materialize_aux_attribution
           ? build_aux_attribution_sql_rows(ir, options.db_idx)

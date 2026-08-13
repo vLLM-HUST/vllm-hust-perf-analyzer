@@ -27,6 +27,7 @@ void materialize_report_compatibility_views(const std::string& sqlite_path) {
     materialize_tree_node_occurrence_view(db);
     materialize_node_cost_views(db);
     materialize_tree_node_view(db);
+    materialize_symbol_normalization_views(db);
     materialize_semantic_tree_views(db);
     // The queryable DB is a read-mostly analytical artifact. Persist planner
     // statistics after all materialized relations and indexes exist so agent

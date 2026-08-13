@@ -8,6 +8,8 @@
 #include <unordered_set>
 #include <vector>
 
+#include "traceloom/analysis/structural_symbol_normalization.h"
+
 namespace traceloom {
 namespace {
 
@@ -18,6 +20,7 @@ struct AnchorCandidate {
       ReplayUnitLaunchMemberId::invalid();
   AnchorKind kind = AnchorKind::kUnknown;
   SymbolId symbol_id;
+  StructuralSymbolDecision symbol_decision;
   SourceRefId source_ref_id;
   std::uint64_t source_row_id = 0;
   std::uint32_t device_id = 0;
@@ -31,13 +34,14 @@ AnchorCandidate anchor_candidate_from_event(
     TraceEventId trace_event_id,
     ReplayUnitId replay_unit_id,
     AnchorKind kind,
-    SymbolId symbol_id) {
+    ResolvedStructuralSymbol resolved_symbol) {
   const TraceEventRow& event = ir.trace_events.row(trace_event_id);
   return AnchorCandidate{trace_event_id,
                          replay_unit_id,
                          ReplayUnitLaunchMemberId::invalid(),
                          kind,
-                         symbol_id,
+                         resolved_symbol.structural_symbol_id,
+                         resolved_symbol.decision,
                          event.source_ref_id,
                          event.source_row_id,
                          event.device_id,
@@ -73,22 +77,6 @@ std::string symbol_text(const NativeIr& ir, SymbolId id) {
   return id.valid() ? ir.symbols.value(id) : std::string();
 }
 
-bool is_matmul_backend_variant(const std::string& text) {
-  return text == "MatMulV1" || text == "MatMulV2" || text == "MatMulV3" ||
-         text == "BatchMatMulV1" || text == "BatchMatMulV2" ||
-         text == "BatchMatMulV3";
-}
-
-SymbolId normalize_compute_symbol(NativeIr& ir, SymbolId symbol) {
-  if (!symbol.valid()) {
-    return symbol;
-  }
-  if (is_matmul_backend_variant(symbol_text(ir, symbol))) {
-    return ir.symbols.intern("MatMul");
-  }
-  return symbol;
-}
-
 std::string lower_ascii(std::string value) {
   for (char& ch : value) {
     ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
@@ -114,100 +102,6 @@ std::string normalize_task_key(std::string value) {
     value.pop_back();
   }
   return value;
-}
-
-bool contains_any(const std::string& text,
-                  const std::vector<std::string>& needles) {
-  for (const std::string& needle : needles) {
-    if (text.find(needle) != std::string::npos) {
-      return true;
-    }
-  }
-  return false;
-}
-
-bool is_device_allreduce_label(const std::string& lower_text) {
-  return contains_any(lower_text,
-                      {"aiv_all_reduce", "aiv_allreduce", "aic_all_reduce",
-                       "aic_allreduce", "all_reduce_bfloat16",
-                       "allreduce_bfloat16"});
-}
-
-bool is_opaque_collective_instance_label(const std::string& text) {
-  if (text.empty() ||
-      !std::isdigit(static_cast<unsigned char>(text.front()))) {
-    return false;
-  }
-  bool saw_underscore = false;
-  for (char ch : text) {
-    if (ch == '_') {
-      saw_underscore = true;
-      continue;
-    }
-    if (!std::isdigit(static_cast<unsigned char>(ch))) {
-      return false;
-    }
-  }
-  return saw_underscore;
-}
-
-SymbolId choose_communication_symbol(NativeIr& ir,
-                                     const CommunicationOpRow& comm) {
-  if (!comm.op_name_symbol_id.valid() && !comm.op_type_symbol_id.valid() &&
-      !comm.linked_task_name_symbol_id.valid() &&
-      !comm.linked_task_type_symbol_id.valid()) {
-    return SymbolId::invalid();
-  }
-  const std::string label = symbol_text(ir, comm.op_name_symbol_id);
-  const std::string op_type = symbol_text(ir, comm.op_type_symbol_id);
-  const std::string linked_task_name =
-      symbol_text(ir, comm.linked_task_name_symbol_id);
-  const std::string linked_task_type =
-      symbol_text(ir, comm.linked_task_type_symbol_id);
-  const std::string lower_blob =
-      lower_ascii(label + " " + op_type + " " + linked_task_name + " " +
-                  linked_task_type);
-  if (contains_any(lower_blob, {"allreduce", "all_reduce"}) ||
-      is_opaque_collective_instance_label(label)) {
-    return ir.symbols.intern("AllReduce");
-  }
-  if (contains_any(lower_blob, {"reducescatter", "reduce_scatter"})) {
-    return ir.symbols.intern("ReduceScatter");
-  }
-  if (contains_any(lower_blob, {"allgather", "all_gather"})) {
-    return ir.symbols.intern("AllGather");
-  }
-  if (contains_any(lower_blob, {"broadcast"})) {
-    return ir.symbols.intern("Broadcast");
-  }
-  if (contains_any(lower_blob,
-                   {"alltoall", "all_to_all", "all-to-all", "all2all",
-                    "a2a"})) {
-    return ir.symbols.intern("AllToAll");
-  }
-  if (comm.op_type_symbol_id.valid()) {
-    return comm.op_type_symbol_id;
-  }
-  if (comm.linked_task_type_symbol_id.valid()) {
-    return comm.linked_task_type_symbol_id;
-  }
-  if (comm.linked_task_name_symbol_id.valid()) {
-    return comm.linked_task_name_symbol_id;
-  }
-  return comm.op_name_symbol_id;
-}
-
-SymbolId choose_task_anchor_symbol(NativeIr& ir, const TaskRow& task) {
-  const SymbolId symbol = choose_task_symbol(task);
-  const std::string blob = lower_ascii(
-      symbol_text(ir, symbol) + " " + symbol_text(ir, task.op_name_symbol_id) +
-      " " + symbol_text(ir, task.op_type_symbol_id) + " " +
-      symbol_text(ir, task.compute_task_type_symbol_id) + " " +
-      symbol_text(ir, task.task_type_symbol_id));
-  if (is_device_allreduce_label(blob)) {
-    return ir.symbols.intern("AIV_AllReduce");
-  }
-  return normalize_compute_symbol(ir, symbol);
 }
 
 bool has_concrete_operator_identity(const TaskRow& task) {
@@ -467,6 +361,11 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
       config.classification_rules.metadata().policy_version;
   stats.classification_manifest_sha256 =
       config.classification_rules.metadata().manifest_sha256;
+  if (config.structural_symbol_rules.empty()) {
+    config.structural_symbol_rules =
+        load_default_structural_symbol_ruleset();
+  }
+  ir.structural_symbol_policy = config.structural_symbol_rules.snapshot();
   if (config.filter_auxiliary_task_anchors) {
     stats.projection_kind = "anchor_compute_collective_only";
   }
@@ -520,7 +419,9 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
     }
     candidates.push_back(anchor_candidate_from_event(
         ir, task.trace_event_id, ReplayUnitId::invalid(),
-        AnchorKind::kDeviceEvent, choose_task_anchor_symbol(ir, task)));
+        AnchorKind::kDeviceEvent,
+        normalize_task_structural_symbol(ir, task,
+                                         config.structural_symbol_rules)));
   }
 
   for (const ReplayUnitRow& replay : ir.replay_units.rows()) {
@@ -532,7 +433,10 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
     if (!replay.replay_composition_region_id.valid()) {
       candidates.push_back(anchor_candidate_from_event(
           ir, replay.launch_trace_event_id, replay.id,
-          AnchorKind::kGraphReplayUnit, event.raw_name_symbol_id));
+          AnchorKind::kGraphReplayUnit,
+          preserve_structural_symbol(
+              event.raw_name_symbol_id,
+              StructuralSymbolSource::kTraceEventRawName)));
       continue;
     }
     std::vector<const ReplayUnitLaunchMemberRow*> members;
@@ -606,7 +510,9 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
       }
       candidates.push_back(AnchorCandidate{
           TraceEventId::invalid(), replay.id, member.id, kind,
-          ir.symbols.intern(symbol), replay.source_ref_id,
+          ir.symbols.intern(symbol),
+          synthesize_structural_symbol(ir.symbols.intern(symbol)).decision,
+          replay.source_ref_id,
           member.id.value() + 1, launch.device_id, raw_stream_id,
           launch.start_ns, launch.end_ns});
     }
@@ -623,7 +529,9 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
     }
     candidates.push_back(anchor_candidate_from_event(
         ir, comm.trace_event_id, ReplayUnitId::invalid(),
-        AnchorKind::kCommunication, choose_communication_symbol(ir, comm)));
+        AnchorKind::kCommunication,
+        normalize_communication_structural_symbol(
+            ir, comm, config.structural_symbol_rules)));
   }
 
   std::sort(candidates.begin(), candidates.end(),
@@ -644,7 +552,8 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
         candidate.source_ref_id, candidate.trace_event_id,
         candidate.replay_unit_id, candidate.kind, candidate.symbol_id,
         candidate.device_id, candidate.stream_id, candidate.start_ns,
-        candidate.end_ns, candidate.replay_unit_launch_member_id);
+        candidate.end_ns, candidate.replay_unit_launch_member_id,
+        candidate.symbol_decision);
     const TokenId token = ir.tokens.append(
         anchor, candidate.symbol_id, candidate.device_id, sequence_index++,
         candidate.start_ns, candidate.end_ns);

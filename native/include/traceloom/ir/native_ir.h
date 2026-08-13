@@ -16,6 +16,7 @@
 #include "traceloom/ir/runtime_call_table.h"
 #include "traceloom/ir/source_ref_table.h"
 #include "traceloom/ir/stream_table.h"
+#include "traceloom/ir/structural_symbol.h"
 #include "traceloom/ir/task_table.h"
 #include "traceloom/ir/token_table.h"
 #include "traceloom/ir/trace_event_table.h"
@@ -51,6 +52,7 @@ struct NativeIr {
   ReplayCompositionRegionMemberTable replay_composition_region_members;
   ReplayUnitTable replay_units;
   ReplayUnitLaunchMemberTable replay_unit_launch_members;
+  StructuralSymbolPolicySnapshot structural_symbol_policy;
 };
 
 }  // namespace traceloom

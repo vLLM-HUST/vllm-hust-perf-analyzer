@@ -17,6 +17,7 @@ add_library(traceloom_native_core
   src/analysis/flat_anchor_builder.cpp
   src/analysis/graph_body_cost_summary.cpp
   src/analysis/signal_classification_rules.cpp
+  src/analysis/structural_symbol_normalization.cpp
   src/analysis/native_pipeline.cpp
   src/analysis/replay_internal_cost_map.cpp
   src/core/diagnostics.cpp
@@ -77,10 +78,16 @@ target_compile_definitions(
   PRIVATE
     TRACELOOM_SOURCE_DEFAULT_RULESET_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/default_signal_classification_rules.tsv"
     TRACELOOM_INSTALL_DEFAULT_RULESET_PATH="${CMAKE_INSTALL_FULL_DATADIR}/traceloom/default_signal_classification_rules.tsv"
+    TRACELOOM_SOURCE_DEFAULT_SYMBOL_RULESET_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/default_structural_symbol_rules.tsv"
+    TRACELOOM_INSTALL_DEFAULT_SYMBOL_RULESET_PATH="${CMAKE_INSTALL_FULL_DATADIR}/traceloom/default_structural_symbol_rules.tsv"
 )
 
 install(
   FILES data/default_signal_classification_rules.tsv
+  DESTINATION ${CMAKE_INSTALL_DATADIR}/traceloom
+)
+install(
+  FILES data/default_structural_symbol_rules.tsv
   DESTINATION ${CMAKE_INSTALL_DATADIR}/traceloom
 )
 
@@ -128,10 +135,13 @@ add_library(traceloom_native_materialize
   src/compat/sidecar_semantic_writer.cpp
   src/compat/sidecar_structure_bindings.cpp
   src/compat/sidecar_structure_writer.cpp
+  src/compat/sidecar_symbol_normalization_views.cpp
+  src/compat/sidecar_symbol_normalization_writer.cpp
   src/compat/sidecar_tree_views.cpp
   src/compat/sidecar_views.cpp
   src/compat/sidecar_writer.cpp
   src/compat/timeline_rows.cpp
+  src/compat/symbol_normalization_rows.cpp
   src/materialize/grammar_debug_json.cpp
   src/materialize/loop_tree_markdown.cpp
   src/materialize/native_result_json.cpp
@@ -413,6 +423,18 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     COMMAND traceloom_native_flat_anchor_builder_tests
   )
 
+  add_executable(traceloom_native_structural_symbol_normalization_tests
+    tests/analysis/structural_symbol_normalization_tests.cpp
+  )
+  target_link_libraries(
+    traceloom_native_structural_symbol_normalization_tests PRIVATE
+    traceloom_native_core
+  )
+  add_test(
+    NAME traceloom_native_structural_symbol_normalization_tests
+    COMMAND traceloom_native_structural_symbol_normalization_tests
+  )
+
   add_executable(traceloom_native_signal_classification_rules_tests
     tests/analysis/signal_classification_rules_tests.cpp
   )
@@ -609,6 +631,18 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
   add_test(
     NAME traceloom_native_anchor_sequence_rows_tests
     COMMAND traceloom_native_anchor_sequence_rows_tests
+  )
+
+  add_executable(traceloom_native_symbol_normalization_rows_tests
+    tests/compat/symbol_normalization_rows_tests.cpp
+  )
+  target_link_libraries(
+    traceloom_native_symbol_normalization_rows_tests PRIVATE
+    traceloom_native_materialize
+  )
+  add_test(
+    NAME traceloom_native_symbol_normalization_rows_tests
+    COMMAND traceloom_native_symbol_normalization_rows_tests
   )
 
   add_executable(traceloom_native_aux_attribution_rows_tests

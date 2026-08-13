@@ -279,6 +279,70 @@ const CompatTableSchema& anchor_table_schema() {
   return schema;
 }
 
+const CompatTableSchema& symbol_normalization_policy_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_symbol_normalization_policy",
+      {
+          {"policy_id", CompatColumnType::kText, false},
+          {"policy_version", CompatColumnType::kText, false},
+          {"policy_kind", CompatColumnType::kText, false},
+          {"source_manifest", CompatColumnType::kText, false},
+          {"manifest_sha256", CompatColumnType::kText, false},
+          {"description", CompatColumnType::kText, false},
+      },
+  };
+  return schema;
+}
+
+const CompatTableSchema& symbol_normalization_rule_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_symbol_normalization_rule",
+      {
+          {"policy_id", CompatColumnType::kText, false},
+          {"policy_version", CompatColumnType::kText, false},
+          {"rule_id", CompatColumnType::kText, false},
+          {"precedence", CompatColumnType::kInteger, false},
+          {"provider_scope", CompatColumnType::kText, false},
+          {"source_domain", CompatColumnType::kText, false},
+          {"match_mode", CompatColumnType::kText, false},
+          {"match_expression", CompatColumnType::kText, false},
+          {"structural_symbol", CompatColumnType::kText, false},
+          {"required_fields", CompatColumnType::kText, false},
+          {"rule_origin", CompatColumnType::kText, false},
+          {"rule_origin_sha256", CompatColumnType::kText, false},
+          {"source_line", CompatColumnType::kInteger, false},
+          {"description", CompatColumnType::kText, false},
+      },
+  };
+  return schema;
+}
+
+const CompatTableSchema& anchor_symbol_normalization_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_anchor_symbol_normalization",
+      {
+          {"anchor_id", CompatColumnType::kText, false},
+          {"db_idx", CompatColumnType::kInteger, false},
+          {"device_id", CompatColumnType::kInteger, false},
+          {"anchor_idx", CompatColumnType::kInteger, false},
+          {"event_id", CompatColumnType::kText, true},
+          {"source_path", CompatColumnType::kText, false},
+          {"source_table", CompatColumnType::kText, false},
+          {"source_key", CompatColumnType::kText, false},
+          {"observed_symbol", CompatColumnType::kText, true},
+          {"observed_symbol_source", CompatColumnType::kText, false},
+          {"structural_symbol", CompatColumnType::kText, true},
+          {"policy_id", CompatColumnType::kText, false},
+          {"policy_version", CompatColumnType::kText, false},
+          {"rule_id", CompatColumnType::kText, false},
+          {"candidate_rule_ids", CompatColumnType::kText, true},
+          {"outcome", CompatColumnType::kText, false},
+          {"reason_code", CompatColumnType::kText, false},
+      },
+  };
+  return schema;
+}
+
 const CompatTableSchema& anchor_aux_slot_table_schema() {
   static const CompatTableSchema schema{
       "traceloom_anchor_aux_slot",
@@ -948,6 +1012,9 @@ std::vector<CompatTableSchema> compatibility_table_schemas() {
       anchor_host_activity_table_schema(),
       anchor_host_api_summary_table_schema(),
       anchor_table_schema(),
+      symbol_normalization_policy_table_schema(),
+      symbol_normalization_rule_table_schema(),
+      anchor_symbol_normalization_table_schema(),
       anchor_aux_slot_table_schema(),
       aux_link_table_schema(),
       cuda_graph_replay_table_schema(),

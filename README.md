@@ -174,6 +174,58 @@ normalized events, exact graph members, and raw evidence. Important costs are:
   categories;
 - `avg_aux_us` and `avg_self_us`: attributed auxiliary and node-owned cost.
 
+#### Audit structural-symbol normalization
+
+TraceLoom keeps two operator identities when constructing the anchor sequence:
+
+- `observed_symbol` is the concrete provider/backend label selected from the
+  normalized profiler observation;
+- `structural_symbol` is the comparison key used by pattern discovery.
+
+Only explicit, versioned rules loaded from
+[`native/data/default_structural_symbol_rules.tsv`](native/data/default_structural_symbol_rules.tsv)
+may change the observed label. For example, the current Ascend policy maps the supported `MatMulV1/V2/V3` and
+`BatchMatMulV1/V2/V3` labels to the structural symbol `MatMul`. An unfamiliar
+label follows the typed identity fallback and remains visible rather than
+being fuzzily merged. Equal structural symbols make observations comparable;
+they do not establish a family/position correspondence by name alone.
+Use `--symbol-rules PATH` to replace this input for one run or
+`--extend-symbol-rules PATH` to add higher-priority rules. The effective
+manifest identity, SHA-256, catalog, and per-anchor matches are copied into
+the resulting database. A replacement manifest may intentionally contain no
+rules, which selects identity preservation for every observed symbol. If two
+different rules match at the same highest precedence, TraceLoom preserves the
+observed symbol and emits the typed `conflict` outcome together with
+`candidate_rule_ids`; it never chooses one silently.
+
+Discover the policy, explain one anchor, or compare concrete lowerings at the
+same recovered position:
+
+```sql
+SELECT policy_id, policy_version, rule_id, provider_scope,
+       match_mode, match_expression, structural_symbol
+FROM traceloom_symbol_normalization_rule
+ORDER BY precedence;
+
+SELECT anchor_id, observed_symbol, structural_symbol, rule_id, outcome,
+       source_table, source_key
+FROM traceloom_v_anchor_symbol_lineage
+WHERE anchor_id = 'anchor-42';
+
+SELECT local_node_id, anchor_order, structural_symbol, observed_symbol,
+       occurrence_count, total_us, avg_us, min_us, max_us
+FROM traceloom_v_symbol_variant_cost
+WHERE structural_symbol = 'MatMul'
+ORDER BY total_us DESC;
+```
+
+`traceloom_v_symbol_normalization_placement` is the bidirectional bridge from
+one decision to `node_id`, `occurrence_idx`, and `anchor_order`. Its
+`source_path`, `source_table`, and `source_key` columns retain the concrete
+observation locator. See
+[`docs/report-sql/symbol-normalization-audit.sql`](docs/report-sql/symbol-normalization-audit.sql)
+for a ready-to-run audit.
+
 #### Recommended host/device workflow
 
 Start from a recovered structure rather than from a provider table. First pick

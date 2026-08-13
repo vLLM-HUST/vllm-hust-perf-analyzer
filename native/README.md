@@ -173,3 +173,16 @@ The manifest is deliberately a flat TSV table. Repeat
 `--classification-rule-override RULE_ID.FIELD=VALUE` for explicit per-analysis
 typed overwrites after table replacement/extension; the exact table digest and
 effective override digest are independently queryable in `analysis.db`.
+
+Structural-symbol normalization is a separate input policy in
+`data/default_structural_symbol_rules.tsv`. It determines when concrete
+provider/backend labels may share one comparison symbol; it does not decide
+whether an event participates in the anchor sequence. Replace it with
+`--symbol-rules PATH`, extend it with `--extend-symbol-rules PATH`, or select a
+complete manifest with `TRACELOOM_SYMBOL_RULES`. The parser rejects unknown
+fields/match modes, duplicate rule IDs, and duplicate equal-precedence match
+keys before analysis. If distinct predicates still overlap on a concrete
+observation at the same highest precedence, the analyzer preserves that
+observation and records a typed conflict rather than choosing silently.
+Unmatched symbols follow an identity fallback. The effective policy, manifest
+hash, rule catalog, and per-anchor decisions are materialized in `analysis.db`.

@@ -78,6 +78,26 @@ void materialize_report_compatibility_indexes(SqliteDb& db) {
       "CREATE INDEX IF NOT EXISTS idx_traceloom_anchor_key "
       "ON traceloom_anchor(anchor_id, db_idx, device_id)");
   db.exec(
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_traceloom_symbol_rule_identity "
+      "ON traceloom_symbol_normalization_rule(policy_id, policy_version, "
+      "rule_id)");
+  db.exec(
+      "CREATE UNIQUE INDEX IF NOT EXISTS "
+      "idx_traceloom_anchor_symbol_normalization_anchor "
+      "ON traceloom_anchor_symbol_normalization(anchor_id, db_idx, "
+      "device_id)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_symbol_normalization_symbol "
+      "ON traceloom_anchor_symbol_normalization(db_idx, device_id, "
+      "structural_symbol, observed_symbol)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_symbol_normalization_rule "
+      "ON traceloom_anchor_symbol_normalization(rule_id, outcome)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_symbol_normalization_source "
+      "ON traceloom_anchor_symbol_normalization(source_path, source_table, "
+      "source_key)");
+  db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_aux_anchor "
       "ON traceloom_aux_link(anchor_id)");
   db.exec(

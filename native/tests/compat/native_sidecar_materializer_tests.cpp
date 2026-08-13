@@ -1,4 +1,5 @@
 #include "traceloom/compat/native_sidecar_materializer.h"
+#include "traceloom/analysis/flat_anchor_builder.h"
 #include "traceloom/core/sha256.h"
 #include "traceloom/testing/test_util.h"
 
@@ -135,6 +136,31 @@ NativeIr build_collective_repeat_ir() {
     ir.tokens.append(anchors[idx], anchor.symbol_id, 0, idx, anchor.start_ns,
                      anchor.end_ns);
   }
+  return ir;
+}
+
+NativeIr build_symbol_variant_repeat_ir(const std::string& source_path) {
+  NativeIr ir;
+  const SourceRefId source =
+      ir.source_refs.append("ascend", source_path, "TASK", 0);
+  const SymbolId ai_core = ir.symbols.intern("AI_CORE");
+  const SymbolId matmul_v2 = ir.symbols.intern("MatMulV2");
+  const SymbolId matmul_v3 = ir.symbols.intern("MatMulV3");
+  const SymbolId relu = ir.symbols.intern("Relu");
+  for (std::uint32_t idx = 0; idx < 8; ++idx) {
+    const bool matmul = idx % 2 == 0;
+    const SymbolId symbol =
+        matmul ? ((idx / 2) % 2 == 0 ? matmul_v2 : matmul_v3) : relu;
+    const std::int64_t start_ns = 1000 + idx * 1000;
+    const TraceEventId event = ir.trace_events.append(
+        source, idx + 1, 0, 5, start_ns,
+        start_ns + (matmul ? 600 : 200), symbol);
+    ir.tasks.append(source, event, idx + 1, 9000 + idx, -1, ai_core,
+                    SymbolId::invalid(), symbol, SymbolId::invalid(),
+                    SymbolId::invalid());
+  }
+  const FlatAnchorBuildStats stats = build_flat_anchors(ir);
+  testing::require(stats.tokens == 8);
   return ir;
 }
 
@@ -522,7 +548,7 @@ int main() {
   compat::write_basic_native_compatibility_sidecar(db_path, ir, options);
 
   require(run_scalar_int(db_path,
-                         "SELECT COUNT(*) FROM traceloom_metadata") == 21);
+                         "SELECT COUNT(*) FROM traceloom_metadata") == 27);
   require(run_scalar_text(db_path,
                           "SELECT value FROM traceloom_metadata "
                           "WHERE key = 'native_compatibility_materializer'") ==
@@ -1171,12 +1197,77 @@ int main() {
               "SELECT COUNT(*) FROM traceloom_analysis_surface "
               "WHERE surface_name = 'evidence_role_decision' AND "
               "relation_name = 'traceloom_v_evidence_role_decision'") == 1);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM "
+              "traceloom_symbol_normalization_policy") == 1);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM "
+              "traceloom_symbol_normalization_rule") >= 10);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM "
+              "traceloom_anchor_symbol_normalization") ==
+          run_scalar_int(augmented_path,
+                         "SELECT COUNT(*) FROM traceloom_anchor"));
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_analysis_surface WHERE "
+              "surface_name = 'anchor_symbol_lineage' AND relation_name = "
+              "'traceloom_v_anchor_symbol_lineage'") == 1);
   require_analysis_surface_queries_prepare(augmented_path);
   require(run_scalar_text(augmented_path,
                           "SELECT embedded_table_name FROM "
                           "traceloom_raw_table WHERE source_table = "
                           "'RAW_SENTINEL'") == "RAW_SENTINEL");
   std::remove(augmented_path.c_str());
+
+  // Backend lowering labels share a structural symbol only through an
+  // explicit, queryable rule. The reverse path retains both concrete labels
+  // at the same recovered structural position.
+  const std::string variant_source = temp_db_path();
+  const std::string variant_augmented = temp_db_path();
+  run_sql(variant_source,
+          "CREATE TABLE TASK(opName TEXT);"
+          "INSERT INTO TASK VALUES('MatMulV2'),('Relu'),('MatMulV3'),"
+          "('Relu'),('MatMulV2'),('Relu'),('MatMulV3'),('Relu')");
+  compat::NativeCompatibilitySidecarOptions variant_options;
+  variant_options.source_kind = "ascend";
+  compat::write_queryable_database_timeline(
+      variant_augmented, variant_source,
+      build_symbol_variant_repeat_ir(variant_source), variant_options);
+  require(run_scalar_int(
+              variant_augmented,
+              "SELECT COUNT(*) FROM traceloom_anchor_symbol_normalization "
+              "WHERE structural_symbol = 'MatMul' AND outcome = "
+              "'canonicalized' AND rule_id = "
+              "'ascend.task.matmul-backend-variant'") == 4);
+  require(run_scalar_int(
+              variant_augmented,
+              "SELECT COUNT(DISTINCT observed_symbol) FROM "
+              "traceloom_anchor_symbol_normalization WHERE "
+              "structural_symbol = 'MatMul'") == 2);
+  require(run_scalar_int(
+              variant_augmented,
+              "SELECT COUNT(DISTINCT observed_symbol) FROM "
+              "traceloom_v_symbol_normalization_placement WHERE "
+              "structural_symbol = 'MatMul' AND coverage_kind = 'self'") ==
+          2);
+  require(run_scalar_int(
+              variant_augmented,
+              "SELECT COUNT(DISTINCT observed_symbol) FROM "
+              "traceloom_v_symbol_variant_cost WHERE structural_symbol = "
+              "'MatMul'") == 2);
+  require(run_scalar_int(
+              variant_augmented,
+              "SELECT COUNT(*) FROM traceloom_v_anchor_symbol_lineage d "
+              "JOIN traceloom_raw_table rt ON rt.source_path = "
+              "d.source_path AND rt.source_table = d.source_table WHERE "
+              "d.structural_symbol = 'MatMul'") == 4);
+  require_analysis_surface_queries_prepare(variant_augmented);
+  std::remove(variant_source.c_str());
+  std::remove(variant_augmented.c_str());
 
   const std::string deterministic_raw_source = temp_db_path();
   run_sql(deterministic_raw_source,

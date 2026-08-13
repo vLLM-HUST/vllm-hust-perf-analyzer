@@ -1403,6 +1403,26 @@ std::vector<QueryCase> active_query_cases() {
           1,
       },
       QueryCase{
+          "symbol-normalization-audit.sql",
+          {
+              "node_id",
+              "local_node_id",
+              "occurrence_idx",
+              "anchor_order",
+              "anchor_id",
+              "observed_symbol",
+              "observed_symbol_source",
+              "structural_symbol",
+              "rule_id",
+              "outcome",
+              "reason_code",
+              "anchor_dur_us",
+              "source_table",
+              "source_key",
+          },
+          0,
+      },
+      QueryCase{
           "replay-cost-hotspots.sql",
           {
               "aggregate_id", "graph_template_id", "slot_role",
@@ -1591,6 +1611,8 @@ int main() {
       seed_node_event_fixture(db_path);
       seed_exact_graph_query_fixture(db_path);
       seed_replay_cost_query_fixture(db_path);
+    } else if (query_case.filename == "symbol-normalization-audit.sql") {
+      traceloom::compat::materialize_report_compatibility_views(db_path);
     }
 
     const QueryResult result = run_query(db_path, query_case);

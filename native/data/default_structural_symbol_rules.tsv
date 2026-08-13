@@ -1,0 +1,14 @@
+# policy_id=traceloom.default-structural-symbols
+# policy_version=1
+# This versioned manifest is analyzer input, not generated documentation.
+# Replace it with --symbol-rules PATH, extend it with --extend-symbol-rules
+# PATH, or set TRACELOOM_SYMBOL_RULES.  Unknown symbols remain unchanged.
+priority	rule_id	provider_scope	source_domain	field	match	pattern	structural_symbol	note
+100	ascend.task.aiv-allreduce	ascend	task	any_identity	contains_any_ci	aiv_all_reduce|aiv_allreduce|aic_all_reduce|aic_allreduce|all_reduce_bfloat16|allreduce_bfloat16	AIV_AllReduce	Canonicalize recognized device-side all-reduce task labels
+90	ascend.task.matmul-backend-variant	ascend	task	selected	exact_any	MatMulV1|MatMulV2|MatMulV3|BatchMatMulV1|BatchMatMulV2|BatchMatMulV3	MatMul	Compare explicitly supported MatMul backend lowering labels
+100	collective.communication.allreduce-alias	provider-neutral	communication	any_identity	contains_any_ci	allreduce|all_reduce	AllReduce	Canonicalize recognized all-reduce aliases
+95	ascend.communication.opaque-allreduce-instance	ascend	communication	op_name	opaque_numeric_instance	_	AllReduce	Canonicalize supported opaque numeric collective instance labels
+90	collective.communication.reduce-scatter-alias	provider-neutral	communication	any_identity	contains_any_ci	reducescatter|reduce_scatter	ReduceScatter	Canonicalize recognized reduce-scatter aliases
+80	collective.communication.allgather-alias	provider-neutral	communication	any_identity	contains_any_ci	allgather|all_gather	AllGather	Canonicalize recognized all-gather aliases
+70	collective.communication.broadcast-alias	provider-neutral	communication	any_identity	contains_ci	broadcast	Broadcast	Canonicalize recognized broadcast aliases
+60	collective.communication.alltoall-alias	provider-neutral	communication	any_identity	contains_any_ci	alltoall|all_to_all|all-to-all|all2all|a2a	AllToAll	Canonicalize recognized all-to-all aliases
