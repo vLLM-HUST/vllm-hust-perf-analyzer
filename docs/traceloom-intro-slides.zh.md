@@ -65,9 +65,10 @@ sqlite3 -readonly /path/to/msprof_raw/traceloom/analysis_db01.db
 ```
 
 ```sql
-SELECT * FROM traceloom_analysis_surface;
+SELECT * FROM traceloom_projection_recipe ORDER BY display_order;
 .read examples/db-timeline-tour/tour.sql
 ```
 
-先查自描述 catalog，再从层级节点沿 occurrence、anchor、event、graph member
-和 raw row 下钻。
+先选择结构 scope 与投影方式；需要查底层 relation 时，再读
+`traceloom_analysis_surface`。同一个 scope 可以切 occurrence population、层级、
+device/host context、graph member 和 raw-row audit。

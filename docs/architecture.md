@@ -52,8 +52,14 @@ making loop nodes comparable with their children.
 
 The default materializer writes a self-contained queryable database timeline.
 It embeds raw evidence and exposes hierarchy, occurrence, cost, replay, issue,
-and provenance relations in one SQL-addressable timeline. Markdown and native JSON are explicit projections;
-the compatibility sidecar remains available for legacy workflows.
+and provenance relations in one SQL-addressable timeline. The materialized
+coordinates are closed under user-composed analytical projections: one scope
+can select one or all occurrences, remain folded or expand, enter supported
+host context, and change compatible measure lens. The database publishes this
+UX through `traceloom_projection_recipe`; Markdown and native JSON are explicit
+presentations rather than alternate models. Typed selector discovery lives in
+`traceloom_projection_parameter`. The compatibility sidecar remains available
+for legacy workflows.
 
 ## CLI
 
@@ -70,6 +76,7 @@ artifacts.
 
 - Preserve raw evidence and provenance.
 - Compress repetition instead of printing every event.
+- Materialize reusable coordinates rather than one fixed report.
 - Keep cost arithmetic auditable and overlap-safe.
 - Treat source/operator attribution as evidence, not certainty.
 - Keep large raw traces and generated reports out of source control.

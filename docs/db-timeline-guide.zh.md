@@ -3,7 +3,8 @@
 TraceLoom 的一等产物是 `analysis.db`：一条把原始 profiler 行、规范化事件、
 恢复结构、occurrence、成本和 provenance 放在同一份 SQLite 里的
 **queryable DB timeline**。使用者不需要先读 Markdown 报告；直接从数据库的
-自描述入口开始，就能横向下钻证据，也能纵向比较同构执行。
+自描述入口选择结构 scope，再组合一次执行、统计总体、层级、device/host context
+与成本 lens。
 
 ## 60 秒上手
 
@@ -17,9 +18,10 @@ sqlite3 -readonly /path/to/traceloom/analysis.db
 ```sql
 .headers on
 .mode box
-SELECT surface_name, relation_name, purpose
-FROM traceloom_analysis_surface
-ORDER BY surface_name;
+SELECT projection_name, population_mode, resolution,
+       observation_domain, measure_lens, selector_parameters
+FROM traceloom_projection_recipe
+ORDER BY display_order;
 ```
 
 如果使用仓库自带 profile，可以直接执行完整 tour：
@@ -28,7 +30,56 @@ ORDER BY surface_name;
 .read examples/db-timeline-tour/tour.sql
 ```
 
-## 两个基本阅读方向
+## 核心玩法：选择一个 scope，组合投影视图
+
+TraceLoom 不生成一张不可改变的报告。它把执行关系物化成稳定坐标，让使用者沿
+五个互相独立的轴组合视图：
+
+| 投影轴 | 常见选择 |
+| --- | --- |
+| scope | pattern/node、position、occurrence、device window |
+| population | 某一次 occurrence、同一结构坐标下的全部 occurrences |
+| resolution | 折叠结构、children、anchors/events、exact replay members、raw rows |
+| observation domain | device、受支持的 host windows、内嵌 profiler evidence |
+| measure lens | overlap-safe cost、occurrence cost、scheduled work、bubble、host API distribution |
+
+每份 `analysis.db` 都用 `traceloom_projection_recipe` 自描述这些组合。先选择一个
+高层结构并绑定坐标：
+
+```sql
+SELECT node_id, local_node_id, label, occurrence_count, total_us
+FROM traceloom_v_tree_node
+WHERE occurrence_count > 1
+ORDER BY total_us DESC
+LIMIT 20;
+
+.parameter init
+.parameter set :node_id 'node-N006'
+.parameter set :occurrence_idx NULL
+```
+
+再查看可用 recipe：
+
+```sql
+SELECT projection_name, population_mode, resolution,
+       observation_domain, measure_lens, selector_parameters, purpose
+FROM traceloom_projection_recipe
+ORDER BY display_order;
+```
+
+需要让 agent 或 UI 自动生成查询时，再读
+`traceloom_projection_parameter`；它会逐项给出 selector 的 SQLite 类型、
+可空性、用途，以及候选坐标来自哪张 relation/column。
+
+把 `:occurrence_idx` 保持为 `NULL`，得到同一结构的 occurrence population；绑定
+具体数字，就得到那一次真实执行。同一个 `:node_id` 可以继续切换 hierarchy、
+members、host context 和 measure lens。详细契约见
+[`composable-analytical-projections.md`](composable-analytical-projections.md)。
+
+以下横向、纵向、层级和 cross-domain 阅读方式不是四套模型，而是这组坐标上的
+不同投影。
+
+## 基本阅读方向
 
 ### 横向：从结构走到原始证据
 
@@ -158,7 +209,7 @@ CPU 没有工作。`support_state`、`cardinality` 和原始 row locator 应与�
 ### 纵向：固定结构，比较同构 occurrence
 
 ```text
-one structural family / position
+one structural pattern / position
   -> all equivalent occurrences
   -> comparable cost population
   -> outlier or skew
@@ -193,7 +244,8 @@ LIMIT 30;
 
 找到感兴趣的 `local_node_id` 后，继续查询 occurrence、children、anchor、replay
 member 和 raw row。仓库里的 `docs/report-sql/*.sql` 提供可执行的常见路径，
-`traceloom_analysis_surface.example_sql` 则让数据库自己说明推荐入口。
+`traceloom_projection_recipe.example_sql` 说明组合路径，
+`traceloom_analysis_surface.example_sql` 说明底层 relation 入口。
 
 ## 成本口径
 
@@ -212,16 +264,18 @@ member 和 raw row。仓库里的 `docs/report-sql/*.sql` 提供可执行的常�
 
 ```text
 这是 TraceLoom 生成的 queryable DB timeline。先查询
-traceloom_analysis_surface，找到层级、occurrence、cost 和 provenance 入口。
-从总成本最高的 repeated region 开始：
-1. 比较同构 occurrences 的成本分布；
-2. 下钻最慢 occurrence 的有序 children / anchors；
-3. 把关键 event 解析到内嵌 profiler 表和 row；
-4. 输出所用 SQL、结构坐标、统计总体和证据边界。
+traceloom_projection_recipe 与 traceloom_analysis_surface。从总成本最高的
+repeated region 选择一个 node_id，并明确投影坐标：
+1. population：比较全部 occurrences，或选择某一次真实执行；
+2. resolution：保持折叠，或展开 children / anchors / events；
+3. domain：需要时进入受支持的 host-window context；
+4. lens：明确使用的成本或行为统计；
+5. audit：把关键 event 解析到内嵌 profiler 表和 row。
+输出所用 SQL、scope、population、resolution、domain、lens 和证据边界。
 不要根据名字推断 workload phase 或因果关系。
 ```
 
-做 A/B 时，先用稳定结构坐标对齐 family、occurrence 或 position，再比较成本；
+做 A/B 时，先用稳定结构坐标对齐 pattern、occurrence 或 position，再比较成本；
 不要先按算子名全局汇总。SQL 与结果表应和 `analysis.db` 的 SHA-256 一起保留，
 让诊断可复核。
 

@@ -20,6 +20,10 @@ execution tree, occurrences, repeat counts, cost lenses, replay internals,
 provenance, and typed analysis issues. `traceloom_analysis_surface` is its
 self-describing entry-point catalog. `traceloom_raw_source_database` and
 `traceloom_raw_table` describe raw packaging, including split profiles.
+`traceloom_projection_recipe` describes the primary scope/population/
+resolution/domain/lens query compositions and their named selector parameters.
+`traceloom_projection_parameter` makes selector type, nullability, coordinate
+source, and purpose independently queryable.
 
 ## Optional Markdown Projection
 

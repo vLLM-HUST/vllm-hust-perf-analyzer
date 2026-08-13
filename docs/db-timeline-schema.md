@@ -28,10 +28,25 @@ each source path, size, hash, and packaging mode;
 `traceloom_raw_table` maps `(source_path, source_table)` to the embedded table
 and its explicit preserved-rowid column.
 
-Start by querying `traceloom_analysis_surface`. It catalogs the first-class
-hierarchy, occurrence, event, replay, issue, provenance, and raw-evidence
-relations together with runnable example SQL. Markdown is an optional human
-projection requested with `--loop-tree-out`, not a separate analytical model.
+Start by querying `traceloom_projection_recipe` and
+`traceloom_analysis_surface`. The former describes how one selected scope can
+vary occurrence population, hierarchy resolution, observation domain, and
+measure lens. The latter catalogs the first-class hierarchy, occurrence,
+event, replay, issue, provenance, and raw-evidence relations together with
+runnable example SQL. Markdown is an optional human projection requested with
+`--loop-tree-out`, not a separate analytical model.
+
+`traceloom_projection_recipe` has one row per reusable parameterized query
+pattern. `scope_kind`, `population_mode`, `resolution`, `observation_domain`,
+and `measure_lens` state the projection coordinates explicitly;
+`selector_parameters` lists the named SQL parameters; and `example_sql` is a
+runnable statement over public relations. `traceloom_projection_parameter`
+normalizes each selector's SQLite type, nullability, purpose, and public
+relation/column from which candidate coordinates can be discovered. Binding
+`:occurrence_idx` to `NULL` selects a structural population in the common node
+recipes, while binding one index selects a realized occurrence. The metadata key
+`analytical_projection_contract` versions this five-axis UX contract. See
+[`composable-analytical-projections.md`](composable-analytical-projections.md).
 
 The raw-evidence catalog is itself queryable:
 

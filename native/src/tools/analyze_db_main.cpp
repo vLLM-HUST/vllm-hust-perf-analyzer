@@ -101,7 +101,9 @@ void print_usage(const char* argv0) {
                " [--timings]\n\n"
             << "Writes a self-contained queryable database timeline "
                "under a neighboring traceloom/ directory by default.\n"
-            << "Query its traceloom_analysis_surface catalog to discover "
+            << "Query its traceloom_projection_recipe catalog to select a "
+               "scope and compose analytical projections.\n"
+            << "Use traceloom_analysis_surface to discover the underlying "
                "hierarchy, cost, replay, and evidence relations.\n"
             << "Use --loop-tree-out only when a Markdown projection is "
                "needed for a human reader.\n"
@@ -683,7 +685,9 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
           sidecar_options);
       std::cerr << "wrote queryable database timeline: " << augmented_db_out << "\n";
       std::cerr << "  source: " << source_db << "\n";
-      std::cerr << "  start: SELECT * FROM traceloom_analysis_surface;\n";
+      std::cerr << "  start: SELECT * FROM traceloom_projection_recipe "
+                   "ORDER BY display_order;\n";
+      std::cerr << "  relations: SELECT * FROM traceloom_analysis_surface;\n";
       if (cli.timings) {
         std::cerr << "timing augmented_db_ms="
                   << augmented_db_watch.elapsed_ms() << "\n";

@@ -45,12 +45,13 @@ examples/kickstart_smoke/msprof_raw/traceloom/
 ```
 
 Open `analysis_db01.db` and `analysis_db02.db` with SQLite, then query
-`traceloom_analysis_surface` and `traceloom_v_tree_node` first. The checked-in
+`traceloom_projection_recipe` and `traceloom_v_tree_node` first; use
+`traceloom_analysis_surface` to discover the underlying relations. The checked-in
 `summary.md` and `tree-map.md` are compact historical human projections; they
 are not the primary product.
 
-For a guided horizontal evidence drill-down and vertical occurrence
-comparison, run the [`60-second database-timeline tour`](../db-timeline-tour).
+For a guided scope/population/resolution/domain projection, run the
+[`60-second database-timeline tour`](../db-timeline-tour).
 
 ## What To Look For
 

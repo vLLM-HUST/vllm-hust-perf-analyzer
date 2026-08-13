@@ -8,9 +8,12 @@ TraceLoom 是一个原生 C++17 离线性能分析器。它把原始 profiler �
 
 ![TraceLoom queryable DB timeline：横向证据下钻与纵向同构比较](docs/assets/queryable-db-timeline.svg)
 
-这个层级视图可以沿两个互补方向阅读：横向从结构节点下钻到某次 occurrence、
-normalized event 和内嵌原始 profiler 行；纵向则比较同一恢复结构的所有
-equivalent occurrences。结构固定统计范围，provenance 让结论保持可审计。
+每次分析先选择一个结构 scope，再组合需要的投影视图：选择某一次 occurrence
+阅读真实行为，或放开 occurrence 得到统计总体；保持高层结构折叠，或展开 children
+与 events；进入有证据支持的 host window，或切换兼容的成本 lens，而不重新构造
+边界。横向下钻、纵向比较、层级导航和 cross-domain context 都是同一组结构坐标上
+的投影。完整说明见
+[可组合分析投影](docs/composable-analytical-projections.md)。
 
 可以直接用仓库内的真实 profile 试玩
 [`60 秒 DB timeline tour`](examples/db-timeline-tour)，不要求预先熟悉 SQL。
@@ -40,6 +43,8 @@ profiler SQLite
 - 在 semantic anchor 序列上发现重复的 decode/layer 结构；
 - 对并发 stream 使用不重复计算的 wall-clock 统计；
 - Repeat 节点的平均值按循环体迭代次数归一化；
+- 一等的分析投影 recipe：自由组合结构 scope、occurrence population、层级深度、
+  observation domain 与 measure lens；
 - 用 provider correlation 把 host runtime call 显式关联回 device anchor、
   graph launch 与 auxiliary work，并保留一对多、歧义和未匹配结果；
 - 查询相邻 device anchor 所关联 host endpoint 之间实际被 profiler 观察到的
@@ -136,8 +141,34 @@ sqlite3 -header -column /path/to/traceloom/analysis.db \
   'SELECT local_node_id, label, depth, occurrence_count, avg_total_us FROM traceloom_v_tree_node ORDER BY display_order;'
 ```
 
-先从最外层的 `Repeat xN` 开始，再沿 occurrence、anchor、event、graph
-member 下钻到内嵌原始证据。最常用的成本列是：
+先选择最外层的 `Repeat xN` 或其他结构 scope。数据库自己携带可以复用的投影
+recipe：
+
+```sql
+SELECT projection_name, population_mode, resolution,
+       observation_domain, measure_lens, selector_parameters, purpose
+FROM traceloom_projection_recipe
+ORDER BY display_order;
+```
+
+`traceloom_projection_parameter` 还会以规范化关系给出每个 selector 的类型、
+可空性、用途，以及候选坐标来自哪张 relation/column，agent 与 UI 不必解析说明文字。
+
+在 `sqlite3` 中只绑定一次 scope，就能在不同投影之间复用：
+
+```sql
+.parameter init
+.parameter set :node_id 'node-N006'
+.parameter set :occurrence_idx NULL
+```
+
+`:occurrence_idx = NULL` 表示查看全部 occurrence 的总体；换成数字则查看某一次
+真实执行。同一个 `:node_id` 可以保持折叠、展开 children/events、进入受支持的
+host windows，或切换成本 lens。用户框选的 device window 也可以作为查询 scope，
+但框选本身不会把它提升成 recovered pattern。详见
+[可组合分析投影](docs/composable-analytical-projections.md)。
+
+最常用的成本列是：
 
 - `total_us`：互不相交的 wall-clock 区间并集，stream 重叠不会重复计算；
 - `avg_total_us`：普通节点按 occurrence 平均，Repeat 节点按循环体迭代平均；
@@ -183,7 +214,7 @@ source key。仓库还提供了有界投影
 按 interval 裁剪后求和，得到的也只是 scheduled-call time，不是 overlap-safe
 的 host busy union。
 
-体验上图完整的横向与纵向分析路径：
+体验上图完整的可组合投影路径：
 
 ```bash
 sqlite3 -readonly \
