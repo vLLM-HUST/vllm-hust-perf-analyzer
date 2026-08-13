@@ -56,6 +56,26 @@ void require_basic_sidecar(const std::string& path) {
       run_scalar_int(path, "SELECT COUNT(*) FROM traceloom_anchor") > 0);
   traceloom::testing::require(run_scalar_int(
                                   path,
+                                  "SELECT COUNT(*) FROM "
+                                  "traceloom_evidence_role_policy WHERE "
+                                  "input_format = 'flat_tsv'") == 1);
+  traceloom::testing::require(run_scalar_int(
+                                  path,
+                                  "SELECT COUNT(*) FROM "
+                                  "traceloom_evidence_role_decision") ==
+                              run_scalar_int(
+                                  path,
+                                  "SELECT COUNT(*) FROM traceloom_event"));
+  traceloom::testing::require(run_scalar_int(
+                                  path,
+                                  "SELECT COUNT(*) FROM "
+                                  "traceloom_evidence_role_decision d "
+                                  "LEFT JOIN traceloom_evidence_role_rule r "
+                                  "ON r.policy_id = d.policy_id AND "
+                                  "r.rule_id = d.rule_id "
+                                  "WHERE r.rule_id IS NULL") == 0);
+  traceloom::testing::require(run_scalar_int(
+                                  path,
                                   "SELECT COUNT(*) FROM sqlite_master "
                                   "WHERE type = 'table' AND name = "
                                   "'traceloom_collective_global_link'") == 1);
@@ -162,6 +182,14 @@ void require_augmented_database(const std::string& path) {
       !std::filesystem::exists(std::filesystem::path(path).parent_path() /
                                "loop_tree_v2.md"),
       "default augmented-DB UX unexpectedly emitted Markdown");
+  traceloom::testing::require(run_scalar_int(
+                                  path,
+                                  "SELECT COUNT(*) FROM "
+                                  "traceloom_evidence_role_policy WHERE "
+                                  "length(effective_config_sha256) = 64 AND "
+                                  "config_overrides LIKE "
+                                  "'%cuda.anchor.task.type.cuda.kernel."
+                                  "51cc7472.priority=96%'") == 1);
 }
 
 void require_cuda_markdown(const std::string& path) {

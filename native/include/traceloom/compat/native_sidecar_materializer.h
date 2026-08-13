@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "traceloom/analysis/flat_anchor_builder.h"
 #include "traceloom/compat/sidecar_writer.h"
 #include "traceloom/ir/native_ir.h"
 
@@ -32,6 +33,7 @@ struct NativeCompatibilitySidecarOptions {
   std::string evidence_role_policy_id;
   std::string evidence_role_policy_version;
   std::string evidence_role_manifest_sha256;
+  FlatAnchorBuildConfig evidence_role_config;
 };
 
 void write_basic_native_compatibility_sidecar(

@@ -233,10 +233,9 @@ std::string provider_scope_from_source_kind(const std::string& source_kind) {
   return "any";
 }
 
-SignalClassificationDecision classify_structural_task(
+SignalClassificationInput make_signal_classification_input(
     const NativeIr& ir,
-    const TaskRow& task,
-    const SignalClassificationRuleset& rules) {
+    const TaskRow& task) {
   const std::string task_type =
       normalize_task_key(symbol_text(ir, task.task_type_symbol_id));
   const std::string label = symbol_text(ir, choose_task_symbol(task));
@@ -249,10 +248,8 @@ SignalClassificationDecision classify_structural_task(
   const bool has_concrete_operator = has_concrete_operator_identity(task);
   const std::string provider_scope = provider_scope_from_source_kind(
       ir.source_refs.row(task.source_ref_id).source_kind);
-  return rules.decide(
-      SignalClassificationInput{"task", task_type, blob,
-                                label, has_concrete_operator,
-                                provider_scope});
+  return SignalClassificationInput{"task", task_type, blob, label,
+                                   has_concrete_operator, provider_scope};
 }
 
 void validate_task_trace_event_refs(const TaskTable& tasks,
@@ -425,6 +422,16 @@ bool candidate_less(const AnchorCandidate& lhs,
 
 }  // namespace
 
+SignalClassificationInput signal_classification_input_for_task(
+    const NativeIr& ir,
+    const TaskRow& task) {
+  if (!task.source_ref_id.valid() ||
+      task.source_ref_id.value() >= ir.source_refs.size()) {
+    throw std::invalid_argument("TaskRow source_ref_id is out of range");
+  }
+  return make_signal_classification_input(ir, task);
+}
+
 FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
                                         FlatAnchorBuildConfig config) {
   if (!ir.anchors.empty() || !ir.tokens.empty()) {
@@ -449,6 +456,10 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
   FlatAnchorBuildStats stats;
   if (config.classification_rules.rules().empty()) {
     config.classification_rules = load_default_signal_classification_ruleset();
+  }
+  if (!config.classification_overrides.empty()) {
+    config.classification_rules = override_signal_classification_ruleset(
+        config.classification_rules, config.classification_overrides);
   }
   stats.classification_policy_id =
       config.classification_rules.metadata().policy_id;
@@ -481,7 +492,8 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
     }
     if (config.filter_auxiliary_task_anchors) {
       const SignalClassificationDecision decision =
-          classify_structural_task(ir, task, config.classification_rules);
+          config.classification_rules.decide(
+              signal_classification_input_for_task(ir, task));
       switch (decision.role) {
         case SignalRole::kAuxiliary:
           ++stats.auxiliary_task_events;

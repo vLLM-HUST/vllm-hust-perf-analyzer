@@ -6,6 +6,8 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <map>
+#include <set>
 #include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
@@ -122,18 +124,6 @@ std::vector<std::string> comma_list_values(const std::string& list) {
   return values;
 }
 
-const char* match_field_name(SignalMatchField field) {
-  switch (field) {
-    case SignalMatchField::kTaskType:
-      return "task_type";
-    case SignalMatchField::kBlob:
-      return "blob";
-    case SignalMatchField::kOperator:
-      return "operator";
-  }
-  return "unknown";
-}
-
 void validate_metadata(const SignalClassificationPolicyMetadata& metadata) {
   if (metadata.manifest_schema != kManifestSchema) {
     throw std::invalid_argument(
@@ -194,7 +184,7 @@ void validate_rules(const std::vector<SignalClassificationRule>& rules) {
                                   std::to_string(rule.source_line));
     }
     if (!comma_list_contains(rule.required_fields,
-                             match_field_name(rule.field))) {
+                             signal_match_field_name(rule.field))) {
       throw std::invalid_argument(
           "signal rule required_fields omits match field at line " +
           std::to_string(rule.source_line));
@@ -374,6 +364,53 @@ bool has_required_evidence(const SignalClassificationRule& rule,
   return true;
 }
 
+std::string join_values(const std::set<std::string>& values) {
+  std::string out;
+  for (const std::string& value : values) {
+    if (!out.empty()) {
+      out += ',';
+    }
+    out += value;
+  }
+  return out;
+}
+
+std::string available_fields(const SignalClassificationInput& input) {
+  std::set<std::string> fields;
+  if (!input.source_domain.empty()) {
+    fields.insert("source_domain");
+  }
+  if (!input.provider_scope.empty()) {
+    fields.insert("provider_scope");
+  }
+  if (!input.task_type.empty()) {
+    fields.insert("task_type");
+  }
+  if (!input.blob.empty()) {
+    fields.insert("blob");
+  }
+  if (!input.operator_name.empty()) {
+    fields.insert("operator");
+  }
+  return join_values(fields);
+}
+
+std::set<std::string> missing_required_evidence(
+    const SignalClassificationRule& rule,
+    const SignalClassificationInput& input) {
+  std::set<std::string> missing;
+  for (const std::string& field : comma_list_values(rule.required_fields)) {
+    if ((field == "source_domain" && input.source_domain.empty()) ||
+        (field == "provider_scope" && input.provider_scope.empty()) ||
+        (field == "task_type" && input.task_type.empty()) ||
+        (field == "blob" && input.blob.empty()) ||
+        (field == "operator" && input.operator_name.empty())) {
+      missing.insert(field);
+    }
+  }
+  return missing;
+}
+
 std::unordered_map<std::string, std::string> parse_manifest_metadata(
     const std::vector<std::string>& lines) {
   const std::unordered_set<std::string> allowed{
@@ -436,6 +473,7 @@ SignalClassificationPolicyMetadata parse_policy_metadata(
   metadata.missing_evidence_behavior = parse_missing_evidence_behavior(
       require_metadata(values, "missing_evidence_behavior"), 0);
   metadata.manifest_sha256 = manifest_sha256;
+  metadata.effective_config_sha256 = manifest_sha256;
   validate_metadata(metadata);
   return metadata;
 }
@@ -448,6 +486,7 @@ SignalClassificationPolicyMetadata legacy_metadata(
   metadata.policy_version = "1+sha256:" + manifest_sha256.substr(0, 16);
   metadata.provider_scopes = "any";
   metadata.manifest_sha256 = manifest_sha256;
+  metadata.effective_config_sha256 = manifest_sha256;
   return metadata;
 }
 
@@ -474,7 +513,7 @@ SignalClassificationRule parse_legacy_rule(
   rule.match = parse_match(fields[3], line);
   rule.pattern = fields[4];
   rule.role = parse_role(fields[5], line, true);
-  rule.required_fields = match_field_name(rule.field);
+  rule.required_fields = signal_match_field_name(rule.field);
   rule.structural_participation =
       rule.role == SignalRole::kAnchor
           ? SignalStructuralParticipation::kIdentity
@@ -523,6 +562,49 @@ std::string composite_manifest_digest(
                     extension.metadata().manifest_sha256);
 }
 
+void apply_override(SignalClassificationRule& rule,
+                    const SignalClassificationOverride& override) {
+  if (override.field == "priority") {
+    rule.priority = parse_priority(override.value, 0);
+  } else if (override.field == "provider_scope") {
+    rule.provider_scope = override.value;
+  } else if (override.field == "source_domain") {
+    rule.source_domain = override.value;
+  } else if (override.field == "field") {
+    rule.field = parse_field(override.value, 0);
+  } else if (override.field == "match") {
+    rule.match = parse_match(override.value, 0);
+  } else if (override.field == "pattern") {
+    rule.pattern = override.value;
+  } else if (override.field == "role") {
+    rule.role = parse_role(override.value, 0);
+  } else if (override.field == "required_fields") {
+    rule.required_fields = override.value;
+  } else if (override.field == "structural_participation") {
+    rule.structural_participation =
+        parse_structural_participation(override.value, 0);
+  } else if (override.field == "cost_treatment") {
+    rule.cost_treatment = parse_cost_treatment(override.value, 0);
+  } else if (override.field == "context_treatment") {
+    rule.context_treatment = parse_context_treatment(override.value, 0);
+  } else if (override.field == "provenance_treatment") {
+    rule.provenance_treatment =
+        parse_provenance_treatment(override.value, 0);
+  } else if (override.field == "missing_evidence_behavior") {
+    rule.missing_evidence_behavior =
+        parse_missing_evidence_behavior(override.value, 0);
+  } else if (override.field == "concrete_identity_behavior") {
+    rule.concrete_identity_behavior =
+        parse_concrete_identity_behavior(override.value, 0);
+  } else if (override.field == "note") {
+    rule.note = override.value;
+  } else {
+    throw std::invalid_argument("unsupported signal classification override "
+                                "field: " +
+                                override.field);
+  }
+}
+
 }  // namespace
 
 const char* signal_role_name(SignalRole role) noexcept {
@@ -537,6 +619,28 @@ const char* signal_role_name(SignalRole role) noexcept {
       return "unknown_anchor";
   }
   return "unknown_anchor";
+}
+
+const char* signal_match_field_name(SignalMatchField field) noexcept {
+  switch (field) {
+    case SignalMatchField::kTaskType:
+      return "task_type";
+    case SignalMatchField::kBlob:
+      return "blob";
+    case SignalMatchField::kOperator:
+      return "operator";
+  }
+  return "unknown";
+}
+
+const char* signal_match_kind_name(SignalMatchKind match) noexcept {
+  switch (match) {
+    case SignalMatchKind::kExact:
+      return "exact";
+    case SignalMatchKind::kContains:
+      return "contains";
+  }
+  return "unknown";
 }
 
 const char* signal_structural_participation_name(
@@ -633,37 +737,55 @@ SignalClassificationDecision SignalClassificationRuleset::decide(
     throw std::invalid_argument("unsupported classification provider scope: " +
                                 input.provider_scope);
   }
+  std::set<std::string> missing_fields;
+  std::set<std::string> missing_rule_ids;
   for (const SignalClassificationRule& rule : rules_) {
     const bool provider_matches =
         input.provider_scope == "any" || rule.provider_scope == "any" ||
         rule.provider_scope == input.provider_scope;
-    if (provider_matches && rule.source_domain == input.source_domain &&
-        has_required_evidence(rule, input) && matches(rule, input)) {
-      if (input.has_concrete_identity &&
-          rule.concrete_identity_behavior ==
-              SignalConcreteIdentityBehavior::kDeferToIdentityRules) {
-        continue;
-      }
-      SignalClassificationDecision decision;
-      decision.role = rule.role;
-      decision.structural_participation = rule.structural_participation;
-      decision.cost_treatment = rule.cost_treatment;
-      decision.context_treatment = rule.context_treatment;
-      decision.provenance_treatment = rule.provenance_treatment;
-      decision.missing_evidence_behavior = rule.missing_evidence_behavior;
-      decision.concrete_identity_behavior = rule.concrete_identity_behavior;
-      decision.matched_rule = true;
-      decision.policy_id = metadata_.policy_id;
-      decision.policy_version = metadata_.policy_version;
-      decision.manifest_sha256 = metadata_.manifest_sha256;
-      decision.rule_id = rule.rule_id;
-      decision.provider_scope = rule.provider_scope;
-      decision.required_fields = rule.required_fields;
-      decision.reason_code = "matched_positive_rule";
-      decision.priority = rule.priority;
-      decision.declaration_order = rule.declaration_order;
-      return decision;
+    if (!provider_matches || rule.source_domain != input.source_domain ||
+        !matches(rule, input)) {
+      continue;
     }
+    if (!has_required_evidence(rule, input)) {
+      const std::set<std::string> rule_missing =
+          missing_required_evidence(rule, input);
+      missing_fields.insert(rule_missing.begin(), rule_missing.end());
+      missing_rule_ids.insert(rule.rule_id);
+      continue;
+    }
+    if (input.has_concrete_identity &&
+        rule.concrete_identity_behavior ==
+            SignalConcreteIdentityBehavior::kDeferToIdentityRules) {
+      continue;
+    }
+    SignalClassificationDecision decision;
+    decision.role = rule.role;
+    decision.structural_participation = rule.structural_participation;
+    decision.cost_treatment = rule.cost_treatment;
+    decision.context_treatment = rule.context_treatment;
+    decision.provenance_treatment = rule.provenance_treatment;
+    decision.missing_evidence_behavior = rule.missing_evidence_behavior;
+    decision.concrete_identity_behavior = rule.concrete_identity_behavior;
+    decision.matched_rule = true;
+    decision.policy_id = metadata_.policy_id;
+    decision.policy_version = metadata_.policy_version;
+    decision.manifest_sha256 = metadata_.manifest_sha256;
+    decision.rule_id = rule.rule_id;
+    decision.provider_scope = rule.provider_scope;
+    decision.required_fields = rule.required_fields;
+    decision.available_fields = available_fields(input);
+    decision.missing_required_fields = join_values(missing_fields);
+    decision.missing_capability_rule_ids = join_values(missing_rule_ids);
+    decision.support_state = missing_fields.empty()
+                                 ? "supported"
+                                 : "supported_after_missing_capability";
+    decision.reason_code = missing_fields.empty()
+                               ? "matched_positive_rule"
+                               : "matched_rule_after_missing_capability";
+    decision.priority = rule.priority;
+    decision.declaration_order = rule.declaration_order;
+    return decision;
   }
 
   SignalClassificationDecision decision;
@@ -680,7 +802,14 @@ SignalClassificationDecision SignalClassificationRuleset::decide(
   decision.manifest_sha256 = metadata_.manifest_sha256;
   decision.rule_id = "fallback.unknown_observation";
   decision.provider_scope = input.provider_scope;
-  decision.reason_code = "unmatched_observation_unknown_first";
+  decision.available_fields = available_fields(input);
+  decision.missing_required_fields = join_values(missing_fields);
+  decision.missing_capability_rule_ids = join_values(missing_rule_ids);
+  decision.support_state = missing_fields.empty() ? "supported_unknown_first"
+                                                   : "missing_capability";
+  decision.reason_code = missing_fields.empty()
+                             ? "unmatched_observation_unknown_first"
+                             : "missing_capability_unknown_first";
   return decision;
 }
 
@@ -759,6 +888,8 @@ SignalClassificationRuleset load_signal_classification_ruleset(
       header == legacy_header
           ? legacy_metadata(manifest_sha256)
           : parse_policy_metadata(lines, manifest_sha256);
+  metadata.manifest_source_path =
+      std::filesystem::absolute(path).lexically_normal().string();
   return SignalClassificationRuleset(std::move(metadata), std::move(rules));
 }
 
@@ -814,7 +945,75 @@ SignalClassificationRuleset extend_signal_classification_ruleset(
   metadata.provider_scopes = base.metadata().provider_scopes + "," +
                              extension.metadata().provider_scopes;
   metadata.manifest_sha256 = composite_manifest_digest(base, extension);
+  metadata.effective_config_sha256 = metadata.manifest_sha256;
+  metadata.manifest_format = "flat_tsv";
+  metadata.manifest_source_path = base.metadata().manifest_source_path + ";" +
+                                  extension.metadata().manifest_source_path;
   return SignalClassificationRuleset(std::move(metadata), std::move(merged));
+}
+
+SignalClassificationOverride parse_signal_classification_override(
+    const std::string& specification) {
+  const std::size_t equal = specification.find('=');
+  const std::size_t dot = specification.rfind('.', equal);
+  if (equal == std::string::npos || dot == std::string::npos || dot == 0 ||
+      dot + 1 == equal || equal + 1 >= specification.size()) {
+    throw std::invalid_argument(
+        "classification override must be RULE_ID.FIELD=VALUE: " +
+        specification);
+  }
+  return SignalClassificationOverride{specification.substr(0, dot),
+                                      specification.substr(dot + 1,
+                                                           equal - dot - 1),
+                                      specification.substr(equal + 1)};
+}
+
+SignalClassificationRuleset override_signal_classification_ruleset(
+    const SignalClassificationRuleset& base,
+    const std::vector<SignalClassificationOverride>& overrides) {
+  if (overrides.empty()) {
+    return base;
+  }
+  std::vector<SignalClassificationRule> rules = base.rules();
+  std::unordered_map<std::string, std::size_t> rule_indexes;
+  for (std::size_t index = 0; index < rules.size(); ++index) {
+    rule_indexes.emplace(rules[index].rule_id, index);
+  }
+
+  std::map<std::pair<std::string, std::string>, std::string> canonical;
+  for (const SignalClassificationOverride& override : overrides) {
+    const auto rule = rule_indexes.find(override.rule_id);
+    if (rule == rule_indexes.end()) {
+      throw std::invalid_argument(
+          "classification override references unknown rule_id: " +
+          override.rule_id);
+    }
+    const auto inserted = canonical.emplace(
+        std::make_pair(override.rule_id, override.field), override.value);
+    if (!inserted.second) {
+      throw std::invalid_argument(
+          "duplicate classification override: " + override.rule_id + "." +
+          override.field);
+    }
+    apply_override(rules[rule->second], override);
+  }
+
+  std::string canonical_text;
+  for (const auto& item : canonical) {
+    if (!canonical_text.empty()) {
+      canonical_text += ';';
+    }
+    canonical_text += item.first.first + "." + item.first.second + "=" +
+                      item.second;
+  }
+  const std::string config_digest =
+      sha256_hex(base.metadata().manifest_sha256 + "\n" + canonical_text);
+  SignalClassificationPolicyMetadata metadata = base.metadata();
+  metadata.policy_id += "+config-override:" + config_digest.substr(0, 16);
+  metadata.policy_version += "+config:" + config_digest.substr(0, 16);
+  metadata.effective_config_sha256 = config_digest;
+  metadata.config_overrides = canonical_text;
+  return SignalClassificationRuleset(std::move(metadata), std::move(rules));
 }
 
 }  // namespace traceloom

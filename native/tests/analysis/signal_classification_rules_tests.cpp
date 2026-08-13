@@ -179,6 +179,64 @@ int main() {
   const SignalClassificationDecision capability_missing = merged.decide(
       {"task", "UNKNOWN", "capability_kernel", "", true});
   require(capability_missing.rule_id == "test.anchor.capability");
+  require(capability_missing.support_state ==
+          "supported_after_missing_capability");
+  require(capability_missing.reason_code ==
+          "matched_rule_after_missing_capability");
+  require(capability_missing.missing_required_fields == "operator");
+  require(capability_missing.missing_capability_rule_ids ==
+          "test.aux.capability");
+
+  const std::vector<SignalClassificationOverride> overrides{
+      parse_signal_classification_override("test.anchor.custom.role=auxiliary"),
+      parse_signal_classification_override(
+          "test.anchor.custom.structural_participation=excluded"),
+      parse_signal_classification_override("test.anchor.custom.priority=450")};
+  const SignalClassificationRuleset overridden =
+      override_signal_classification_ruleset(merged, overrides);
+  const SignalClassificationDecision overridden_custom = overridden.decide(
+      {"task", "UNKNOWN", "custom_kernel", "custom_kernel", true});
+  require(overridden_custom.role == SignalRole::kAuxiliary);
+  require(overridden_custom.priority == 450);
+  require(overridden.metadata().manifest_sha256 ==
+          merged.metadata().manifest_sha256);
+  require(overridden.metadata().effective_config_sha256.size() == 64);
+  require(overridden.metadata().policy_id.find("+config-override:") !=
+          std::string::npos);
+  require(overridden.metadata().config_overrides.find(
+              "test.anchor.custom.role=auxiliary") != std::string::npos);
+
+  bool override_rejected = false;
+  try {
+    (void)override_signal_classification_ruleset(
+        merged,
+        {parse_signal_classification_override("missing.rule.priority=1")});
+  } catch (const std::invalid_argument&) {
+    override_rejected = true;
+  }
+  require(override_rejected);
+  override_rejected = false;
+  try {
+    (void)override_signal_classification_ruleset(
+        merged,
+        {parse_signal_classification_override(
+            "test.anchor.custom.role=auxiliary")});
+  } catch (const std::invalid_argument&) {
+    override_rejected = true;
+  }
+  require(override_rejected);
+  override_rejected = false;
+  try {
+    (void)override_signal_classification_ruleset(
+        merged,
+        {parse_signal_classification_override(
+             "test.anchor.custom.priority=1"),
+         parse_signal_classification_override(
+             "test.anchor.custom.priority=2")});
+  } catch (const std::invalid_argument&) {
+    override_rejected = true;
+  }
+  require(override_rejected);
   std::filesystem::remove(extension_path);
 
   // Legacy seven-column extension files remain accepted, but receive a

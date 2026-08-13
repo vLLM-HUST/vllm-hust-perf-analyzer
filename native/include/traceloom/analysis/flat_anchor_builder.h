@@ -16,6 +16,7 @@ struct FlatAnchorBuildConfig {
   bool skip_events_covered_by_replay_units = false;
   bool filter_auxiliary_task_anchors = false;
   SignalClassificationRuleset classification_rules;
+  std::vector<SignalClassificationOverride> classification_overrides;
 };
 
 struct FlatAnchorBuildStats {
@@ -33,6 +34,13 @@ struct FlatAnchorBuildStats {
   std::size_t preserved_unclassified_task_events = 0;
   std::size_t tokens = 0;
 };
+
+// Builds the exact normalized policy input used by structural projection.
+// Database materializers reuse this function so audit rows cannot drift from
+// the executable classifier through a second provider-specific reconstruction.
+SignalClassificationInput signal_classification_input_for_task(
+    const NativeIr& ir,
+    const TaskRow& task);
 
 FlatAnchorBuildStats build_flat_anchors(
     NativeIr& ir,

@@ -110,6 +110,7 @@ add_library(traceloom_native_materialize
   src/compat/native_sidecar_materializer.cpp
   src/compat/report_tree_rows.cpp
   src/compat/replay_cost_sql_rows.cpp
+  src/compat/evidence_role_sql_rows.cpp
   src/compat/runtime_device_rows.cpp
   src/compat/schema.cpp
   src/compat/sidecar_collective_bindings.cpp
@@ -1079,6 +1080,8 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
       COMMAND traceloom
         ${CMAKE_CURRENT_BINARY_DIR}/default_cli_input/profile.sqlite
         --threads 2
+        --classification-rule-override
+        cuda.anchor.task.type.cuda.kernel.51cc7472.priority=96
     )
     set_tests_properties(
       traceloom_native_analyze_cuda_nsys_default_augmented_db_cli

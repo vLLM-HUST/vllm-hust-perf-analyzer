@@ -380,6 +380,10 @@ NativeIr build_exact_cuda_graph_replay_ir() {
   // real traceloom_viz_node_anchor occurrence for the node-view join.
   ir.tokens.append(graph_anchor, ir.symbols.intern("CUDAGraph"), 0, 0, 1000,
                    2000);
+  ir.replay_units.set_anchor_bounds(unit, graph_anchor, graph_anchor);
+  ir.protected_intervals.append(
+      ProtectedIntervalKind::kGraphReplayUnit, BoundaryPolicy::kNoCross,
+      TokenId(0), TokenId(0), graph_anchor, graph_anchor, source);
   return ir;
 }
 
@@ -1043,6 +1047,11 @@ int main() {
   const std::string source_hash_before = sha256_file_hex(raw_source_path);
   compat::NativeCompatibilitySidecarOptions augmented_options;
   augmented_options.source_kind = "cuda_nsys_sqlite";
+  augmented_options.evidence_role_config.classification_rules =
+      load_default_signal_classification_ruleset();
+  augmented_options.evidence_role_config.skip_events_covered_by_replay_units =
+      true;
+  augmented_options.evidence_role_config.filter_auxiliary_task_anchors = true;
   compat::write_queryable_database_timeline(
       augmented_path, raw_source_path, build_exact_cuda_graph_replay_ir(),
       augmented_options);
@@ -1062,6 +1071,62 @@ int main() {
   require(run_scalar_int(augmented_path,
                          "SELECT COUNT(*) FROM "
                          "traceloom_v_node_replay_cost_member") == 3);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_evidence_role_policy WHERE "
+              "input_format = 'flat_tsv' AND length(manifest_sha256) = 64") ==
+          1);
+  require(run_scalar_int(augmented_path,
+                         "SELECT COUNT(*) FROM "
+                         "traceloom_evidence_role_rule") > 60);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_evidence_role_decision") ==
+          run_scalar_int(augmented_path,
+                         "SELECT COUNT(*) FROM traceloom_event"));
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_evidence_role_decision d "
+              "LEFT JOIN traceloom_event e ON e.event_id = d.event_id AND "
+              "e.db_idx = d.db_idx WHERE e.event_id IS NULL") == 0);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_evidence_role_decision d "
+              "LEFT JOIN traceloom_evidence_role_rule r ON "
+              "r.policy_id = d.policy_id AND r.rule_id = d.rule_id "
+              "WHERE r.rule_id IS NULL") == 0);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_evidence_role_decision "
+              "WHERE final_role = 'protected_boundary'") == 4);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_protected_interval WHERE "
+              "kind = 'graph_replay_unit' AND boundary_policy = 'no_cross' "
+              "AND support_state = 'supported'") == 1);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_evidence_role_placement p "
+              "LEFT JOIN traceloom_protected_interval i ON "
+              "i.protected_interval_id = p.placement_id "
+              "WHERE p.placement_kind = 'protected_interval' AND "
+              "i.protected_interval_id IS NULL") == 0);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_evidence_role_placement "
+              "WHERE placement_kind = 'protected_interval'") == 4);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_evidence_role_placement "
+              "WHERE placement_kind = 'graph_body_member'") == 3);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_v_evidence_role_placement "
+              "WHERE placement_id = 'graph-body-member-0'") == 1);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT SUM(event_count) FROM "
+              "traceloom_v_evidence_role_cost_coverage") == 4);
   require(run_scalar_int(augmented_path,
                          "SELECT COUNT(*) FROM "
                          "traceloom_analysis_surface") >= 8);
@@ -1101,6 +1166,11 @@ int main() {
               "SELECT COUNT(*) FROM traceloom_analysis_surface "
               "WHERE surface_name = 'synchronization_action' AND "
               "relation_name = 'traceloom_v_sync_runtime_call'") == 1);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_analysis_surface "
+              "WHERE surface_name = 'evidence_role_decision' AND "
+              "relation_name = 'traceloom_v_evidence_role_decision'") == 1);
   require_analysis_surface_queries_prepare(augmented_path);
   require(run_scalar_text(augmented_path,
                           "SELECT embedded_table_name FROM "

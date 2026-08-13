@@ -67,6 +67,15 @@ identity appears in native JSON under `anchor_projection`; see
 [`evidence-role-projection.md`](evidence-role-projection.md) for the role and
 fallback contract.
 
+The complete audit relation is additive and does not overload the coarse
+`traceloom_event.role` field. `traceloom_evidence_role_decision` contains one
+typed outcome per normalized event; policy/rule catalogs explain stable IDs;
+`traceloom_evidence_role_placement` links outcomes to anchors, auxiliary
+regions, graph body members, replay units, and protected intervals; and
+`traceloom_evidence_role_issue` retains conflict, unsupported, missing-
+capability, and orphan outcomes. `traceloom_v_evidence_role_cost_coverage`
+makes retained cost outside identity matching explicit.
+
 Native JSON also emits `replay_internal_cost_map`, the replay-internal
 query surface: ReplayUnit -> ordered launch/composition slots -> body
 template -> per-stream ordered members -> fine-grained costs and provenance.
