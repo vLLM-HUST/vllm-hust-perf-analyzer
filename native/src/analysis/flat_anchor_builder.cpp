@@ -216,7 +216,24 @@ bool has_concrete_operator_identity(const TaskRow& task) {
          task.comm_name_symbol_id.valid();
 }
 
-std::optional<SignalRole> classify_structural_task(
+std::string provider_scope_from_source_kind(const std::string& source_kind) {
+  const std::string lower = lower_ascii(source_kind);
+  if (lower.find("cuda") != std::string::npos ||
+      lower.find("nsys") != std::string::npos) {
+    return "cuda";
+  }
+  if (lower.find("ascend") != std::string::npos ||
+      lower.find("cann") != std::string::npos) {
+    return "ascend";
+  }
+  if (lower.find("hygon") != std::string::npos ||
+      lower.find("hip") != std::string::npos) {
+    return "hygon";
+  }
+  return "any";
+}
+
+SignalClassificationDecision classify_structural_task(
     const NativeIr& ir,
     const TaskRow& task,
     const SignalClassificationRuleset& rules) {
@@ -229,18 +246,13 @@ std::optional<SignalRole> classify_structural_task(
       symbol_text(ir, task.compute_task_type_symbol_id) + " " +
       symbol_text(ir, task.task_type_symbol_id));
 
-  // AI_CORE is a generic execution container in older CANN schemas, but a
-  // row carrying a concrete op identity is not merely that container. Let
-  // explicit blob rules classify it, and preserve it when no rule knows the
-  // operator. This prevents the broad AI_CORE noise rule from erasing new
-  // kernels before the ruleset has learned their names.
   const bool has_concrete_operator = has_concrete_operator_identity(task);
-  const std::string classifiable_task_type =
-      has_concrete_operator && task_type == "AI_CORE" ? std::string()
-                                                       : task_type;
-  return rules.classify(
-      SignalClassificationInput{"task", classifiable_task_type, blob,
-                                label});
+  const std::string provider_scope = provider_scope_from_source_kind(
+      ir.source_refs.row(task.source_ref_id).source_kind);
+  return rules.decide(
+      SignalClassificationInput{"task", task_type, blob,
+                                label, has_concrete_operator,
+                                provider_scope});
 }
 
 void validate_task_trace_event_refs(const TaskTable& tasks,
@@ -438,6 +450,12 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
   if (config.classification_rules.rules().empty()) {
     config.classification_rules = load_default_signal_classification_ruleset();
   }
+  stats.classification_policy_id =
+      config.classification_rules.metadata().policy_id;
+  stats.classification_policy_version =
+      config.classification_rules.metadata().policy_version;
+  stats.classification_manifest_sha256 =
+      config.classification_rules.metadata().manifest_sha256;
   if (config.filter_auxiliary_task_anchors) {
     stats.projection_kind = "anchor_compute_collective_only";
   }
@@ -462,24 +480,26 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
       continue;
     }
     if (config.filter_auxiliary_task_anchors) {
-      const std::optional<SignalRole> role =
+      const SignalClassificationDecision decision =
           classify_structural_task(ir, task, config.classification_rules);
-      if (role.has_value() && *role == SignalRole::kIgnore) {
-        ++stats.skipped_task_events;
-        continue;
-      }
-      if (!role.has_value()) {
-        if (has_concrete_operator_identity(task)) {
-          // Noise filtering is deliberately positive-selection for operator
-          // rows: only an explicit ignore rule may remove one. Unknown work
-          // stays in the sequence so a new operator cannot disappear as
-          // "noise". Rows without any operator identity remain auxiliary
-          // task records rather than sequence features.
-          ++stats.preserved_unclassified_task_events;
-        } else {
+      switch (decision.role) {
+        case SignalRole::kAuxiliary:
+          ++stats.auxiliary_task_events;
           ++stats.skipped_task_events;
           continue;
-        }
+        case SignalRole::kTransparent:
+          ++stats.transparent_task_events;
+          ++stats.skipped_task_events;
+          continue;
+        case SignalRole::kUnknownAnchor:
+          // Noise filtering is deliberately positive-selection: an
+          // unfamiliar row remains in the sequence so new behavior cannot
+          // disappear as "noise".
+          ++stats.unknown_anchor_task_events;
+          ++stats.preserved_unclassified_task_events;
+          break;
+        case SignalRole::kAnchor:
+          break;
       }
     }
     if (comm_event_ids.find(task.trace_event_id.value()) !=

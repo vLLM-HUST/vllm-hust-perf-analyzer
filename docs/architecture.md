@@ -30,7 +30,10 @@ explicit and validateable.
 
 The analysis layer chooses major compute, communication, and graph activity as
 semantic anchors. Auxiliary control and preparation events remain available
-for attribution without adding noise to the pattern sequence.
+for attribution without adding noise to the pattern sequence. This behavior is
+governed by the versioned, unknown-first
+[evidence-role projection contract](evidence-role-projection.md); structural
+compression does not delete normalized observations or source provenance.
 
 ## Pattern Grammar
 

@@ -560,7 +560,6 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
     pipeline_options.partition_config = traceloom::PartitionPlanConfig{4096, 3};
     pipeline_options.candidate_scan_config =
         traceloom::CandidateScanConfig{2, 3};
-    pipeline_options.anchor_config.skipped_task_type_symbols = {"CAPTURE_WAIT"};
     pipeline_options.anchor_config.skip_tasks_covered_by_communication_ops =
         true;
     pipeline_options.anchor_config.skip_events_covered_by_replay_units = true;
@@ -617,6 +616,14 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
     sidecar_options.materialize_grammar_report_tree = cli.loop_tree_grammar;
     sidecar_options.materialize_aux_attribution = cli.loop_tree_aux;
     sidecar_options.timing_diagnostics = cli.timings;
+    sidecar_options.evidence_role_policy_id =
+        pipeline_options.anchor_config.classification_rules.metadata().policy_id;
+    sidecar_options.evidence_role_policy_version =
+        pipeline_options.anchor_config.classification_rules.metadata()
+            .policy_version;
+    sidecar_options.evidence_role_manifest_sha256 =
+        pipeline_options.anchor_config.classification_rules.metadata()
+            .manifest_sha256;
 
     if (!cli.compat_sidecar_out_path.empty()) {
       const Stopwatch sidecar_watch;

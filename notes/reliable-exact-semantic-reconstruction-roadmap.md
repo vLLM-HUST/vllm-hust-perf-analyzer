@@ -315,10 +315,12 @@ metadata cannot establish a complete lane set.
 
 ## 2026-08-05 Unknown-First Graph Cost Evidence
 
-Operator filtering now follows a fail-open invariant: a task with concrete
-operator identity remains a sequence anchor unless a positive ignore rule
-classifies it as noise. Generic container rows without operator identity still
-remain auxiliary. The native JSON and default report publish an exact-identity
+Operator filtering now follows an unknown-first invariant: an observation
+remains a sequence anchor unless a positive auxiliary or transparent rule
+admits it out of identity matching. Known generic carrier rows may therefore
+remain auxiliary or transparent, while any unmatched row stays explicit even
+when its schema has no operator field. The native JSON and default report
+publish an exact-identity
 registration census with counts, durations, fuzzy-family lineage, and
 graph-body membership, so a new graph kernel cannot be hidden by replay
 protection or by a broad substring match. `DispatchFFNCombineBF16` has a

@@ -60,6 +60,10 @@ Key capabilities:
 CUDA auxiliary activity stays explicitly typed and traceable without being
 misreported as compute. CUDA graph traces are represented as replay intervals
 and share the native Loop Tree report surface with eager CUDA and Ascend input.
+TraceLoom's versioned, unknown-first
+[evidence-role projection contract](docs/evidence-role-projection.md) defines
+which observations participate in structural identity without deleting cost,
+context, or profiler-row provenance.
 
 ## Install On Debian Or Ubuntu
 

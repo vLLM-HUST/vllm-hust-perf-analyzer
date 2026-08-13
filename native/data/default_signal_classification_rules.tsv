@@ -1,62 +1,72 @@
-priority	source_domain	field	match	pattern	role	note
-100	task	task_type	exact	MODEL_MAINTAINCE	ignore	Ascend maintenance control task
-100	task	task_type	exact	MODEL_MAINTENANCE	ignore	Corrected maintenance spelling
-100	task	task_type	exact	HIP_KERNEL_AUX	ignore	Hygon auxiliary kernel
-100	task	task_type	exact	CUDA_KERNEL_AUX	ignore	CUDA auxiliary kernel
-100	task	task_type	exact	CUDA_RUNTIME_AUX	ignore	CUDA runtime bookkeeping row
-100	task	task_type	exact	CUDA_MEMCPY_AUX	ignore	CUDA memcpy bookkeeping row
-100	task	task_type	exact	CUDA_SYNC_AUX	ignore	CUDA synchronization observation
-100	task	task_type	exact	CUDA_EVENT_AUX	ignore	CUDA event identity observation
-95	task	task_type	exact	CUDA_KERNEL	anchor	Preserve unknown CUDA kernels as execution anchors
-95	task	task_type	exact	CUDA_COLLECTIVE_KERNEL	anchor	Preserve CUDA collective kernels as anchors
-90	task	blob	contains	hccl_aiv_sync	ignore	HCCL synchronization helper
-90	task	blob	contains	hccl_aic_sync	ignore	HCCL synchronization helper
-90	task	blob	contains	aiv_sync	ignore	Device synchronization helper
-90	task	blob	contains	aic_sync	ignore	Device synchronization helper
-85	task	operator	exact	DispatchFFNCombineBF16	anchor	Fused MoE dispatch, FFN, and combine kernel
-80	task	blob	contains	nccl	anchor	NCCL collective
-80	task	blob	contains	allreduce	anchor	AllReduce collective
-80	task	blob	contains	all_reduce	anchor	AllReduce collective
-80	task	blob	contains	allgather	anchor	AllGather collective
-80	task	blob	contains	all_gather	anchor	AllGather collective
-80	task	blob	contains	reducescatter	anchor	ReduceScatter collective
-80	task	blob	contains	reduce_scatter	anchor	ReduceScatter collective
-80	task	blob	contains	broadcast	anchor	Broadcast collective
-80	task	blob	contains	alltoall	anchor	AllToAll collective
-80	task	blob	contains	all_to_all	anchor	AllToAll collective
-80	task	blob	contains	all-to-all	anchor	AllToAll collective
-80	task	blob	contains	all2all	anchor	AllToAll collective
-70	task	task_type	exact	AI_CORE	ignore	Generic device execution container
-70	task	task_type	exact	MODEL_EXECUTE	ignore	Runtime control task
-70	task	task_type	exact	CAPTURE_RECORD	ignore	Graph capture control task
-70	task	task_type	exact	CAPTURE_WAIT	ignore	Graph capture control task
-70	task	task_type	exact	EVENT_RECORD	ignore	Event control task
-70	task	task_type	exact	EVENT_WAIT	ignore	Event control task
-70	task	task_type	exact	MEM_WRITE_VALUE	ignore	Memory control task
-70	task	task_type	exact	MEMCPY	ignore	Data movement helper
-70	task	task_type	exact	MEMCPY_ASYNC	ignore	Data movement helper
-70	task	task_type	exact	NOTIFY	ignore	Notification control task
-70	task	task_type	exact	NOTIFY_RECORD	ignore	Notification control task
-70	task	task_type	exact	NOTIFY_WAIT	ignore	Notification control task
-70	task	task_type	exact	SDMA	ignore	DMA helper
-70	task	task_type	exact	TASK_TIMEOUT_SET	ignore	Runtime control task
-70	task	task_type	exact	WRITE_VALUE	ignore	Runtime control task
-60	task	blob	contains	matmul	anchor	Matrix multiplication
-60	task	blob	contains	batchmatmul	anchor	Batched matrix multiplication
-60	task	blob	contains	gemm	anchor	General matrix multiplication
-60	task	blob	contains	conv	anchor	Convolution
-60	task	blob	contains	flashattention	anchor	Flash attention
-60	task	blob	contains	fusedinferattention	anchor	Fused inference attention
-60	task	blob	contains	pagedattention	anchor	Paged attention
-60	task	blob	contains	attention	anchor	Attention
-60	task	blob	contains	rmsnorm	anchor	RMS normalization
-60	task	blob	contains	rms_norm	anchor	RMS normalization
-60	task	blob	contains	layernorm	anchor	Layer normalization
-60	task	blob	contains	layer_norm	anchor	Layer normalization
-60	task	blob	contains	swiglu	anchor	SwiGLU
-60	task	blob	contains	siluandmul	anchor	SiLU multiply
-60	task	blob	contains	moe	anchor	Mixture of experts
-60	task	blob	contains	ffn	anchor	Feed-forward network
-60	task	blob	contains	rotary	anchor	Rotary embedding
-60	task	blob	contains	rope	anchor	Rotary embedding
-60	task	blob	contains	mamba	anchor	Mamba operator
+# manifest_schema=traceloom.evidence-role-policy/v1
+# policy_id=traceloom.default.accelerator-task-projection
+# policy_version=1
+# provider_scopes=ascend,cuda,hygon
+# fallback_identity_role=unknown_anchor
+# fallback_cost_treatment=retained_for_attribution
+# fallback_context_treatment=retained
+# fallback_provenance_treatment=retained
+# missing_evidence_behavior=continue_or_fallback
+rule_id	priority	provider_scope	source_domain	field	match	pattern	role	required_fields	structural_participation	cost_treatment	context_treatment	provenance_treatment	missing_evidence_behavior	concrete_identity_behavior	note
+ascend.aux.task.type.model.maintaince.9af5400a	100	ascend	task	task_type	exact	MODEL_MAINTAINCE	auxiliary	task_type	excluded	retained_for_attribution	retained	retained	continue_or_fallback	apply	Ascend maintenance control task
+ascend.aux.task.type.model.maintenance.9724cc1f	100	ascend	task	task_type	exact	MODEL_MAINTENANCE	auxiliary	task_type	excluded	retained_for_attribution	retained	retained	continue_or_fallback	apply	Corrected maintenance spelling
+hygon.aux.task.type.hip.kernel.aux.6c869864	100	hygon	task	task_type	exact	HIP_KERNEL_AUX	auxiliary	task_type	excluded	retained_for_attribution	retained	retained	continue_or_fallback	apply	Hygon auxiliary kernel
+cuda.aux.task.type.cuda.kernel.aux.c4ce98bf	100	cuda	task	task_type	exact	CUDA_KERNEL_AUX	auxiliary	task_type	excluded	retained_for_attribution	retained	retained	continue_or_fallback	apply	CUDA auxiliary kernel
+cuda.aux.task.type.cuda.runtime.aux.2f99050d	100	cuda	task	task_type	exact	CUDA_RUNTIME_AUX	auxiliary	task_type	excluded	retained_for_attribution	retained	retained	continue_or_fallback	apply	CUDA runtime bookkeeping row
+cuda.aux.task.type.cuda.memcpy.aux.3fd99cc0	100	cuda	task	task_type	exact	CUDA_MEMCPY_AUX	auxiliary	task_type	excluded	retained_for_attribution	retained	retained	continue_or_fallback	apply	CUDA memcpy bookkeeping row
+cuda.aux.task.type.cuda.sync.aux.91b696b9	100	cuda	task	task_type	exact	CUDA_SYNC_AUX	auxiliary	task_type	excluded	retained_for_attribution	retained	retained	continue_or_fallback	apply	CUDA synchronization observation
+cuda.aux.task.type.cuda.event.aux.d6c4be5a	100	cuda	task	task_type	exact	CUDA_EVENT_AUX	auxiliary	task_type	excluded	retained_for_attribution	retained	retained	continue_or_fallback	apply	CUDA event identity observation
+cuda.anchor.task.type.cuda.kernel.51cc7472	95	cuda	task	task_type	exact	CUDA_KERNEL	anchor	task_type	identity	retained_for_attribution	retained	retained	continue_or_fallback	apply	Preserve unknown CUDA kernels as execution anchors
+cuda.anchor.task.type.cuda.collective.kernel.d758d32a	95	cuda	task	task_type	exact	CUDA_COLLECTIVE_KERNEL	anchor	task_type	identity	retained_for_attribution	retained	retained	continue_or_fallback	apply	Preserve CUDA collective kernels as anchors
+ascend.aux.blob.hccl.aiv.sync.002d332c	90	ascend	task	blob	contains	hccl_aiv_sync	auxiliary	blob	excluded	retained_for_attribution	retained	retained	continue_or_fallback	apply	HCCL synchronization helper
+ascend.aux.blob.hccl.aic.sync.2aa09c61	90	ascend	task	blob	contains	hccl_aic_sync	auxiliary	blob	excluded	retained_for_attribution	retained	retained	continue_or_fallback	apply	HCCL synchronization helper
+ascend.aux.blob.aiv.sync.01fa9cb6	90	ascend	task	blob	contains	aiv_sync	auxiliary	blob	excluded	retained_for_attribution	retained	retained	continue_or_fallback	apply	Device synchronization helper
+ascend.aux.blob.aic.sync.b6ee929c	90	ascend	task	blob	contains	aic_sync	auxiliary	blob	excluded	retained_for_attribution	retained	retained	continue_or_fallback	apply	Device synchronization helper
+ascend.anchor.operator.dispatchffncombinebf16.dccb9f76	85	ascend	task	operator	exact	DispatchFFNCombineBF16	anchor	operator	identity	retained_for_attribution	retained	retained	continue_or_fallback	apply	Fused MoE dispatch, FFN, and combine kernel
+any.anchor.blob.nccl.4b39d070	80	any	task	blob	contains	nccl	anchor	blob	identity	retained_for_attribution	retained	retained	continue_or_fallback	apply	NCCL collective
+any.anchor.blob.allreduce.2167e26c	80	any	task	blob	contains	allreduce	anchor	blob	identity	retained_for_attribution	retained	retained	continue_or_fallback	apply	AllReduce collective
+any.anchor.blob.all.reduce.b3275ab9	80	any	task	blob	contains	all_reduce	anchor	blob	identity	retained_for_attribution	retained	retained	continue_or_fallback	apply	AllReduce collective
+any.anchor.blob.allgather.c196ad8f	80	any	task	blob	contains	allgather	anchor	blob	identity	retained_for_attribution	retained	retained	continue_or_fallback	apply	AllGather collective
+any.anchor.blob.all.gather.32cd1271	80	any	task	blob	contains	all_gather	anchor	blob	identity	retained_for_attribution	retained	retained	continue_or_fallback	apply	AllGather collective
+any.anchor.blob.reducescatter.bebf2569	80	any	task	blob	contains	reducescatter	anchor	blob	identity	retained_for_attribution	retained	retained	continue_or_fallback	apply	ReduceScatter collective
+any.anchor.blob.reduce.scatter.27cfbf12	80	any	task	blob	contains	reduce_scatter	anchor	blob	identity	retained_for_attribution	retained	retained	continue_or_fallback	apply	ReduceScatter collective
+any.anchor.blob.broadcast.3676c494	80	any	task	blob	contains	broadcast	anchor	blob	identity	retained_for_attribution	retained	retained	continue_or_fallback	apply	Broadcast collective
+any.anchor.blob.alltoall.02e38be4	80	any	task	blob	contains	alltoall	anchor	blob	identity	retained_for_attribution	retained	retained	continue_or_fallback	apply	AllToAll collective
+any.anchor.blob.all.to.all.ee8b7b7b	80	any	task	blob	contains	all_to_all	anchor	blob	identity	retained_for_attribution	retained	retained	continue_or_fallback	apply	AllToAll collective
+any.anchor.blob.all.to.all.06ba9429	80	any	task	blob	contains	all-to-all	anchor	blob	identity	retained_for_attribution	retained	retained	continue_or_fallback	apply	AllToAll collective
+any.anchor.blob.all2all.68223422	80	any	task	blob	contains	all2all	anchor	blob	identity	retained_for_attribution	retained	retained	continue_or_fallback	apply	AllToAll collective
+ascend.transparent.task.type.ai.core.7897ff1d	70	ascend	task	task_type	exact	AI_CORE	transparent	task_type	excluded	retained_for_attribution	retained	retained	continue_or_fallback	defer_to_identity_rules	Generic device execution container
+ascend.aux.task.type.model.execute.85a30ce3	70	ascend	task	task_type	exact	MODEL_EXECUTE	auxiliary	task_type	excluded	retained_for_attribution	retained	retained	continue_or_fallback	apply	Runtime control task
+ascend.aux.task.type.capture.record.2d7abd67	70	ascend	task	task_type	exact	CAPTURE_RECORD	auxiliary	task_type	excluded	retained_for_attribution	retained	retained	continue_or_fallback	apply	Graph capture control task
+ascend.aux.task.type.capture.wait.03d88a52	70	ascend	task	task_type	exact	CAPTURE_WAIT	auxiliary	task_type	excluded	retained_for_attribution	retained	retained	continue_or_fallback	apply	Graph capture control task
+ascend.aux.task.type.event.record.5f138602	70	ascend	task	task_type	exact	EVENT_RECORD	auxiliary	task_type	excluded	retained_for_attribution	retained	retained	continue_or_fallback	apply	Event control task
+ascend.aux.task.type.event.wait.28ab0f94	70	ascend	task	task_type	exact	EVENT_WAIT	auxiliary	task_type	excluded	retained_for_attribution	retained	retained	continue_or_fallback	apply	Event control task
+ascend.aux.task.type.mem.write.value.3134c490	70	ascend	task	task_type	exact	MEM_WRITE_VALUE	auxiliary	task_type	excluded	retained_for_attribution	retained	retained	continue_or_fallback	apply	Memory control task
+ascend.aux.task.type.memcpy.5aa0fdd9	70	ascend	task	task_type	exact	MEMCPY	auxiliary	task_type	excluded	retained_for_attribution	retained	retained	continue_or_fallback	apply	Data movement helper
+hygon.aux.task.type.memcpy.5aa0fdd9	70	hygon	task	task_type	exact	MEMCPY	auxiliary	task_type	excluded	retained_for_attribution	retained	retained	continue_or_fallback	apply	Hygon data movement helper
+ascend.aux.task.type.memcpy.async.bb5e99f6	70	ascend	task	task_type	exact	MEMCPY_ASYNC	auxiliary	task_type	excluded	retained_for_attribution	retained	retained	continue_or_fallback	apply	Data movement helper
+ascend.aux.task.type.notify.ad3d9279	70	ascend	task	task_type	exact	NOTIFY	auxiliary	task_type	excluded	retained_for_attribution	retained	retained	continue_or_fallback	apply	Notification control task
+ascend.aux.task.type.notify.record.21a93893	70	ascend	task	task_type	exact	NOTIFY_RECORD	auxiliary	task_type	excluded	retained_for_attribution	retained	retained	continue_or_fallback	apply	Notification control task
+ascend.aux.task.type.notify.wait.717e33e3	70	ascend	task	task_type	exact	NOTIFY_WAIT	auxiliary	task_type	excluded	retained_for_attribution	retained	retained	continue_or_fallback	apply	Notification control task
+ascend.aux.task.type.sdma.5b6d3390	70	ascend	task	task_type	exact	SDMA	auxiliary	task_type	excluded	retained_for_attribution	retained	retained	continue_or_fallback	apply	DMA helper
+ascend.aux.task.type.task.timeout.set.6785cbc7	70	ascend	task	task_type	exact	TASK_TIMEOUT_SET	auxiliary	task_type	excluded	retained_for_attribution	retained	retained	continue_or_fallback	apply	Runtime control task
+ascend.aux.task.type.write.value.b56a626a	70	ascend	task	task_type	exact	WRITE_VALUE	auxiliary	task_type	excluded	retained_for_attribution	retained	retained	continue_or_fallback	apply	Runtime control task
+any.anchor.blob.matmul.b362963b	60	any	task	blob	contains	matmul	anchor	blob	identity	retained_for_attribution	retained	retained	continue_or_fallback	apply	Matrix multiplication
+any.anchor.blob.batchmatmul.5655fdd5	60	any	task	blob	contains	batchmatmul	anchor	blob	identity	retained_for_attribution	retained	retained	continue_or_fallback	apply	Batched matrix multiplication
+any.anchor.blob.gemm.e8de2070	60	any	task	blob	contains	gemm	anchor	blob	identity	retained_for_attribution	retained	retained	continue_or_fallback	apply	General matrix multiplication
+any.anchor.blob.conv.46c882d1	60	any	task	blob	contains	conv	anchor	blob	identity	retained_for_attribution	retained	retained	continue_or_fallback	apply	Convolution
+any.anchor.blob.flashattention.d2fb6028	60	any	task	blob	contains	flashattention	anchor	blob	identity	retained_for_attribution	retained	retained	continue_or_fallback	apply	Flash attention
+any.anchor.blob.fusedinferattention.79e72c9f	60	any	task	blob	contains	fusedinferattention	anchor	blob	identity	retained_for_attribution	retained	retained	continue_or_fallback	apply	Fused inference attention
+any.anchor.blob.pagedattention.715e4e06	60	any	task	blob	contains	pagedattention	anchor	blob	identity	retained_for_attribution	retained	retained	continue_or_fallback	apply	Paged attention
+any.anchor.blob.attention.06fb6208	60	any	task	blob	contains	attention	anchor	blob	identity	retained_for_attribution	retained	retained	continue_or_fallback	apply	Attention
+any.anchor.blob.rmsnorm.eb7e4edc	60	any	task	blob	contains	rmsnorm	anchor	blob	identity	retained_for_attribution	retained	retained	continue_or_fallback	apply	RMS normalization
+any.anchor.blob.rms.norm.bcf35436	60	any	task	blob	contains	rms_norm	anchor	blob	identity	retained_for_attribution	retained	retained	continue_or_fallback	apply	RMS normalization
+any.anchor.blob.layernorm.f7fe08f1	60	any	task	blob	contains	layernorm	anchor	blob	identity	retained_for_attribution	retained	retained	continue_or_fallback	apply	Layer normalization
+any.anchor.blob.layer.norm.8136f71c	60	any	task	blob	contains	layer_norm	anchor	blob	identity	retained_for_attribution	retained	retained	continue_or_fallback	apply	Layer normalization
+any.anchor.blob.swiglu.73e3dc97	60	any	task	blob	contains	swiglu	anchor	blob	identity	retained_for_attribution	retained	retained	continue_or_fallback	apply	SwiGLU
+any.anchor.blob.siluandmul.f32a17a4	60	any	task	blob	contains	siluandmul	anchor	blob	identity	retained_for_attribution	retained	retained	continue_or_fallback	apply	SiLU multiply
+any.anchor.blob.moe.caf80514	60	any	task	blob	contains	moe	anchor	blob	identity	retained_for_attribution	retained	retained	continue_or_fallback	apply	Mixture of experts
+any.anchor.blob.ffn.00eef783	60	any	task	blob	contains	ffn	anchor	blob	identity	retained_for_attribution	retained	retained	continue_or_fallback	apply	Feed-forward network
+any.anchor.blob.rotary.6d4c092d	60	any	task	blob	contains	rotary	anchor	blob	identity	retained_for_attribution	retained	retained	continue_or_fallback	apply	Rotary embedding
+any.anchor.blob.rope.3710deb9	60	any	task	blob	contains	rope	anchor	blob	identity	retained_for_attribution	retained	retained	continue_or_fallback	apply	Rotary embedding
+any.anchor.blob.mamba.3b60c245	60	any	task	blob	contains	mamba	anchor	blob	identity	retained_for_attribution	retained	retained	continue_or_fallback	apply	Mamba operator
