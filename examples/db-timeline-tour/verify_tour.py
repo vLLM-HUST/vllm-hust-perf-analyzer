@@ -16,6 +16,10 @@ def require(condition: bool, message: str) -> None:
         raise RuntimeError(message)
 
 
+def require_close(actual: float, expected: float, message: str) -> None:
+    require(abs(actual - expected) <= 0.001, f"{message}: {actual} != {expected}")
+
+
 def scalar(db: sqlite3.Connection, sql: str, parameters: tuple[object, ...] = ()) -> object:
     row = db.execute(sql, parameters).fetchone()
     require(row is not None, f"query returned no row: {sql}")
@@ -118,21 +122,84 @@ def verify(database: Path) -> None:
             "hierarchy projection is empty",
         )
 
-        member = db.execute(
-            "SELECT e.event_id FROM traceloom_tree_node_anchor na "
-            "JOIN traceloom_anchor a USING(anchor_id) "
-            "JOIN traceloom_event e USING(event_id) "
-            "WHERE na.node_id=? AND na.occurrence_idx=1 "
-            "ORDER BY e.dur_us DESC, na.anchor_order LIMIT 1",
-            (node_id,),
-        ).fetchone()
-        require(member is not None, "member projection is empty")
+        occurrences = list(
+            db.execute(
+                "SELECT occurrence_idx, anchor_count, total_us, compute_us, "
+                "comm_us, idle_us, aux_us FROM traceloom_tree_node_occurrence "
+                "WHERE node_id=? ORDER BY total_us, occurrence_idx",
+                (node_id,),
+            )
+        )
+        require(len(occurrences) == 29, "kickstart occurrence population changed")
+        require(
+            {row["anchor_count"] for row in occurrences} == {384},
+            "kickstart occurrence extents changed",
+        )
+        median = occurrences[len(occurrences) // 2]
+        outlier = occurrences[-1]
+        require(median["occurrence_idx"] == 23, "median occurrence changed")
+        require(outlier["occurrence_idx"] == 26, "slowest occurrence changed")
+        require_close(median["total_us"], 58489.009, "median total")
+        require_close(outlier["total_us"], 68061.180, "outlier total")
+        require_close(
+            outlier["compute_us"] - median["compute_us"],
+            -616.133,
+            "outlier compute delta",
+        )
+        require_close(
+            outlier["comm_us"] - median["comm_us"],
+            10255.221,
+            "outlier communication delta",
+        )
+        require_close(
+            outlier["idle_us"] - median["idle_us"],
+            -66.917,
+            "outlier uncovered delta",
+        )
+
+        position_rows = list(
+            db.execute(
+                "WITH ranked_positions AS ("
+                "SELECT na.*, row_number() OVER (PARTITION BY na.node_id, "
+                "na.anchor_order, na.coverage_kind ORDER BY na.total_us, "
+                "na.occurrence_idx) AS cost_rank, count(*) OVER (PARTITION BY "
+                "na.node_id, na.anchor_order, na.coverage_kind) AS "
+                "population_count FROM traceloom_tree_node_anchor na WHERE "
+                "na.node_id=?), position_medians AS (SELECT node_id, "
+                "anchor_order, coverage_kind, total_us AS median_position_us "
+                "FROM ranked_positions WHERE cost_rank=(population_count+1)/2) "
+                "SELECT selected.anchor_order, a.symbol, e.event_id, "
+                "selected.total_us-median.median_position_us AS excess_us "
+                "FROM ranked_positions selected JOIN position_medians median "
+                "ON median.node_id=selected.node_id AND median.anchor_order="
+                "selected.anchor_order AND median.coverage_kind="
+                "selected.coverage_kind JOIN traceloom_anchor a ON "
+                "a.anchor_id=selected.anchor_id AND a.db_idx=selected.db_idx "
+                "AND a.device_id=selected.device_id LEFT JOIN traceloom_event "
+                "e ON e.event_id=a.event_id AND e.db_idx=a.db_idx AND "
+                "e.device_id=a.device_id WHERE selected.occurrence_idx=? "
+                "ORDER BY excess_us DESC, selected.anchor_order LIMIT 12",
+                (node_id, outlier["occurrence_idx"]),
+            )
+        )
+        require(len(position_rows) == 12, "outlier position projection is incomplete")
+        require(
+            {row["symbol"] for row in position_rows} == {"AllReduce"},
+            "largest outlier position deltas changed family",
+        )
+        member = position_rows[0]
+        require(member["anchor_order"] == 282, "largest outlier position changed")
+        require(member["event_id"] == "event-86482", "outlier event changed")
+        require_close(member["excess_us"], 1916.198, "largest position excess")
+
         event_locator = db.execute(
             "SELECT * FROM traceloom_v_event_source_locator "
             "WHERE event_id=? ORDER BY source_ordinal LIMIT 1",
             (member["event_id"],),
         ).fetchone()
         require(event_locator is not None, "event locator is empty")
+        require(event_locator["source_table"] == "COMMUNICATION_OP", str(dict(event_locator)))
+        require(event_locator["source_key"] == "109", str(dict(event_locator)))
         require_embedded_row(db, event_locator)
 
         host_window_count = scalar(

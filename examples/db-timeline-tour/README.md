@@ -3,14 +3,14 @@
 This tour demonstrates TraceLoom's core composable-projection UX. It selects
 one high-level structural scope once, then derives several views:
 
-- **population**: one recovered structure → all equivalent occurrences →
-  comparable cost distribution;
-- **realized behavior**: the same scope → occurrence 1 → ordered device
-  members;
+- **population and decision**: one recovered structure → all equivalent
+  occurrences → one selected slow occurrence;
+- **realized behavior**: the same scope → selected occurrence → aligned
+  position excess → ordered device evidence;
 - **hierarchy**: the same scope → ordered child patterns;
 - **cross-domain context**: the same scope → supported host windows → runtime
-  API distribution; and
-- **audit**: one member → normalized event → embedded profiler row;
+  API distribution;
+- **audit**: one member → normalized event → embedded profiler row; and
 - **dynamic branch**: one recurrent device-bubble position → its occurrence
   population → one selected host interval → literal calls → host source row.
 
@@ -41,18 +41,21 @@ python3 examples/db-timeline-tour/verify_tour.py \
 ```
 
 It verifies the coordinate contract, representative continuation paths,
-scope/population preservation, typed host boundaries, and both device-event
-and runtime-call drill-down to a literal embedded raw row.
+scope/population preservation, dynamic outlier selection and position
+localization, typed host boundaries, and both device-event and runtime-call
+drill-down to a literal embedded raw row.
 
 No SQL expertise is required. The script finds a nested `Rep x24` region,
 stores its `node_id` as the selected scope, then changes population,
 resolution, observation domain, and measure lens without reconstructing the
-region boundary. It also prints the reusable recipes, returned coordinate
-contracts, and compatible continuations embedded in the database. Selector
-types, candidate-coordinate relations, and supported next queries are
-queryable rather than hidden in a separate client API or inferred from SQL
-text. Typed missing host endpoints remain visible during the cross-domain
-projection.
+region boundary. The occurrence population itself selects the slowest member;
+the next projection aligns its positions against their population medians and
+audits the largest excess. The script also prints the reusable recipes,
+returned coordinate contracts, and compatible continuations embedded in the
+database. Selector types, candidate-coordinate relations, and supported next
+queries are queryable rather than hidden in a separate client API or inferred
+from SQL text. Typed missing host endpoints remain visible during the
+cross-domain projection.
 
 The checked-in profile is the source of truth for both this tour and
 [`docs/assets/queryable-db-timeline.svg`](../../docs/assets/queryable-db-timeline.svg).
