@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <filesystem>
 #include <limits>
 #include <map>
 #include <set>
@@ -177,9 +178,19 @@ std::string json_escape(const std::string& value) {
 }
 
 std::string source_json(const SourceRefRow& source, const char* kind) {
+  std::string source_path = source.source_path;
+  std::error_code ec;
+  const std::filesystem::path observed_path(source_path);
+  if (std::filesystem::is_regular_file(observed_path, ec)) {
+    const std::filesystem::path absolute_path =
+        std::filesystem::absolute(observed_path, ec);
+    if (!ec) {
+      source_path = absolute_path.lexically_normal().string();
+    }
+  }
   std::ostringstream out;
   out << "{\"source_ref_id\":" << source.id.value()
-      << ",\"source_path\":\"" << json_escape(source.source_path) << "\""
+      << ",\"source_path\":\"" << json_escape(source_path) << "\""
       << ",\"relation_object\":\"" << kind << "\"}";
   return out.str();
 }

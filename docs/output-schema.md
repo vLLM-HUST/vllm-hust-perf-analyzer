@@ -23,7 +23,10 @@ self-describing entry-point catalog. `traceloom_raw_source_database` and
 `traceloom_projection_recipe` describes the primary scope/population/
 resolution/domain/lens query compositions and their named selector parameters.
 `traceloom_projection_parameter` makes selector type, nullability, coordinate
-source, and purpose independently queryable.
+kind, source, and purpose independently queryable.
+`traceloom_projection_coordinate` declares which result columns can be reused
+by later projections, while `traceloom_v_projection_continuation` lists target
+recipes for which every required coordinate kind is available.
 
 ## Optional Markdown Projection
 

@@ -53,16 +53,45 @@ Parameter discovery is relational too; agents do not need to parse prose to
 learn selector types or where candidate coordinates come from:
 
 ```sql
-SELECT parameter_name, sqlite_type, is_nullable,
+SELECT parameter_name, sqlite_type, is_nullable, coordinate_kind,
        selection_relation, selection_column, purpose
 FROM traceloom_projection_parameter
 WHERE projection_name = 'scope_members'
 ORDER BY parameter_order;
 ```
 
-Copy the `example_sql` for a recipe to run it. The SQL is deliberately the
-semantic interface: a CLI, agent, notebook, or UI may bind the parameters and
-render the returned rows without defining a second analysis API.
+Each recipe also declares which result columns are reusable coordinates:
+
+```sql
+SELECT result_column, coordinate_kind, purpose
+FROM traceloom_projection_coordinate
+WHERE projection_name = 'scope_members'
+ORDER BY coordinate_order;
+```
+
+The database derives compatible continuations from those input and output
+contracts. For example, after ranking aligned positions, ask which returned
+columns can drive the next query:
+
+```sql
+SELECT source_column, target_projection, target_parameter,
+       target_parameter_nullable
+FROM traceloom_v_projection_continuation
+WHERE source_projection = 'position_population'
+ORDER BY target_projection, source_column;
+```
+
+The result includes `position_occurrences`: its required `node_id` and
+`anchor_order` both come from the selected population row. The agent can then
+inspect the full corresponding-position population, select an unusual
+`occurrence_idx`, and continue from its returned `event_id` to `event_audit`.
+A continuation is published only when every non-nullable target coordinate is
+available; optional selectors may be retained from analyst state or left
+`NULL`.
+
+Copy the `example_sql` for a recipe to run it. SQL remains the semantic
+interface: a CLI, agent, notebook, or UI binds the parameters and renders the
+returned rows without defining a second analysis API.
 
 ## Switch between one occurrence and the population
 
@@ -106,14 +135,21 @@ node-N006
 ## Change observation domain or measure lens
 
 `scope_host_context` projects the same `:node_id` and optional
-`:occurrence_idx` into host windows delimited by supported runtime endpoints of
-adjacent device anchors. It reports profiler-visible API distributions; it
-does not charge host duration to the device node or assign a cause.
+`:occurrence_idx` into host windows delimited by runtime endpoints of adjacent
+device anchors. Start with `scope_host_windows` when the support state itself
+matters: every structural position remains visible as `supported_ordered`,
+`missing_endpoint`, `nonmonotonic_host_order`, or another typed boundary.
+`scope_host_context` then left-projects profiler-visible API distributions;
+unsupported and supported-but-empty intervals remain rows. It does not charge
+host duration to the device node or assign a cause.
 
 `bubble_host_context` starts from a recovered structural position, holds that
 position fixed across bubble occurrences, and combines overlap-safe uncovered
 device cost with supported upstream API-family observations. A selected bubble
-can then drill down to exact runtime calls and source rows.
+can then continue through `bubble_occurrences` to `host_window_calls` and
+`runtime_call_audit`. `bubble_hotspots` retains positions whose occurrences
+have no supported host window, so changing observation domain never turns an
+unsupported population into an empty successful answer.
 
 Cost columns remain named lenses. Scheduled task sums, overlap-safe busy time,
 wall-span envelopes, device bubble cost, and host scheduled-call duration are
@@ -138,3 +174,15 @@ analyzer's evidence contracts.
 The original profiler observations remain embedded and authoritative outside
 the supported model. Missing or ambiguous relations remain typed unsupported
 outcomes rather than empty successful projections.
+
+The RQ2 interaction contract is therefore concrete:
+
+```text
+select scope/position
+  -> inspect a population
+  -> choose an occurrence from returned coordinates
+  -> change resolution or observation domain
+  -> reach an embedded source row or a typed support boundary
+```
+
+No stage reruns structural recovery or silently invents a missing coordinate.

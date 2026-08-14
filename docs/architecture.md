@@ -58,8 +58,10 @@ can select one or all occurrences, remain folded or expand, enter supported
 host context, and change compatible measure lens. The database publishes this
 UX through `traceloom_projection_recipe`; Markdown and native JSON are explicit
 presentations rather than alternate models. Typed selector discovery lives in
-`traceloom_projection_parameter`. The compatibility sidecar remains available
-for legacy workflows.
+`traceloom_projection_parameter`; returned reusable coordinates and ready next
+queries live in `traceloom_projection_coordinate` and
+`traceloom_v_projection_continuation`. The compatibility sidecar remains
+available for legacy workflows.
 
 ## CLI
 

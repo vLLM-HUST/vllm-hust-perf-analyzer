@@ -10,7 +10,9 @@ one high-level structural scope once, then derives several views:
 - **hierarchy**: the same scope → ordered child patterns;
 - **cross-domain context**: the same scope → supported host windows → runtime
   API distribution; and
-- **audit**: one member → normalized event → embedded profiler row.
+- **audit**: one member → normalized event → embedded profiler row;
+- **dynamic branch**: one recurrent device-bubble position → its occurrence
+  population → one selected host interval → literal calls → host source row.
 
 From the repository root, analyze the checked-in two-device profile:
 
@@ -31,12 +33,26 @@ At the `sqlite>` prompt:
 .read examples/db-timeline-tour/tour.sql
 ```
 
+The submission/artifact-freeze check is executable too:
+
+```bash
+python3 examples/db-timeline-tour/verify_tour.py \
+  examples/kickstart_smoke/msprof_raw/traceloom/analysis_db01.db
+```
+
+It verifies the coordinate contract, representative continuation paths,
+scope/population preservation, typed host boundaries, and both device-event
+and runtime-call drill-down to a literal embedded raw row.
+
 No SQL expertise is required. The script finds a nested `Rep x24` region,
 stores its `node_id` as the selected scope, then changes population,
 resolution, observation domain, and measure lens without reconstructing the
-region boundary. It also prints the reusable recipes embedded in the database.
-Their selector types and candidate-coordinate relations are queryable rather
-than hidden in a separate client API.
+region boundary. It also prints the reusable recipes, returned coordinate
+contracts, and compatible continuations embedded in the database. Selector
+types, candidate-coordinate relations, and supported next queries are
+queryable rather than hidden in a separate client API or inferred from SQL
+text. Typed missing host endpoints remain visible during the cross-domain
+projection.
 
 The checked-in profile is the source of truth for both this tour and
 [`docs/assets/queryable-db-timeline.svg`](../../docs/assets/queryable-db-timeline.svg).

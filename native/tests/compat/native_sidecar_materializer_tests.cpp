@@ -106,6 +106,40 @@ void require_analysis_surface_queries_prepare(const std::string& path) {
   sqlite3_finalize(catalog);
 
   traceloom::testing::require(
+      sqlite3_prepare_v2(
+          db,
+          "SELECT projection_name, parameter_name, selection_relation, "
+          "selection_column FROM traceloom_projection_parameter ORDER BY "
+          "projection_name, parameter_order",
+          -1, &catalog, nullptr) == SQLITE_OK);
+  while (sqlite3_step(catalog) == SQLITE_ROW) {
+    const unsigned char* projection_text = sqlite3_column_text(catalog, 0);
+    const unsigned char* parameter_text = sqlite3_column_text(catalog, 1);
+    const unsigned char* relation_text = sqlite3_column_text(catalog, 2);
+    const unsigned char* column_text = sqlite3_column_text(catalog, 3);
+    traceloom::testing::require(
+        projection_text != nullptr && parameter_text != nullptr &&
+        relation_text != nullptr && column_text != nullptr);
+    const std::string selection_sql =
+        "SELECT " + std::string(reinterpret_cast<const char*>(column_text)) +
+        " FROM " + std::string(reinterpret_cast<const char*>(relation_text)) +
+        " LIMIT 0";
+    sqlite3_stmt* selection = nullptr;
+    const int rc = sqlite3_prepare_v2(db, selection_sql.c_str(), -1,
+                                      &selection, nullptr);
+    if (selection != nullptr) {
+      sqlite3_finalize(selection);
+    }
+    const std::string error_message =
+        "projection parameter selection coordinate is invalid: " +
+        std::string(reinterpret_cast<const char*>(projection_text)) + "." +
+        std::string(reinterpret_cast<const char*>(parameter_text)) + ": " +
+        sqlite3_errmsg(db);
+    traceloom::testing::require(rc == SQLITE_OK, error_message.c_str());
+  }
+  sqlite3_finalize(catalog);
+
+  traceloom::testing::require(
       sqlite3_prepare_v2(db,
                          "SELECT projection_name, example_sql FROM "
                          "traceloom_projection_recipe ORDER BY display_order",
@@ -125,6 +159,44 @@ void require_analysis_surface_queries_prepare(const std::string& path) {
         std::string(reinterpret_cast<const char*>(projection_text)) + ": " +
         sqlite3_errmsg(db);
     traceloom::testing::require(rc == SQLITE_OK, error_message.c_str());
+  }
+  sqlite3_finalize(catalog);
+
+  traceloom::testing::require(
+      sqlite3_prepare_v2(
+          db,
+          "SELECT c.projection_name, c.result_column, r.example_sql FROM "
+          "traceloom_projection_coordinate c JOIN "
+          "traceloom_projection_recipe r USING (projection_name) ORDER BY "
+          "c.projection_name, c.coordinate_order",
+          -1, &catalog, nullptr) == SQLITE_OK);
+  while (sqlite3_step(catalog) == SQLITE_ROW) {
+    const unsigned char* projection_text = sqlite3_column_text(catalog, 0);
+    const unsigned char* column_text = sqlite3_column_text(catalog, 1);
+    const unsigned char* sql_text = sqlite3_column_text(catalog, 2);
+    traceloom::testing::require(projection_text != nullptr &&
+                                column_text != nullptr && sql_text != nullptr);
+    sqlite3_stmt* example = nullptr;
+    const int rc = sqlite3_prepare_v2(
+        db, reinterpret_cast<const char*>(sql_text), -1, &example, nullptr);
+    traceloom::testing::require(rc == SQLITE_OK && example != nullptr);
+    bool found = false;
+    for (int column_idx = 0; column_idx < sqlite3_column_count(example);
+         ++column_idx) {
+      const char* result_name = sqlite3_column_name(example, column_idx);
+      if (result_name != nullptr &&
+          std::string(result_name) ==
+              reinterpret_cast<const char*>(column_text)) {
+        found = true;
+        break;
+      }
+    }
+    const std::string error_message =
+        "projection coordinate is absent from recipe result: " +
+        std::string(reinterpret_cast<const char*>(projection_text)) + "." +
+        std::string(reinterpret_cast<const char*>(column_text));
+    sqlite3_finalize(example);
+    traceloom::testing::require(found, error_message.c_str());
   }
   sqlite3_finalize(catalog);
   sqlite3_close(db);
@@ -1220,18 +1292,56 @@ int main() {
               "SELECT COUNT(*) FROM traceloom_projection_recipe WHERE "
               "scope_kind != '' AND population_mode != '' AND "
               "resolution != '' AND observation_domain != '' AND "
-              "measure_lens != ''") == 10);
+              "measure_lens != ''") == 17);
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_projection_parameter WHERE "
               "parameter_name != '' AND sqlite_type IN ('TEXT', 'INTEGER') "
-              "AND selection_relation != '' AND selection_column != ''") ==
-          17);
+              "AND coordinate_kind != '' AND selection_relation != '' AND "
+              "selection_column != ''") == 26);
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_projection_parameter p LEFT "
               "JOIN traceloom_projection_recipe r USING (projection_name) "
               "WHERE r.projection_name IS NULL") == 0);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_projection_coordinate") ==
+          53);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_projection_coordinate c LEFT "
+              "JOIN traceloom_projection_recipe r USING (projection_name) "
+              "WHERE r.projection_name IS NULL") == 0);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
+              "WHERE source_projection = 'scope_hierarchy' AND "
+              "target_projection = 'scope_occurrences' AND source_column = "
+              "'child_node_id' AND target_parameter = 'node_id'") == 1);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
+              "WHERE source_projection = 'position_population' AND "
+              "target_projection = 'position_occurrences' AND "
+              "required_coordinate_count = 2") == 2);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
+              "WHERE source_projection = 'bubble_occurrences' AND "
+              "target_projection = 'host_window_calls' AND source_column = "
+              "'host_interval_id'") == 1);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
+              "WHERE source_projection = 'host_window_calls' AND "
+              "target_projection = 'runtime_call_audit' AND source_column = "
+              "'runtime_call_id'") == 1);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
+              "WHERE source_projection = 'scope_catalog' AND "
+              "target_projection = 'position_occurrences'") == 0);
   require(run_scalar_text(
               augmented_path,
               "SELECT selector_parameters FROM traceloom_projection_recipe "
@@ -1241,7 +1351,7 @@ int main() {
               augmented_path,
               "SELECT value FROM traceloom_metadata WHERE key = "
               "'analytical_projection_contract'") ==
-          "scope_population_resolution_domain_lens_v1");
+          "scope_population_resolution_domain_lens_coordinates_v2");
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_analysis_surface "

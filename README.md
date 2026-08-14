@@ -178,7 +178,22 @@ ORDER BY display_order;
 ```
 
 `traceloom_projection_parameter` gives agents and UIs a normalized catalog of
-each selector's type, nullability, purpose, and source relation/column.
+each selector's type, nullability, coordinate kind, purpose, and source
+relation/column. `traceloom_projection_coordinate` names the reusable
+coordinates returned by every recipe, and
+`traceloom_v_projection_continuation` shows which returned columns satisfy a
+compatible next recipe:
+
+```sql
+SELECT source_column, target_projection, target_parameter
+FROM traceloom_v_projection_continuation
+WHERE source_projection = 'position_population'
+ORDER BY target_projection, source_column;
+```
+
+The continuation catalog means an agent can inspect a population, choose an
+unusual occurrence, expand it, and reach source evidence without parsing SQL
+text to rediscover which identifiers remain valid.
 
 Bind one scope once in the `sqlite3` shell, then reuse it across recipes:
 
@@ -191,7 +206,9 @@ Bind one scope once in the `sqlite3` shell, then reuse it across recipes:
 `NULL` selects the full occurrence population; setting
 `:occurrence_idx` to a number selects one realized execution. The same
 `:node_id` can then remain folded, expand to ordered children or events, enter
-supported host windows, or change cost lens. A bounded device window is also a
+typed host windows, or change cost lens. Host intervals with missing or
+nonmonotonic endpoints remain rows; they do not disappear merely because no
+runtime call distribution can be formed. A bounded device window is also a
 valid query scope, but selecting it does not promote it into a recovered
 pattern. See the [complete projection UX](docs/composable-analytical-projections.md).
 

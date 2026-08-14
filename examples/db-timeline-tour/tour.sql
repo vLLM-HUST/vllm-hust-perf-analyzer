@@ -19,11 +19,32 @@ SELECT
   parameter_name,
   sqlite_type,
   is_nullable,
+  coordinate_kind,
   selection_relation,
   selection_column
 FROM traceloom_projection_parameter
 WHERE projection_name = 'scope_occurrences'
 ORDER BY parameter_order;
+
+.print ''
+.print 'Reusable coordinates returned by the member projection'
+SELECT
+  result_column,
+  coordinate_kind,
+  purpose
+FROM traceloom_projection_coordinate
+WHERE projection_name = 'scope_members'
+ORDER BY coordinate_order;
+
+.print ''
+.print 'Compatible next queries after selecting an aligned position'
+SELECT
+  source_column,
+  target_projection,
+  target_parameter
+FROM traceloom_v_projection_continuation
+WHERE source_projection = 'position_population'
+ORDER BY target_projection, source_column;
 
 DROP TABLE IF EXISTS temp.traceloom_tour_scope;
 CREATE TEMP TABLE traceloom_tour_scope AS
@@ -128,18 +149,25 @@ FROM selected_event s
 JOIN traceloom_v_event_source_locator l USING (event_id);
 
 .print ''
-.print '6 / Cross-domain: project occurrence 1 into supported host windows'
+.print '6 / Cross-domain: retain every typed host window, then summarize calls'
 SELECT
-  h.coverage_kind,
-  h.anchor_order,
-  h.api_name,
-  count(*) AS observed_calls,
-  round(sum(h.observed_overlap_us), 3) AS scheduled_overlap_us
-FROM traceloom_v_node_host_activity h
+  i.coverage_kind,
+  i.anchor_order,
+  i.interval_id,
+  i.support_state,
+  c.api_name,
+  count(a.runtime_call_id) AS observed_calls,
+  coalesce(round(sum((min(c.end_ns, i.host_end_ns) -
+                      max(c.start_ns, i.host_start_ns)) / 1000.0), 3), 0.0)
+    AS scheduled_overlap_us
+FROM traceloom_v_node_host_interval i
 JOIN traceloom_tour_scope s USING (node_id)
-WHERE h.occurrence_idx = 1
-GROUP BY h.coverage_kind, h.anchor_order, h.api_name
-ORDER BY scheduled_overlap_us DESC, h.anchor_order, h.api_name
+LEFT JOIN traceloom_anchor_host_activity a USING (interval_id)
+LEFT JOIN traceloom_runtime_call c USING (runtime_call_id)
+WHERE i.occurrence_idx = 1
+GROUP BY i.coverage_kind, i.anchor_order, i.interval_id, i.support_state,
+         c.api_name
+ORDER BY scheduled_overlap_us DESC, i.anchor_order, c.api_name
 LIMIT 10;
 
 .print ''
@@ -171,8 +199,94 @@ FROM COMMUNICATION_OP
 WHERE rowid = CAST((SELECT source_key FROM selected_source) AS INTEGER);
 
 .print ''
+.print '8 / Branch: rank recurrent device-bubble positions without hiding support states'
+DROP TABLE IF EXISTS temp.traceloom_tour_bubble_scope;
+CREATE TEMP TABLE traceloom_tour_bubble_scope AS
+SELECT p.structural_position_id
+FROM traceloom_v_structure_bubble_position p
+WHERE EXISTS (
+  SELECT 1
+  FROM traceloom_v_structure_bubble_occurrence b
+  JOIN traceloom_anchor_host_activity h
+    ON h.interval_id = b.host_interval_id
+  WHERE b.structural_position_id = p.structural_position_id
+)
+ORDER BY p.total_bubble_us DESC, p.bubble_occurrence_count DESC
+LIMIT 1;
+
+SELECT
+  p.structural_position_id,
+  p.right_node_path,
+  p.bubble_occurrence_count AS bubbles,
+  p.supported_host_occurrence_count AS supported_windows,
+  p.missing_endpoint_occurrence_count AS missing_endpoints,
+  p.nonmonotonic_occurrence_count AS nonmonotonic,
+  round(p.host_observation_coverage, 3) AS host_coverage,
+  round(p.total_bubble_us / 1000.0, 3) AS total_bubble_ms
+FROM traceloom_v_structure_bubble_position p
+JOIN traceloom_tour_bubble_scope s USING (structural_position_id);
+
+.print ''
+.print '9 / Decision: select one bubble occurrence from that returned population'
+DROP TABLE IF EXISTS temp.traceloom_tour_bubble_occurrence;
+CREATE TEMP TABLE traceloom_tour_bubble_occurrence AS
+SELECT b.structural_position_id, b.bubble_id, b.host_interval_id, b.bubble_us
+FROM traceloom_v_structure_bubble_occurrence b
+JOIN traceloom_tour_bubble_scope s USING (structural_position_id)
+WHERE b.host_observation_status = 'supported_ordered'
+  AND EXISTS (
+    SELECT 1 FROM traceloom_anchor_host_activity h
+    WHERE h.interval_id = b.host_interval_id
+  )
+ORDER BY b.bubble_us DESC, b.right_occurrence_idx
+LIMIT 1;
+
+SELECT * FROM traceloom_tour_bubble_occurrence;
+
+.print ''
+.print '10 / Context: expand its returned host_interval_id to literal calls'
+SELECT
+  i.interval_id,
+  i.support_state,
+  c.runtime_call_id,
+  c.api_name,
+  CASE WHEN c.start_ns >= i.host_start_ns AND c.end_ns <= i.host_end_ns
+       THEN 'contained' ELSE 'boundary_overlap' END AS interval_relation,
+  round((min(c.end_ns, i.host_end_ns) -
+         max(c.start_ns, i.host_start_ns)) / 1000.0, 3) AS overlap_us
+FROM traceloom_v_anchor_host_interval i
+LEFT JOIN traceloom_anchor_host_activity a USING (interval_id)
+LEFT JOIN traceloom_runtime_call c USING (runtime_call_id)
+WHERE i.interval_id = (
+  SELECT host_interval_id FROM traceloom_tour_bubble_occurrence
+)
+ORDER BY a.observed_order
+LIMIT 10;
+
+.print ''
+.print '11 / Audit: continue from runtime_call_id to embedded host evidence'
+WITH selected_call AS (
+  SELECT a.runtime_call_id
+  FROM traceloom_anchor_host_activity a
+  WHERE a.interval_id = (
+    SELECT host_interval_id FROM traceloom_tour_bubble_occurrence
+  )
+  ORDER BY a.observed_order
+  LIMIT 1
+)
+SELECT
+  l.runtime_call_id,
+  l.api_name,
+  l.source_table,
+  l.source_key AS source_row,
+  l.resolution_status
+FROM selected_call c
+JOIN traceloom_v_runtime_call_source_locator l USING (runtime_call_id);
+
+.print ''
 .print 'One selected scope produced several projections:'
 .print 'scope -> all occurrences -> comparable cost population'
 .print 'scope -> occurrence 1 -> ordered members -> embedded raw row'
 .print 'scope -> ordered children -> hierarchical view'
-.print 'scope -> supported host windows -> runtime API context'
+.print 'scope -> typed host windows -> runtime API context'
+.print 'bubble position -> occurrence -> host interval -> runtime call -> raw row'
