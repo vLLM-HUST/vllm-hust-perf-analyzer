@@ -140,6 +140,12 @@ ReplayUnit occurrences; `replay_cost_launches` expands one returned
 `cost_unit_id` to all ordered slots or one `slot_order`; and
 `replay_cost_members` expands a returned `launch_id` to exact member costs and
 normalized `event_id` values. An event then continues to `event_audit`.
+`replay_structural_placements` maps a returned `replay_unit_id` back to every
+recovered graph-unit `node_id`/`occurrence_idx` that realizes it. Ancestor,
+template, and member scopes are not placements. The recipe deliberately
+returns a population rather than assuming one replay occurrence has one
+graph-unit placement. This reverse route lets a cost-selected replay
+occurrence continue to host context.
 `scope_exact_replay_members` returns the same `cost_unit_id`, `launch_id`, and
 `slot_order` coordinates, so an analyst can branch from one selected tree
 occurrence into either replay cost lenses or host context without rediscovering
@@ -150,6 +156,7 @@ ReplayUnit occurrence / cost_unit_id
   -> ordered launch slots             task_sum / busy_union / envelope
   -> one launch_id                    exact member cost and provenance
   -> one event_id                     embedded profiler-row audit
+  -> replay_unit_id placements        structural occurrence / host context
 ```
 
 Captured topology lanes without scheduled members remain topology, not

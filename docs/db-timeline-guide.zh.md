@@ -111,6 +111,8 @@ replay_cost_units
   -> replay_cost_launches (:cost_unit_id, optional :slot_order)
   -> replay_cost_members  (:launch_id)
   -> event_audit          (:event_id)
+  \\-> replay_structural_placements (:replay_unit_id)
+      -> scope_host_context (:node_id, :occurrence_idx)
 ```
 
 `replay_cost_units` 先显式返回每个 exact ReplayUnit 的 support 状态；支持的 unit
@@ -119,6 +121,10 @@ replay_cost_units
 scheduled-work share 与 `event_id`。`scope_exact_replay_members` 也会返回同一组
 `cost_unit_id`、`launch_id` 和 `slot_order` 坐标，因此可以从一个树结构 occurrence
 自然分叉到 replay cost 或 host context，而不用重新猜 replay 边界。
+反过来，如果分析者先从成本总体选中了一个 `replay_unit_id`，
+`replay_structural_placements` 会返回它出现的所有 `node_id/occurrence_idx`，不会
+武断假设 replay 与 graph-unit occurrence 一一对应；ancestor、template 和 member
+scope 不会冒充 placement，返回坐标可以继续进入 host context。
 
 captured topology 中没有 scheduled member 的空 lane 仍然保留为 topology，不会
 制造零成本 member。只有 task-kind 成员完整、非空 stream/lane 一一对应且 lane

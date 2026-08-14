@@ -1431,13 +1431,13 @@ int main() {
               "SELECT COUNT(*) FROM traceloom_projection_recipe WHERE "
               "scope_kind != '' AND population_mode != '' AND "
               "resolution != '' AND observation_domain != '' AND "
-              "measure_lens != ''") == 21);
+              "measure_lens != ''") == 22);
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_projection_parameter WHERE "
               "parameter_name != '' AND sqlite_type IN ('TEXT', 'INTEGER') "
               "AND coordinate_kind != '' AND selection_relation != '' AND "
-              "selection_column != ''") == 29);
+              "selection_column != ''") == 30);
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_projection_parameter p LEFT "
@@ -1446,7 +1446,7 @@ int main() {
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_projection_coordinate") ==
-          77);
+          80);
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_projection_coordinate WHERE "
@@ -1490,7 +1490,8 @@ int main() {
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_projection_recipe WHERE "
               "projection_name IN ('replay_cost_units', "
-              "'replay_cost_launches', 'replay_cost_members')") == 3);
+              "'replay_cost_launches', 'replay_cost_members', "
+              "'replay_structural_placements')") == 4);
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
@@ -1519,6 +1520,19 @@ int main() {
               "WHERE source_projection = 'replay_cost_members' AND "
               "target_projection = 'event_audit' AND source_column = "
               "'event_id' AND target_parameter = 'event_id'") == 1);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
+              "WHERE source_projection = 'replay_cost_units' AND "
+              "target_projection = 'replay_structural_placements' AND "
+              "source_column = 'replay_unit_id' AND target_parameter = "
+              "'replay_unit_id'") == 1);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
+              "WHERE source_projection = 'replay_structural_placements' "
+              "AND target_projection = 'scope_host_context' AND "
+              "source_column IN ('node_id', 'occurrence_idx')") == 2);
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_v_projection_continuation "

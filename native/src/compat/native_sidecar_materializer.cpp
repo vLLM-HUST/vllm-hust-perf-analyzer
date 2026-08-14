@@ -1364,6 +1364,19 @@ void materialize_augmented_catalog(const std::string& path,
          "scheduled_work_denominator_body_task_sum_ns FROM "
          "traceloom_replay_cost_member WHERE launch_id = :launch_id "
          "ORDER BY lane_ordinal, task_ordinal, member_id;"},
+        {"replay_structural_placements", "44", "exact_replay_unit",
+         "one_unit", "structural_occurrences", "device",
+         "structural_membership", ":replay_unit_id",
+         "locate every recovered graph-unit tree occurrence that realizes "
+         "one exact replay unit without assuming one placement",
+         "SELECT DISTINCT member.replay_unit_id, member.db_idx, "
+         "member.device_id, member.node_id, member.occurrence_idx, "
+         "node.display_order, node.path, node.label, node.category FROM "
+         "traceloom_v_node_graph_body_member member JOIN "
+         "traceloom_v_tree_node node ON node.node_id = member.node_id WHERE "
+         "member.replay_unit_id = :replay_unit_id AND node.category = "
+         "'graph_unit' ORDER BY "
+         "node.display_order, member.occurrence_idx, member.node_id;"},
         {"exact_replay_partition", "45", "device_sequence",
          "complete_partition", "open_replay_between_segments", "device",
          "right_anchored_disjoint_cost", "(none)",
@@ -1585,6 +1598,9 @@ void materialize_augmented_catalog(const std::string& path,
         {"replay_cost_members", "10", "launch_id", "TEXT", "0",
          "replay_cost_launch_id", "traceloom_replay_cost_launch",
          "launch_id", "selected supported replay launch"},
+        {"replay_structural_placements", "10", "replay_unit_id", "INTEGER",
+         "0", "replay_unit_id", "traceloom_replay_cost_unit",
+         "replay_unit_id", "selected exact replay occurrence"},
         {"position_population", "10", "node_id", "TEXT", "0",
          "structural_node_id", "traceloom_v_tree_node", "node_id",
          "selected structural scope whose ordered positions are aligned"},
@@ -1732,6 +1748,12 @@ void materialize_augmented_catalog(const std::string& path,
          "replay_cost_unit_id", "owning exact replay cost unit"},
         {"replay_cost_members", "40", "event_id",
          "normalized_event_id", "normalized event available for audit"},
+        {"replay_structural_placements", "10", "replay_unit_id",
+         "replay_unit_id", "selected exact replay occurrence"},
+        {"replay_structural_placements", "20", "node_id",
+         "structural_node_id", "recovered structural scope containing it"},
+        {"replay_structural_placements", "30", "occurrence_idx",
+         "structural_occurrence_index", "realized structural occurrence"},
         {"exact_replay_partition", "10", "tree_id", "structural_tree_id",
          "device-tree whose exact replay boundaries induce the partition"},
         {"exact_replay_partition", "20", "db_idx", "database_index",
