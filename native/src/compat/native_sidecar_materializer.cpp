@@ -497,6 +497,105 @@ RawPackagingResult copy_multiple_sqlite_sources(
   }
 }
 
+std::string source_locator_union_sql(const RawTableCopy& table) {
+  const std::string source_path = quote_literal(table.source_path);
+  const std::string source_table = quote_literal(table.source_table);
+  return
+      "SELECT source_key FROM traceloom_event_source WHERE source_table = " +
+      source_table + " AND json_extract(raw_json, '$.source_path') = " +
+      source_path +
+      " UNION ALL SELECT source_key FROM traceloom_runtime_call WHERE "
+      "source_table = " +
+      source_table + " AND json_extract(raw_json, '$.source_path') = " +
+      source_path +
+      " UNION ALL SELECT source_key FROM traceloom_device_work WHERE "
+      "source_table = " +
+      source_table + " AND json_extract(raw_json, '$.source_path') = " +
+      source_path;
+}
+
+void validate_embedded_source_locators(
+    sqlite3* db, const RawPackagingResult& packaging) {
+  std::map<std::pair<std::string, std::string>, std::uint64_t>
+      locator_counts;
+  sqlite3_stmt* raw_stmt = nullptr;
+  const char* inventory_sql =
+      "SELECT source_path, source_table, COUNT(*) FROM ("
+      "SELECT json_extract(raw_json, '$.source_path') AS source_path, "
+      "source_table FROM traceloom_event_source UNION ALL "
+      "SELECT json_extract(raw_json, '$.source_path'), source_table FROM "
+      "traceloom_runtime_call UNION ALL "
+      "SELECT json_extract(raw_json, '$.source_path'), source_table FROM "
+      "traceloom_device_work) WHERE source_path IS NOT NULL GROUP BY "
+      "source_path, source_table";
+  if (sqlite3_prepare_v2(db, inventory_sql, -1, &raw_stmt, nullptr) !=
+      SQLITE_OK) {
+    throw std::runtime_error("failed to inventory source locator domains: " +
+                             std::string(sqlite3_errmsg(db)));
+  }
+  while (true) {
+    const int rc = sqlite3_step(raw_stmt);
+    if (rc == SQLITE_DONE) {
+      break;
+    }
+    if (rc != SQLITE_ROW) {
+      const std::string message = sqlite3_errmsg(db);
+      sqlite3_finalize(raw_stmt);
+      throw std::runtime_error("failed to inventory source locator domains: " +
+                               message);
+    }
+    const unsigned char* path_text = sqlite3_column_text(raw_stmt, 0);
+    const unsigned char* table_text = sqlite3_column_text(raw_stmt, 1);
+    if (path_text == nullptr || table_text == nullptr) {
+      sqlite3_finalize(raw_stmt);
+      throw std::runtime_error(
+          "source locator domain has a NULL path or table");
+    }
+    locator_counts.emplace(
+        std::make_pair(reinterpret_cast<const char*>(path_text),
+                       reinterpret_cast<const char*>(table_text)),
+        static_cast<std::uint64_t>(sqlite3_column_int64(raw_stmt, 2)));
+  }
+  sqlite3_finalize(raw_stmt);
+
+  for (const RawTableCopy& table : packaging.tables) {
+    const auto count_found =
+        locator_counts.find({table.source_path, table.source_table});
+    if (count_found == locator_counts.end()) {
+      continue;
+    }
+    const std::uint64_t locator_count = count_found->second;
+    const std::string locators = source_locator_union_sql(table);
+    if (table.source_rowid_column.empty()) {
+      throw std::runtime_error(
+          "source-linked analysis rows reference embedded table without a "
+          "stable rowid: " +
+          table.source_path + ":" + table.source_table);
+    }
+
+    const std::string embedded = quote_identifier(table.embedded_table_name);
+    const std::string rowid = quote_identifier(table.source_rowid_column);
+    const std::uint64_t unresolved_count = sqlite_scalar_u64(
+        db,
+        "WITH locator(source_key) AS (" + locators + ") "
+        "SELECT COUNT(*) FROM locator l LEFT JOIN " +
+            embedded + " raw ON raw." + rowid +
+            " = CAST(l.source_key AS INTEGER) WHERE "
+            "l.source_key <> printf('%lld', CAST(l.source_key AS INTEGER)) "
+            "OR raw." +
+            rowid + " IS NULL",
+        "failed to validate source locator rows");
+    if (unresolved_count != 0) {
+      throw std::runtime_error(
+          "source-linked analysis rows do not resolve to an embedded raw "
+          "row: " +
+          table.source_path + ":" + table.source_table + " (" +
+          std::to_string(unresolved_count) + " unresolved of " +
+          std::to_string(locator_count) + ")");
+    }
+  }
+}
+
 void materialize_augmented_catalog(const std::string& path,
                                    const RawPackagingResult& packaging,
                                    const NativeIr& ir) {
@@ -549,6 +648,11 @@ void materialize_augmented_catalog(const std::string& path,
         "CREATE INDEX traceloom_raw_table_source_locator_idx ON "
         "traceloom_raw_table(source_path, source_table)",
         "failed to index raw table catalog");
+    // `embedded_raw` is a row-level promise, not merely evidence that the
+    // named provider table was copied. Validate every literal event/runtime/
+    // device-work key before publishing locator views so a stale source key
+    // cannot masquerade as auditable provenance.
+    validate_embedded_source_locators(db, packaging);
     sqlite_exec(
         db,
         "CREATE VIEW traceloom_v_event_source_locator AS SELECT "

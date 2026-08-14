@@ -65,7 +65,11 @@ The raw-evidence catalog is itself queryable:
   query the named embedded table using
   `source_rowid_column = source_key`; SQL cannot dynamically substitute a table
   name, so agents first read the locator row and then issue the bounded raw
-  lookup.
+  lookup. `embedded_raw` is a row-level contract: before publication the
+  materializer verifies that every literal event, runtime-call, and device-work
+  key resolves to the declared row in the embedded table. A stale or malformed
+  literal key fails the write atomically instead of publishing a table-level
+  false positive.
 - `traceloom_v_runtime_call_source_locator` and
   `traceloom_v_device_work_source_locator`: the same bounded path for both
   endpoints of a runtime/device relation.

@@ -142,6 +142,11 @@ structural node
 | `traceloom_v_node_host_activity` | 按 node occurrence 与 anchor position 比较 anchor 之后的 host runtime 分布。 |
 | `traceloom_v_structure_bubble_position` | 按结构位置比较 bubble population 与 host 支持覆盖率，不因缺少 API 统计而丢行。 |
 
+`resolution_status = 'embedded_raw'` 是逐行承诺，不只是“原始表已经复制进来”：
+analysis DB 发布前会验证 event、runtime call 与 device work 的每个 literal
+`source_key` 都能命中声明的内嵌原始行。过期或格式错误的 key 会使写入原子失败，
+不会留下看似可下钻、实际悬空的 locator。
+
 ### 从 device 结构反看 host runtime 行为
 
 TraceLoom 不把某段 device idle 直接命名成一个“原因”。它先保留更一般、也更

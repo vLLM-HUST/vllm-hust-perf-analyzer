@@ -358,11 +358,55 @@ zero issues.  Launch member counts, task sums, kind partitions, stream sums,
 busy/envelope inequalities, aggregate contributor counts and denominators, and
 the one-to-one exact-member drill-down into tree occurrences all validate.
 
+### A13. Host context is an evidence-bounded relation, not bubble causality
+
+**Severity:** audited method boundary; row-provenance gap repaired in this
+branch.
+
+`build_runtime_device_sql_rows()` first relates runtime calls and device work
+through provider identifiers or a validated graph-launch adapter relation.
+Reused CUDA synchronization identifiers may be disambiguated by unique runtime
+interval containment only after identifier-based candidate selection; time
+proximity never discovers a relation. Missing, ambiguous, device-incompatible,
+and unsupported cases remain typed. Anchor endpoints admit only
+`supported_exact` or `supported_deterministic` relations, and a host interval
+is defined as the observable window from the left endpoint call's end to the
+right endpoint call's start. Missing endpoints, incompatible domains, and
+nonmonotonic order remain queryable and contribute no invented activity.
+
+A structure bubble is separately the overlap-safe uncovered device cost before
+a self-owned right anchor. Its host context reuses the corresponding adjacent
+anchor interval and inventories overlapping profiler-visible runtime calls in
+the selected host scope. API-family counts, scheduled duration, and observed
+overlap are population statistics; they are not a causal label for the device
+bubble. Positions without a supported host interval or without API-family rows
+remain in the left-preserving position surface with explicit coverage and
+support-state denominators.
+
+Relation-level checks on both the real Ascend kickstart augmented DB and the
+two-device CUDA DP2 augmented DB found no dangling supported endpoints,
+nonmonotonic supported intervals, activity outside its interval, duplicate
+activity links, sparse observed order, fraction above one, or disagreement
+between bubble status and its host interval. Every device contributes exactly
+`anchor_count - 1` adjacent intervals. The combined multi-process CUDA DB does,
+however, contain many ambiguous reused runtime identifiers. TraceLoom correctly
+withholds those endpoints rather than binding by process/context implicitly;
+paper wording must therefore report host-observation coverage and must not
+promise complete host reconstruction for combined multi-process inputs.
+
+The previous source-locator views treated the existence of an embedded raw
+table as sufficient for `resolution_status = 'embedded_raw'`; a stale literal
+row key could therefore masquerade as auditable provenance. Augmented-DB
+publication now inventories the source domains actually referenced by events,
+runtime calls, and device work and validates every literal key against the
+declared embedded rowid column. Missing, malformed, or rowid-less literal
+locators fail atomically. Focused tests prove a valid drill-down and prove that
+a stale key publishes no partial database.
+
 ## Next audit slices
 
-1. Device-local structural domains and typed grammar completion status.
-2. Occurrence populations, denominator rules, and projection-coordinate
-   composability.
-3. Replay-unit internal structure and cost lenses.
-4. Host/device bridge relations, typed support boundaries, and source
-   provenance.
+1. Paper-facing statistical reducer identities, pairing rules, and denominator
+   guards.
+2. Remaining claim-to-code cells, with special attention to source/event
+   identity and one-thread versus multi-thread relation equality.
+3. Broad validation and paper-facing boundary reconciliation.

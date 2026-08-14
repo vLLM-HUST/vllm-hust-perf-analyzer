@@ -202,6 +202,21 @@ void require_analysis_surface_queries_prepare(const std::string& path) {
   sqlite3_close(db);
 }
 
+NativeIr build_source_locator_ir(const std::string& source_path,
+                                 std::uint64_t source_row_id) {
+  NativeIr ir;
+  const SourceRefId source = ir.source_refs.append(
+      "fixture_sqlite", source_path, "RAW_SENTINEL", 0);
+  const SymbolId symbol = ir.symbols.intern("SourceLinkedWork");
+  const TraceEventId event = ir.trace_events.append(
+      source, source_row_id, 0, 1, 1000, 2000, symbol);
+  const AnchorId anchor = ir.anchors.append(
+      source, event, ReplayUnitId::invalid(), AnchorKind::kDeviceEvent,
+      symbol, 0, 1, 1000, 2000);
+  ir.tokens.append(anchor, symbol, 0, 0, 1000, 2000);
+  return ir;
+}
+
 NativeIr build_collective_repeat_ir() {
   NativeIr ir;
   const SourceRefId source =
@@ -1469,6 +1484,41 @@ int main() {
                           "traceloom_raw_table WHERE source_table = "
                           "'RAW_SENTINEL'") == "RAW_SENTINEL");
   std::remove(augmented_path.c_str());
+
+  // A published `embedded_raw` locator is a literal row promise. The
+  // materializer accepts an exact provider row and rejects a stale key before
+  // atomically publishing the augmented database.
+  const std::string locator_raw_path = temp_db_path();
+  const std::string locator_augmented_path = temp_db_path();
+  run_sql(locator_raw_path,
+          "CREATE TABLE RAW_SENTINEL(payload TEXT);"
+          "INSERT INTO RAW_SENTINEL VALUES('literal provider row')");
+  compat::write_queryable_database_timeline(
+      locator_augmented_path, locator_raw_path,
+      build_source_locator_ir(locator_raw_path, 1), augmented_options);
+  require(run_scalar_text(
+              locator_augmented_path,
+              "SELECT resolution_status FROM "
+              "traceloom_v_event_source_locator WHERE event_id='event-0'") ==
+          "embedded_raw");
+  require(run_scalar_text(locator_augmented_path,
+                          "SELECT payload FROM RAW_SENTINEL WHERE rowid=1") ==
+          "literal provider row");
+  std::remove(locator_augmented_path.c_str());
+
+  bool rejected_stale_source_key = false;
+  try {
+    compat::write_queryable_database_timeline(
+        locator_augmented_path, locator_raw_path,
+        build_source_locator_ir(locator_raw_path, 2), augmented_options);
+  } catch (const std::runtime_error&) {
+    rejected_stale_source_key = true;
+  }
+  require(rejected_stale_source_key,
+          "augmented DB accepted a source locator for a missing raw row");
+  require(!std::filesystem::exists(locator_augmented_path),
+          "failed locator validation published a partial augmented DB");
+  std::remove(locator_raw_path.c_str());
 
   // Backend lowering labels share a structural symbol only through an
   // explicit, queryable rule. The reverse path retains both concrete labels
