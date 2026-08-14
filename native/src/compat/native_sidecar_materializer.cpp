@@ -1524,7 +1524,7 @@ NodeCoverageSqlRows build_native_loop_tree_node_coverage_rows(
     const NativeCompatibilitySidecarOptions& options) {
   const Stopwatch tokens_watch;
   const std::vector<ReportToken> report_tokens =
-      build_report_tokens_from_native_ir(ir);
+      build_report_tokens_from_native_ir(ir, options.evidence_role_config);
   if (options.timing_diagnostics) {
     std::cerr << "timing loop_tree_tokens_ms=" << tokens_watch.elapsed_ms()
               << "\n";
@@ -1532,7 +1532,8 @@ NodeCoverageSqlRows build_native_loop_tree_node_coverage_rows(
   const Stopwatch aux_watch;
   const AuxAttributionSqlRows aux_rows =
       options.materialize_aux_attribution
-          ? build_aux_attribution_sql_rows(ir, options.db_idx)
+          ? build_aux_attribution_sql_rows(
+                ir, options.evidence_role_config, options.db_idx)
           : AuxAttributionSqlRows{};
   if (options.timing_diagnostics) {
     std::cerr << "timing loop_tree_aux_rows_ms=" << aux_watch.elapsed_ms()
@@ -1681,13 +1682,14 @@ void write_basic_native_compatibility_sidecar(
   replace_symbol_normalization_rows(sqlite_path, symbol_normalization_rows);
   const AuxAttributionSqlRows aux_rows =
       options.materialize_aux_attribution
-          ? build_aux_attribution_sql_rows(ir, options.db_idx)
+          ? build_aux_attribution_sql_rows(
+                ir, options.evidence_role_config, options.db_idx)
           : AuxAttributionSqlRows{};
   replace_aux_attribution_rows(sqlite_path, aux_rows);
   replace_anchor_cost_breakdown_rows(
       sqlite_path, build_native_anchor_cost_breakdown_sql_rows(ir, aux_rows));
   const std::vector<ReportToken> report_tokens =
-      build_report_tokens_from_native_ir(ir);
+      build_report_tokens_from_native_ir(ir, options.evidence_role_config);
   const ReportTree report_tree =
       build_sidecar_report_tree(ir, options, report_tokens);
   const NodeCoverageSqlRows node_rows =

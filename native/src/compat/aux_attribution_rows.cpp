@@ -10,6 +10,7 @@
 #include <utility>
 #include <vector>
 
+#include "traceloom/analysis/event_cost_attribution.h"
 #include "traceloom/compat/anchor_sequence_rows.h"
 #include "traceloom/compat/timeline_rows.h"
 
@@ -101,8 +102,10 @@ struct AuxSlotAccum {
 
 }  // namespace
 
-AuxAttributionSqlRows build_aux_attribution_sql_rows(const NativeIr& ir,
-                                                     std::uint32_t db_idx) {
+AuxAttributionSqlRows build_aux_attribution_sql_rows_impl(
+    const NativeIr& ir,
+    std::uint32_t db_idx,
+    const EventCostAttributionMask* cost_mask) {
   const std::unordered_set<TraceEventId::value_type> anchored_events =
       anchored_trace_event_ids(ir);
   const std::unordered_set<TraceEventId::value_type> host_runtime_events =
@@ -127,6 +130,9 @@ AuxAttributionSqlRows build_aux_attribution_sql_rows(const NativeIr& ir,
     // prelude auxiliary cost would charge the same physical interval twice.
     if (reconciled_timing_envelopes.find(event.id.value()) !=
         reconciled_timing_envelopes.end()) {
+      continue;
+    }
+    if (cost_mask != nullptr && !cost_mask->includes(event.id)) {
       continue;
     }
     const AnchorRow* anchor = following_anchor_for_aux_event(ir, event);
@@ -175,6 +181,20 @@ AuxAttributionSqlRows build_aux_attribution_sql_rows(const NativeIr& ir,
     rows.aux_slots.push_back(std::move(entry.second.slot));
   }
   return rows;
+}
+
+AuxAttributionSqlRows build_aux_attribution_sql_rows(const NativeIr& ir,
+                                                     std::uint32_t db_idx) {
+  return build_aux_attribution_sql_rows_impl(ir, db_idx, nullptr);
+}
+
+AuxAttributionSqlRows build_aux_attribution_sql_rows(
+    const NativeIr& ir,
+    FlatAnchorBuildConfig config,
+    std::uint32_t db_idx) {
+  const EventCostAttributionMask mask =
+      build_event_cost_attribution_mask(ir, std::move(config));
+  return build_aux_attribution_sql_rows_impl(ir, db_idx, &mask);
 }
 
 }  // namespace traceloom::compat

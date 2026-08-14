@@ -1,4 +1,5 @@
 #include "traceloom/compat/aux_attribution_rows.h"
+#include "traceloom/compat/report_tree_rows.h"
 #include "traceloom/testing/test_util.h"
 
 #include <stdexcept>
@@ -61,6 +62,63 @@ int main() {
     rejected_bad_anchor_ref = true;
   }
   require(rejected_bad_anchor_ref);
+
+  // Policy cost treatment is executable rather than descriptive metadata.
+  // The same EVENT_WAIT remains normalized evidence in both cases, but only
+  // retained_for_attribution may enter the next anchor's transition overlay.
+  NativeIr policy_ir;
+  const SourceRefId policy_source = policy_ir.source_refs.append(
+      "ascend_sqlite_hot_path", "memory", "TASK", 0);
+  const SymbolId ai_core = policy_ir.symbols.intern("AI_CORE");
+  const SymbolId event_wait = policy_ir.symbols.intern("EVENT_WAIT");
+  const SymbolId matmul_v2 = policy_ir.symbols.intern("MatMulV2");
+  const TraceEventId first_event = policy_ir.trace_events.append(
+      policy_source, 10, 0, 1, 0, 1000, matmul_v2);
+  const TraceEventId wait_event = policy_ir.trace_events.append(
+      policy_source, 11, 0, 1, 2000, 5000, event_wait);
+  const TraceEventId second_event = policy_ir.trace_events.append(
+      policy_source, 12, 0, 1, 10000, 11000, matmul_v2);
+  policy_ir.tasks.append(policy_source, first_event, 10, 10, -1, ai_core,
+                         matmul_v2, matmul_v2, ai_core,
+                         SymbolId::invalid());
+  policy_ir.tasks.append(policy_source, wait_event, 11, 11, -1, event_wait,
+                         SymbolId::invalid(), SymbolId::invalid(),
+                         SymbolId::invalid(), SymbolId::invalid());
+  policy_ir.tasks.append(policy_source, second_event, 12, 12, -1, ai_core,
+                         matmul_v2, matmul_v2, ai_core,
+                         SymbolId::invalid());
+
+  FlatAnchorBuildConfig retained_config;
+  retained_config.filter_auxiliary_task_anchors = true;
+  retained_config.classification_rules =
+      load_default_signal_classification_ruleset();
+  build_flat_anchors(policy_ir, retained_config);
+  require(policy_ir.anchors.size() == 2);
+  const compat::AuxAttributionSqlRows retained_rows =
+      compat::build_aux_attribution_sql_rows(policy_ir, retained_config);
+  require(retained_rows.aux_links.size() == 1);
+  require(retained_rows.aux_links[0].aux_event_id == "event-1");
+  const std::vector<ReportToken> retained_tokens =
+      compat::build_report_tokens_from_native_ir(policy_ir, retained_config);
+  require(retained_tokens.size() == 2);
+  require(retained_tokens[1].prelude_aux_event_count == 1.0);
+  require(retained_tokens[1].prelude_aux_us == 3.0);
+
+  FlatAnchorBuildConfig evidence_only_config = retained_config;
+  evidence_only_config.classification_overrides.push_back(
+      parse_signal_classification_override(
+          "ascend.aux.task.type.event.wait.28ab0f94.cost_treatment="
+          "retained_as_evidence"));
+  const compat::AuxAttributionSqlRows evidence_only_rows =
+      compat::build_aux_attribution_sql_rows(policy_ir,
+                                             evidence_only_config);
+  require(evidence_only_rows.aux_links.empty());
+  const std::vector<ReportToken> evidence_only_tokens =
+      compat::build_report_tokens_from_native_ir(policy_ir,
+                                                 evidence_only_config);
+  require(evidence_only_tokens.size() == 2);
+  require(evidence_only_tokens[1].prelude_aux_event_count == 0.0);
+  require(evidence_only_tokens[1].prelude_aux_us == 0.0);
 
   return 0;
 }

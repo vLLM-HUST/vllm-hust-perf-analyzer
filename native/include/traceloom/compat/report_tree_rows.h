@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "traceloom/analysis/flat_anchor_builder.h"
 #include "traceloom/compat/sidecar_writer.h"
 #include "traceloom/ir/native_ir.h"
 #include "traceloom/report/report_tree.h"
@@ -12,6 +13,10 @@ namespace traceloom::compat {
 
 std::vector<ReportToken> build_report_tokens_from_native_ir(
     const NativeIr& ir);
+
+std::vector<ReportToken> build_report_tokens_from_native_ir(
+    const NativeIr& ir,
+    FlatAnchorBuildConfig config);
 
 NodeCoverageSqlRows build_report_tree_node_coverage_sql_rows(
     const ReportTree& tree,

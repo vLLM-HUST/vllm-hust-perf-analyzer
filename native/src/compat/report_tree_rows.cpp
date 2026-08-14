@@ -13,6 +13,7 @@
 #include <utility>
 #include <vector>
 
+#include "traceloom/analysis/event_cost_attribution.h"
 #include "traceloom/compat/anchor_sequence_rows.h"
 #include "traceloom/compat/aux_attribution_rows.h"
 #include "traceloom/report/report_tree_builder.h"
@@ -217,6 +218,7 @@ PreludeCost compute_interval_cost(
     const std::unordered_map<TraceEventId::value_type, const TaskRow*>&
         task_index,
     const std::unordered_set<TraceEventId::value_type>& comm_events,
+    const EventCostAttributionMask* cost_mask,
     std::int64_t interval_start,
     std::int64_t interval_end) {
   PreludeCost cost;
@@ -248,6 +250,9 @@ PreludeCost compute_interval_cost(
        event_index_value < upper_index; ++event_index_value) {
     const TraceEventRow& event = *event_index.events[event_index_value];
     if (anchored_events.find(event.id.value()) != anchored_events.end()) {
+      continue;
+    }
+    if (cost_mask != nullptr && !cost_mask->includes(event.id)) {
       continue;
     }
     const std::int64_t overlap_start =
@@ -404,7 +409,8 @@ std::vector<double> compute_timeline_anchor_costs(
 
 std::vector<PreludeCost> compute_prelude_costs(
     const NativeIr& ir,
-    const std::vector<ReportToken>& tokens) {
+    const std::vector<ReportToken>& tokens,
+    const EventCostAttributionMask* cost_mask) {
   std::vector<PreludeCost> costs(tokens.size());
   if (tokens.empty()) {
     return costs;
@@ -442,7 +448,7 @@ std::vector<PreludeCost> compute_prelude_costs(
           event_index_found != event_indexes.end()) {
         costs[token_index] = compute_interval_cost(
             ir, event_index_found->second, anchored_events, task_index,
-            comm_events, frontier_ns, token.start_ns);
+            comm_events, cost_mask, frontier_ns, token.start_ns);
       } else if (token.start_ns > frontier_ns) {
         costs[token_index].idle_us = ns_to_us(token.start_ns - frontier_ns);
       }
@@ -721,8 +727,11 @@ double cost_average_divisor(const ReportNodeDef& def,
 
 }  // namespace
 
-std::vector<ReportToken> build_report_tokens_from_native_ir(
-    const NativeIr& ir) {
+namespace {
+
+std::vector<ReportToken> build_report_tokens_from_native_ir_impl(
+    const NativeIr& ir,
+    const EventCostAttributionMask* cost_mask) {
   std::vector<ReportToken> tokens;
   tokens.reserve(ir.tokens.size());
   for (const TokenRow& token : ir.tokens.rows()) {
@@ -745,7 +754,7 @@ std::vector<ReportToken> build_report_tokens_from_native_ir(
     tokens.push_back(std::move(out));
   }
   const std::vector<PreludeCost> prelude_costs =
-      compute_prelude_costs(ir, tokens);
+      compute_prelude_costs(ir, tokens, cost_mask);
   const std::vector<double> timeline_anchor_costs =
       compute_timeline_anchor_costs(tokens);
   for (std::size_t i = 0; i < tokens.size(); ++i) {
@@ -758,6 +767,21 @@ std::vector<ReportToken> build_report_tokens_from_native_ir(
     tokens[i].prelude_aux_us = prelude_costs[i].aux_us;
   }
   return tokens;
+}
+
+}  // namespace
+
+std::vector<ReportToken> build_report_tokens_from_native_ir(
+    const NativeIr& ir) {
+  return build_report_tokens_from_native_ir_impl(ir, nullptr);
+}
+
+std::vector<ReportToken> build_report_tokens_from_native_ir(
+    const NativeIr& ir,
+    FlatAnchorBuildConfig config) {
+  const EventCostAttributionMask mask =
+      build_event_cost_attribution_mask(ir, std::move(config));
+  return build_report_tokens_from_native_ir_impl(ir, &mask);
 }
 
 NodeCoverageSqlRows build_report_tree_node_coverage_sql_rows(

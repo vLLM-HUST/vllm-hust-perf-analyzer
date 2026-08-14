@@ -13,6 +13,7 @@ option(
 set(TRACELOOM_NATIVE_ASCEND_SQLITE_AVAILABLE OFF)
 
 add_library(traceloom_native_core
+  src/analysis/event_cost_attribution.cpp
   src/analysis/event_reconciliation.cpp
   src/analysis/exact_periodic_suffix.cpp
   src/analysis/flat_anchor_builder.cpp

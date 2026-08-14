@@ -190,6 +190,81 @@ void seed_evidence_role_fixture(const std::string& db_path) {
   options.evidence_role_manifest_sha256 =
       config.classification_rules.metadata().manifest_sha256;
   compat::write_basic_native_compatibility_sidecar(db_path, ir, options);
+  traceloom::testing::require(run_scalar_int(
+      db_path,
+      "SELECT COUNT(*) FROM traceloom_evidence_role_decision "
+      "WHERE event_id = 'event-3' AND final_role = 'auxiliary' AND "
+      "support_state = 'retained_unplaced' AND reason_code = "
+      "'omitted_event_without_auxiliary_link'") == 1);
+  traceloom::testing::require(run_scalar_int(
+      db_path,
+      "SELECT COUNT(*) FROM traceloom_evidence_role_issue "
+      "WHERE decision_id = 'role-decision-3' AND code = "
+      "'omitted_event_without_auxiliary_link' AND support_state = "
+      "'retained_unplaced'") == 1);
+  traceloom::testing::require(run_scalar_int(
+      db_path,
+      "SELECT COUNT(*) FROM traceloom_aux_link WHERE aux_event_id = "
+      "'event-3'") == 0);
+}
+
+void require_communication_replacement_lineage() {
+  using namespace traceloom;
+  NativeIr ir;
+  const SourceRefId task_source = ir.source_refs.append(
+      "ascend_sqlite_hot_path", "memory", "TASK", 0);
+  const SourceRefId comm_source = ir.source_refs.append(
+      "ascend_sqlite_hot_path", "memory", "COMMUNICATION_OP", 0);
+  const SymbolId kernel = ir.symbols.intern("KERNEL_AIVEC");
+  const SymbolId task_name = ir.symbols.intern("hcom_allReduce_");
+  const SymbolId all_reduce = ir.symbols.intern("AllReduce");
+
+  const TraceEventId task_event = ir.trace_events.append(
+      task_source, 1, 0, 415, 1000, 2000, task_name);
+  ir.tasks.append(task_source, task_event, 1, 1, 77, kernel, task_name,
+                  task_name, kernel, task_name);
+  const TraceEventId comm_event = ir.trace_events.append(
+      comm_source, 2, 0, 415, 1000, 2000, all_reduce);
+  ir.communication_ops.append(comm_source, comm_event, 77, 9, 1, 1,
+                              all_reduce);
+
+  FlatAnchorBuildConfig config;
+  config.skip_tasks_covered_by_communication_ops = true;
+  config.filter_auxiliary_task_anchors = true;
+  config.classification_rules = load_default_signal_classification_ruleset();
+  build_flat_anchors(ir, config);
+  traceloom::testing::require(ir.anchors.size() == 1);
+  traceloom::testing::require(
+      ir.anchors.rows().front().trace_event_id == comm_event);
+
+  const std::string db_path = temp_db_path();
+  compat::NativeCompatibilitySidecarOptions options;
+  options.source_kind = "ascend_sqlite_hot_path";
+  options.source_path = "memory";
+  options.evidence_role_config = config;
+  compat::write_basic_native_compatibility_sidecar(db_path, ir, options);
+
+  traceloom::testing::require(run_scalar_int(
+      db_path,
+      "SELECT COUNT(*) FROM traceloom_evidence_role_decision "
+      "WHERE event_id = 'event-0' AND final_role = 'anchor' AND "
+      "support_state = 'supported' AND reason_code = "
+      "'represented_by_communication_anchor'") == 1);
+  traceloom::testing::require(run_scalar_int(
+      db_path,
+      "SELECT COUNT(*) FROM traceloom_evidence_role_placement "
+      "WHERE decision_id = 'role-decision-0' AND placement_kind = "
+      "'anchor' AND placement_id = 'anchor-0' AND reason_code = "
+      "'represented_by_communication_anchor'") == 1);
+  traceloom::testing::require(run_scalar_int(
+      db_path,
+      "SELECT COUNT(*) FROM traceloom_evidence_role_issue "
+      "WHERE decision_id = 'role-decision-0'") == 0);
+  traceloom::testing::require(run_scalar_int(
+      db_path,
+      "SELECT COUNT(*) FROM traceloom_aux_link WHERE aux_event_id = "
+      "'event-0'") == 0);
+  std::remove(db_path.c_str());
 }
 
 void require_node_coverage_invariants(const std::string& db_path) {
@@ -1589,6 +1664,8 @@ int main() {
     require(result.row_count == 0);
   }
   std::remove(empty_db_path.c_str());
+
+  require_communication_replacement_lineage();
 
   for (const QueryCase& query_case : query_cases) {
     const std::string db_path = temp_db_path();
