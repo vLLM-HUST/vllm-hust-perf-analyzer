@@ -3,6 +3,9 @@
 -- a selective audit. Each member says whether it contributes timing, symbol,
 -- or cost; normalized events and raw source locators remain independently
 -- queryable.
+--
+-- For effective-policy inspection, outcome summaries, bounded selection, and
+-- raw-row drill-down, see docs/event-reconciliation-audit.md.
 SELECT decision_id,
        status,
        reason_code,

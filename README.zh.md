@@ -175,6 +175,47 @@ host windows，或切换成本 lens。用户框选的 device window 也可以作
 - `avg_compute_us`、`avg_comm_us`、`avg_idle_us`：可以直接比较的平均成本；
 - `avg_aux_us`、`avg_self_us`：归因到节点的辅助成本和节点自身成本。
 
+#### 审计稀疏 event reconciliation
+
+部分 profiler schema 会用两条记录描述同一个 device 动作：一条提供完整时间包络，
+另一条提供具体算子身份。TraceLoom 只会归并规则明确支持且能够唯一配对的记录；
+无法配对、有多个候选或证据冲突时，原始候选继续作为彼此独立的事件进入时间线。
+
+不要从一张大 join 表盲看全部行。推荐按下面的审计链逐层下钻：
+
+| 关系 | 回答的问题 |
+| --- | --- |
+| `traceloom_event_reconciliation_policy` | 这份 `analysis.db` 实际使用了哪个 policy 和 digest？ |
+| `traceloom_event_reconciliation_rule` | 哪些 provider 证据和阈值允许归并？规则来自哪里？ |
+| `traceloom_event_reconciliation_decision` | 哪些候选组被归并、保持独立、判为多义或冲突？ |
+| `traceloom_event_reconciliation_member` | 每条原始 observation 分别贡献 timing、symbol 还是 cost？ |
+| `traceloom_v_event_reconciliation` | 把 member、decision、规范化 event 与 canonical anchor 一次连起来。 |
+
+先看结果分布，再选一条决定下钻：
+
+```sql
+SELECT status, reason_code, count(*) AS decision_count
+FROM traceloom_event_reconciliation_decision
+GROUP BY status, reason_code
+ORDER BY status, reason_code;
+
+SELECT decision_id, status, reason_code, event_id, member_role,
+       contributes_timing, contributes_symbol, contributes_cost,
+       canonical_anchor_id, observed_symbol, canonical_symbol,
+       source_table, source_key
+FROM traceloom_v_event_reconciliation
+WHERE decision_id = 'reconciliation-decision-0'
+ORDER BY member_order;
+```
+
+默认规则位于
+[`native/data/default_event_reconciliation_rules.tsv`](native/data/default_event_reconciliation_rules.tsv)。
+`--event-reconciliation-rules PATH` 完整替换默认策略；
+`--extend-event-reconciliation-rules PATH` 按稳定 `rule_id` 叠加规则，同名 ID 覆盖
+默认项。无论采用哪种方式，effective policy、规则来源、每次决定和成员贡献都会写回
+产物。完整的 policy → rule → decision → member 使用流程见
+[event reconciliation 审计指南](docs/event-reconciliation-audit.md)。
+
 #### 推荐的 host/device 分析路径
 
 不要从 provider 原始表起步。先在恢复结构中选一个高成本或重复 node，再带着

@@ -134,7 +134,9 @@ The installed default can be fully replaced with
 `--event-reconciliation-rules PATH`. An extension supplied through
 `--extend-event-reconciliation-rules PATH` adds new rules and replaces a base
 rule when the stable `rule_id` repeats. The composite digest and each retained
-rule origin make the effective overlay auditable.
+rule origin make the effective overlay auditable. Follow the staged
+[policy → rule → decision → member audit guide](event-reconciliation-audit.md)
+for runnable queries and interpretation.
 
 ## Core Tables
 

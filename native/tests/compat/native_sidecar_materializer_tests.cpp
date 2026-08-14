@@ -1259,6 +1259,29 @@ int main() {
               "relation_name = 'traceloom_v_evidence_role_decision'") == 1);
   require(run_scalar_int(
               augmented_path,
+              "SELECT COUNT(*) FROM traceloom_analysis_surface WHERE "
+              "surface_name = 'event_reconciliation_policy' AND "
+              "relation_name = 'traceloom_event_reconciliation_policy'") ==
+          1);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_analysis_surface WHERE "
+              "surface_name = 'event_reconciliation_rule' AND "
+              "relation_name = 'traceloom_event_reconciliation_rule'") == 1);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_analysis_surface WHERE "
+              "surface_name = 'event_reconciliation_decision' AND "
+              "relation_name = 'traceloom_event_reconciliation_decision'") ==
+          1);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_analysis_surface WHERE "
+              "surface_name = 'event_reconciliation_member' AND "
+              "relation_name = 'traceloom_event_reconciliation_member'") ==
+          1);
+  require(run_scalar_int(
+              augmented_path,
               "SELECT COUNT(*) FROM "
               "traceloom_symbol_normalization_policy") == 1);
   require(run_scalar_int(

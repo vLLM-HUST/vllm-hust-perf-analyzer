@@ -675,6 +675,35 @@ void materialize_augmented_catalog(const std::string& path,
         {"normalized_event", "traceloom_event", "one normalized event",
          "inspect fine-grained timing and operator evidence",
          "SELECT * FROM traceloom_event ORDER BY db_idx, device_id, step_idx;"},
+        {"event_reconciliation_policy",
+         "traceloom_event_reconciliation_policy",
+         "one effective event-reconciliation policy",
+         "audit the manifest identity, digest, and unmatched behavior used "
+         "for this analysis",
+         "SELECT * FROM traceloom_event_reconciliation_policy ORDER BY "
+         "policy_id;"},
+        {"event_reconciliation_rule",
+         "traceloom_event_reconciliation_rule",
+         "one effective event-reconciliation rule",
+         "inspect the exact provider predicate, containment threshold, and "
+         "rule origin admitted by the effective policy",
+         "SELECT * FROM traceloom_event_reconciliation_rule ORDER BY "
+         "priority DESC, rule_id;"},
+        {"event_reconciliation_decision",
+         "traceloom_event_reconciliation_decision",
+         "one candidate event-reconciliation group",
+         "find reconciled, independent, ambiguous, and conflicting candidate "
+         "groups before drilling into member contributions",
+         "SELECT status, reason_code, COUNT(*) AS decision_count FROM "
+         "traceloom_event_reconciliation_decision GROUP BY status, "
+         "reason_code ORDER BY status, reason_code;"},
+        {"event_reconciliation_member",
+         "traceloom_event_reconciliation_member",
+         "one normalized event in one reconciliation decision",
+         "audit which original observation contributes timing, structural "
+         "symbol, or cost and retain its raw-source locator",
+         "SELECT * FROM traceloom_event_reconciliation_member ORDER BY "
+         "db_idx, decision_id, member_order LIMIT 200;"},
         {"event_reconciliation", "traceloom_v_event_reconciliation",
          "one candidate observation in one sparse reconciliation decision",
          "audit when multiple profiler rows contribute timing, symbol, and "
