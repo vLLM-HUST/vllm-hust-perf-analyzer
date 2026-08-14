@@ -988,6 +988,7 @@ int main() {
   analyzed_tables.push_back("traceloom_structure_bubble_api_occurrence");
   analyzed_tables.push_back("traceloom_structure_bubble_api_stats");
   analyzed_tables.push_back("traceloom_structure_bubble_occurrence");
+  analyzed_tables.push_back("traceloom_structure_bubble_position");
   analyzed_tables.push_back("sqlite_stat1");
   std::sort(analyzed_tables.begin(), analyzed_tables.end());
   require(load_sqlite_master_names(db_path, "table") == analyzed_tables);
@@ -1009,6 +1010,7 @@ int main() {
               "traceloom_v_node_cost",
               "traceloom_v_node_graph_body_member",
               "traceloom_v_node_host_activity",
+              "traceloom_v_node_host_interval",
               "traceloom_v_node_replay_cost_member",
               "traceloom_v_node_runtime_call",
               "traceloom_v_runtime_device",
@@ -1016,7 +1018,9 @@ int main() {
               "traceloom_v_semantic_tree_readable",
               "traceloom_v_structure_bubble_api_occurrence",
               "traceloom_v_structure_bubble_api_stats",
+              "traceloom_v_structure_bubble_host_context",
               "traceloom_v_structure_bubble_occurrence",
+              "traceloom_v_structure_bubble_position",
               "traceloom_v_structure_bubble_runtime_call",
               "traceloom_v_symbol_normalization_placement",
               "traceloom_v_symbol_variant_cost",
@@ -1085,6 +1089,8 @@ int main() {
               "idx_traceloom_structure_bubble_api_stats",
               "idx_traceloom_structure_bubble_host_interval",
               "idx_traceloom_structure_bubble_id",
+              "idx_traceloom_structure_bubble_position",
+              "idx_traceloom_structure_bubble_position_hotspot",
               "idx_traceloom_structure_bubble_transition",
               "idx_traceloom_symbol_normalization_rule",
               "idx_traceloom_symbol_normalization_source",

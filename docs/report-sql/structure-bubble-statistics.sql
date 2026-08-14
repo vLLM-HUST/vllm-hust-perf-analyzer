@@ -7,12 +7,16 @@
 
 
 -- 1. Rank recurrent structural positions by bubble cost and show the public
--- API-family distribution observed upstream. Fractions are reported against
--- both all bubbles and only bubbles with a supported host observation scope.
+-- typed host-observation support and any compatible API-family distribution
+-- observed upstream. A NULL API family retains an unsupported-only or
+-- supported-but-empty structural position.
 SELECT structural_position_id,
        right_node_symbol,
        bubble_occurrence_count,
-       host_observable_occurrence_count,
+       supported_host_occurrence_count,
+       missing_endpoint_occurrence_count,
+       nonmonotonic_occurrence_count,
+       other_unsupported_occurrence_count,
        host_observation_coverage,
        round(total_bubble_us, 3) AS total_bubble_us,
        round(avg_bubble_us, 3) AS avg_bubble_us,
@@ -24,7 +28,7 @@ SELECT structural_position_id,
        avg_calls_per_observable_bubble,
        round(avg_scheduled_overlap_us_per_bubble, 3)
          AS avg_scheduled_overlap_us_per_bubble
-FROM traceloom_v_structure_bubble_api_stats
+FROM traceloom_v_structure_bubble_host_context
 ORDER BY total_bubble_us DESC,
          structural_position_id,
          api_family

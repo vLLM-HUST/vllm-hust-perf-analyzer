@@ -69,11 +69,23 @@ ORDER BY display_order;
 
 需要让 agent 或 UI 自动生成查询时，再读
 `traceloom_projection_parameter`；它会逐项给出 selector 的 SQLite 类型、
-可空性、用途，以及候选坐标来自哪张 relation/column。
+可空性、坐标类型、用途，以及候选坐标来自哪张 relation/column。
+`traceloom_projection_coordinate` 列出 recipe 结果里仍可复用的坐标，
+`traceloom_v_projection_continuation` 则把这些输出与下一步 recipe 的输入对接；
+只有目标 recipe 的全部必需坐标都已经具备时，continuation 才会出现。
+
+```sql
+SELECT source_column, target_projection, target_parameter
+FROM traceloom_v_projection_continuation
+WHERE source_projection = 'position_population'
+ORDER BY target_projection, source_column;
+```
 
 把 `:occurrence_idx` 保持为 `NULL`，得到同一结构的 occurrence population；绑定
 具体数字，就得到那一次真实执行。同一个 `:node_id` 可以继续切换 hierarchy、
-members、host context 和 measure lens。详细契约见
+members、host context 和 measure lens。`scope_host_windows` 会保留缺端点、
+host 顺序不单调等带类型结果；换到 host domain 不会把不支持的位置静默变成空集。
+详细契约见
 [`composable-analytical-projections.md`](composable-analytical-projections.md)。
 
 以下横向、纵向、层级和 cross-domain 阅读方式不是四套模型，而是这组坐标上的
@@ -126,7 +138,9 @@ structural node
 | `traceloom_v_aux_runtime_call` | 从 device aux 反查关联的 host runtime call。 |
 | `traceloom_v_sync_runtime_call` | 查询 profiler 明确标记的同步动作及其 runtime/device 关系。 |
 | `traceloom_v_anchor_host_activity` | 查看相邻 device anchors 对应的 host endpoints 之间，profiler 实际观察到的 runtime calls。 |
+| `traceloom_v_node_host_interval` | 在 node occurrence / anchor position 中保留每个带类型的 host interval，包括缺端点与不支持状态。 |
 | `traceloom_v_node_host_activity` | 按 node occurrence 与 anchor position 比较 anchor 之后的 host runtime 分布。 |
+| `traceloom_v_structure_bubble_position` | 按结构位置比较 bubble population 与 host 支持覆盖率，不因缺少 API 统计而丢行。 |
 
 ### 从 device 结构反看 host runtime 行为
 
@@ -189,6 +203,17 @@ ORDER BY device_id, left_anchor_id, observed_start_ns;
 
 如果目标是比较同一个结构位置在各 occurrence 后面的 host 行为，不必自己把 node、
 anchor 和 interval 重新连接：
+
+```sql
+SELECT occurrence_idx, anchor_order, interval_id, support_state,
+       host_interval_us, left_endpoint_count, right_endpoint_count
+FROM traceloom_v_node_host_interval
+WHERE node_id = 'node-42' AND coverage_kind = 'self'
+ORDER BY occurrence_idx, anchor_order;
+```
+
+先读这张 typed interval 视图，才能区分“受支持但没有观察到 call”和“缺少端点、
+host 顺序不单调或证据不支持”。需要 API 分布时再查询 activity：
 
 ```sql
 SELECT occurrence_idx, anchor_order, right_anchor_symbol, host_interval_us,
@@ -263,7 +288,9 @@ LIMIT 30;
 
 找到感兴趣的 `local_node_id` 后，继续查询 occurrence、children、anchor、replay
 member 和 raw row。仓库里的 `docs/report-sql/*.sql` 提供可执行的常见路径，
-`traceloom_projection_recipe.example_sql` 说明组合路径，
+`traceloom_projection_recipe.example_sql` 说明组合路径；
+`traceloom_projection_coordinate` 和 `traceloom_v_projection_continuation`
+说明查询返回了哪些可继续复用的坐标、下一步可以进入哪些 recipe。
 `traceloom_analysis_surface.example_sql` 说明底层 relation 入口。
 
 ## 成本口径
@@ -283,13 +310,15 @@ member 和 raw row。仓库里的 `docs/report-sql/*.sql` 提供可执行的常�
 
 ```text
 这是 TraceLoom 生成的 queryable DB timeline。先查询
-traceloom_projection_recipe 与 traceloom_analysis_surface。从总成本最高的
+traceloom_projection_recipe、traceloom_projection_coordinate、
+traceloom_v_projection_continuation 与 traceloom_analysis_surface。从总成本最高的
 repeated region 选择一个 node_id，并明确投影坐标：
 1. population：比较全部 occurrences，或选择某一次真实执行；
 2. resolution：保持折叠，或展开 children / anchors / events；
 3. domain：需要时进入受支持的 host-window context；
 4. lens：明确使用的成本或行为统计；
-5. audit：把关键 event 解析到内嵌 profiler 表和 row。
+5. continuation：每次优先复用结果返回的 coordinate，再决定下一步投影；
+6. audit：把关键 event/runtime call 解析到内嵌 profiler 表和 row，或者停在明确的 typed boundary。
 输出所用 SQL、scope、population、resolution、domain、lens 和证据边界。
 不要根据名字推断 workload phase 或因果关系。
 ```

@@ -41,11 +41,18 @@ pattern. `scope_kind`, `population_mode`, `resolution`, `observation_domain`,
 and `measure_lens` state the projection coordinates explicitly;
 `selector_parameters` lists the named SQL parameters; and `example_sql` is a
 runnable statement over public relations. `traceloom_projection_parameter`
-normalizes each selector's SQLite type, nullability, purpose, and public
-relation/column from which candidate coordinates can be discovered. Binding
+normalizes each selector's SQLite type, nullability, coordinate kind, purpose,
+and public relation/column from which candidate coordinates can be discovered.
+`traceloom_projection_coordinate` declares the result columns that remain
+reusable analytical coordinates. `traceloom_v_projection_continuation` joins
+those outputs to compatible recipe inputs and emits a continuation only when
+all required target coordinate kinds are present. An agent can therefore
+discover a supported next query relationally instead of parsing
+`example_sql` or rediscovering a scope boundary. Binding
 `:occurrence_idx` to `NULL` selects a structural population in the common node
 recipes, while binding one index selects a realized occurrence. The metadata key
-`analytical_projection_contract` versions this five-axis UX contract. See
+`analytical_projection_contract` versions this five-axis, coordinate-preserving
+UX contract. See
 [`composable-analytical-projections.md`](composable-analytical-projections.md).
 
 The raw-evidence catalog is itself queryable:
@@ -283,6 +290,11 @@ clipped `observed_overlap_us` plus a `contained`/`boundary_overlap` relation.
 Runtime calls may nest or overlap each other, so summing either duration is a
 scheduled-call measure, not an overlap-safe host busy union.
 
+`traceloom_v_node_host_interval` projects every typed adjacent-anchor interval
+into node, occurrence, and anchor-order coordinates before runtime activity is
+joined. It is the correct entry point when a query must distinguish a supported
+empty interval from `missing_endpoint`, `ambiguous_endpoint`,
+`incompatible_host_domain`, or `nonmonotonic_host_order`.
 `traceloom_v_node_host_activity` adds node, occurrence, anchor order, and
 repeat context to the left endpoint of the same relation. Its explicit
 `placement_semantics = 'after_anchor_interval'` means contextual placement:
@@ -318,6 +330,13 @@ cost, host-observation coverage, API-family presence, average counts, and
 scheduled duration measures. Presence against all bubbles and against only
 host-observable bubbles are separate columns so unsupported host endpoints do
 not silently become zero API activity.
+
+`traceloom_v_structure_bubble_position` is the typed population entry point.
+It preserves every recurrent position and counts supported, missing-endpoint,
+nonmonotonic, and other unsupported occurrences before API-family aggregation.
+`traceloom_v_structure_bubble_host_context` left-projects API statistics onto
+that population, so a position with no compatible host observations remains a
+row with `api_family IS NULL` rather than disappearing.
 
 `traceloom_v_structure_bubble_runtime_call` is the exact drill-down surface for
 a chosen `bubble_id`; it retains runtime source table/key and observed order.

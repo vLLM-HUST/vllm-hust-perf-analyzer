@@ -7,6 +7,8 @@ namespace traceloom::compat {
 #if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
 
 void drop_report_compatibility_views(SqliteDb& db) {
+  db.exec("DROP VIEW IF EXISTS traceloom_v_structure_bubble_host_context");
+  db.exec("DROP VIEW IF EXISTS traceloom_v_structure_bubble_position");
   db.exec("DROP VIEW IF EXISTS traceloom_v_structure_bubble_api_stats");
   db.exec(
       "DROP VIEW IF EXISTS traceloom_v_structure_bubble_api_occurrence");
@@ -16,7 +18,9 @@ void drop_report_compatibility_views(SqliteDb& db) {
   db.exec(
       "DROP TABLE IF EXISTS traceloom_structure_bubble_api_occurrence");
   db.exec("DROP TABLE IF EXISTS traceloom_structure_bubble_occurrence");
+  db.exec("DROP TABLE IF EXISTS traceloom_structure_bubble_position");
   db.exec("DROP VIEW IF EXISTS traceloom_v_node_host_activity");
+  db.exec("DROP VIEW IF EXISTS traceloom_v_node_host_interval");
   db.exec("DROP VIEW IF EXISTS traceloom_v_node_runtime_call");
   db.exec("DROP VIEW IF EXISTS traceloom_v_anchor_host_activity");
   db.exec("DROP VIEW IF EXISTS traceloom_v_anchor_host_interval");
@@ -123,7 +127,7 @@ void materialize_runtime_device_views(SqliteDb& db) {
       "a.runtime_call_id");
 
   db.exec(
-      "CREATE VIEW IF NOT EXISTS traceloom_v_node_host_activity AS "
+      "CREATE VIEW IF NOT EXISTS traceloom_v_node_host_interval AS "
       "SELECT na.node_id, n.local_node_id, na.view_name, "
       "na.occurrence_idx, na.anchor_order, na.coverage_kind, "
       "na.repeat_context, a.anchor_idx, next.anchor_idx AS "
@@ -137,11 +141,33 @@ void materialize_runtime_device_views(SqliteDb& db) {
       "AND n.view_name = na.view_name "
       "JOIN traceloom_anchor a ON a.anchor_id = na.anchor_id "
       "AND a.db_idx = na.db_idx AND a.device_id = na.device_id "
-      "JOIN traceloom_v_anchor_host_activity h ON h.left_anchor_id = "
+      "JOIN traceloom_v_anchor_host_interval h ON h.left_anchor_id = "
       "na.anchor_id AND h.db_idx = na.db_idx AND h.device_id = "
       "na.device_id JOIN traceloom_anchor next ON next.anchor_id = "
       "h.right_anchor_id AND next.db_idx = h.db_idx AND next.device_id = "
       "h.device_id");
+
+  // Keep interval support states in the node projection even when no runtime
+  // call was observed.  The activity surface is intentionally a narrower
+  // inner projection over those intervals; callers that need a typed result
+  // for every structural coordinate start from traceloom_v_node_host_interval
+  // and left-join activity.
+  db.exec(
+      "CREATE VIEW IF NOT EXISTS traceloom_v_node_host_activity AS "
+      "SELECT i.*, c.runtime_call_id AS observed_runtime_call_id, c.api_name, "
+      "c.api_type, c.start_ns AS observed_start_ns, c.end_ns AS "
+      "observed_end_ns, c.dur_us AS observed_dur_us, "
+      "ROUND((MIN(c.end_ns, i.host_end_ns) - MAX(c.start_ns, "
+      "i.host_start_ns)) / 1000.0, 3) AS observed_overlap_us, "
+      "CASE WHEN c.start_ns >= i.host_start_ns AND c.end_ns <= "
+      "i.host_end_ns THEN 'contained' ELSE 'boundary_overlap' END AS "
+      "interval_relation, c.process_id AS observed_process_id, c.thread_id "
+      "AS observed_thread_id, c.source_table AS observed_source_table, "
+      "c.source_key AS observed_source_key, a.observed_order "
+      "FROM traceloom_v_node_host_interval i "
+      "JOIN traceloom_anchor_host_activity a ON a.interval_id = "
+      "i.interval_id JOIN traceloom_runtime_call c ON c.runtime_call_id = "
+      "a.runtime_call_id");
 }
 
 #endif

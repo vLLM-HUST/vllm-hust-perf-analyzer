@@ -9,6 +9,7 @@
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
 #include <stdexcept>
 #include <string>
 
@@ -51,6 +52,20 @@ std::string scalar_text(const std::string& path, const std::string& sql) {
   sqlite3_finalize(stmt);
   sqlite3_close(db);
   return value;
+}
+
+void exec_sql(const std::string& path, const std::string& sql) {
+  sqlite3* db = nullptr;
+  traceloom::testing::require(
+      sqlite3_open_v2(path.c_str(), &db, SQLITE_OPEN_READWRITE, nullptr) ==
+      SQLITE_OK);
+  char* error = nullptr;
+  const int rc = sqlite3_exec(db, sql.c_str(), nullptr, nullptr, &error);
+  if (error != nullptr) {
+    sqlite3_free(error);
+  }
+  sqlite3_close(db);
+  traceloom::testing::require(rc == SQLITE_OK);
 }
 
 }  // namespace
@@ -154,6 +169,36 @@ int main() {
   for (const compat::RuntimeDeviceRelationSqlRow& row : rows.relations) {
     require(row.db_idx == 3);
   }
+
+  // Runtime/device locators use an absolute path when the profiler source is
+  // an existing file, matching the raw-source packaging catalog even if the
+  // CLI input was relative. Synthetic source names remain unchanged.
+  const std::string locator_source_path = temp_db_path();
+  {
+    std::ofstream source(locator_source_path);
+    source << "locator";
+  }
+  const std::filesystem::path relative_locator_source =
+      std::filesystem::relative(locator_source_path,
+                                std::filesystem::current_path());
+  NativeIr locator_ir;
+  const SourceRefId locator_source = locator_ir.source_refs.append(
+      "cuda_nsys_sqlite", relative_locator_source.string(),
+      "CUPTI_ACTIVITY_KIND_RUNTIME", 0);
+  const SymbolId locator_symbol = locator_ir.symbols.intern("runtime");
+  locator_ir.runtime_calls.append(
+      locator_source, 1, RuntimeCallProvider::kCuda,
+      RuntimeCallClockDomain::kProfilerHost,
+      RuntimeCallMatchPolicy::kCudaCorrelationId, 1, 2, 1, locator_symbol,
+      locator_symbol);
+  const compat::RuntimeDeviceSqlRows locator_rows =
+      compat::build_runtime_device_sql_rows(locator_ir);
+  require(locator_rows.runtime_calls.size() == 1);
+  const std::string canonical_locator_source =
+      std::filesystem::absolute(locator_source_path).lexically_normal().string();
+  require(locator_rows.runtime_calls[0].raw_json.find(canonical_locator_source) !=
+          std::string::npos);
+  std::remove(locator_source_path.c_str());
 
   // A graph DeviceWork locator must point to its device-side execute row. The
   // host launch remains reachable through the relation's runtime endpoint.
@@ -476,6 +521,10 @@ int main() {
                       "SELECT right_anchor_symbol FROM "
                       "traceloom_v_node_host_activity") == "kernel");
   require(scalar_int(path,
+                     "SELECT COUNT(*) FROM traceloom_v_node_host_interval "
+                     "WHERE node_id='node-1' AND "
+                     "support_state='supported_ordered'") == 1);
+  require(scalar_int(path,
                      "SELECT COUNT(*) FROM "
                      "traceloom_v_structure_bubble_occurrence") == 1);
   require(scalar_int(path,
@@ -503,7 +552,68 @@ int main() {
   require(scalar_int(path,
                      "SELECT total_call_count FROM "
                      "traceloom_v_structure_bubble_api_stats") == 1);
+  require(scalar_int(path,
+                     "SELECT bubble_occurrence_count FROM "
+                     "traceloom_v_structure_bubble_position") == 1);
+  require(scalar_int(path,
+                     "SELECT supported_host_occurrence_count FROM "
+                     "traceloom_v_structure_bubble_host_context") == 1);
 
   std::remove(path.c_str());
+
+  // Changing from a structural position to host context must not erase a
+  // position whose adjacent anchors have no supported host endpoints.  The
+  // typed interval and bubble remain queryable, while literal activity stays
+  // empty and the host-context row carries a NULL API family.
+  const std::string unsupported_path = temp_db_path();
+  compat::materialize_compatibility_schema(unsupported_path);
+  exec_sql(
+      unsupported_path,
+      "INSERT INTO traceloom_anchor(anchor_id,db_idx,device_id,anchor_idx,"
+      "event_id,step_idx,symbol,role,label,family,start_ns,end_ns,dur_us) "
+      "VALUES('anchor-left',0,0,0,'event-left',0,'left','compute','left',"
+      "'left',1000,1100,0.1),('anchor-right',0,0,1,'event-right',1,'right',"
+      "'compute','right','right',2000,2100,0.1);"
+      "INSERT INTO traceloom_viz_node(node_id,db_idx,device_id,view_name,"
+      "local_node_id,path,node_type,kind,symbol,label,category,depth,level,"
+      "repeat_count,occurrence_count,anchor_count,compute_us,comm_us,idle_us,"
+      "total_us,avg_compute_us,avg_comm_us,avg_idle_us,avg_total_us,self_us,"
+      "aux_events,aux_us,raw_json) VALUES('node-missing',0,0,'anchor_tree',"
+      "'local-missing','root/missing','leaf','leaf','right','right','compute',"
+      "1,1,1,1,2,0.2,0.0,0.9,1.1,0.2,0.0,0.9,1.1,1.1,0,0.0,'{}');"
+      "INSERT INTO traceloom_viz_node_anchor(node_id,anchor_id,db_idx,"
+      "device_id,view_name,occurrence_idx,anchor_order,coverage_kind,"
+      "repeat_context,compute_us,comm_us,idle_us,total_us,self_us,aux_events,"
+      "aux_us) VALUES('node-missing','anchor-left',0,0,'anchor_tree',1,0,"
+      "'self','',0.1,0.0,0.0,0.1,0.1,0,0.0),('node-missing',"
+      "'anchor-right',0,0,'anchor_tree',1,1,'self','',0.1,0.0,0.9,1.0,1.0,"
+      "0,0.0);"
+      "INSERT INTO traceloom_anchor_host_interval(interval_id,db_idx,"
+      "device_id,left_anchor_id,right_anchor_id,left_endpoint_count,"
+      "right_endpoint_count,provider,clock_domain,scope_policy,support_state) "
+      "VALUES('interval-missing',0,0,'anchor-left','anchor-right',0,0,'cuda',"
+      "'profiler_host','unavailable','missing_endpoint');");
+  compat::materialize_report_compatibility_views(unsupported_path);
+  require(scalar_int(
+              unsupported_path,
+              "SELECT COUNT(*) FROM traceloom_v_node_host_interval WHERE "
+              "interval_id='interval-missing' AND "
+              "support_state='missing_endpoint'") == 1);
+  require(scalar_int(
+              unsupported_path,
+              "SELECT COUNT(*) FROM traceloom_v_node_host_activity WHERE "
+              "interval_id='interval-missing'") == 0);
+  require(scalar_int(
+              unsupported_path,
+              "SELECT COUNT(*) FROM traceloom_v_structure_bubble_position "
+              "WHERE structural_position_id='node-missing' AND "
+              "missing_endpoint_occurrence_count=1") == 1);
+  require(scalar_int(
+              unsupported_path,
+              "SELECT COUNT(*) FROM "
+              "traceloom_v_structure_bubble_host_context WHERE "
+              "structural_position_id='node-missing' AND api_family IS NULL") ==
+          1);
+  std::remove(unsupported_path.c_str());
   return 0;
 }

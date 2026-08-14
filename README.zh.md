@@ -152,7 +152,20 @@ ORDER BY display_order;
 ```
 
 `traceloom_projection_parameter` 还会以规范化关系给出每个 selector 的类型、
-可空性、用途，以及候选坐标来自哪张 relation/column，agent 与 UI 不必解析说明文字。
+可空性、坐标类型、用途，以及候选坐标来自哪张 relation/column。
+`traceloom_projection_coordinate` 列出每个 recipe 返回的可复用坐标；
+`traceloom_v_projection_continuation` 则直接说明这些返回列能够喂给哪些下一步
+recipe：
+
+```sql
+SELECT source_column, target_projection, target_parameter
+FROM traceloom_v_projection_continuation
+WHERE source_projection = 'position_population'
+ORDER BY target_projection, source_column;
+```
+
+因此 agent 可以先看总体、再选异常 occurrence、继续展开并走到原始证据，
+不必通过解析 SQL 文本猜测哪些 identifier 还能继续复用。
 
 在 `sqlite3` 中只绑定一次 scope，就能在不同投影之间复用：
 
@@ -163,8 +176,9 @@ ORDER BY display_order;
 ```
 
 `:occurrence_idx = NULL` 表示查看全部 occurrence 的总体；换成数字则查看某一次
-真实执行。同一个 `:node_id` 可以保持折叠、展开 children/events、进入受支持的
-host windows，或切换成本 lens。用户框选的 device window 也可以作为查询 scope，
+真实执行。同一个 `:node_id` 可以保持折叠、展开 children/events、进入带类型的
+host windows，或切换成本 lens。缺少端点或 host 顺序不单调的 interval 仍会作为
+明确状态返回，而不会因为无法形成 API 分布就静默消失。用户框选的 device window 也可以作为查询 scope，
 但框选本身不会把它提升成 recovered pattern。详见
 [可组合分析投影](docs/composable-analytical-projections.md)。
 
