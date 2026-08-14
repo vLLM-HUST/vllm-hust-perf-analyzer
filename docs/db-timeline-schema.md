@@ -116,7 +116,13 @@ canonical override list.
 - `traceloom_evidence_role_decision`: one typed outcome per normalized event;
 - `traceloom_evidence_role_placement`: normalized forward/reverse links to
   anchors, auxiliary regions, exact graph members, replay units, and protected
-  intervals;
+  intervals. These are direct normalized edges, not a materialized transitive
+  closure: an event inside a replay links once per containing replay unit and
+  protected interval (and to its exact body member when available), while the
+  compact `traceloom_replay_unit_anchor` bridge carries that coordinate to the
+  replay's structural anchors;
+- `traceloom_replay_unit_anchor`: one direct replay-unit/anchor edge, shared by
+  every event placed in that replay rather than copied into every event row;
 - `traceloom_protected_interval`: materialized exact or typed-open generic-
   discovery boundaries;
 - `traceloom_evidence_role_issue`: missing-capability, conflict, unsupported,

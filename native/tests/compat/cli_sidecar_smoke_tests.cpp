@@ -185,6 +185,40 @@ void require_cuda_sidecar(const std::string& path) {
                                   "SELECT COUNT(*) FROM traceloom_event "
                                   "WHERE task_type LIKE 'CUDA_%_AUX' "
                                   "AND role != 'aux'") == 0);
+  // A replay placement is the normalized edge from an observed event to its
+  // composite owner.  Expanding that edge to every anchor in the replay is a
+  // transitive event x anchor closure: it is redundant with the replay/body
+  // relations and grows quadratically on multi-slot replays.
+  traceloom::testing::require(run_scalar_int(
+                                  path,
+                                  "SELECT COUNT(*) FROM "
+                                  "traceloom_evidence_role_placement WHERE "
+                                  "reason_code = 'protected_composite_anchor'") ==
+                              0);
+  traceloom::testing::require(run_scalar_int(
+                                  path,
+                                  "SELECT COUNT(*) FROM "
+                                  "traceloom_evidence_role_decision WHERE "
+                                  "final_role = 'protected_boundary'") > 0);
+  traceloom::testing::require(run_scalar_int(
+                                  path,
+                                  "SELECT COUNT(*) FROM "
+                                  "traceloom_evidence_role_decision d WHERE "
+                                  "d.final_role = 'protected_boundary' AND NOT "
+                                  "EXISTS (SELECT 1 FROM "
+                                  "traceloom_evidence_role_placement p WHERE "
+                                  "p.decision_id = d.decision_id AND "
+                                  "p.placement_kind = 'replay_unit')") == 0);
+  traceloom::testing::require(run_scalar_int(
+                                  path,
+                                  "SELECT COUNT(*) FROM "
+                                  "traceloom_evidence_role_placement p LEFT "
+                                  "JOIN traceloom_v_evidence_role_structure s "
+                                  "ON s.decision_id = p.decision_id AND "
+                                  "s.placement_kind = p.placement_kind AND "
+                                  "s.placement_id = p.placement_id WHERE "
+                                  "p.placement_kind = 'replay_unit' AND "
+                                  "s.decision_id IS NULL") == 0);
 }
 
 void require_augmented_database(const std::string& path) {

@@ -129,6 +129,9 @@ decisions, placements, cost coverage, and typed issues live in the corresponding
 `traceloom_evidence_role_*` relations. Build statistics separately report
 auxiliary, transparent, and unknown-first preservation counts. These values let
 an artifact consumer bind recovered structure to the exact projection policy.
+Placements are direct normalized edges rather than a materialized transitive
+closure: replay-unit placements reach shared structural anchors through
+`traceloom_replay_unit_anchor`.
 
 The manifest explains **why an observation may participate in structural
 identity**. The original row and normalized event remain the authority for

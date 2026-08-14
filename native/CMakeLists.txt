@@ -126,10 +126,13 @@ add_library(traceloom_native_materialize
   src/compat/native_sidecar_materializer.cpp
   src/compat/report_tree_rows.cpp
   src/compat/replay_cost_sql_rows.cpp
+  src/compat/evidence_role_decision_rows.cpp
   src/compat/evidence_role_sql_rows.cpp
+  src/compat/evidence_role_sql_writer.cpp
   src/compat/event_reconciliation_rows.cpp
   src/compat/runtime_device_rows.cpp
   src/compat/schema.cpp
+  src/compat/schema_replay_tables.cpp
   src/compat/sidecar_sqlite_utils.cpp
   src/compat/sidecar_collective_bindings.cpp
   src/compat/sidecar_collective_writer.cpp
