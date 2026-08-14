@@ -1572,6 +1572,7 @@ int main() {
           "INSERT INTO RAW_SENTINEL VALUES(7, 'retained profiler evidence')");
   const std::string collective_augmented_a = temp_db_path();
   const std::string collective_augmented_b = temp_db_path();
+  const std::string collective_augmented_parallel = temp_db_path();
   compat::NativeCompatibilitySidecarOptions deterministic_options;
   deterministic_options.source_kind = "fixture";
   deterministic_options.source_path = "/stable/logical/profile";
@@ -1582,15 +1583,26 @@ int main() {
   compat::write_queryable_database_timeline(
       collective_augmented_b, deterministic_raw_source,
       build_collective_repeat_ir(), deterministic_options);
+  compat::NativeCompatibilitySidecarOptions parallel_options =
+      deterministic_options;
+  parallel_options.grammar_worker_count = 4;
+  parallel_options.grammar_target_nodes_per_chunk = 2;
+  compat::write_queryable_database_timeline(
+      collective_augmented_parallel, deterministic_raw_source,
+      build_collective_repeat_ir(), parallel_options);
   require(sha256_file_hex(collective_augmented_a) ==
               sha256_file_hex(collective_augmented_b),
           "augmented DB bytes depend on output/temp path");
+  require(sha256_file_hex(collective_augmented_a) ==
+              sha256_file_hex(collective_augmented_parallel),
+          "augmented DB relations depend on grammar worker/chunk count");
   require(run_scalar_text(collective_augmented_a,
                           "SELECT DISTINCT db_name FROM "
                           "traceloom_collective_global_link") ==
           "profile.traceloom.db");
   std::remove(collective_augmented_a.c_str());
   std::remove(collective_augmented_b.c_str());
+  std::remove(collective_augmented_parallel.c_str());
   std::remove(deterministic_raw_source.c_str());
 
   // Split layouts package every raw DB in one portable artifact. Identical

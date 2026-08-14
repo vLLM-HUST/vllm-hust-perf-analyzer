@@ -373,6 +373,10 @@ RuntimeDeviceSqlRows build_runtime_device_sql_rows(const NativeIr& ir,
       throw std::invalid_argument("TaskRow trace_event_id is out of range");
     }
     const TraceEventRow& event = ir.trace_events.row(task.trace_event_id);
+    if (event.source_ref_id != task.source_ref_id) {
+      throw std::invalid_argument(
+          "TaskRow and referenced TraceEventRow have different source_ref_id");
+    }
     const SourceRefRow& source = ir.source_refs.row(task.source_ref_id);
     const RuntimeCallProvider provider = task_provider(source);
     if (provider == RuntimeCallProvider::kUnknown ||
@@ -551,6 +555,11 @@ RuntimeDeviceSqlRows build_runtime_device_sql_rows(const NativeIr& ir,
       }
       const TraceEventRow& execute_event =
           ir.trace_events.row(execute_task.trace_event_id);
+      if (execute_event.source_ref_id != execute_task.source_ref_id) {
+        throw std::invalid_argument(
+            "graph launch model-execute task and referenced event have "
+            "different source_ref_id");
+      }
       work.source_key = std::to_string(execute_event.source_row_id);
     } else {
       work.source_key = launch.raw_host_api_row_id >= 0

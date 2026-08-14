@@ -420,6 +420,34 @@ int main() {
   }
   require(rejected_invalid_source);
 
+  // A DeviceWork locator takes its table/path from TaskRow and its literal
+  // row key from the referenced TraceEventRow. Those two IR rows must name the
+  // same source domain or the resulting raw locator would be fabricated.
+  NativeIr mismatched_source_ir;
+  const SourceRefId mismatched_task_source =
+      mismatched_source_ir.source_refs.append(
+          "cuda_nsys_sqlite", "memory", "CUPTI_ACTIVITY_KIND_KERNEL", 0);
+  const SourceRefId mismatched_event_source =
+      mismatched_source_ir.source_refs.append(
+          "cuda_nsys_sqlite", "memory", "CUPTI_ACTIVITY_KIND_MEMCPY", 0);
+  const SymbolId mismatched_symbol =
+      mismatched_source_ir.symbols.intern("mismatched");
+  const TraceEventId mismatched_event =
+      mismatched_source_ir.trace_events.append(
+          mismatched_event_source, 1, 0, 1, 1000, 1100,
+          mismatched_symbol);
+  mismatched_source_ir.tasks.append(
+      mismatched_task_source, mismatched_event, 1, 1, 1,
+      mismatched_symbol, mismatched_symbol, mismatched_symbol,
+      mismatched_symbol, SymbolId::invalid());
+  bool rejected_mismatched_source = false;
+  try {
+    (void)compat::build_runtime_device_sql_rows(mismatched_source_ir);
+  } catch (const std::invalid_argument&) {
+    rejected_mismatched_source = true;
+  }
+  require(rejected_mismatched_source);
+
   const std::string path = temp_db_path();
   compat::materialize_compatibility_schema(path);
   compat::replace_runtime_device_rows(path, rows);

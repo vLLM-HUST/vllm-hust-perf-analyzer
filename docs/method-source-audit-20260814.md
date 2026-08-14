@@ -120,11 +120,11 @@ position 282: attributed `2265.805 us`, raw event `2264.525 us`, and excess
 over the position median `1916.198 us`. The claimed signal is therefore a real
 communication-duration movement rather than an overlap-ownership artifact.
 
-**Decision to make.** Keep the implementation if the method explicitly names
-this as a right-anchored disjoint transition lens and exposes raw event duration
-beside it. Otherwise move disjoint busy-union accounting to window/node scopes
-and use literal duration at event positions. The first route preserves the
-current compositional cost algebra and is the smaller, more coherent change.
+**Resolved contract.** The current method text takes the first route. It names
+the local transition records, attaches each to the right anchor, distinguishes
+scheduled sum, busy union, envelope, and disjoint partitions, and keeps raw
+event duration queryable. The implementation therefore matches the paper's
+right-anchored disjoint transition lens; no experiment denominator changes.
 
 ### A3. Communication replacement lost its evidence link and became aux cost
 
@@ -403,10 +403,91 @@ declared embedded rowid column. Missing, malformed, or rowid-less literal
 locators fail atomically. Focused tests prove a valid drill-down and prove that
 a stale key publishes no partial database.
 
+### A14. Paper reducers are mostly explicit; legacy pairing assumptions remain
+
+**Severity:** submission hardening; no retained result or denominator changed by
+this audit.
+
+The current public composition tour, RQ2 position-localization verifier, RQ3
+construction-cost reducers, retained TP2 verifier, capability-incomplete
+verifier, and mapped-gather verifier state their coordinate, ordering, unit,
+and source-row oracles explicitly. The public tour uses deterministic
+occurrence and position tie breaks, an odd-cardinality median, typed host
+support, and literal embedded-row resolution. The construction-cost reducers
+pin source revision and build mode, use fresh processes after a declared
+warm-up, retain all five samples, and report median/minimum/maximum with
+deterministic output hashes.
+
+Several historical reducers should not be mistaken for the final public query
+paths:
+
+- `experiments/structure-conditioned-host-windows/verify.py` ranks only
+  positions represented in `traceloom_v_structure_bubble_api_stats`; it is an
+  API-observed subset, not the complete bubble-position population. The
+  left-preserving query-path verifier under
+  `experiments/query-paths/host-window-context/` supersedes it.
+- The strengthened-MoE post-hoc reducer proves four units, 48 target positions,
+  and equal rank-0/rank-1 anchor-coordinate sequences before cross-rank maxima.
+  It nevertheless pairs A/B vectors with ordinary `zip`, keys target-shape
+  evidence by task start timestamp, and inherits older source maps whose keys
+  can overwrite duplicates. The compact receipt does not reveal a mismatch,
+  but submission evidence must either assert coordinate and source-key
+  uniqueness before pairing or migrate the case through the public augmented
+  DB. Do not alter its recorded 4-by-48 denominator in place.
+- The distributed-training reducer selects the largest repeat by
+  `anchor_count` without asserting that the maximum is unique or declaring a
+  coordinate tie break. Its retained result is not contradicted, but a frozen
+  submission rerun should fail on a tie or publish the deterministic tie
+  policy.
+- The historical workflow-comparison verifier compares graph and inter-graph
+  costs by list position. Its checked expected file happens to pin the same
+  ordered `X/G/U` coordinate sequence in both runs, but the verifier does not
+  assert cross-run coordinate equality at the pairing site. Moreover, the
+  manuscript evidence map names this as checkout evidence while the files live
+  only on unmerged historical branches, not the current product branch. Its
+  result is therefore retained historical evidence, not yet a current public
+  augmented-DB path.
+
+These are reproducibility hardeners rather than discovered counterexamples to
+the method. The paper-side migration owns the exact inputs, denominators, and
+receipts; this source audit records the guards it must require and does not
+silently rewrite them.
+
+### A15. Positive selection, normalization, and publication are deterministic
+
+**Severity:** claim-to-code cells match; two source-identity guards strengthened
+in this branch.
+
+`signal_classification_rules.cpp` implements positive transparent and
+auxiliary rules with a declared fallback. The fallback may retain an unknown
+observation as an identity anchor but an explicit positive rule cannot classify
+an event as `unknown_anchor`. `flat_anchor_builder.cpp` consumes that decision:
+an unmatched observation remains an identity-bearing anchor, while exclusions
+require declared communication, replay, reconciliation, auxiliary, or
+transparent evidence. The rule manifest and per-event decision remain
+queryable. The already-recorded `PROFILING_ENABLE -> unknown_anchor` drift is
+therefore the intended consequence of the general unknown-first contract, not
+an experiment-specific exception.
+
+`structural_symbol_normalization.cpp` applies an explicit, versioned manifest
+and total precedence order. Equal-precedence multiple matches become a typed
+conflict and preserve observed identity; an unfamiliar spelling also preserves
+identity. The original symbol, selected normalized symbol, rule, policy, and
+decision are materialized. Focused analysis and compatibility tests cover both
+successful promotion and conflict/unknown preservation.
+
+Queryable publication now has two additional relation-level guards. First,
+the complete augmented database produced from the same IR is byte-identical
+between one logical grammar worker and four workers with a different chunk
+target, not merely equal in rendered text or aggregate counts. Second, a
+`TaskRow` and its referenced `TraceEventRow` must name the same source domain
+before their provider table/path and literal row key can form a device-work
+locator. Together with the embedded-row validation in A13, a source locator can
+no longer be assembled from two unrelated provider domains or point at an
+absent embedded row.
+
 ## Next audit slices
 
-1. Paper-facing statistical reducer identities, pairing rules, and denominator
-   guards.
-2. Remaining claim-to-code cells, with special attention to source/event
-   identity and one-thread versus multi-thread relation equality.
-3. Broad validation and paper-facing boundary reconciliation.
+1. Remaining claim-to-code cells, with special attention to adapter-level
+   primitive provenance and exact recursive-pattern commit semantics.
+2. Broad validation and paper-facing boundary reconciliation.
