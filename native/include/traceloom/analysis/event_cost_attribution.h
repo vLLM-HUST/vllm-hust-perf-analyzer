@@ -34,4 +34,3 @@ EventCostAttributionMask build_event_cost_attribution_mask(
     FlatAnchorBuildConfig config = FlatAnchorBuildConfig{});
 
 }  // namespace traceloom
-
