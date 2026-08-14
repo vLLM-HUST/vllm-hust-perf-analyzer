@@ -238,7 +238,10 @@ ORDER BY decision_id, member_order;
 This is deliberately not a general temporal containment hierarchy. Rules must
 name the provider evidence that establishes shared identity, and uncertainty
 preserves the original timeline. See
-[`docs/report-sql/event-reconciliation-audit.sql`](docs/report-sql/event-reconciliation-audit.sql).
+the staged [event-reconciliation audit guide](docs/event-reconciliation-audit.md)
+for policy → rule → decision → member drill-down, or run the narrow
+[`docs/report-sql/event-reconciliation-audit.sql`](docs/report-sql/event-reconciliation-audit.sql)
+projection directly.
 
 #### Audit structural-symbol normalization
 

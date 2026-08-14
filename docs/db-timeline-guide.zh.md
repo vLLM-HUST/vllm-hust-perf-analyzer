@@ -79,6 +79,25 @@ members、host context 和 measure lens。详细契约见
 以下横向、纵向、层级和 cross-domain 阅读方式不是四套模型，而是这组坐标上的
 不同投影。
 
+## 审计 TraceLoom 自己做出的变换
+
+`analysis.db` 不只保存分析结果，也保存产生结果的决策链。遇到“为什么这条 event
+没有单独成为 anchor”“为什么两个 backend label 可以比较”或“为什么两条
+profiler row 只计了一次成本”时，不要重新猜实现逻辑；从对应的 policy/rule 开始，
+再下钻 decision、placement/member 与原始行。
+
+| 变换 | 配置与规则 | 单条决定与下钻 | 典型问题 |
+| --- | --- | --- | --- |
+| evidence-role projection | `traceloom_evidence_role_policy`, `traceloom_evidence_role_rule` | `traceloom_v_evidence_role_decision`, `traceloom_v_evidence_role_placement`, `traceloom_evidence_role_issue` | event 为什么成为 anchor、aux、transparent 或 unknown anchor？它被放进了哪个结构？ |
+| sparse event reconciliation | `traceloom_event_reconciliation_policy`, `traceloom_event_reconciliation_rule` | `traceloom_event_reconciliation_decision`, `traceloom_event_reconciliation_member`, `traceloom_v_event_reconciliation` | 多条 observation 为什么合成一个 canonical anchor？谁贡献 timing、symbol 与 cost？ |
+| structural-symbol normalization | `traceloom_symbol_normalization_policy`, `traceloom_symbol_normalization_rule` | `traceloom_v_anchor_symbol_lineage`, `traceloom_v_symbol_normalization_placement`, `traceloom_v_symbol_variant_cost` | observed backend label 为什么映射到某个 structural symbol？同一结构位置有哪些具体 lowering？ |
+
+三类审计都遵循同一种 UX：**先确认有效策略，再统计决定分布，然后只对一个 event、
+anchor、decision 或结构位置做有界下钻，最后用 source locator 回到内嵌 profiler
+row**。数据库的 `traceloom_analysis_surface` 会分别列出这些入口及可运行 SQL；
+`docs/report-sql/` 提供现成的窄查询。event reconciliation 的完整示例见
+[`event-reconciliation-audit.md`](event-reconciliation-audit.md)。
+
 ## 基本阅读方向
 
 ### 横向：从结构走到原始证据
