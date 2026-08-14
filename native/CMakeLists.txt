@@ -118,6 +118,7 @@ add_library(traceloom_native_materialize
   src/compat/aclgraph_graph_replay_rows.cpp
   src/compat/anchor_sequence_rows.cpp
   src/compat/anchor_cost_breakdown_rows.cpp
+  src/compat/augmented_catalog_materializer.cpp
   src/compat/aux_attribution_rows.cpp
   src/compat/collective_tag_rows.cpp
   src/compat/exact_graph_sql_rows.cpp
@@ -129,6 +130,7 @@ add_library(traceloom_native_materialize
   src/compat/event_reconciliation_rows.cpp
   src/compat/runtime_device_rows.cpp
   src/compat/schema.cpp
+  src/compat/sidecar_sqlite_utils.cpp
   src/compat/sidecar_collective_bindings.cpp
   src/compat/sidecar_collective_writer.cpp
   src/compat/sidecar_core_bindings.cpp
