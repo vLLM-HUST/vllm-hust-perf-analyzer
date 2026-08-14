@@ -1266,10 +1266,12 @@ void materialize_augmented_catalog(const std::string& path,
          "folded", "device", "node_cost", "(none)",
          "rank and select reusable structural scopes before composing more "
          "specific projections",
-         "SELECT node_id, local_node_id, db_idx, device_id, view_name, path, "
-         "label, node_type, repeat_count, occurrence_count, total_us, "
-         "avg_total_us FROM traceloom_v_tree_node ORDER BY total_us DESC, "
-         "db_idx, device_id, view_name, display_order;"},
+         "SELECT node_id, parent_node_id, local_node_id, db_idx, device_id, "
+         "view_name, display_order, path, symbol, label, node_type, "
+         "repeat_count, occurrence_count, anchor_count, first_anchor_idx, "
+         "last_anchor_idx, total_us, avg_total_us FROM "
+         "traceloom_v_tree_node ORDER BY total_us DESC, db_idx, device_id, "
+         "view_name, display_order;"},
         {"scope_occurrences", "10", "structural_node",
          "one_or_all_occurrences", "folded", "device",
          "occurrence_cost",
@@ -1668,6 +1670,8 @@ void materialize_augmented_catalog(const std::string& path,
          "device coordinate"},
         {"scope_catalog", "40", "view_name", "structural_view_name",
          "structural projection identity"},
+        {"scope_catalog", "50", "parent_node_id", "structural_node_id",
+         "immediate parent reusable as another structural scope"},
         {"scope_occurrences", "10", "node_id", "structural_node_id",
          "selected structural scope"},
         {"scope_occurrences", "20", "occurrence_idx",

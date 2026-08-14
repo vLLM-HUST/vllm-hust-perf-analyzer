@@ -19,16 +19,18 @@ Web view, or a paper figure may all project the same selected coordinates.
 
 ## Start from one scope
 
-Pick a high-level structural handle from the tree map:
+Pick a high-level structural handle from the self-describing scope catalog.
+Besides cost and occurrence counts, the catalog returns device-sequence order,
+parent, symbol, and anchor extent. An analyst can therefore constrain a
+candidate by observed timeline placement before reusing its `node_id`, without
+falling back to a private tree-table join:
 
 ```sql
-SELECT node_id, local_node_id, label, occurrence_count,
-       round(avg_total_us, 3) AS avg_total_us,
+SELECT node_id, parent_node_id, display_order, symbol, label,
+       occurrence_count, first_anchor_idx, last_anchor_idx,
        round(total_us, 3) AS total_us
 FROM traceloom_v_tree_node
-WHERE occurrence_count > 1
-ORDER BY total_us DESC
-LIMIT 20;
+ORDER BY total_us DESC, db_idx, device_id, view_name, display_order;
 ```
 
 Inside the `sqlite3` shell, bind that handle once:
