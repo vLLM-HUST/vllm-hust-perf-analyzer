@@ -374,6 +374,11 @@ zero issues.  Launch member counts, task sums, kind partitions, stream sums,
 busy/envelope inequalities, aggregate contributor counts and denominators, and
 the one-to-one exact-member drill-down into tree occurrences all validate.
 
+The broad suite also exposed one stale JSON serialization fixture that declared
+three body members but supplied one. It is now a self-consistent one-member
+fixture and still exercises the same supported serialization fields. The
+analyzer was not weakened to accommodate the invalid fixture.
+
 ### A13. Host context is an evidence-bounded relation, not bubble causality
 
 **Severity:** audited method boundary; row-provenance gap repaired in this
