@@ -567,6 +567,88 @@ overlap, protected boundaries, recursive pair--repeat fixpoints, worker/chunk
 parity, and nested lowering. The paper's current Section 3 description matches
 these boundaries.
 
-## Next audit slices
+## Closure and paper-facing reconciliation
 
-1. Broad validation and paper-facing boundary reconciliation.
+### Validation receipt
+
+The complete development preset builds at this branch. The final broad test
+run executes 55 tests with zero failures; 11 repository-declared tests remain
+disabled. The run includes the focused repairs above as well as all enabled
+adapter, analysis, grammar, cost, compatibility, and materialization suites.
+The replay JSON compatibility fixture was the only broad-run failure exposed
+during the audit: it declared three visible body members while supplying one.
+The fixture is now internally consistent and the analyzer's exact-body gate was
+not weakened.
+
+The audit also exercised representative existing data without changing paper
+receipts or their denominators:
+
+- a CUDA DP2 input materializes two independent device-local trees with 1,471
+  anchors each and no cost or occurrence mismatch;
+- a node-visible CUDA Graph input materializes five exact replay units, 49,405
+  body-member rows, 9,881 body aggregates, and no replay issue; and
+- the bundled kickstart timeline and the existing DP2 timeline satisfy the
+  host/device locator, bubble-population, support-state, and source-row
+  invariants used by the public query paths.
+
+The paper-side four-input host-window experiment was **not rerun**. Its recorded
+`PROFILING_ENABLE -> fallback.unknown_observation -> unknown_anchor` amendment
+is consistent with A15, and this audit leaves its old/current populations,
+denominators, and receipts untouched.
+
+### Required manuscript and artifact actions
+
+No finding overturns the paper's relational-model method, its recursive
+Pattern contract, or a retained statistical result. Four boundaries must still
+be made explicit before the submission freeze:
+
+1. **Bounded-window discovery surface.** The manuscript currently calls the
+   partition-local candidate summaries and boundary diagnostics “published
+   discovery evidence.” They are present in the legacy result/debug surface,
+   not as relations in the self-contained augmented database. Either narrow
+   the sentence to that actual surface or materialize and document new
+   augmented-DB relations. This is the sole current claim-to-product mismatch
+   found by the source audit.
+2. **Reducer integration comment.** The manuscript comment saying that the
+   partition-local reducer remains only at `7d8768a` becomes stale once this
+   audit branch is integrated: `84700ee` adopts the evaluated production and
+   parity-test path and adds the missing halo-completeness gate. Remove or
+   replace the comment only after the corresponding source revision is pinned.
+3. **Host-hotspot selection.** The current four-input verifier orders every
+   Position by total bubble cost, then selects the first Position having at
+   least one supported host occurrence. The evaluation sentence “the
+   highest-total-gap structural position” must therefore say “the
+   highest-total-gap structural position with supported host context,” unless
+   the paper-side receipt independently proves that the unqualified maximum is
+   the same row. This wording qualification changes neither the 47,200
+   population denominator nor any recorded table value.
+4. **Artifact-checkout identity.** The fixed workflow comparison and several
+   other `examples/paper_artifacts/*` rows do not live on current product
+   `main` or at the claim map's named `444fd4a` revision; the workflow files
+   exist on retained historical artifact branches beginning at `326d721`.
+   Because “Green / checkout” permits a pinned artifact checkout, the result
+   need not be discarded, but the artifact revision/branch and aggregate
+   command must be named. Until then the workflow row is retained historical
+   evidence rather than reproducible from product HEAD alone.
+
+### Statistical reducer gate
+
+Current public query-path reducers are coordinate-explicit and denominator-
+preserving. Historical paper reducers remain acceptable only inside their
+recorded scope. Before converting any of them into a submission regeneration
+path, add the guards already identified in A14: equal cardinality plus exact
+coordinate equality before `zip`-style pairing, collision-free source keys,
+and an explicit unique-maximum or total tie policy. In particular, do not
+rewrite the strengthened-MoE 4-by-48 denominator, the distributed-training
+population, or the historical workflow ordering receipt in place.
+
+## Gate decision
+
+The method-to-source audit is **source-complete on this branch**. The repaired
+implementation now enforces the paper's observable contracts at primitive
+identity, device-domain, replay-body, recursive-grammar, cost, projection,
+host-context, and source-publication boundaries. Remaining work is integration
+and paper-side evidence packaging: merge or pin the audit revision, apply the
+four wording/artifact actions above without changing immutable receipts, and
+regenerate the submission databases only in the separately owned artifact
+freeze.
