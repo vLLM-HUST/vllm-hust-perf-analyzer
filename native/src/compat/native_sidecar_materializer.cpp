@@ -691,6 +691,157 @@ void materialize_augmented_catalog(const std::string& path,
         "failed to create device work source locator view");
     sqlite_exec(
         db,
+        "CREATE VIEW traceloom_v_exact_replay_partition_status AS "
+        "WITH tree_anchor AS ("
+        "SELECT DISTINCT t.tree_id,t.db_idx,t.device_id,na.anchor_id,"
+        "a.anchor_idx FROM traceloom_semantic_tree t JOIN "
+        "traceloom_tree_node_anchor na ON na.node_id=t.root_node_id AND "
+        "na.db_idx=t.db_idx AND na.device_id=t.device_id AND "
+        "na.coverage_kind='body' JOIN traceloom_anchor a ON "
+        "a.anchor_id=na.anchor_id AND a.db_idx=na.db_idx AND "
+        "a.device_id=na.device_id WHERE t.tree_kind='semantic'),"
+        "interval_base AS ("
+        "SELECT t.tree_id,t.db_idx,t.device_id,p.protected_interval_id,"
+        "p.replay_unit_id,p.support_state,fa.anchor_idx AS first_anchor_idx,"
+        "la.anchor_idx AS last_anchor_idx FROM traceloom_semantic_tree t "
+        "LEFT JOIN traceloom_protected_interval p ON p.db_idx=t.db_idx AND "
+        "p.device_id=t.device_id AND p.kind='graph_replay_unit' "
+        "LEFT JOIN tree_anchor fa ON fa.tree_id=t.tree_id AND "
+        "fa.db_idx=t.db_idx AND fa.device_id=t.device_id AND "
+        "fa.anchor_id=p.first_anchor_id LEFT JOIN tree_anchor la ON "
+        "la.tree_id=t.tree_id AND la.db_idx=t.db_idx AND "
+        "la.device_id=t.device_id AND la.anchor_id=p.last_anchor_id "
+        "WHERE t.tree_kind='semantic'), ordered AS ("
+        "SELECT *,LEAD(first_anchor_idx) OVER (PARTITION BY tree_id,db_idx,"
+        "device_id ORDER BY first_anchor_idx,protected_interval_id) AS "
+        "next_first_anchor_idx "
+        "FROM interval_base), summary AS ("
+        "SELECT tree_id,db_idx,device_id,COUNT(protected_interval_id) AS "
+        "replay_interval_count,SUM(CASE WHEN protected_interval_id IS NOT "
+        "NULL AND support_state='supported' THEN 1 ELSE 0 END) AS "
+        "exact_replay_count,SUM(CASE WHEN protected_interval_id IS NOT NULL "
+        "AND support_state<>'supported' THEN 1 ELSE 0 END) AS "
+        "unsupported_interval_count,SUM(CASE WHEN protected_interval_id IS "
+        "NOT NULL AND (first_anchor_idx IS NULL OR last_anchor_idx IS NULL "
+        "OR first_anchor_idx>last_anchor_idx) THEN 1 ELSE 0 END) AS "
+        "invalid_bound_count,SUM(CASE WHEN next_first_anchor_idx IS NOT NULL "
+        "AND last_anchor_idx>=next_first_anchor_idx THEN 1 ELSE 0 END) AS "
+        "overlap_count FROM ordered GROUP BY tree_id,db_idx,device_id) "
+        "SELECT tree_id,db_idx,device_id,replay_interval_count,"
+        "exact_replay_count,"
+        "unsupported_interval_count,invalid_bound_count,overlap_count,"
+        "CASE WHEN replay_interval_count=0 THEN 'unsupported' "
+        "WHEN unsupported_interval_count>0 THEN 'unsupported' "
+        "WHEN invalid_bound_count>0 THEN 'unsupported' "
+        "WHEN overlap_count>0 THEN 'unsupported' ELSE 'supported' END AS "
+        "support_state,CASE WHEN replay_interval_count=0 THEN "
+        "'no_exact_replays' "
+        "WHEN unsupported_interval_count>0 THEN 'non_exact_protected_interval' "
+        "WHEN invalid_bound_count>0 THEN 'invalid_anchor_bounds' "
+        "WHEN overlap_count>0 THEN 'overlapping_replay_intervals' ELSE "
+        "'ordered_disjoint_exact_replays' END AS reason_code FROM summary",
+        "failed to create exact replay partition status view");
+    sqlite_exec(
+        db,
+        "CREATE VIEW traceloom_v_exact_replay_partition AS "
+        "WITH replay AS ("
+        "SELECT s.tree_id,s.db_idx,s.device_id,"
+        "ROW_NUMBER() OVER (PARTITION BY s.tree_id,s.db_idx,s.device_id "
+        "ORDER BY fa.anchor_idx,p.protected_interval_id)-1 AS replay_index,"
+        "COUNT(*) OVER (PARTITION BY s.tree_id,s.db_idx,s.device_id) AS "
+        "replay_count,"
+        "p.protected_interval_id,p.replay_unit_id,"
+        "fa.anchor_idx AS first_anchor_idx,la.anchor_idx AS last_anchor_idx,"
+        "LEAD(p.protected_interval_id) OVER (PARTITION BY s.tree_id,s.db_idx,"
+        "s.device_id ORDER BY fa.anchor_idx,p.protected_interval_id) AS "
+        "next_protected_interval_id,LEAD(p.replay_unit_id) OVER (PARTITION BY "
+        "s.tree_id,s.db_idx,s.device_id ORDER BY fa.anchor_idx,"
+        "p.protected_interval_id) AS next_replay_unit_id,"
+        "LEAD(fa.anchor_idx) OVER (PARTITION BY s.tree_id,s.db_idx,s.device_id "
+        "ORDER BY fa.anchor_idx,p.protected_interval_id) AS "
+        "next_first_anchor_idx "
+        "FROM traceloom_v_exact_replay_partition_status s "
+        "JOIN traceloom_protected_interval p ON p.db_idx=s.db_idx AND "
+        "p.device_id=s.device_id AND p.kind='graph_replay_unit' AND "
+        "p.support_state='supported' "
+        "JOIN traceloom_anchor fa ON fa.anchor_id=p.first_anchor_id AND "
+        "fa.db_idx=p.db_idx AND fa.device_id=p.device_id "
+        "JOIN traceloom_anchor la ON la.anchor_id=p.last_anchor_id AND "
+        "la.db_idx=p.db_idx AND la.device_id=p.device_id "
+        "WHERE s.support_state='supported'), root_anchor AS ("
+        "SELECT t.tree_id,t.db_idx,t.device_id,a.anchor_idx,na.compute_us,"
+        "na.comm_us,na.idle_us,na.total_us,na.aux_us "
+        "FROM traceloom_semantic_tree t JOIN traceloom_tree_node_anchor na "
+        "ON na.node_id=t.root_node_id AND na.db_idx=t.db_idx AND "
+        "na.device_id=t.device_id AND na.coverage_kind='body' "
+        "JOIN traceloom_anchor a ON a.anchor_id=na.anchor_id AND "
+        "a.db_idx=na.db_idx AND a.device_id=na.device_id WHERE "
+        "t.tree_kind='semantic'), segments AS ("
+        "SELECT r.tree_id,r.db_idx,r.device_id,0 AS segment_order,"
+        "'open_boundary' AS coordinate_kind,0 AS coordinate_index,"
+        "'X1' AS segment_label,NULL AS left_protected_interval_id,"
+        "r.protected_interval_id AS right_protected_interval_id,"
+        "NULL AS left_replay_unit_id,r.replay_unit_id AS right_replay_unit_id,"
+        "MIN(a.anchor_idx) AS first_anchor_idx,MAX(a.anchor_idx) AS "
+        "last_anchor_idx,COUNT(a.anchor_idx) AS anchor_count,"
+        "COALESCE(SUM(a.compute_us),0.0) AS compute_us,"
+        "COALESCE(SUM(a.comm_us),0.0) AS comm_us,"
+        "COALESCE(SUM(a.idle_us),0.0) AS idle_us,"
+        "COALESCE(SUM(a.total_us),0.0) AS total_us,"
+        "COALESCE(SUM(a.aux_us),0.0) AS aux_us FROM replay r "
+        "LEFT JOIN root_anchor a ON a.tree_id=r.tree_id AND "
+        "a.db_idx=r.db_idx AND a.device_id=r.device_id AND "
+        "a.anchor_idx<r.first_anchor_idx WHERE r.replay_index=0 "
+        "GROUP BY r.tree_id,r.db_idx,r.device_id,r.protected_interval_id,"
+        "r.replay_unit_id UNION ALL "
+        "SELECT r.tree_id,r.db_idx,r.device_id,2*r.replay_index+1,'replay',"
+        "r.replay_index,'R'||(r.replay_index+1),r.protected_interval_id,"
+        "r.protected_interval_id,r.replay_unit_id,r.replay_unit_id,"
+        "MIN(a.anchor_idx),MAX(a.anchor_idx),COUNT(a.anchor_idx),"
+        "COALESCE(SUM(a.compute_us),0.0),COALESCE(SUM(a.comm_us),0.0),"
+        "COALESCE(SUM(a.idle_us),0.0),COALESCE(SUM(a.total_us),0.0),"
+        "COALESCE(SUM(a.aux_us),0.0) FROM replay r LEFT JOIN root_anchor a "
+        "ON a.tree_id=r.tree_id AND a.db_idx=r.db_idx AND "
+        "a.device_id=r.device_id AND a.anchor_idx BETWEEN "
+        "r.first_anchor_idx AND r.last_anchor_idx GROUP BY r.tree_id,"
+        "r.db_idx,r.device_id,r.replay_index,r.protected_interval_id,"
+        "r.replay_unit_id UNION ALL "
+        "SELECT r.tree_id,r.db_idx,r.device_id,2*r.replay_index+2,"
+        "'between_replays',r.replay_index,'U'||(r.replay_index+1),"
+        "r.protected_interval_id,r.next_protected_interval_id,"
+        "r.replay_unit_id,r.next_replay_unit_id,MIN(a.anchor_idx),"
+        "MAX(a.anchor_idx),COUNT(a.anchor_idx),"
+        "COALESCE(SUM(a.compute_us),0.0),COALESCE(SUM(a.comm_us),0.0),"
+        "COALESCE(SUM(a.idle_us),0.0),COALESCE(SUM(a.total_us),0.0),"
+        "COALESCE(SUM(a.aux_us),0.0) FROM replay r LEFT JOIN root_anchor a "
+        "ON a.tree_id=r.tree_id AND a.db_idx=r.db_idx AND "
+        "a.device_id=r.device_id AND a.anchor_idx>r.last_anchor_idx AND "
+        "a.anchor_idx<r.next_first_anchor_idx WHERE "
+        "r.next_first_anchor_idx IS NOT NULL GROUP BY r.tree_id,r.db_idx,"
+        "r.device_id,r.replay_index,r.protected_interval_id,"
+        "r.next_protected_interval_id,r.replay_unit_id,r.next_replay_unit_id "
+        "UNION ALL SELECT r.tree_id,r.db_idx,r.device_id,2*r.replay_count,"
+        "'open_boundary',1,'X2',r.protected_interval_id,NULL,"
+        "r.replay_unit_id,NULL,MIN(a.anchor_idx),MAX(a.anchor_idx),"
+        "COUNT(a.anchor_idx),COALESCE(SUM(a.compute_us),0.0),"
+        "COALESCE(SUM(a.comm_us),0.0),COALESCE(SUM(a.idle_us),0.0),"
+        "COALESCE(SUM(a.total_us),0.0),COALESCE(SUM(a.aux_us),0.0) "
+        "FROM replay r LEFT JOIN root_anchor a ON a.tree_id=r.tree_id AND "
+        "a.db_idx=r.db_idx AND a.device_id=r.device_id AND "
+        "a.anchor_idx>r.last_anchor_idx WHERE "
+        "r.replay_index=r.replay_count-1 GROUP BY r.tree_id,r.db_idx,"
+        "r.device_id,r.replay_count,r.protected_interval_id,r.replay_unit_id) "
+        "SELECT printf('db%06d:d%06d:%s:replay-partition:%06d',db_idx,"
+        "device_id,tree_id,segment_order) AS partition_id,tree_id,db_idx,"
+        "device_id,segment_order,"
+        "coordinate_kind,coordinate_index,segment_label,'supported' AS "
+        "support_state,left_protected_interval_id,right_protected_interval_id,"
+        "left_replay_unit_id,right_replay_unit_id,first_anchor_idx,"
+        "last_anchor_idx,anchor_count,compute_us,comm_us,idle_us,total_us,"
+        "aux_us FROM segments",
+        "failed to create exact replay partition view");
+    sqlite_exec(
+        db,
         "CREATE TABLE traceloom_analysis_surface("
         "surface_name TEXT NOT NULL PRIMARY KEY, relation_name TEXT NOT NULL, "
         "row_grain TEXT NOT NULL, purpose TEXT NOT NULL, "
@@ -914,6 +1065,22 @@ void materialize_augmented_catalog(const std::string& path,
          "membership from timestamps",
          "SELECT * FROM traceloom_protected_interval ORDER BY db_idx, "
          "device_id, start_ns, protected_interval_id;"},
+        {"exact_replay_partition_status",
+         "traceloom_v_exact_replay_partition_status",
+         "one device-tree replay-partition support result",
+         "check whether exact replay intervals form one ordered disjoint "
+         "partition domain before reading its cost segments",
+         "SELECT * FROM traceloom_v_exact_replay_partition_status ORDER BY "
+         "db_idx, device_id, tree_id;"},
+        {"exact_replay_partition", "traceloom_v_exact_replay_partition",
+         "one open, replay, or between-replays device segment",
+         "compare a complete right-anchored cost partition induced by exact "
+         "replay boundaries without reconstructing intervals in client SQL",
+         "SELECT tree_id,db_idx,device_id,segment_order,coordinate_kind,"
+         "coordinate_index,segment_label,anchor_count,compute_us,comm_us,"
+         "idle_us,total_us,aux_us FROM "
+         "traceloom_v_exact_replay_partition ORDER BY db_idx,device_id,"
+         "tree_id,segment_order;"},
         {"symbol_normalization_rule",
          "traceloom_symbol_normalization_rule",
          "one versioned structural-symbol rule",
@@ -1150,6 +1317,17 @@ void materialize_augmented_catalog(const std::string& path,
          "(:occurrence_idx IS NULL OR occurrence_idx = :occurrence_idx) "
          "ORDER BY occurrence_idx, node_member_order, lane_ordinal, "
          "task_ordinal;"},
+        {"exact_replay_partition", "45", "device_sequence",
+         "complete_partition", "open_replay_between_segments", "device",
+         "right_anchored_disjoint_cost", "(none)",
+         "read the complete cost partition induced by ordered exact replay "
+         "boundaries without rebuilding intervals in client SQL",
+         "SELECT tree_id,db_idx,device_id,segment_order,coordinate_kind,"
+         "coordinate_index,segment_label,left_protected_interval_id,"
+         "right_protected_interval_id,anchor_count,compute_us,comm_us,"
+         "idle_us,total_us,aux_us FROM "
+         "traceloom_v_exact_replay_partition ORDER BY db_idx,device_id,"
+         "tree_id,segment_order;"},
         {"position_population", "50", "structural_node",
          "all_occurrences", "aligned_positions", "device",
          "position_cost_distribution", ":node_id",
@@ -1460,6 +1638,16 @@ void materialize_augmented_catalog(const std::string& path,
          "structural_occurrence_index", "selected realized occurrence"},
         {"scope_exact_replay_members", "30", "event_id",
          "normalized_event_id", "exact replay member available for audit"},
+        {"exact_replay_partition", "10", "tree_id", "structural_tree_id",
+         "device-tree whose exact replay boundaries induce the partition"},
+        {"exact_replay_partition", "20", "db_idx", "database_index",
+         "source database coordinate"},
+        {"exact_replay_partition", "30", "device_id", "device_id",
+         "device coordinate"},
+        {"exact_replay_partition", "40", "coordinate_kind",
+         "replay_partition_kind", "open, replay, or between-replays class"},
+        {"exact_replay_partition", "50", "coordinate_index",
+         "replay_partition_index", "stable index within the segment class"},
         {"position_population", "10", "node_id", "structural_node_id",
          "selected structural scope"},
         {"position_population", "20", "anchor_order",
