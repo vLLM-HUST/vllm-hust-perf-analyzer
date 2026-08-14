@@ -88,6 +88,22 @@ host 顺序不单调等带类型结果；换到 host domain 不会把不支持�
 详细契约见
 [`composable-analytical-projections.md`](composable-analytical-projections.md)。
 
+如果 profile 中存在受支持的 exact replay，数据库还直接给出 replay 边界诱导的
+完整 device 成本分区，不需要在客户端重新拼接区间：
+
+```sql
+SELECT tree_id, device_id, segment_order, coordinate_kind,
+       coordinate_index, segment_label, anchor_count, total_us
+FROM traceloom_v_exact_replay_partition
+ORDER BY db_idx, device_id, tree_id, segment_order;
+```
+
+结果依次包含开放前缀 `X1`、replay `R1...`、replay 间段 `U1...` 和开放后缀
+`X2`。先查询 `traceloom_v_exact_replay_partition_status`；只有 exact replay
+边界完整、有效、有序且互不重叠时才会发布分区行。不满足契约时，status 会保留
+typed reason，而不是让客户端从时间戳猜测成员关系。这个关系只表达可观察的
+replay 分区，不推断它对应 prefill、decode 或任何模型语义。
+
 以下横向、纵向、层级和 cross-domain 阅读方式不是四套模型，而是这组坐标上的
 不同投影。
 

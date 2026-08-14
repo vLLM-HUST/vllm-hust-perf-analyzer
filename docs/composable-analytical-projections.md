@@ -132,6 +132,18 @@ node-N006
   -> profiler rows            evidence audit
 ```
 
+Exact replay evidence offers another horizontal coordinate system over the
+complete device sequence. The parameter-free `exact_replay_partition` recipe
+returns an ordered open/replay/between-replays cost partition for every
+supported device tree. Its `tree_id`, `db_idx`, `device_id`,
+`coordinate_kind`, and `coordinate_index` are declared reusable coordinates;
+protected-interval and replay-unit identifiers preserve the evidence boundary.
+The companion `traceloom_v_exact_replay_partition_status` relation explains
+why the partition is absent when replay boundaries are missing, invalid, or
+overlapping. Thus a workflow comparison can align explicit coordinates before
+comparing costs rather than relying on row order or reconstructing intervals
+in client SQL.
+
 ## Change observation domain or measure lens
 
 `scope_host_context` projects the same `:node_id` and optional

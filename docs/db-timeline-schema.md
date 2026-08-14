@@ -74,6 +74,24 @@ The raw-evidence catalog is itself queryable:
   `traceloom_v_device_work_source_locator`: the same bounded path for both
   endpoints of a runtime/device relation.
 
+Exact replay boundaries also induce a public, complete device-cost partition:
+
+- `traceloom_v_exact_replay_partition_status`: one typed support result per
+  semantic device tree. Publication is supported only when the observed exact
+  replay intervals have valid anchor bounds and are ordered and disjoint;
+- `traceloom_v_exact_replay_partition`: the supported tree's ordered open
+  prefix (`X1`), replay (`R1`, ...), between-replay (`U1`, ...), and open
+  suffix (`X2`) segments. Each row retains its tree/database/device coordinate,
+  adjacent protected-interval and replay-unit identifiers, anchor range, and
+  disjoint compute/communication/idle/auxiliary cost.
+
+This relation is a provider-neutral partition over exact replay evidence. It
+does not label a replay with model semantics, infer membership from timestamp
+overlap, or fabricate a partition for typed-open, invalid, or overlapping
+boundaries. Query `traceloom_v_exact_replay_partition_status` before consuming
+the rows; the same path is advertised as the `exact_replay_partition`
+projection recipe.
+
 `traceloom_operator_audit` is a provider-neutral inventory of concrete
 observed operator identities. One row groups an `(operator_name, task_type)`
 pair and records `occurrence_count`, `total_duration_ns`,

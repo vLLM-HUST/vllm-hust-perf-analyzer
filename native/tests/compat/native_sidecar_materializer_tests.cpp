@@ -1282,6 +1282,34 @@ int main() {
               "AND support_state = 'supported'") == 1);
   require(run_scalar_int(
               augmented_path,
+              "SELECT COUNT(*) FROM "
+              "traceloom_v_exact_replay_partition_status WHERE "
+              "exact_replay_count = 1 AND unsupported_interval_count = 0 "
+              "AND invalid_bound_count = 0 AND overlap_count = 0 AND "
+              "support_state = 'supported' AND "
+              "reason_code = 'ordered_disjoint_exact_replays'") == 1);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_v_exact_replay_partition") ==
+          3);
+  require(run_scalar_text(
+              augmented_path,
+              "SELECT group_concat(segment_label, ',') FROM "
+              "(SELECT segment_label FROM traceloom_v_exact_replay_partition "
+              "ORDER BY segment_order)") == "X1,R1,X2");
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_v_exact_replay_partition "
+              "WHERE support_state != 'supported' OR anchor_count < 0") ==
+          0);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT ABS((SELECT SUM(total_us) FROM "
+              "traceloom_v_exact_replay_partition) - (SELECT total_us FROM "
+              "traceloom_v_tree_node WHERE parent_node_id IS NULL)) < 1e-9") ==
+          1);
+  require(run_scalar_int(
+              augmented_path,
               "SELECT COUNT(*) FROM traceloom_evidence_role_placement p "
               "LEFT JOIN traceloom_protected_interval i ON "
               "i.protected_interval_id = p.placement_id "
@@ -1347,7 +1375,7 @@ int main() {
               "SELECT COUNT(*) FROM traceloom_projection_recipe WHERE "
               "scope_kind != '' AND population_mode != '' AND "
               "resolution != '' AND observation_domain != '' AND "
-              "measure_lens != ''") == 17);
+              "measure_lens != ''") == 18);
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_projection_parameter WHERE "
@@ -1362,7 +1390,11 @@ int main() {
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_projection_coordinate") ==
-          53);
+          58);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_projection_coordinate WHERE "
+              "projection_name = 'exact_replay_partition'") == 5);
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_projection_coordinate c LEFT "
@@ -1551,6 +1583,16 @@ int main() {
               "traceloom_v_symbol_normalization_placement WHERE "
               "structural_symbol = 'MatMul' AND coverage_kind = 'self'") ==
           2);
+  require(run_scalar_int(
+              variant_augmented,
+              "SELECT COUNT(*) FROM "
+              "traceloom_v_exact_replay_partition_status WHERE "
+              "exact_replay_count = 0 AND support_state = 'unsupported' AND "
+              "reason_code = 'no_exact_replays'") == 1);
+  require(run_scalar_int(
+              variant_augmented,
+              "SELECT COUNT(*) FROM traceloom_v_exact_replay_partition") ==
+          0);
   require(run_scalar_int(
               variant_augmented,
               "SELECT COUNT(DISTINCT observed_symbol) FROM "
