@@ -43,15 +43,14 @@ TraceLoom 不生成一张不可改变的报告。它把执行关系物化成稳�
 | observation domain | device、受支持的 host windows、内嵌 profiler evidence |
 | measure lens | overlap-safe cost、occurrence cost、scheduled work、bubble、host API distribution |
 
-每份 `analysis.db` 都用 `traceloom_projection_recipe` 自描述这些组合。先选择一个
-高层结构并绑定坐标：
+每份 `analysis.db` 都用 `traceloom_projection_recipe` 自描述这些组合。先从
+`scope_catalog` 选择一个高层结构并绑定坐标：
 
 ```sql
-SELECT node_id, local_node_id, label, occurrence_count, total_us
+SELECT node_id, parent_node_id, display_order, symbol, label,
+       occurrence_count, first_anchor_idx, last_anchor_idx, total_us
 FROM traceloom_v_tree_node
-WHERE occurrence_count > 1
-ORDER BY total_us DESC
-LIMIT 20;
+ORDER BY total_us DESC, db_idx, device_id, view_name, display_order;
 
 .parameter init
 .parameter set :node_id 'node-N006'
@@ -127,6 +126,11 @@ captured topology 中没有 scheduled member 的空 lane 仍然保留为 topolog
 
 以下横向、纵向、层级和 cross-domain 阅读方式不是四套模型，而是这组坐标上的
 不同投影。
+
+`scope_catalog` 除了按成本排序候选 scope，还直接返回 `display_order`、
+`parent_node_id`、`symbol` 和 `first_anchor_idx/last_anchor_idx`。因此“位于某个
+ReplayUnit 之前的重复结构”这类带时间线位置约束的选择，可以从同一个公开入口
+完成，不必退回底层 tree relation 临时重建顺序。
 
 ## 审计 TraceLoom 自己做出的变换
 

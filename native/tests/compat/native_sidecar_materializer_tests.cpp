@@ -1446,11 +1446,17 @@ int main() {
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_projection_coordinate") ==
-          76);
+          77);
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_projection_coordinate WHERE "
               "projection_name = 'exact_replay_partition'") == 5);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_projection_coordinate WHERE "
+              "projection_name = 'scope_catalog' AND result_column = "
+              "'parent_node_id' AND coordinate_kind = "
+              "'structural_node_id'") == 1);
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_projection_coordinate c LEFT "
