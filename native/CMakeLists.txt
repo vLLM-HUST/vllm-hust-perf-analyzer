@@ -13,6 +13,7 @@ option(
 set(TRACELOOM_NATIVE_ASCEND_SQLITE_AVAILABLE OFF)
 
 add_library(traceloom_native_core
+  src/analysis/event_cost_attribution.cpp
   src/analysis/event_reconciliation.cpp
   src/analysis/exact_periodic_suffix.cpp
   src/analysis/flat_anchor_builder.cpp
@@ -1119,6 +1120,7 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
         --no-aug-db
         --compat-sidecar-out ${CMAKE_CURRENT_BINARY_DIR}/cuda_nsys_cli_compat.db
         --loop-tree-out ${CMAKE_CURRENT_BINARY_DIR}/cuda_nsys_loop_tree_v2.md
+        --loop-tree-device-id 0
     )
     set_tests_properties(
       traceloom_native_analyze_cuda_nsys_compat_sidecar_cli

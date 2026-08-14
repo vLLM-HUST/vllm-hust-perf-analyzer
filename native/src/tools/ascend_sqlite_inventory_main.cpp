@@ -23,6 +23,7 @@ std::string format_candidate_key(
     const traceloom::SymbolTable& symbols,
     const traceloom::CandidateKey& key) {
   std::ostringstream out;
+  out << "device=" << key.device_id << ":";
   for (std::size_t index = 0; index < key.symbols.size(); ++index) {
     if (index != 0) {
       out << " ";
@@ -129,11 +130,12 @@ int main(int argc, char** argv) {
               << pipeline.anchor_stats.unknown_anchor_task_events << "\n";
     std::cout << "candidate_projection=raw_event_bootstrap_len2_3\n";
     std::cout << "candidate_occurrences="
-              << pipeline.pattern_candidate_table.rows.size() << "\n";
+              << pipeline.stats.candidate_occurrence_count << "\n";
     std::cout << "candidate_distinct="
               << pipeline.reduced_candidates.size() << "\n";
     std::cout << "pattern_candidate_rows="
               << pipeline.pattern_candidate_table.rows.size() << "\n";
+    std::cout << "pattern_candidate_storage=summary_only\n";
     std::cout << "pattern_candidate_summary_rows="
               << pipeline.pattern_candidate_summary.rows.size() << "\n";
     std::cout << "candidate_diagnostics="

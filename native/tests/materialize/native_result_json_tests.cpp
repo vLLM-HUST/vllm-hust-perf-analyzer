@@ -48,10 +48,10 @@ int main() {
           1, GraphLaunchActivityBoundaryPolicy::kHostBlockingSync);
   ir.graph_launch_activity_members.append(graph_activity, graph_launch, 0);
   const ReplayBodyTemplateId body_template = ir.replay_body_templates.append(
-      source, 24680, ir.symbols.intern("Muls\nAdds\nRelu"), 3, 0, 1,
+      source, 24680, ir.symbols.intern("A"), 1, 0, 1,
       ReplayBodyTopologyPolicy::kSingleModelStream);
   const GraphLaunchBodyId graph_body = ir.graph_launch_bodies.append(
-      graph_launch, body_template, TaskId(0), TaskId(0), 3, 0, 1);
+      graph_launch, body_template, TaskId(0), TaskId(0), 1, 0, 1);
   ir.graph_launch_body_members.append(
       graph_body, TaskId(0), 0, 0,
       GraphLaunchBodyMemberRow::Kind::kCompute);
@@ -187,7 +187,7 @@ int main() {
   require(json.find("\"stream_count\": 1") != std::string::npos);
   require(json.find("\"communication_task_count\": 0") !=
           std::string::npos);
-  require(json.find("\"normalized_task_count\": 3") !=
+  require(json.find("\"normalized_task_count\": 1") !=
           std::string::npos);
   require(json.find("\"graph_launch_activity_count\": 1") !=
           std::string::npos);
@@ -237,7 +237,7 @@ int main() {
           std::string::npos);
   require(json.find("\"replay_body_templates\": [") !=
           std::string::npos);
-  require(json.find("\"op_sequence\": \"Muls\\nAdds\\nRelu\"") !=
+  require(json.find("\"op_sequence\": \"A\"") !=
           std::string::npos);
   require(json.find("\"replay_body_template_id\": 0") !=
           std::string::npos);

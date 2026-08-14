@@ -522,7 +522,7 @@ std::vector<DecisionRow> build_decisions(
       aux_by_event;
   AuxAttributionSqlRows aux_rows;
   if (materialize_aux_attribution) {
-    aux_rows = build_aux_attribution_sql_rows(ir, db_idx);
+    aux_rows = build_aux_attribution_sql_rows(ir, config, db_idx);
     for (const AuxLinkSqlRow& link : aux_rows.aux_links) {
       const std::string prefix = "event-";
       if (link.aux_event_id.rfind(prefix, 0) != 0) {
@@ -589,10 +589,15 @@ std::vector<DecisionRow> build_decisions(
 
     const std::vector<ReplayMembership> replay_memberships =
         replay_memberships_for_event(ir, event, exact_replays_by_event);
-    bool communication_covered =
-        comm_by_event.find(event.id.value()) != comm_by_event.end();
-    if (!communication_covered && task != nullptr &&
-        task->raw_connection_id >= 0) {
+    std::map<CommunicationOpId::value_type, const CommunicationOpRow*>
+        matching_communications;
+    const auto direct_communications = comm_by_event.find(event.id.value());
+    if (direct_communications != comm_by_event.end()) {
+      for (const CommunicationOpRow* comm : direct_communications->second) {
+        matching_communications.emplace(comm->id.value(), comm);
+      }
+    }
+    if (task != nullptr && task->raw_connection_id >= 0) {
       const auto found = comm_by_connection.find(
           connection_key(event.device_id, task->raw_connection_id));
       if (found != comm_by_connection.end()) {
@@ -601,11 +606,12 @@ std::vector<DecisionRow> build_decisions(
               ir.trace_events.row(comm->trace_event_id);
           if (overlaps(event.start_ns, event.end_ns, comm_event.start_ns,
                        comm_event.end_ns)) {
-            communication_covered = true;
+            matching_communications.emplace(comm->id.value(), comm);
           }
         }
       }
     }
+    const bool communication_covered = !matching_communications.empty();
 
     const bool skip_replay_covered =
         config.skip_tasks_covered_by_replay_units ||
@@ -667,6 +673,35 @@ std::vector<DecisionRow> build_decisions(
                             "provider_relation", "supported",
                             "represented_by_communication_anchor",
                             "communication_membership");
+      std::set<std::string> representative_anchor_ids;
+      for (const auto& item : matching_communications) {
+        const CommunicationOpRow& comm = *item.second;
+        // The communication observation itself receives its direct placement
+        // below.  Only add a representative placement when a distinct task
+        // observation was suppressed in favor of the communication anchor.
+        if (comm.trace_event_id == event.id) {
+          continue;
+        }
+        const auto representative =
+            anchors_by_event.find(comm.trace_event_id.value());
+        if (representative == anchors_by_event.end()) {
+          continue;
+        }
+        for (const AnchorId anchor : representative->second) {
+          representative_anchor_ids.insert(anchor_compat_id(anchor));
+        }
+      }
+      for (const std::string& anchor_id : representative_anchor_ids) {
+        add_placement(row, "anchor", anchor_id, "",
+                      "traceloom_anchor",
+                      "represented_by_communication_anchor");
+      }
+      if (representative_anchor_ids.size() > 1) {
+        row.support_state = "conflict";
+        row.reason_code = "multiple_representative_communication_anchors";
+        add_issue(row, "multiple_representative_communication_anchors",
+                  "conflict", join_strings(representative_anchor_ids));
+      }
     } else if (task != nullptr &&
                !config.filter_auxiliary_task_anchors) {
       apply_system_decision(row, "anchor", "identity",

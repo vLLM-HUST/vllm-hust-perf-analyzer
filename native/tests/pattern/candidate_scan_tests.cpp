@@ -7,6 +7,7 @@
 #include "traceloom/sequence/protected_sequence.h"
 #include "traceloom/testing/test_util.h"
 
+#include <stdexcept>
 #include <vector>
 
 namespace {
@@ -80,9 +81,30 @@ int main() {
   const std::vector<CandidateSummaryRow> summary_threads8 =
       reduce_candidates(scan_candidate_partitions(
           sequence, boundaries, plan, CandidateScanConfig{2, 5}, 8));
+  const CandidateAggregateResult aggregate_threads1 =
+      scan_and_reduce_candidate_partitions(
+          sequence, boundaries, plan, CandidateScanConfig{2, 5}, 1);
+  const CandidateAggregateResult aggregate_threads3 =
+      scan_and_reduce_candidate_partitions(
+          sequence, boundaries, plan, CandidateScanConfig{2, 5}, 3);
+  const CandidateAggregateResult aggregate_threads8 =
+      scan_and_reduce_candidate_partitions(
+          sequence, boundaries, plan, CandidateScanConfig{2, 5}, 8);
 
   require(summaries_equal(summary, summary_threads3));
   require(summaries_equal(summary, summary_threads8));
+  require(summaries_equal(summary, aggregate_threads1.summaries));
+  require(summaries_equal(summary, aggregate_threads3.summaries));
+  require(summaries_equal(summary, aggregate_threads8.summaries));
+  require(aggregate_threads1.occurrence_count == all_occurrences.size());
+  require(aggregate_threads3.occurrence_count == all_occurrences.size());
+  require(aggregate_threads8.occurrence_count == all_occurrences.size());
+  require(aggregate_threads1.diagnostics.size() ==
+          scan_result.diagnostics.size());
+  require(aggregate_threads3.diagnostics.size() ==
+          scan_result.diagnostics.size());
+  require(aggregate_threads8.diagnostics.size() ==
+          scan_result.diagnostics.size());
 
   require(has_key_count(summary, {SymbolId(2), SymbolId(3)}, 1));
   require(has_key_count(summary, {SymbolId(3), SymbolId(1)}, 1));
@@ -147,6 +169,99 @@ int main() {
   const std::vector<CandidateSummaryRow> deduped =
       reduce_candidates(duplicated);
   require(has_key_count(deduped, {SymbolId(2), SymbolId(3)}, 1));
+
+  TokenTable seam_tokens;
+  for (std::uint32_t index = 0; index < 8; ++index) {
+    seam_tokens.append(AnchorId(index), SymbolId(index % 3), 0, index,
+                       index * 10, index * 10 + 10);
+  }
+  const ProtectedSequence seam_sequence =
+      ProtectedSequence::from_token_table(seam_tokens);
+  const BoundaryIndex seam_boundaries =
+      BoundaryIndex::build(seam_sequence, ProtectedIntervalTable{});
+  const PartitionPlan incomplete_halo =
+      PartitionPlan::build(seam_sequence.size(), PartitionPlanConfig{3, 1});
+  bool rejected_incomplete_halo = false;
+  try {
+    (void)scan_and_reduce_candidate_partitions(
+        seam_sequence, seam_boundaries, incomplete_halo,
+        CandidateScanConfig{2, 3}, 2);
+  } catch (const std::invalid_argument&) {
+    rejected_incomplete_halo = true;
+  }
+  require(rejected_incomplete_halo,
+          "incomplete partition halo must fail instead of dropping windows");
+
+  const PartitionPlan complete_halo =
+      PartitionPlan::build(seam_sequence.size(), PartitionPlanConfig{3, 2});
+  const CandidateAggregateResult seam_aggregate =
+      scan_and_reduce_candidate_partitions(
+          seam_sequence, seam_boundaries, complete_halo,
+          CandidateScanConfig{2, 3}, 2);
+  require(seam_aggregate.occurrence_count == 13,
+          "complete halo must preserve every length-2/3 window");
+
+  TokenTable multi_device_tokens;
+  multi_device_tokens.append(AnchorId(0), SymbolId(1), 0, 0, 0, 10);
+  multi_device_tokens.append(AnchorId(1), SymbolId(2), 0, 1, 10, 20);
+  multi_device_tokens.append(AnchorId(2), SymbolId(1), 0, 2, 20, 30);
+  multi_device_tokens.append(AnchorId(3), SymbolId(2), 1, 3, 0, 10);
+  multi_device_tokens.append(AnchorId(4), SymbolId(1), 1, 4, 10, 20);
+  multi_device_tokens.append(AnchorId(5), SymbolId(2), 1, 5, 20, 30);
+  const ProtectedSequence multi_device_sequence =
+      ProtectedSequence::from_token_table(multi_device_tokens);
+  const BoundaryIndex multi_device_boundaries =
+      BoundaryIndex::build(multi_device_sequence, ProtectedIntervalTable{});
+  const PartitionPlan multi_device_plan = PartitionPlan::build(
+      multi_device_sequence.size(), PartitionPlanConfig{2, 2});
+  const CandidateAggregateResult multi_device_aggregate =
+      scan_and_reduce_candidate_partitions(
+          multi_device_sequence, multi_device_boundaries, multi_device_plan,
+          CandidateScanConfig{2, 3}, 3);
+  require(multi_device_aggregate.occurrence_count == 6,
+          "device-local windows must exclude cross-device starts");
+  bool saw_domain_boundary = false;
+  for (const CandidateDiagnostic& diagnostic :
+       multi_device_aggregate.diagnostics) {
+    if (diagnostic.code ==
+        CandidateDiagnosticCode::kCrossesSequenceDomain) {
+      require(!diagnostic.protected_interval_id.valid());
+      saw_domain_boundary = true;
+    }
+  }
+  require(saw_domain_boundary,
+          "cross-device windows must remain typed diagnostics");
+  bool saw_device0_ab = false;
+  bool saw_device1_ab = false;
+  for (const CandidateSummaryRow& row : multi_device_aggregate.summaries) {
+    if (row.key.symbols ==
+        std::vector<SymbolId>({SymbolId(1), SymbolId(2)})) {
+      saw_device0_ab = saw_device0_ab || row.key.device_id == 0;
+      saw_device1_ab = saw_device1_ab || row.key.device_id == 1;
+    }
+  }
+  require(saw_device0_ab && saw_device1_ab,
+          "candidate keys must retain their device sequence domain");
+
+  ProtectedIntervalTable ambiguous_intervals;
+  ambiguous_intervals.append(
+      ProtectedIntervalKind::kUserWindow, BoundaryPolicy::kBlockAnyOverlap,
+      TokenId(1), TokenId(1), AnchorId(1), AnchorId(1), SourceRefId(0));
+  const BoundaryIndex ambiguous_boundaries =
+      BoundaryIndex::build(sequence, ambiguous_intervals);
+  const CandidateScanResult ambiguous_scan =
+      scan_candidate_partitions_with_diagnostics(
+          sequence, ambiguous_boundaries, plan, CandidateScanConfig{2, 5}, 3);
+  const std::vector<CandidateSummaryRow> ambiguous_summary =
+      reduce_candidates(ambiguous_scan.occurrences);
+  const CandidateAggregateResult ambiguous_aggregate =
+      scan_and_reduce_candidate_partitions(
+          sequence, ambiguous_boundaries, plan, CandidateScanConfig{2, 5}, 3);
+  require(summaries_equal(ambiguous_summary, ambiguous_aggregate.summaries));
+  require(ambiguous_scan.occurrences.size() ==
+          ambiguous_aggregate.occurrence_count);
+  require(ambiguous_scan.diagnostics.size() ==
+          ambiguous_aggregate.diagnostics.size());
 
   return 0;
 }

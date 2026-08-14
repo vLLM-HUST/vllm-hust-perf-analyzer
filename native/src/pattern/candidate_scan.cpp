@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include <utility>
 
+#include "traceloom/pattern/candidate_reduce.h"
 #include "traceloom/runtime/thread_pool.h"
 
 namespace traceloom {
@@ -28,11 +29,24 @@ CandidateKey build_candidate_key(const ProtectedSequence& sequence,
                                  std::size_t begin,
                                  std::size_t end) {
   CandidateKey key;
+  key.device_id = sequence.token_at(begin).device_id;
   key.symbols.reserve(end - begin);
   for (std::size_t index = begin; index < end; ++index) {
     key.symbols.push_back(sequence.token_at(index).symbol_id);
   }
   return key;
+}
+
+bool crosses_sequence_domain(const ProtectedSequence& sequence,
+                             std::size_t begin,
+                             std::size_t end) {
+  const std::uint32_t device_id = sequence.token_at(begin).device_id;
+  for (std::size_t index = begin + 1; index < end; ++index) {
+    if (sequence.token_at(index).device_id != device_id) {
+      return true;
+    }
+  }
+  return false;
 }
 
 void remove_ambiguous_key_occurrences(CandidateScanResult& result) {
@@ -60,6 +74,78 @@ void remove_ambiguous_key_occurrences(CandidateScanResult& result) {
       result.occurrences.end());
 }
 
+std::vector<CandidateKey> ambiguous_keys(
+    const std::vector<CandidateDiagnostic>& diagnostics) {
+  std::vector<CandidateKey> blocked_keys;
+  for (const CandidateDiagnostic& diagnostic : diagnostics) {
+    if (diagnostic.code ==
+        CandidateDiagnosticCode::kAmbiguousIntervalBlocksCandidate) {
+      blocked_keys.push_back(diagnostic.key);
+    }
+  }
+  std::sort(blocked_keys.begin(), blocked_keys.end());
+  blocked_keys.erase(std::unique(blocked_keys.begin(), blocked_keys.end()),
+                     blocked_keys.end());
+  return blocked_keys;
+}
+
+bool summary_less(const CandidateSummaryRow& lhs,
+                  const CandidateSummaryRow& rhs) {
+  if (lhs.key < rhs.key) {
+    return true;
+  }
+  if (rhs.key < lhs.key) {
+    return false;
+  }
+  return lhs.first_begin < rhs.first_begin;
+}
+
+struct LocalCandidateAggregate {
+  std::vector<CandidateSummaryRow> summaries;
+  std::vector<CandidateDiagnostic> diagnostics;
+};
+
+void validate_partition_plan_for_complete_scan(
+    const ProtectedSequence& sequence,
+    const PartitionPlan& plan,
+    CandidateScanConfig config) {
+  if (config.min_length == 0 || config.max_length < config.min_length) {
+    throw std::invalid_argument("invalid candidate scan length config");
+  }
+
+  std::size_t expected_owned_begin = 0;
+  for (const Partition& partition : plan.partitions()) {
+    if (partition.owned_begin != expected_owned_begin ||
+        partition.owned_begin >= partition.owned_end ||
+        partition.read_begin > partition.owned_begin ||
+        partition.owned_end > partition.read_end ||
+        partition.read_end > sequence.size()) {
+      throw std::invalid_argument(
+          "partition plan does not cover the sequence contiguously");
+    }
+
+    // The final owned start is owned_end - 1.  Its longest legal forward
+    // window ends max_length tokens later, unless the sequence ends first.
+    // Requiring that endpoint here prevents a too-small halo from silently
+    // dropping seam-crossing candidates while still producing deterministic
+    // (but incomplete) summaries.
+    const std::size_t remaining = sequence.size() - partition.owned_end;
+    const std::size_t required_halo =
+        std::min(remaining, config.max_length - 1);
+    const std::size_t required_read_end =
+        partition.owned_end + required_halo;
+    if (partition.read_end < required_read_end) {
+      throw std::invalid_argument(
+          "partition read halo is too small for complete candidate scan");
+    }
+    expected_owned_begin = partition.owned_end;
+  }
+  if (expected_owned_begin != sequence.size()) {
+    throw std::invalid_argument(
+        "partition plan does not cover the complete sequence");
+  }
+}
+
 }  // namespace
 
 CandidateScanResult scan_candidates_with_diagnostics(
@@ -84,6 +170,12 @@ CandidateScanResult scan_candidates_with_diagnostics(
         std::min(partition.read_end, begin + config.max_length);
     for (std::size_t end = begin + config.min_length; end <= max_end; ++end) {
       CandidateKey key = build_candidate_key(sequence, begin, end);
+      if (crosses_sequence_domain(sequence, begin, end)) {
+        result.diagnostics.push_back(CandidateDiagnostic{
+            CandidateDiagnosticCode::kCrossesSequenceDomain, std::move(key),
+            begin, end, partition.id, ProtectedIntervalId::invalid()});
+        continue;
+      }
       const BoundaryViolation violation = boundaries.first_violation(begin, end);
       if (violation.valid()) {
         result.diagnostics.push_back(CandidateDiagnostic{
@@ -115,6 +207,7 @@ CandidateScanResult scan_candidate_partitions_with_diagnostics(
     const PartitionPlan& plan,
     CandidateScanConfig config,
     std::size_t thread_count) {
+  validate_partition_plan_for_complete_scan(sequence, plan, config);
   std::vector<CandidateScanResult> local_results(plan.size());
   ThreadPool pool(thread_count);
   pool.parallel_for(plan.size(), [&](std::size_t partition_index) {
@@ -143,6 +236,66 @@ CandidateScanResult scan_candidate_partitions_with_diagnostics(
         std::make_move_iterator(local.diagnostics.end()));
   }
   remove_ambiguous_key_occurrences(result);
+  return result;
+}
+
+CandidateAggregateResult scan_and_reduce_candidate_partitions(
+    const ProtectedSequence& sequence,
+    const BoundaryIndex& boundaries,
+    const PartitionPlan& plan,
+    CandidateScanConfig config,
+    std::size_t thread_count) {
+  validate_partition_plan_for_complete_scan(sequence, plan, config);
+  std::vector<LocalCandidateAggregate> local_results(plan.size());
+  ThreadPool pool(thread_count);
+  pool.parallel_for(plan.size(), [&](std::size_t partition_index) {
+    CandidateScanResult scan = scan_candidates_with_diagnostics(
+        sequence, boundaries, plan.partition_at(partition_index), config);
+    local_results[partition_index].summaries =
+        reduce_candidates(std::move(scan.occurrences));
+    local_results[partition_index].diagnostics = std::move(scan.diagnostics);
+  });
+
+  std::size_t summary_count = 0;
+  std::size_t diagnostic_count = 0;
+  for (const LocalCandidateAggregate& local : local_results) {
+    summary_count += local.summaries.size();
+    diagnostic_count += local.diagnostics.size();
+  }
+
+  CandidateAggregateResult result;
+  result.diagnostics.reserve(diagnostic_count);
+  std::vector<CandidateSummaryRow> mapped_summaries;
+  mapped_summaries.reserve(summary_count);
+  for (LocalCandidateAggregate& local : local_results) {
+    mapped_summaries.insert(
+        mapped_summaries.end(),
+        std::make_move_iterator(local.summaries.begin()),
+        std::make_move_iterator(local.summaries.end()));
+    result.diagnostics.insert(
+        result.diagnostics.end(),
+        std::make_move_iterator(local.diagnostics.begin()),
+        std::make_move_iterator(local.diagnostics.end()));
+  }
+
+  const std::vector<CandidateKey> blocked_keys =
+      ambiguous_keys(result.diagnostics);
+  std::sort(mapped_summaries.begin(), mapped_summaries.end(), summary_less);
+  result.summaries.reserve(mapped_summaries.size());
+  for (CandidateSummaryRow& row : mapped_summaries) {
+    if (std::binary_search(blocked_keys.begin(), blocked_keys.end(), row.key)) {
+      continue;
+    }
+    result.occurrence_count += row.occurrence_count;
+    if (result.summaries.empty() ||
+        !(result.summaries.back().key == row.key)) {
+      result.summaries.push_back(std::move(row));
+      continue;
+    }
+    CandidateSummaryRow& existing = result.summaries.back();
+    existing.occurrence_count += row.occurrence_count;
+    existing.first_begin = std::min(existing.first_begin, row.first_begin);
+  }
   return result;
 }
 

@@ -10,6 +10,8 @@ const char* candidate_diagnostic_code_name(CandidateDiagnosticCode code) {
       return "CandidateEnclosesForbiddenInterval";
     case CandidateDiagnosticCode::kAmbiguousIntervalBlocksCandidate:
       return "AmbiguousIntervalBlocksCandidate";
+    case CandidateDiagnosticCode::kCrossesSequenceDomain:
+      return "CandidateCrossesSequenceDomain";
   }
   return "UnknownCandidateDiagnostic";
 }

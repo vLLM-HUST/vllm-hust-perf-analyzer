@@ -202,6 +202,21 @@ void require_analysis_surface_queries_prepare(const std::string& path) {
   sqlite3_close(db);
 }
 
+NativeIr build_source_locator_ir(const std::string& source_path,
+                                 std::uint64_t source_row_id) {
+  NativeIr ir;
+  const SourceRefId source = ir.source_refs.append(
+      "fixture_sqlite", source_path, "RAW_SENTINEL", 0);
+  const SymbolId symbol = ir.symbols.intern("SourceLinkedWork");
+  const TraceEventId event = ir.trace_events.append(
+      source, source_row_id, 0, 1, 1000, 2000, symbol);
+  const AnchorId anchor = ir.anchors.append(
+      source, event, ReplayUnitId::invalid(), AnchorKind::kDeviceEvent,
+      symbol, 0, 1, 1000, 2000);
+  ir.tokens.append(anchor, symbol, 0, 0, 1000, 2000);
+  return ir;
+}
+
 NativeIr build_collective_repeat_ir() {
   NativeIr ir;
   const SourceRefId source =
@@ -610,6 +625,46 @@ NativeIr build_ascend_multi_slot_exact_graph_sql_ir() {
   // real traceloom_viz_node_anchor occurrences for the node-view join.
   ir.tokens.append(head_anchor, head_symbol, 0, 0, 1000, 2000);
   ir.tokens.append(tail_anchor, tail_symbol, 0, 1, 2000, 3000);
+  return ir;
+}
+
+NativeIr build_multi_device_report_ir() {
+  NativeIr ir;
+  const SourceRefId source =
+      ir.source_refs.append("fixture", "multi-device-sidecar", "TASK", 0);
+  const SymbolId matmul = ir.symbols.intern("MatMul");
+  const SymbolId all_reduce = ir.symbols.intern("AllReduce");
+  const SymbolId softmax = ir.symbols.intern("Softmax");
+  const auto append_token = [&](std::uint32_t device_id,
+                                std::uint64_t source_row_id,
+                                SymbolId symbol,
+                                AnchorKind kind,
+                                std::int64_t start_ns,
+                                std::int64_t end_ns) {
+    const TraceEventId event = ir.trace_events.append(
+        source, source_row_id, device_id, 3, start_ns, end_ns, symbol);
+    const AnchorId anchor = ir.anchors.append(
+        source, event, ReplayUnitId::invalid(), kind, symbol, device_id, 3,
+        start_ns, end_ns);
+    ir.tokens.append(
+        anchor, symbol, device_id,
+        static_cast<std::uint32_t>(ir.tokens.size()), start_ns, end_ns);
+  };
+  for (std::uint32_t step = 0; step < 3; ++step) {
+    const std::int64_t base = 1000 + static_cast<std::int64_t>(step) * 1000;
+    append_token(0, step + 1, matmul, AnchorKind::kDeviceEvent, base,
+                 base + 600);
+  }
+  for (std::uint32_t step = 0; step < 3; ++step) {
+    const std::int64_t base = 4000 + static_cast<std::int64_t>(step) * 1000;
+    append_token(0, step + 10, all_reduce, AnchorKind::kCommunication, base,
+                 base + 400);
+  }
+  for (std::uint32_t step = 0; step < 4; ++step) {
+    const std::int64_t base = 3000 + static_cast<std::int64_t>(step) * 1000;
+    append_token(1, 100 + step, softmax, AnchorKind::kDeviceEvent, base,
+                 base + 300);
+  }
   return ir;
 }
 
@@ -1342,6 +1397,20 @@ int main() {
               "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
               "WHERE source_projection = 'scope_catalog' AND "
               "target_projection = 'position_occurrences'") == 0);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
+              "WHERE source_projection = 'scope_catalog' AND "
+              "target_projection IN ('bubble_occurrences', "
+              "'bubble_host_context')") == 0);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
+              "WHERE source_projection = 'bubble_hotspots' AND "
+              "target_projection = 'bubble_occurrences' AND source_column = "
+              "'structural_position_id' AND target_parameter = "
+              "'structural_position_id' AND coordinate_kind = "
+              "'structural_position_id'") == 1);
   require(run_scalar_text(
               augmented_path,
               "SELECT selector_parameters FROM traceloom_projection_recipe "
@@ -1416,6 +1485,41 @@ int main() {
                           "'RAW_SENTINEL'") == "RAW_SENTINEL");
   std::remove(augmented_path.c_str());
 
+  // A published `embedded_raw` locator is a literal row promise. The
+  // materializer accepts an exact provider row and rejects a stale key before
+  // atomically publishing the augmented database.
+  const std::string locator_raw_path = temp_db_path();
+  const std::string locator_augmented_path = temp_db_path();
+  run_sql(locator_raw_path,
+          "CREATE TABLE RAW_SENTINEL(payload TEXT);"
+          "INSERT INTO RAW_SENTINEL VALUES('literal provider row')");
+  compat::write_queryable_database_timeline(
+      locator_augmented_path, locator_raw_path,
+      build_source_locator_ir(locator_raw_path, 1), augmented_options);
+  require(run_scalar_text(
+              locator_augmented_path,
+              "SELECT resolution_status FROM "
+              "traceloom_v_event_source_locator WHERE event_id='event-0'") ==
+          "embedded_raw");
+  require(run_scalar_text(locator_augmented_path,
+                          "SELECT payload FROM RAW_SENTINEL WHERE rowid=1") ==
+          "literal provider row");
+  std::remove(locator_augmented_path.c_str());
+
+  bool rejected_stale_source_key = false;
+  try {
+    compat::write_queryable_database_timeline(
+        locator_augmented_path, locator_raw_path,
+        build_source_locator_ir(locator_raw_path, 2), augmented_options);
+  } catch (const std::runtime_error&) {
+    rejected_stale_source_key = true;
+  }
+  require(rejected_stale_source_key,
+          "augmented DB accepted a source locator for a missing raw row");
+  require(!std::filesystem::exists(locator_augmented_path),
+          "failed locator validation published a partial augmented DB");
+  std::remove(locator_raw_path.c_str());
+
   // Backend lowering labels share a structural symbol only through an
   // explicit, queryable rule. The reverse path retains both concrete labels
   // at the same recovered structural position.
@@ -1468,6 +1572,7 @@ int main() {
           "INSERT INTO RAW_SENTINEL VALUES(7, 'retained profiler evidence')");
   const std::string collective_augmented_a = temp_db_path();
   const std::string collective_augmented_b = temp_db_path();
+  const std::string collective_augmented_parallel = temp_db_path();
   compat::NativeCompatibilitySidecarOptions deterministic_options;
   deterministic_options.source_kind = "fixture";
   deterministic_options.source_path = "/stable/logical/profile";
@@ -1478,15 +1583,26 @@ int main() {
   compat::write_queryable_database_timeline(
       collective_augmented_b, deterministic_raw_source,
       build_collective_repeat_ir(), deterministic_options);
+  compat::NativeCompatibilitySidecarOptions parallel_options =
+      deterministic_options;
+  parallel_options.grammar_worker_count = 4;
+  parallel_options.grammar_target_nodes_per_chunk = 2;
+  compat::write_queryable_database_timeline(
+      collective_augmented_parallel, deterministic_raw_source,
+      build_collective_repeat_ir(), parallel_options);
   require(sha256_file_hex(collective_augmented_a) ==
               sha256_file_hex(collective_augmented_b),
           "augmented DB bytes depend on output/temp path");
+  require(sha256_file_hex(collective_augmented_a) ==
+              sha256_file_hex(collective_augmented_parallel),
+          "augmented DB relations depend on grammar worker/chunk count");
   require(run_scalar_text(collective_augmented_a,
                           "SELECT DISTINCT db_name FROM "
                           "traceloom_collective_global_link") ==
           "profile.traceloom.db");
   std::remove(collective_augmented_a.c_str());
   std::remove(collective_augmented_b.c_str());
+  std::remove(collective_augmented_parallel.c_str());
   std::remove(deterministic_raw_source.c_str());
 
   // Split layouts package every raw DB in one portable artifact. Identical
@@ -1541,5 +1657,46 @@ int main() {
                          "traceloom_raw_000__RAW_SHARED UNION ALL SELECT id "
                          "FROM traceloom_raw_001__RAW_SHARED)") == 3);
   std::remove(split_augmented.c_str());
+
+  // One profiler DB may contain several devices. Structural recovery and
+  // semantic publication stay device-local, with queryable grammar-completion
+  // status per tree.
+  const std::string multi_db_path = temp_db_path();
+  compat::NativeCompatibilitySidecarOptions multi_options;
+  multi_options.source_kind = "native_multi_device_fixture";
+  multi_options.source_path = "memory";
+  multi_options.grammar_full_discovery_cap = 1;
+  compat::write_basic_native_compatibility_sidecar(
+      multi_db_path, build_multi_device_report_ir(), multi_options);
+  require(run_scalar_int(
+              multi_db_path,
+              "SELECT COUNT(DISTINCT device_id) FROM traceloom_viz_node "
+              "WHERE view_name = 'native_report_tree'") == 2);
+  require(run_scalar_int(
+              multi_db_path,
+              "SELECT COUNT(*) FROM traceloom_semantic_tree") == 2);
+  require(run_scalar_text(
+              multi_db_path,
+              "SELECT tree_id FROM traceloom_semantic_tree "
+              "WHERE device_id = 0") == "native-report-tree-d0");
+  require(run_scalar_text(
+              multi_db_path,
+              "SELECT root_node_id FROM traceloom_semantic_tree "
+              "WHERE device_id = 1") == "node-d1-N001");
+  require(run_scalar_text(
+              multi_db_path,
+              "SELECT macro_discovery FROM traceloom_semantic_tree "
+              "WHERE device_id = 0") ==
+          "native_report_tree_partial_size_limit");
+  require(run_scalar_text(
+              multi_db_path,
+              "SELECT macro_discovery FROM traceloom_semantic_tree "
+              "WHERE device_id = 1") == "native_report_tree_complete");
+  require(run_scalar_int(
+              multi_db_path,
+              "SELECT COUNT(*) FROM traceloom_viz_node_anchor na "
+              "JOIN traceloom_anchor a ON a.anchor_id = na.anchor_id "
+              "WHERE na.device_id != a.device_id") == 0);
+  std::remove(multi_db_path.c_str());
   return 0;
 }

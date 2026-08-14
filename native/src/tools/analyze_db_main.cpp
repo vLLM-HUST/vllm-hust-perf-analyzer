@@ -425,24 +425,6 @@ fs::path default_output_root(const std::string& input) {
   return root / "traceloom";
 }
 
-std::string default_loop_tree_output_path(const CliOptions& cli,
-                                          std::size_t db_index,
-                                          bool has_device_id,
-                                          std::uint32_t device_id) {
-  const fs::path output_root = default_output_root(cli.source_input);
-  if (cli.source_dbs.size() == 1) {
-    return (output_root / "loop_tree_v2.md").string();
-  }
-  std::ostringstream filename;
-  if (has_device_id) {
-    filename << "device" << device_id << "_loop_tree_v2.md";
-  } else {
-    filename << "db" << std::setw(2) << std::setfill('0') << (db_index + 1)
-             << "_loop_tree_v2.md";
-  }
-  return (output_root / filename.str()).string();
-}
-
 std::string default_augmented_db_output_path(const CliOptions& cli,
                                              std::size_t db_index) {
   const fs::path output_root = default_output_root(cli.source_input);
@@ -486,22 +468,6 @@ std::string default_db_label(const std::string& source_db,
         << (fs::is_directory(source) ? source.filename().string()
                                      : source.parent_path().filename().string());
   return label.str();
-}
-
-bool infer_single_device_id(const traceloom::NativeIr& ir,
-                            std::uint32_t& device_id) {
-  bool found = false;
-  for (const auto& event : ir.trace_events.rows()) {
-    if (!found) {
-      device_id = event.device_id;
-      found = true;
-      continue;
-    }
-    if (device_id != event.device_id) {
-      return false;
-    }
-  }
-  return found;
 }
 
 void write_text_output(const std::string& path, const std::string& contents) {
@@ -726,9 +692,42 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
         std::cerr << "timing loop_tree_rows_ms="
                   << loop_tree_rows_watch.elapsed_ms() << "\n";
       }
-      std::uint32_t inferred_device_id = 0;
-      const bool has_inferred_device_id =
-          infer_single_device_id(ir, inferred_device_id);
+      std::set<std::uint32_t> report_device_ids;
+      for (const traceloom::compat::VizNodeSqlRow& node :
+           loop_tree_rows.nodes) {
+        if (node.view_name == "native_report_tree" &&
+            node.db_idx == sidecar_options.db_idx) {
+          report_device_ids.insert(node.device_id);
+        }
+      }
+      if (report_device_ids.empty()) {
+        throw std::runtime_error("no native_report_tree rows to render");
+      }
+
+      std::uint32_t render_device_id = *report_device_ids.begin();
+      if (cli.has_loop_tree_device_id) {
+        if (report_device_ids.find(cli.loop_tree_device_id) ==
+            report_device_ids.end()) {
+          std::ostringstream available;
+          for (auto it = report_device_ids.begin();
+               it != report_device_ids.end(); ++it) {
+            if (it != report_device_ids.begin()) {
+              available << ", ";
+            }
+            available << *it;
+          }
+          throw std::runtime_error(
+              "no native_report_tree rows for device " +
+              std::to_string(cli.loop_tree_device_id) +
+              "; available devices: " + available.str());
+        }
+        render_device_id = cli.loop_tree_device_id;
+      } else if (report_device_ids.size() > 1) {
+        throw std::runtime_error(
+            "profile DB contains multiple devices; select one with "
+            "--loop-tree-device-id when --loop-tree-out is given");
+      }
+
       traceloom::LoopTreeMarkdownOptions markdown_options;
       markdown_options.db_label =
           cli.loop_tree_db_label.empty()
@@ -737,8 +736,8 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
       markdown_options.source_kind = json_options.source_kind;
       markdown_options.source_path = json_options.source_path;
       markdown_options.db_idx = sidecar_options.db_idx;
-      markdown_options.has_device_id = cli.has_loop_tree_device_id;
-      markdown_options.device_id = cli.loop_tree_device_id;
+      markdown_options.has_device_id = true;
+      markdown_options.device_id = render_device_id;
       markdown_options.trace_event_count = ir.trace_events.size();
       markdown_options.anchor_count = ir.anchors.size();
       markdown_options.replay_composition_region_count =
@@ -770,19 +769,11 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
       std::ostringstream markdown;
       traceloom::write_loop_tree_markdown(markdown, loop_tree_rows,
                                           markdown_options);
-      const std::string loop_tree_out =
-          cli.loop_tree_out_path.empty()
-              ? default_loop_tree_output_path(cli, db_index,
-                                              has_inferred_device_id,
-                                              inferred_device_id)
-              : cli.loop_tree_out_path;
-      write_text_output(loop_tree_out, markdown.str());
+      write_text_output(cli.loop_tree_out_path, markdown.str());
       if (cli.loop_tree_out_path != "-") {
-        std::cerr << "wrote loop tree: " << loop_tree_out << "\n";
+        std::cerr << "wrote loop tree: " << cli.loop_tree_out_path << "\n";
         std::cerr << "  source_db: " << source_db << "\n";
-        if (has_inferred_device_id) {
-          std::cerr << "  device_id: " << inferred_device_id << "\n";
-        }
+        std::cerr << "  device_id: " << render_device_id << "\n";
       }
       if (cli.timings) {
         std::cerr << "timing loop_tree_markdown_ms="

@@ -65,7 +65,11 @@ The raw-evidence catalog is itself queryable:
   query the named embedded table using
   `source_rowid_column = source_key`; SQL cannot dynamically substitute a table
   name, so agents first read the locator row and then issue the bounded raw
-  lookup.
+  lookup. `embedded_raw` is a row-level contract: before publication the
+  materializer verifies that every literal event, runtime-call, and device-work
+  key resolves to the declared row in the embedded table. A stale or malformed
+  literal key fails the write atomically instead of publishing a table-level
+  false positive.
 - `traceloom_v_runtime_call_source_locator` and
   `traceloom_v_device_work_source_locator`: the same bounded path for both
   endpoints of a runtime/device relation.
@@ -575,7 +579,9 @@ formal nodes so users can query loop structure directly.
 
 Important columns:
 
-- `node_id`: stable TraceLoom node key.
+- `node_id`: stable TraceLoom node key. Single-device artifacts use
+  `node-Nxxx`; a multi-device source DB scopes the key as `node-dN-Nxxx` so
+  joins cannot conflate device-local trees.
 - `local_node_id`: user-facing node id used inside the readable tree, tree
   JSON, cost tables, and SQL drill-down views, such as `N004`. The same
   `Nxxx` value must name the same node everywhere in one report.
@@ -605,13 +611,17 @@ or JSON report.
 
 Important columns:
 
-- `tree_id`: stable tree key.
+- `tree_id`: stable tree key. A single-device artifact uses
+  `native-report-tree`; a multi-device source DB emits one key per device such
+  as `native-report-tree-d0` and `native-report-tree-d1`.
 - `view_name`: semantic-tree analyzer view, currently `anchor_tree` (not the
   `native_report_tree` name used by `traceloom_viz_node`).
 - `tree_kind`: semantic tree flavor copied from the tree payload.
 - `root_node_id`: root row in `traceloom_semantic_node`.
 - `semantic_projection`, `macro_discovery`, `auxiliary_attribution`: recovery
-  policy metadata.
+  policy metadata. `macro_discovery` distinguishes a complete fixpoint,
+  exact-but-size-limited partial hierarchy, and typed flat fallback after a
+  rejected or exceptional grammar run.
 
 ### `traceloom_semantic_node`
 

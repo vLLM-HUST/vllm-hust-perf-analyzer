@@ -108,6 +108,11 @@ std::string symbol_value(const NativeIr &ir, SymbolId id) {
                                                       : std::string();
 }
 
+template <typename IdType>
+std::int64_t id_value_or_minus_one(IdType id) {
+  return id.valid() ? static_cast<std::int64_t>(id.value()) : -1;
+}
+
 std::uint32_t unit_device_id(const NativeIr &ir,
                              const ReplayUnitCostBlock &unit) {
   if (unit.replay_unit_id.valid() &&
@@ -299,21 +304,17 @@ void replace_replay_cost_rows(const std::string &sqlite_path,
         launch_stmt.integer(i++, db_idx);
         launch_stmt.integer(i++, device_id);
         launch_stmt.integer(i++, launch.member_order);
-        launch_stmt.integer(i++, launch.graph_launch_occurrence_id.valid()
-                                     ? launch.graph_launch_occurrence_id.value()
-                                     : -1);
-        launch_stmt.integer(i++, launch.replay_composition_slot_id.valid()
-                                     ? launch.replay_composition_slot_id.value()
-                                     : -1);
+        launch_stmt.integer(
+            i++, id_value_or_minus_one(launch.graph_launch_occurrence_id));
+        launch_stmt.integer(
+            i++, id_value_or_minus_one(launch.replay_composition_slot_id));
         launch_stmt.text(
             i++, replay_internal_cost_map_slot_role_name(launch.slot_role));
         launch_stmt.integer(i++, launch.slot_order);
-        launch_stmt.integer(i++, launch.replay_body_template_id.valid()
-                                     ? launch.replay_body_template_id.value()
-                                     : -1);
-        launch_stmt.integer(i++, launch.graph_launch_body_id.valid()
-                                     ? launch.graph_launch_body_id.value()
-                                     : -1);
+        launch_stmt.integer(
+            i++, id_value_or_minus_one(launch.replay_body_template_id));
+        launch_stmt.integer(
+            i++, id_value_or_minus_one(launch.graph_launch_body_id));
         launch_stmt.text(i++, launch.supported ? "supported" : "unsupported");
         launch_stmt.text(i++, launch.reason_code);
         launch_stmt.integer(i++, launch.member_count);
@@ -459,8 +460,7 @@ void replace_replay_cost_rows(const std::string &sqlite_path,
       issue_stmt.integer(2, db_idx);
       issue_stmt.integer(3, device);
       issue_stmt.text(4, issue.code);
-      issue_stmt.integer(
-          5, issue.replay_unit_id.valid() ? issue.replay_unit_id.value() : -1);
+      issue_stmt.integer(5, id_value_or_minus_one(issue.replay_unit_id));
       if (issue.replay_unit_launch_member_id.valid())
         issue_stmt.text(
             6, "graph-launch-" +

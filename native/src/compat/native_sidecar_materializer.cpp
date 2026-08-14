@@ -9,8 +9,10 @@
 #include <map>
 #include <set>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <tuple>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -495,6 +497,105 @@ RawPackagingResult copy_multiple_sqlite_sources(
   }
 }
 
+std::string source_locator_union_sql(const RawTableCopy& table) {
+  const std::string source_path = quote_literal(table.source_path);
+  const std::string source_table = quote_literal(table.source_table);
+  return
+      "SELECT source_key FROM traceloom_event_source WHERE source_table = " +
+      source_table + " AND json_extract(raw_json, '$.source_path') = " +
+      source_path +
+      " UNION ALL SELECT source_key FROM traceloom_runtime_call WHERE "
+      "source_table = " +
+      source_table + " AND json_extract(raw_json, '$.source_path') = " +
+      source_path +
+      " UNION ALL SELECT source_key FROM traceloom_device_work WHERE "
+      "source_table = " +
+      source_table + " AND json_extract(raw_json, '$.source_path') = " +
+      source_path;
+}
+
+void validate_embedded_source_locators(
+    sqlite3* db, const RawPackagingResult& packaging) {
+  std::map<std::pair<std::string, std::string>, std::uint64_t>
+      locator_counts;
+  sqlite3_stmt* raw_stmt = nullptr;
+  const char* inventory_sql =
+      "SELECT source_path, source_table, COUNT(*) FROM ("
+      "SELECT json_extract(raw_json, '$.source_path') AS source_path, "
+      "source_table FROM traceloom_event_source UNION ALL "
+      "SELECT json_extract(raw_json, '$.source_path'), source_table FROM "
+      "traceloom_runtime_call UNION ALL "
+      "SELECT json_extract(raw_json, '$.source_path'), source_table FROM "
+      "traceloom_device_work) WHERE source_path IS NOT NULL GROUP BY "
+      "source_path, source_table";
+  if (sqlite3_prepare_v2(db, inventory_sql, -1, &raw_stmt, nullptr) !=
+      SQLITE_OK) {
+    throw std::runtime_error("failed to inventory source locator domains: " +
+                             std::string(sqlite3_errmsg(db)));
+  }
+  while (true) {
+    const int rc = sqlite3_step(raw_stmt);
+    if (rc == SQLITE_DONE) {
+      break;
+    }
+    if (rc != SQLITE_ROW) {
+      const std::string message = sqlite3_errmsg(db);
+      sqlite3_finalize(raw_stmt);
+      throw std::runtime_error("failed to inventory source locator domains: " +
+                               message);
+    }
+    const unsigned char* path_text = sqlite3_column_text(raw_stmt, 0);
+    const unsigned char* table_text = sqlite3_column_text(raw_stmt, 1);
+    if (path_text == nullptr || table_text == nullptr) {
+      sqlite3_finalize(raw_stmt);
+      throw std::runtime_error(
+          "source locator domain has a NULL path or table");
+    }
+    locator_counts.emplace(
+        std::make_pair(reinterpret_cast<const char*>(path_text),
+                       reinterpret_cast<const char*>(table_text)),
+        static_cast<std::uint64_t>(sqlite3_column_int64(raw_stmt, 2)));
+  }
+  sqlite3_finalize(raw_stmt);
+
+  for (const RawTableCopy& table : packaging.tables) {
+    const auto count_found =
+        locator_counts.find({table.source_path, table.source_table});
+    if (count_found == locator_counts.end()) {
+      continue;
+    }
+    const std::uint64_t locator_count = count_found->second;
+    const std::string locators = source_locator_union_sql(table);
+    if (table.source_rowid_column.empty()) {
+      throw std::runtime_error(
+          "source-linked analysis rows reference embedded table without a "
+          "stable rowid: " +
+          table.source_path + ":" + table.source_table);
+    }
+
+    const std::string embedded = quote_identifier(table.embedded_table_name);
+    const std::string rowid = quote_identifier(table.source_rowid_column);
+    const std::uint64_t unresolved_count = sqlite_scalar_u64(
+        db,
+        "WITH locator(source_key) AS (" + locators + ") "
+        "SELECT COUNT(*) FROM locator l LEFT JOIN " +
+            embedded + " raw ON raw." + rowid +
+            " = CAST(l.source_key AS INTEGER) WHERE "
+            "l.source_key <> printf('%lld', CAST(l.source_key AS INTEGER)) "
+            "OR raw." +
+            rowid + " IS NULL",
+        "failed to validate source locator rows");
+    if (unresolved_count != 0) {
+      throw std::runtime_error(
+          "source-linked analysis rows do not resolve to an embedded raw "
+          "row: " +
+          table.source_path + ":" + table.source_table + " (" +
+          std::to_string(unresolved_count) + " unresolved of " +
+          std::to_string(locator_count) + ")");
+    }
+  }
+}
+
 void materialize_augmented_catalog(const std::string& path,
                                    const RawPackagingResult& packaging,
                                    const NativeIr& ir) {
@@ -547,6 +648,11 @@ void materialize_augmented_catalog(const std::string& path,
         "CREATE INDEX traceloom_raw_table_source_locator_idx ON "
         "traceloom_raw_table(source_path, source_table)",
         "failed to index raw table catalog");
+    // `embedded_raw` is a row-level promise, not merely evidence that the
+    // named provider table was copied. Validate every literal event/runtime/
+    // device-work key before publishing locator views so a stale source key
+    // cannot masquerade as auditable provenance.
+    validate_embedded_source_locators(db, packaging);
     sqlite_exec(
         db,
         "CREATE VIEW traceloom_v_event_source_locator AS SELECT "
@@ -1273,7 +1379,7 @@ void materialize_augmented_catalog(const std::string& path,
          "occurrence_idx",
          "NULL selects all occurrences; a value selects one execution"},
         {"bubble_occurrences", "10", "structural_position_id", "TEXT",
-         "0", "structural_node_id",
+         "0", "structural_position_id",
          "traceloom_v_structure_bubble_position", "structural_position_id",
          "selected recurrent bubble position"},
         {"bubble_occurrences", "20", "bubble_id", "TEXT", "1",
@@ -1281,7 +1387,7 @@ void materialize_augmented_catalog(const std::string& path,
          "bubble_id",
          "NULL selects all bubbles; a value selects one occurrence"},
         {"bubble_host_context", "10", "structural_position_id", "TEXT",
-         "0", "structural_node_id",
+         "0", "structural_position_id",
          "traceloom_v_structure_bubble_position",
          "structural_position_id", "selected recurrent bubble position"},
         {"host_window_calls", "10", "interval_id", "TEXT", "0",
@@ -1389,9 +1495,9 @@ void materialize_augmented_catalog(const std::string& path,
         {"scope_host_context", "40", "interval_id", "host_interval_id",
          "typed host interval available for literal-call drill-down"},
         {"bubble_hotspots", "10", "structural_position_id",
-         "structural_node_id", "recurrent bubble position and node scope"},
+         "structural_position_id", "recurrent bubble position"},
         {"bubble_occurrences", "10", "structural_position_id",
-         "structural_node_id", "selected recurrent bubble position"},
+         "structural_position_id", "selected recurrent bubble position"},
         {"bubble_occurrences", "20", "bubble_id", "bubble_id",
          "selected bubble occurrence"},
         {"bubble_occurrences", "30", "right_node_id",
@@ -1403,7 +1509,7 @@ void materialize_augmented_catalog(const std::string& path,
         {"bubble_occurrences", "60", "host_interval_id",
          "host_interval_id", "typed upstream host interval"},
         {"bubble_host_context", "10", "structural_position_id",
-         "structural_node_id", "selected recurrent bubble position"},
+         "structural_position_id", "selected recurrent bubble position"},
         {"host_window_calls", "10", "interval_id", "host_interval_id",
          "selected typed host interval"},
         {"host_window_calls", "20", "runtime_call_id", "runtime_call_id",
@@ -1507,47 +1613,208 @@ ReportTree build_sidecar_report_tree(
                   << last_step.replace_count << "\n";
       }
     }
-    if (!grammar_result.ok() || grammar_state.stage != GrammarStage::kDone ||
-        grammar_state.macro_defs.empty()) {
-      return build_report_tree_from_tokens(report_tokens);
+    if (!grammar_result.ok() || grammar_state.stage != GrammarStage::kDone) {
+      ReportTree fallback = build_report_tree_from_tokens(report_tokens);
+      fallback.diagnostics.push_back(Diagnostic{
+          DiagnosticSeverity::kWarning, "grammar_recovery_rejected",
+          "recursive grammar recovery failed closed with stop reason " +
+              std::string(
+                  grammar_engine_stop_reason_name(grammar_result.stop_reason))});
+      return fallback;
     }
-    return build_report_tree_from_grammar_state(report_tokens, grammar_state);
-  } catch (const std::exception&) {
-    return build_report_tree_from_tokens(report_tokens);
+    ReportTree tree = grammar_state.macro_defs.empty()
+                          ? build_report_tree_from_tokens(report_tokens)
+                          : build_report_tree_from_grammar_state(
+                                report_tokens, grammar_state);
+    if (grammar_result.stop_reason ==
+        GrammarEngineStopReason::kSequenceTooLargeForFullPairDiscovery) {
+      tree.diagnostics.push_back(Diagnostic{
+          DiagnosticSeverity::kWarning,
+          "grammar_partial_sequence_too_large_for_full_pair_discovery",
+          "exact run folding was retained, but pair discovery was skipped "
+          "because the live sequence exceeded full_discovery_cap"});
+    }
+    return tree;
+  } catch (const std::exception& ex) {
+    ReportTree fallback = build_report_tree_from_tokens(report_tokens);
+    fallback.diagnostics.push_back(Diagnostic{
+        DiagnosticSeverity::kWarning, "grammar_recovery_exception",
+        std::string("recursive grammar recovery failed closed: ") + ex.what()});
+    return fallback;
   }
+}
+
+// Projects the report-relevant IR tables onto a single device. The token
+// table is filtered to the device with dense TokenIds and a renumbered
+// sequence_index (the grammar state machine requires both). Anchor, event,
+// task, communication-op, symbol, source-ref, and semantic replay tables are
+// copied unchanged so original ids stay valid everywhere; per-device tokens
+// reference original anchor ids, which keeps compat anchor ids and anchor
+// indices consistent with the global sidecar tables. Protected intervals are
+// kept only when their whole token span belongs to the device; a span that
+// crosses devices fails closed because cross-device replay units are not
+// supported by the structural report.
+NativeIr project_ir_for_device(const NativeIr& ir, std::uint32_t device_id) {
+  NativeIr out;
+  out.symbols = ir.symbols;
+  out.source_refs = ir.source_refs;
+  out.trace_events = ir.trace_events;
+  out.tasks = ir.tasks;
+  out.communication_ops = ir.communication_ops;
+  out.anchors = ir.anchors;
+  out.graph_templates = ir.graph_templates;
+  out.replay_composition_candidates = ir.replay_composition_candidates;
+  out.replay_composition_regions = ir.replay_composition_regions;
+  out.replay_units = ir.replay_units;
+
+  std::vector<std::uint32_t> token_devices(ir.tokens.size(), 0);
+  for (std::size_t index = 0; index < ir.tokens.size(); ++index) {
+    token_devices[index] = ir.tokens.rows()[index].device_id;
+  }
+  std::unordered_map<TokenId::value_type, TokenId::value_type> token_remap;
+  token_remap.reserve(ir.tokens.size());
+  for (const TokenRow& token : ir.tokens.rows()) {
+    if (token.anchor_id.value() >= ir.anchors.size()) {
+      throw std::invalid_argument("TokenRow anchor_id is out of range");
+    }
+    const AnchorRow& anchor = ir.anchors.row(token.anchor_id);
+    if (anchor.device_id != token.device_id) {
+      throw std::invalid_argument(
+          "TokenRow device_id disagrees with its AnchorRow device_id");
+    }
+    if (anchor.device_id != device_id) {
+      continue;
+    }
+    token_remap.emplace(token.id.value(), out.tokens.size());
+    out.tokens.append(token.anchor_id, token.symbol_id, device_id,
+                      static_cast<std::uint32_t>(out.tokens.size()),
+                      token.start_ns, token.end_ns);
+  }
+  if (out.tokens.empty()) {
+    throw std::invalid_argument(
+        "device " + std::to_string(device_id) +
+        " has no report tokens to project");
+  }
+
+  for (const ProtectedIntervalRow& interval : ir.protected_intervals.rows()) {
+    if (interval.first_token_id.value() > interval.last_token_id.value()) {
+      throw std::invalid_argument(
+          "protected interval has an inverted token span");
+    }
+    if (interval.last_token_id.value() >= token_devices.size()) {
+      throw std::invalid_argument(
+          "protected interval references an out-of-range token");
+    }
+    const std::uint32_t interval_device =
+        token_devices[interval.first_token_id.value()];
+    if (interval_device !=
+        token_devices[interval.last_token_id.value()]) {
+      throw std::invalid_argument(
+          "protected interval spans devices; cross-device replay units are "
+          "unsupported in the structural report");
+    }
+    if (interval_device != device_id) {
+      continue;
+    }
+    for (TokenId::value_type token_id = interval.first_token_id.value();
+         token_id <= interval.last_token_id.value(); ++token_id) {
+      if (token_devices[token_id] != interval_device) {
+        throw std::invalid_argument(
+            "protected interval spans devices; cross-device replay units are "
+            "unsupported in the structural report");
+      }
+    }
+    const auto first_found = token_remap.find(interval.first_token_id.value());
+    const auto last_found = token_remap.find(interval.last_token_id.value());
+    if (first_found == token_remap.end() || last_found == token_remap.end()) {
+      throw std::invalid_argument(
+          "protected interval token span is not present in its device "
+          "projection");
+    }
+    out.protected_intervals.append(
+        interval.kind, interval.boundary_policy, TokenId(first_found->second),
+        TokenId(last_found->second), interval.first_anchor_id,
+        interval.last_anchor_id, interval.evidence_source_ref_id);
+  }
+  return out;
 }
 
 }  // namespace
 
-NodeCoverageSqlRows build_native_loop_tree_node_coverage_rows(
+std::vector<NativeDeviceReportTree> build_native_device_report_trees(
     const NativeIr& ir,
     const NativeCompatibilitySidecarOptions& options) {
   const Stopwatch tokens_watch;
-  const std::vector<ReportToken> report_tokens =
-      build_report_tokens_from_native_ir(ir);
+  const std::vector<NativeReportDevicePartition> partitions =
+      partition_report_tokens_by_device(ir, options.evidence_role_config);
   if (options.timing_diagnostics) {
     std::cerr << "timing loop_tree_tokens_ms=" << tokens_watch.elapsed_ms()
               << "\n";
+    std::cerr << "timing loop_tree_device_count=" << partitions.size()
+              << "\n";
   }
+  std::vector<NativeDeviceReportTree> device_trees;
+  device_trees.reserve(partitions.size());
+  for (const NativeReportDevicePartition& partition : partitions) {
+    const Stopwatch tree_watch;
+    NativeDeviceReportTree device;
+    device.device_id = partition.device_id;
+    device.tokens = partition.tokens;
+    if (partitions.size() == 1) {
+      device.tree = build_sidecar_report_tree(ir, options, partition.tokens);
+    } else {
+      const NativeIr projection =
+          project_ir_for_device(ir, partition.device_id);
+      device.tree =
+          build_sidecar_report_tree(projection, options, partition.tokens);
+    }
+    if (options.timing_diagnostics) {
+      std::cerr << "timing loop_tree_report_tree_ms_device="
+                << partition.device_id << " " << tree_watch.elapsed_ms()
+                << "\n";
+    }
+    device_trees.push_back(std::move(device));
+  }
+  return device_trees;
+}
+
+NodeCoverageSqlRows build_native_loop_tree_node_coverage_rows(
+    const NativeIr& ir,
+    const NativeCompatibilitySidecarOptions& options) {
+  const std::vector<NativeDeviceReportTree> device_trees =
+      build_native_device_report_trees(ir, options);
   const Stopwatch aux_watch;
   const AuxAttributionSqlRows aux_rows =
       options.materialize_aux_attribution
-          ? build_aux_attribution_sql_rows(ir, options.db_idx)
+          ? build_aux_attribution_sql_rows(
+                ir, options.evidence_role_config, options.db_idx)
           : AuxAttributionSqlRows{};
   if (options.timing_diagnostics) {
     std::cerr << "timing loop_tree_aux_rows_ms=" << aux_watch.elapsed_ms()
               << "\n";
   }
-  const Stopwatch tree_watch;
-  const ReportTree report_tree =
-      build_sidecar_report_tree(ir, options, report_tokens);
-  if (options.timing_diagnostics) {
-    std::cerr << "timing loop_tree_report_tree_ms="
-              << tree_watch.elapsed_ms() << "\n";
-  }
   const Stopwatch coverage_watch;
-  NodeCoverageSqlRows rows = build_report_tree_node_coverage_sql_rows(
-      report_tree, report_tokens, aux_rows, options.db_idx);
+  const bool scope_node_ids = device_trees.size() > 1;
+  NodeCoverageSqlRows rows;
+  for (const NativeDeviceReportTree& device : device_trees) {
+    NodeCoverageSqlRows device_rows = build_report_tree_node_coverage_sql_rows(
+        device.tree, device.tokens, aux_rows, options.db_idx,
+        "native_report_tree", scope_node_ids);
+    rows.nodes.insert(rows.nodes.end(), device_rows.nodes.begin(),
+                      device_rows.nodes.end());
+    rows.edges.insert(rows.edges.end(), device_rows.edges.begin(),
+                      device_rows.edges.end());
+    rows.loop_nodes.insert(rows.loop_nodes.end(),
+                           device_rows.loop_nodes.begin(),
+                           device_rows.loop_nodes.end());
+    rows.node_anchors.insert(rows.node_anchors.end(),
+                             device_rows.node_anchors.begin(),
+                             device_rows.node_anchors.end());
+    rows.anchor_primary_nodes.insert(
+        rows.anchor_primary_nodes.end(),
+        device_rows.anchor_primary_nodes.begin(),
+        device_rows.anchor_primary_nodes.end());
+  }
   if (options.timing_diagnostics) {
     std::cerr << "timing loop_tree_coverage_rows_ms="
               << coverage_watch.elapsed_ms() << "\n";
@@ -1681,18 +1948,57 @@ void write_basic_native_compatibility_sidecar(
   replace_symbol_normalization_rows(sqlite_path, symbol_normalization_rows);
   const AuxAttributionSqlRows aux_rows =
       options.materialize_aux_attribution
-          ? build_aux_attribution_sql_rows(ir, options.db_idx)
+          ? build_aux_attribution_sql_rows(
+                ir, options.evidence_role_config, options.db_idx)
           : AuxAttributionSqlRows{};
   replace_aux_attribution_rows(sqlite_path, aux_rows);
   replace_anchor_cost_breakdown_rows(
       sqlite_path, build_native_anchor_cost_breakdown_sql_rows(ir, aux_rows));
-  const std::vector<ReportToken> report_tokens =
-      build_report_tokens_from_native_ir(ir);
-  const ReportTree report_tree =
-      build_sidecar_report_tree(ir, options, report_tokens);
-  const NodeCoverageSqlRows node_rows =
-      build_report_tree_node_coverage_sql_rows(report_tree, report_tokens,
-                                               aux_rows, options.db_idx);
+  const std::vector<NativeDeviceReportTree> device_trees =
+      build_native_device_report_trees(ir, options);
+  const bool scope_node_ids = device_trees.size() > 1;
+  NodeCoverageSqlRows node_rows;
+  SemanticTreeSqlRows semantic_rows;
+  for (const NativeDeviceReportTree& device : device_trees) {
+    const NodeCoverageSqlRows device_node_rows =
+        build_report_tree_node_coverage_sql_rows(
+            device.tree, device.tokens, aux_rows, options.db_idx,
+            "native_report_tree", scope_node_ids);
+    node_rows.nodes.insert(node_rows.nodes.end(),
+                           device_node_rows.nodes.begin(),
+                           device_node_rows.nodes.end());
+    node_rows.edges.insert(node_rows.edges.end(),
+                           device_node_rows.edges.begin(),
+                           device_node_rows.edges.end());
+    node_rows.loop_nodes.insert(node_rows.loop_nodes.end(),
+                                device_node_rows.loop_nodes.begin(),
+                                device_node_rows.loop_nodes.end());
+    node_rows.node_anchors.insert(node_rows.node_anchors.end(),
+                                  device_node_rows.node_anchors.begin(),
+                                  device_node_rows.node_anchors.end());
+    node_rows.anchor_primary_nodes.insert(
+        node_rows.anchor_primary_nodes.end(),
+        device_node_rows.anchor_primary_nodes.begin(),
+        device_node_rows.anchor_primary_nodes.end());
+
+    const std::string tree_id =
+        device_trees.size() == 1
+            ? "native-report-tree"
+            : "native-report-tree-d" + std::to_string(device.device_id);
+    const SemanticTreeSqlRows device_semantic_rows =
+        build_report_tree_semantic_sql_rows(
+            device.tree, device.tokens, aux_rows, options.db_idx, tree_id,
+            "anchor_tree", scope_node_ids);
+    semantic_rows.trees.insert(semantic_rows.trees.end(),
+                               device_semantic_rows.trees.begin(),
+                               device_semantic_rows.trees.end());
+    semantic_rows.nodes.insert(semantic_rows.nodes.end(),
+                               device_semantic_rows.nodes.begin(),
+                               device_semantic_rows.nodes.end());
+    semantic_rows.edges.insert(semantic_rows.edges.end(),
+                               device_semantic_rows.edges.begin(),
+                               device_semantic_rows.edges.end());
+  }
   replace_loop_tree_rows(sqlite_path, split_loop_tree_sql_rows(node_rows));
   const NodeAnchorCoverageSqlRows coverage_rows =
       split_node_anchor_coverage_sql_rows(node_rows);
@@ -1720,8 +2026,6 @@ void write_basic_native_compatibility_sidecar(
                                         collective_rows.local_links);
   }
 
-  const SemanticTreeSqlRows semantic_rows = build_report_tree_semantic_sql_rows(
-      report_tree, report_tokens, aux_rows, options.db_idx);
   replace_semantic_tree_catalog_rows(
       sqlite_path, split_semantic_tree_catalog_sql_rows(semantic_rows));
   replace_semantic_graph_rows(sqlite_path,

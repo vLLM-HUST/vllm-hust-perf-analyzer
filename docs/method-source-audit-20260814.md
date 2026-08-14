@@ -1,0 +1,654 @@
+# Method-to-Source Audit (2026-08-14)
+
+This note audits whether TraceLoom's implementation gives the database timeline
+the semantics claimed by the paper. It is deliberately not a feature roadmap.
+Each item records the analytical contract, the implementation path, a concrete
+oracle, and the smallest decision or repair required before submission.
+
+## Audit rules
+
+For each claimed relation or measure, check five things:
+
+1. **Domain:** the observations over which the relation is legal.
+2. **Identity:** the stable coordinate to which the result is attached.
+3. **Measure:** whether a value is a literal observation, a disjoint
+   attribution, an overlay, or an envelope.
+4. **Boundary behavior:** unsupported, ambiguous, and residual observations
+   must remain typed rather than silently becoming absence or zero.
+5. **Oracle:** tests and real-data queries must distinguish the intended
+   semantics from a merely deterministic implementation.
+
+## Claim-to-code status
+
+| Paper contract | Status at this branch | Evidence |
+| --- | --- | --- |
+| Provider facts remain primitive and source linked | **implementation corrected** | A13, A16; embedded-row and primitive event/source rejection tests |
+| Structural participation uses positive selection and preserves unknowns | **implementation corrected / matches** | A3--A5, A15; policy execution and unknown-first fixtures |
+| Backend spellings normalize without erasing observed identity | **matches** | A15; normalization decision, policy, rule, and source-lineage fixtures |
+| Horizontal realization is a deterministic device-local projection | **implementation corrected / matches** | A1, A2, A16; multi-device, comparator, and 1/4-reader equality oracles |
+| Provider-attested replay remains protected and expands only with visible support | **implementation corrected** | A8, A12; typed fallbacks and exact body-shape/device oracles |
+| Recursive grammar commits deterministic recurrent Patterns | **matches** | A17; snapshot, tie-order, revalidation, overlap, boundary, and recursive-lowering tests |
+| Parallel front-end analysis does not change the materialized result | **implementation corrected** | A6, A15, A16; seam completeness, adapter equality, and byte-identical augmented DB oracles |
+| Hierarchical cost measures keep distinct meanings and exact denominators | **implementation corrected / matches** | A2--A4, A11, A12; conservation, occurrence, repeat, and replay-cost oracles |
+| Returned coordinates compose across advertised projections | **implementation corrected** | A10, A11, A13; typed coordinate continuation and public tour |
+| Unsupported context remains typed rather than guessed or dropped | **implementation corrected / matches** | A5, A8, A10, A12, A13 |
+| Bounded-window summaries are augmented-DB discovery relations | **paper correction or new relation required** | A9; currently retained in the legacy result surface only |
+
+## Findings
+
+### A1. Device-local sequence domains are claimed but not enforced
+
+**Severity:** correctness; blocks a general multi-device input claim.
+
+**Claim.** The paper defines one horizontal coordinate per device analysis
+scope. Device and rank coordinates compose only through explicit input
+identity. Pattern discovery and grammar construction therefore must not cross a
+device boundary.
+
+**Current implementation.** `build_flat_anchors()` globally sorts all
+`AnchorCandidate`s by `device_id` and then time, and appends one zero-based
+`TokenTable.sequence_index`. `ProtectedSequence` retains `device_id`, but
+candidate scanning does not reject a candidate that crosses a device change.
+`GrammarNode` and `GrammarChunk` carry no sequence-domain identity. Report-tree
+materialization later assigns all node, edge, and node-anchor rows the
+`primary_device_id(tokens)`, which is the first token's device.
+
+Relevant paths:
+
+- `native/src/analysis/flat_anchor_builder.cpp`
+- `native/src/sequence/protected_sequence.cpp`
+- `native/src/pattern/candidate_scan.cpp`
+- `native/include/traceloom/pattern/grammar_state.h`
+- `native/src/pattern/grammar_state.cpp`
+- `native/src/compat/report_tree_rows.cpp`
+
+**Why existing checks can miss it.** Root-cost conservation already groups
+time bounds by device and sums the envelopes. A cross-device global tree can
+therefore conserve total time while still discovering a pattern across two
+illegal domains and publishing every row under the first device id. Existing
+candidate and grammar fixtures use one device.
+
+**Repair in this branch.** The retained implementation at `ec7fc5f` is adopted
+and reconciled with the current cost-policy and augmented-DB paths. Report
+tokens are partitioned by observed `device_id`; grammar runs over a dense token
+projection for exactly one device; protected intervals that span devices fail
+closed; each tree is lowered with its true device id; and multi-device
+node/tree keys are device-scoped. The queryable DB may contain several device-
+local trees, while an explicit Markdown path requires
+`--loop-tree-device-id`. Cross-device or cross-rank comparison remains an
+explicit relational operation over those trees.
+
+The bounded-window candidate key now also includes `device_id`. Windows that
+touch a device boundary become typed `CandidateCrossesSequenceDomain`
+diagnostics and cannot contribute to either device's count. Thus the
+construction diagnostic cannot manufacture recurrence by aggregating equal
+symbols across two devices.
+
+**Oracles.** Two-device fixtures whose concatenated boundaries would otherwise
+create candidates assert device-keyed summaries, typed boundary rejection,
+one independently recovered tree per device, scoped node/tree keys, per-device
+cost conservation, no cross-device node/anchor links, and fail-closed cross-
+device protected intervals. The CUDA compatibility fixture additionally checks
+two independently published device trees through SQLite.
+
+### A2. `total_us` at a position is a right-anchored disjoint attribution
+
+**Severity:** semantics/documentation; current RQ2 real-data result remains
+valid.
+
+**Claim.** A position carries the local transition before its right anchor plus
+the anchor's disjoint occupied-time share. This is an additive analytical lens,
+not the raw duration of the anchor event. Raw scheduled duration remains
+queryable as evidence.
+
+**Current implementation.** `compute_prelude_costs()` classifies the non-anchor
+interval before a token and attaches it to that right token.
+`compute_timeline_anchor_costs()` sweeps anchor intervals per device and assigns
+each occupied slice once. Communication takes precedence over compute; when
+several active owners have the same category, the smallest token ordinal owns
+the slice. `token_cost_packet()` adds the prelude partition to that disjoint
+anchor share. `traceloom_tree_node_occurrence` then sums position packets.
+
+Relevant paths:
+
+- `native/src/compat/report_tree_rows.cpp`
+- `native/src/compat/sidecar_tree_views.cpp`
+- `docs/db-timeline-schema.md`
+- `docs/workflow.md`
+
+**What is already clean.** The database documentation distinguishes additive
+`total_us = compute_us + comm_us + idle_us` from the non-additive `self_us` and
+`aux_us` overlays. Unit tests cover communication-over-compute precedence,
+overlap-safe root conservation, and prelude classification.
+
+**Remaining ambiguity.** The same-category tie break (`*owners.begin()`) is an
+implicit positional ownership rule. It is deterministic and makes every parent
+exactly composable from children, but a position's `total_us` is not a literal
+anchor duration and can depend on projected order when anchors overlap. The
+public contract should name this lens and keep raw duration visibly separate;
+otherwise a reader can mistake position attribution for an event measurement.
+
+**Real-data check.** In the current kickstart RQ2 scope, all 11,136 body
+positions are non-overlapping in projected order. Every position's
+`total_us` exceeds raw event duration only because it includes its preceding
+transition. The slowest occurrence's largest excess remains the AllReduce at
+position 282: attributed `2265.805 us`, raw event `2264.525 us`, and excess
+over the position median `1916.198 us`. The claimed signal is therefore a real
+communication-duration movement rather than an overlap-ownership artifact.
+
+**Resolved contract.** The current method text takes the first route. It names
+the local transition records, attaches each to the right anchor, distinguishes
+scheduled sum, busy union, envelope, and disjoint partitions, and keeps raw
+event duration queryable. The implementation therefore matches the paper's
+right-anchored disjoint transition lens; no experiment denominator changes.
+
+### A3. Communication replacement lost its evidence link and became aux cost
+
+**Severity:** evidence-lineage correctness and auxiliary-cost contamination.
+
+**Observed failure.** The flat builder suppresses a low-level task when a
+`CommunicationOpRow` on the same device and connection overlaps it, then emits
+the communication observation as the structural anchor. The evidence-role
+materializer repeated the membership test and stated
+`represented_by_communication_anchor`, but did not place the suppressed task at
+that anchor. It consequently reported the task as `anchor/orphan`.
+Independently, the generic auxiliary writer treated every unanchored device
+event as prelude evidence, so the same suppressed communication task was also
+attached to the *next* anchor as auxiliary cost.
+
+**Real-data magnitude.** The kickstart database contains 1,776 such orphan
+tasks (1,775 communication-looking tasks plus one `MEMCPY_ASYNC`). Every task
+has exactly one overlapping `COMMUNICATION_OP`; 1,772 have exactly equal time
+bounds and four overlap without equal bounds. All 1,776 communication
+observations resolve to anchors (1,773 distinct anchors). The erroneous aux
+links add `2,351,432.729 us` of duplicate scheduled overlay to following
+anchors. They do not alter the disjoint additive `total_us`, but they make the
+auxiliary lens materially misleading.
+
+**Repair in this branch.** `evidence_role_sql_rows.cpp` now retains the exact
+matching communication rows, places a suppressed task at each representative
+communication anchor, and emits a typed conflict if more than one distinct
+representative anchor exists. A focused SQLite regression constructs distinct
+TASK and COMMUNICATION_OP observations for one execution, checks that the task
+lands on the communication anchor, and rejects an orphan issue. The incremental
+build and `traceloom_native_report_sql_compat_tests` pass.
+
+**Completed repair.** A shared `EventCostAttributionMask`, built from the
+effective `FlatAnchorBuildConfig`, now gates both auxiliary links and transition
+partitions. Communication/replay replacement, host mirrors, reconciled timing
+envelopes, identity observations, and evidence-only observations cannot silently
+reappear as auxiliary cost. Regenerating both kickstart databases yields zero
+communication-replacement orphans and zero communication-replacement auxiliary
+links, while materializing 1,776 and 1,774 representative task-to-anchor
+placements respectively. The executable projection tour still passes.
+
+### A4. `retained_as_evidence` is parsed and published but not executed
+
+**Severity:** configurable-policy contract; default profiles are unaffected.
+
+The evidence-role manifest exposes `retained_for_attribution` and
+`retained_as_evidence`, accepts overrides, and publishes the selected value.
+No cost or auxiliary implementation reads that value. Both
+`build_aux_attribution_sql_rows()` and prelude cost classification currently
+consider all eligible unanchored events regardless of the declared treatment.
+The default manifest uses `retained_for_attribution` for every rule, so checked-
+in default results do not drift; a custom policy can nevertheless request a
+behavior that TraceLoom silently does not perform.
+
+**Repair in this branch.** `EventCostAttributionMask` is now consumed by the
+production auxiliary and transition-cost paths. `retained_as_evidence` keeps
+the normalized event and source locator but does not create an auxiliary link
+or enter the transition overlay. A focused override oracle holds the evidence
+inventory fixed while checking that `retained_for_attribution` contributes one
+`3.0 us` EVENT_WAIT overlay and `retained_as_evidence` contributes none.
+
+### A5. Auxiliary tail observations already fail closed as typed results
+
+**Severity:** no method defect; add a direct oracle.
+
+`build_aux_attribution_sql_rows()` links an auxiliary observation only to a
+later anchor on the same device. A tail observation with no later anchor stays
+in `traceloom_event`. The evidence-role materializer records it as
+`retained_unplaced` with issue code
+`omitted_event_without_auxiliary_link`; it does not throw and does not silently
+convert it to zero. In the kickstart database all 92 unplaced auxiliary events
+are at or after the last anchor start (88 end after the last anchor), confirming
+that this is a real tail boundary rather than an interior placement loss.
+
+**Oracle.** The small evidence-role fixture now asserts that its existing
+`LateTask` is retained with the typed unplaced decision and issue, and has no
+auxiliary link. Regenerated kickstart databases retain 92 and 134 such tail
+outcomes respectively; none becomes an error or a zero-valued placement.
+
+### A6. The evaluated partition-local reducer was not on `main`
+
+**Severity:** implementation/evaluation fidelity; repaired in this branch.
+
+The production branch still scanned every owned partition in parallel, moved
+every candidate occurrence back to one global vector, and globally sorted that
+vector in `reduce_candidates()`.  The paper-evaluated implementation at
+`7d8768a` instead reduces occurrences inside each partition and merges only
+compact `CandidateSummaryRow`s plus typed diagnostics.  The latter is the path
+that produced the retained scaling result, but it had remained on historical
+analysis branches rather than the current product branch.
+
+**Repair in this branch.** The production and parity-test portion of
+`7d8768a` is now adopted with its original Fletcher authorship.  Each start
+coordinate still has one partition owner; local summaries are merged in
+candidate-key/first-position order, counts and first positions are combined,
+and a key blocked by any ambiguous-boundary diagnostic is removed globally.
+The aggregate retains the exact accepted occurrence count without retaining
+the occurrence-sized intermediate table.  One- and multi-thread summary and
+diagnostic parity tests remain executable.
+
+The audit also found an unstated completeness precondition: a deterministic
+result can still be incomplete if the read halo is shorter than the longest
+forward window at an interior partition seam.  Both partitioned scan APIs now
+validate contiguous ownership and sufficient per-partition read reach before
+starting workers.  A seam oracle proves that a one-token halo fails for
+length-three windows and that a two-token halo retains all 13 length-two/three
+windows of an eight-token fixture.
+
+### A7. Recursive grammar commit is deterministic but deliberately serial
+
+**Severity:** claim-boundary clarification; implementation and current paper
+agree.
+
+`GrammarStateConfig.worker_count` assigns chunks to logical worker owners and
+the read-only rounds expose per-owner candidate buckets, but
+`run_adjacent_run_readonly_round()`, `run_pair_grammar_readonly_round()`, and
+`run_native_macro_run_readonly_round()` currently traverse one dense frozen
+snapshot in the calling thread.  They then reduce with total tie-break orders,
+select one global action, revalidate generation/spans/nonoverlap/protected
+boundaries, and apply one serial rewrite.  `worker_count` therefore does not
+make recursive grammar induction parallel.
+
+This is not currently a paper defect: the implementation section explicitly
+calls the partitioned bounded-window path discovery evidence and states that
+it does not select grammar productions.  It describes grammar rounds as
+globally ordered serial rounds and limits the evaluated speedup to the
+map/reduce component.  Existing grammar tests compare exact semantic output
+signatures across chunk sizes and worker counts, including pairs and nested
+macro-run folding.
+
+### A8. Grammar safety-limit and exception fallbacks are not queryable
+
+**Severity:** typed-support gap; a partial or failed hierarchy can look like an
+ordinary complete tree.
+
+After exact-run folding, `run_grammar_state_machine()` stops pair discovery
+when the live sequence exceeds `full_discovery_cap`.  It marks the result
+`sequence_too_large_for_full_pair_discovery` but also treats that result as
+`ok()`.  The sidecar may consequently lower an exact but incomplete run-only
+grammar.  Separately, `build_sidecar_report_tree()` catches every grammar
+exception and silently emits the flat-token tree.  Neither outcome is carried
+into `traceloom_semantic_tree.macro_discovery` or another queryable support
+surface.
+
+**Repair in this branch.** Useful exact run-only structure is preserved at the
+size limit, but the tree receives a typed partial-discovery diagnostic.
+Rejected and exceptional grammar runs fail closed to the flat tree with their
+own typed diagnostics. `traceloom_semantic_tree.macro_discovery` now publishes
+`native_report_tree_complete`, `native_report_tree_partial_size_limit`, or the
+corresponding rejected/exception fallback state per tree. A multi-device
+sidecar oracle forces only device 0 through the cap and observes partial versus
+complete status independently in SQL.
+
+### A9. Bounded-window discovery is not an augmented-DB relation
+
+**Severity:** paper/product wording; no structural correctness defect.
+
+The bounded length-two/three scan emits reduced summaries and diagnostic
+previews in the legacy in-memory JSON result.  It neither chooses recursive
+grammar productions nor materializes complete candidate/diagnostic relations
+in the queryable database timeline.  The paper currently calls the summaries
+"published discovery evidence," which is stronger than the primary product
+surface supports.  Before submission, either materialize an explicitly bounded
+summary/support surface in the augmented DB or narrow the prose to an audited
+construction diagnostic and component-scaling workload.  Do not imply that
+the scaling experiment parallelizes recursive hierarchy recovery.
+
+### A10. Projection continuation confused node and bubble-position domains
+
+**Severity:** query-composition correctness; repaired in this branch.
+
+The projection catalog originally labeled `structural_position_id` returned by
+the bubble surfaces as `structural_node_id`; the corresponding required bubble
+selectors used the same incorrect coordinate kind.  The continuation view
+therefore advertised routes such as `scope_catalog -> bubble_occurrences`: a
+syntactically valid node id could be bound as a different identifier domain and
+produce a misleading empty answer.  The catalog now gives bubble positions
+their own `structural_position_id` kind.  Positive oracles retain the intended
+`bubble_hotspots -> bubble_occurrences` route, while both the unit fixture and
+the executable real-profile tour reject node-to-bubble continuations.
+
+### A11. Occurrence populations and denominator rules are internally exact
+
+**Severity:** audited invariant; validation strengthened in this branch.
+
+Every report definition now must have one or more realized occurrences, dense
+per-definition occurrence indices, and (when present) an exact cached count.
+Definition and occurrence ids must match their dense storage coordinates, and a
+Repeat span must be divisible by its nonzero `repeat_count`.  This prevents a
+dormant definition or stale count from being published as an invented
+one-member population.  The previous `display_occurrence_count()` fallback is
+therefore unreachable for validated trees.
+
+The materialized measures use two deliberate denominators.  Occurrence rows
+retain the full realized scope; ordinary node averages divide by actual
+`occurrence_count`, while Repeat-node averages divide by
+`occurrence_count * repeat_count` and therefore describe one body iteration.
+The raw `repeat_count`, full `total_us`, occurrence rows, and per-position rows
+remain available, so the normalization is auditable rather than implicit.
+
+On both the real Ascend kickstart artifact and a newly regenerated two-device
+CUDA DP2 training artifact, node counts equal materialized occurrence rows,
+node cost equals both occurrence and anchor sums, occurrence positions are
+unique, and every aligned position covers the complete node population.  The
+CUDA artifact publishes one independent complete tree per device (1,471
+anchors each) with zero cross-device coverage.
+
+### A12. Replay completeness did not validate declared body shape
+
+**Severity:** replay cost correctness; repaired in this branch.
+
+Replay membership previously failed closed on invalid references, duplicate
+positions, and lane inconsistency, but a nonempty proper subset of otherwise
+valid member rows could still be costed as a complete body.  The analyzer did
+not compare concrete member kind/stream counts with either the observed
+`GraphLaunchBodyRow` summary or its referenced exact `ReplayBodyTemplateRow`.
+It also did not prove that all members belonged to the launch occurrence's
+device.
+
+Supported replay launches now require exact agreement among concrete members,
+the observed-body summary, and the referenced template, plus one device equal
+to the graph-launch device.  Each failure is typed and emits no partial member
+or aggregate rows.  `no_replay_units` is additionally materialized as an issue
+row, so the queryable database does not represent unsupported replay analysis
+as an unexplained group of empty cost tables.
+
+**Real-data oracle.** Regenerating the immutable CUDA real-model node-level
+artifact preserves five supported ReplayUnits, five supported launches,
+49,405 exact members (9,881 per body), 9,881 role-collapsed aggregates, and
+zero issues.  Launch member counts, task sums, kind partitions, stream sums,
+busy/envelope inequalities, aggregate contributor counts and denominators, and
+the one-to-one exact-member drill-down into tree occurrences all validate.
+
+The broad suite also exposed one stale JSON serialization fixture that declared
+three body members but supplied one. It is now a self-consistent one-member
+fixture and still exercises the same supported serialization fields. The
+analyzer was not weakened to accommodate the invalid fixture.
+
+### A13. Host context is an evidence-bounded relation, not bubble causality
+
+**Severity:** audited method boundary; row-provenance gap repaired in this
+branch.
+
+`build_runtime_device_sql_rows()` first relates runtime calls and device work
+through provider identifiers or a validated graph-launch adapter relation.
+Reused CUDA synchronization identifiers may be disambiguated by unique runtime
+interval containment only after identifier-based candidate selection; time
+proximity never discovers a relation. Missing, ambiguous, device-incompatible,
+and unsupported cases remain typed. Anchor endpoints admit only
+`supported_exact` or `supported_deterministic` relations, and a host interval
+is defined as the observable window from the left endpoint call's end to the
+right endpoint call's start. Missing endpoints, incompatible domains, and
+nonmonotonic order remain queryable and contribute no invented activity.
+
+A structure bubble is separately the overlap-safe uncovered device cost before
+a self-owned right anchor. Its host context reuses the corresponding adjacent
+anchor interval and inventories overlapping profiler-visible runtime calls in
+the selected host scope. API-family counts, scheduled duration, and observed
+overlap are population statistics; they are not a causal label for the device
+bubble. Positions without a supported host interval or without API-family rows
+remain in the left-preserving position surface with explicit coverage and
+support-state denominators.
+
+Relation-level checks on both the real Ascend kickstart augmented DB and the
+two-device CUDA DP2 augmented DB found no dangling supported endpoints,
+nonmonotonic supported intervals, activity outside its interval, duplicate
+activity links, sparse observed order, fraction above one, or disagreement
+between bubble status and its host interval. Every device contributes exactly
+`anchor_count - 1` adjacent intervals. The combined multi-process CUDA DB does,
+however, contain many ambiguous reused runtime identifiers. TraceLoom correctly
+withholds those endpoints rather than binding by process/context implicitly;
+paper wording must therefore report host-observation coverage and must not
+promise complete host reconstruction for combined multi-process inputs.
+
+The previous source-locator views treated the existence of an embedded raw
+table as sufficient for `resolution_status = 'embedded_raw'`; a stale literal
+row key could therefore masquerade as auditable provenance. Augmented-DB
+publication now inventories the source domains actually referenced by events,
+runtime calls, and device work and validates every literal key against the
+declared embedded rowid column. Missing, malformed, or rowid-less literal
+locators fail atomically. Focused tests prove a valid drill-down and prove that
+a stale key publishes no partial database.
+
+### A14. Paper reducers are mostly explicit; legacy pairing assumptions remain
+
+**Severity:** submission hardening; no retained result or denominator changed by
+this audit.
+
+The current public composition tour, RQ2 position-localization verifier, RQ3
+construction-cost reducers, retained TP2 verifier, capability-incomplete
+verifier, and mapped-gather verifier state their coordinate, ordering, unit,
+and source-row oracles explicitly. The public tour uses deterministic
+occurrence and position tie breaks, an odd-cardinality median, typed host
+support, and literal embedded-row resolution. The construction-cost reducers
+pin source revision and build mode, use fresh processes after a declared
+warm-up, retain all five samples, and report median/minimum/maximum with
+deterministic output hashes.
+
+Several historical reducers should not be mistaken for the final public query
+paths:
+
+- `experiments/structure-conditioned-host-windows/verify.py` ranks only
+  positions represented in `traceloom_v_structure_bubble_api_stats`; it is an
+  API-observed subset, not the complete bubble-position population. The
+  left-preserving query-path verifier under
+  `experiments/query-paths/host-window-context/` supersedes it.
+- The strengthened-MoE post-hoc reducer proves four units, 48 target positions,
+  and equal rank-0/rank-1 anchor-coordinate sequences before cross-rank maxima.
+  It nevertheless pairs A/B vectors with ordinary `zip`, keys target-shape
+  evidence by task start timestamp, and inherits older source maps whose keys
+  can overwrite duplicates. The compact receipt does not reveal a mismatch,
+  but submission evidence must either assert coordinate and source-key
+  uniqueness before pairing or migrate the case through the public augmented
+  DB. Do not alter its recorded 4-by-48 denominator in place.
+- The distributed-training reducer selects the largest repeat by
+  `anchor_count` without asserting that the maximum is unique or declaring a
+  coordinate tie break. Its retained result is not contradicted, but a frozen
+  submission rerun should fail on a tie or publish the deterministic tie
+  policy.
+- The historical workflow-comparison verifier compares graph and inter-graph
+  costs by list position. Its checked expected file happens to pin the same
+  ordered `X/G/U` coordinate sequence in both runs, but the verifier does not
+  assert cross-run coordinate equality at the pairing site. Moreover, the
+  manuscript evidence map names this as checkout evidence while the files live
+  only on unmerged historical branches, not the current product branch. Its
+  result is therefore retained historical evidence, not yet a current public
+  augmented-DB path.
+
+These are reproducibility hardeners rather than discovered counterexamples to
+the method. The paper-side migration owns the exact inputs, denominators, and
+receipts; this source audit records the guards it must require and does not
+silently rewrite them.
+
+### A15. Positive selection, normalization, and publication are deterministic
+
+**Severity:** claim-to-code cells match; two source-identity guards strengthened
+in this branch.
+
+`signal_classification_rules.cpp` implements positive transparent and
+auxiliary rules with a declared fallback. The fallback may retain an unknown
+observation as an identity anchor but an explicit positive rule cannot classify
+an event as `unknown_anchor`. `flat_anchor_builder.cpp` consumes that decision:
+an unmatched observation remains an identity-bearing anchor, while exclusions
+require declared communication, replay, reconciliation, auxiliary, or
+transparent evidence. The rule manifest and per-event decision remain
+queryable. The already-recorded `PROFILING_ENABLE -> unknown_anchor` drift is
+therefore the intended consequence of the general unknown-first contract, not
+an experiment-specific exception.
+
+`structural_symbol_normalization.cpp` applies an explicit, versioned manifest
+and total precedence order. Equal-precedence multiple matches become a typed
+conflict and preserve observed identity; an unfamiliar spelling also preserves
+identity. The original symbol, selected normalized symbol, rule, policy, and
+decision are materialized. Focused analysis and compatibility tests cover both
+successful promotion and conflict/unknown preservation.
+
+Queryable publication now has two additional relation-level guards. First,
+the complete augmented database produced from the same IR is byte-identical
+between one logical grammar worker and four workers with a different chunk
+target, not merely equal in rendered text or aggregate counts. Second, a
+`TaskRow` and its referenced `TraceEventRow` must name the same source domain
+before their provider table/path and literal row key can form a device-work
+locator. Together with the embedded-row validation in A13, a source locator can
+no longer be assembled from two unrelated provider domains or point at an
+absent embedded row.
+
+### A16. Primitive source identity and parallel ingestion are exact
+
+**Severity:** claim-to-code implementation corrected; no observed artifact
+counts changed.
+
+The horizontal builder previously checked only that a `TaskRow` referenced an
+in-range `TraceEventRow`. Its anchor source locator came from the event while
+classification fields came from the task. A malformed IR could therefore
+combine two provider domains, and duplicate tasks or communication rows for one
+event could be consumed by whichever unordered-map insertion happened first.
+Production adapters do not emit such rows, but the method contract requires an
+unambiguous primitive identity rather than relying on that convention.
+
+`build_flat_anchors()` now fails before classification when a task or
+communication observation has an invalid source/event reference, disagrees
+with its event's source domain, or duplicates same-kind ownership of one event.
+Task and communication rows may still both reference the same event where a
+provider deliberately represents the communication primitive that way; the
+uniqueness contract is within each primitive table. Dedicated corrupt-IR
+fixtures cover all four failure modes. The compatibility-layer check in A15
+remains as a second guard for callers that directly supply an already-built
+IR.
+
+Ascend's parallel `TASK` reader partitions physical rowid ranges, opens
+independent SQLite connections, and then sorts every raw row by device, stream,
+time, provider task identifiers, and rowid before interning any IR identity. A
+new adapter oracle loads the same SQLite input through one and four readers and
+compares source domains, symbol ids, streams, normalized events, tasks, and
+communication observations field-for-field. This complements the full
+augmented-DB byte equality in A15: reader parallelism cannot change primitive
+coordinates, and grammar worker/chunk configuration cannot change published
+relations.
+
+### A17. Recursive Pattern commitment matches the method's exact contract
+
+**Severity:** audited invariant; no defect found.
+
+The recursive grammar is deterministic compression, not exhaustive frequent-
+subsequence mining and not a minimum-grammar claim. Each round freezes a dense
+snapshot. Exact maximal one-symbol runs are keyed by symbol and multiplicity;
+unequal adjacent pairs are keyed by both ordered symbols; a committed macro
+symbol re-enters later pair rounds; and maximal runs of that macro are folded
+with their concrete multiplicities. This realizes variable-length and nested
+Patterns by recursive substitution without fuzzy equality or timestamp
+matching.
+
+Candidate selection uses declared total orders over gain, multiplicity or run
+length, first dense coordinate, and symbol key. A commit then rechecks snapshot
+generation, the symbol sequence and span endpoints, nonoverlap, and every
+protected interval. Application freezes and revalidates again, performs the
+rewrite on a copy, rejects no-progress or broken protected-contiguity outcomes,
+and publishes the next generation only after all checks pass. Report-tree
+validation requires dense occurrence indices, exact occurrence counts,
+single-parent membership, and ordered child spans that tile each parent's
+projected anchor interval. Existing grammar round/plan/apply/engine and report-
+tree tests exercise cross-chunk runs and pairs, tie selection, stale state,
+overlap, protected boundaries, recursive pair--repeat fixpoints, worker/chunk
+parity, and nested lowering. The paper's current Section 3 description matches
+these boundaries.
+
+## Closure and paper-facing reconciliation
+
+### Validation receipt
+
+The complete development preset builds at this branch. The final broad test
+run executes 55 tests with zero failures; 11 repository-declared tests remain
+disabled. The run includes the focused repairs above as well as all enabled
+adapter, analysis, grammar, cost, compatibility, and materialization suites.
+The replay JSON compatibility fixture was the only broad-run failure exposed
+during the audit: it declared three visible body members while supplying one.
+The fixture is now internally consistent and the analyzer's exact-body gate was
+not weakened.
+
+The audit also exercised representative existing data without changing paper
+receipts or their denominators:
+
+- a CUDA DP2 input materializes two independent device-local trees with 1,471
+  anchors each and no cost or occurrence mismatch;
+- a node-visible CUDA Graph input materializes five exact replay units, 49,405
+  body-member rows, 9,881 body aggregates, and no replay issue; and
+- the bundled kickstart timeline and the existing DP2 timeline satisfy the
+  host/device locator, bubble-population, support-state, and source-row
+  invariants used by the public query paths.
+
+The paper-side four-input host-window experiment was **not rerun**. Its recorded
+`PROFILING_ENABLE -> fallback.unknown_observation -> unknown_anchor` amendment
+is consistent with A15, and this audit leaves its old/current populations,
+denominators, and receipts untouched.
+
+### Required manuscript and artifact actions
+
+No finding overturns the paper's relational-model method, its recursive
+Pattern contract, or a retained statistical result. Four boundaries must still
+be made explicit before the submission freeze:
+
+1. **Bounded-window discovery surface.** The manuscript currently calls the
+   partition-local candidate summaries and boundary diagnostics “published
+   discovery evidence.” They are present in the legacy result/debug surface,
+   not as relations in the self-contained augmented database. Either narrow
+   the sentence to that actual surface or materialize and document new
+   augmented-DB relations. This is the sole current claim-to-product mismatch
+   found by the source audit.
+2. **Reducer integration comment.** The manuscript comment saying that the
+   partition-local reducer remains only at `7d8768a` becomes stale once this
+   audit branch is integrated: `84700ee` adopts the evaluated production and
+   parity-test path and adds the missing halo-completeness gate. Remove or
+   replace the comment only after the corresponding source revision is pinned.
+3. **Host-hotspot selection.** The current four-input verifier orders every
+   Position by total bubble cost, then selects the first Position having at
+   least one supported host occurrence. The evaluation sentence “the
+   highest-total-gap structural position” must therefore say “the
+   highest-total-gap structural position with supported host context,” unless
+   the paper-side receipt independently proves that the unqualified maximum is
+   the same row. This wording qualification changes neither the 47,200
+   population denominator nor any recorded table value.
+4. **Artifact-checkout identity.** The fixed workflow comparison and several
+   other `examples/paper_artifacts/*` rows do not live on current product
+   `main` or at the claim map's named `444fd4a` revision; the workflow files
+   exist on retained historical artifact branches beginning at `326d721`.
+   Because “Green / checkout” permits a pinned artifact checkout, the result
+   need not be discarded, but the artifact revision/branch and aggregate
+   command must be named. Until then the workflow row is retained historical
+   evidence rather than reproducible from product HEAD alone.
+
+### Statistical reducer gate
+
+Current public query-path reducers are coordinate-explicit and denominator-
+preserving. Historical paper reducers remain acceptable only inside their
+recorded scope. Before converting any of them into a submission regeneration
+path, add the guards already identified in A14: equal cardinality plus exact
+coordinate equality before `zip`-style pairing, collision-free source keys,
+and an explicit unique-maximum or total tie policy. In particular, do not
+rewrite the strengthened-MoE 4-by-48 denominator, the distributed-training
+population, or the historical workflow ordering receipt in place.
+
+## Gate decision
+
+The method-to-source audit is **source-complete on this branch**. The repaired
+implementation now enforces the paper's observable contracts at primitive
+identity, device-domain, replay-body, recursive-grammar, cost, projection,
+host-context, and source-publication boundaries. Remaining work is integration
+and paper-side evidence packaging: merge or pin the audit revision, apply the
+four wording/artifact actions above without changing immutable receipts, and
+regenerate the submission databases only in the separately owned artifact
+freeze.

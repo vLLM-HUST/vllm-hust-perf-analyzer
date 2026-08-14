@@ -574,12 +574,16 @@ MinimalIr build_minimal_ir(bool with_body = true,
                            bool invalid_occurrence = false,
                            bool slot_template_out_of_range = false,
                            bool body_template_out_of_range = false,
-                           bool identity_out_of_range = false) {
+                           bool identity_out_of_range = false,
+                           std::uint32_t member_device_id = 0,
+                           std::uint32_t observed_compute_count = 1,
+                           std::uint32_t template_compute_count = 1) {
   MinimalIr out;
   out.source = out.ir.source_refs.append("fixture", "memory", "TASK", 0);
   const SymbolId compute = out.ir.symbols.intern("MatMul");
   out.body_template = out.ir.replay_body_templates.append(
-      out.source, 1, out.ir.symbols.intern("MatMul"), 1, 0, 1,
+      out.source, 1, out.ir.symbols.intern("MatMul"), template_compute_count, 0,
+      1,
       ReplayBodyTopologyPolicy::kSingleModelStream);
   out.other_template = out.ir.replay_body_templates.append(
       out.source, 2, out.ir.symbols.intern("Relu"), 1, 0, 1,
@@ -615,7 +619,8 @@ MinimalIr build_minimal_ir(bool with_body = true,
   const TraceEventId event =
       invalid_event_ref
           ? TraceEventId::invalid()
-          : out.ir.trace_events.append(out.source, 1, 0, 0, 0, 10, compute);
+          : out.ir.trace_events.append(out.source, 1, member_device_id, 0, 0,
+                                       10, compute);
   SymbolId op_name = member_identity_valid ? compute : SymbolId::invalid();
   if (identity_out_of_range) {
     op_name = SymbolId(99);
@@ -642,7 +647,8 @@ MinimalIr build_minimal_ir(bool with_body = true,
               : (observed_template.valid() ? observed_template
                                            : out.body_template);
       const GraphLaunchBodyId body = out.ir.graph_launch_bodies.append(
-          occurrence, template_id, out.task, out.task, 1, 0, 1);
+          occurrence, template_id, out.task, out.task,
+          observed_compute_count, 0, 1);
       if (with_body_member) {
         out.ir.graph_launch_body_members.append(
             body, invalid_task_ref ? TaskId::invalid() : out.task, 0, 0,
@@ -849,6 +855,67 @@ void test_fail_closed_lane_inconsistency() {
           "ambiguous)");
 }
 
+void test_fail_closed_body_shape_and_device() {
+  const MinimalIr observed_shape = build_minimal_ir(
+      /*with_body=*/true, /*second_body=*/false,
+      ReplayBodyTemplateId::invalid(), /*slot_valid=*/true,
+      /*slot_template_valid=*/true, /*member_identity_valid=*/true,
+      /*member_orders=*/std::vector<std::uint32_t>{0},
+      /*with_body_member=*/true, /*invalid_task_ref=*/false,
+      /*invalid_event_ref=*/false, /*duplicate_position=*/false,
+      /*lane_inconsistent=*/false, /*invalid_unit_template=*/false,
+      /*invalid_occurrence=*/false, /*slot_template_out_of_range=*/false,
+      /*body_template_out_of_range=*/false, /*identity_out_of_range=*/false,
+      /*member_device_id=*/0, /*observed_compute_count=*/2,
+      /*template_compute_count=*/1);
+  const ReplayInternalCostMapResult observed_shape_map =
+      build_replay_internal_cost_map(observed_shape.ir);
+  require(observed_shape_map.units[0].launch_members[0].reason_code ==
+              "body_membership_summary_mismatch" &&
+              observed_shape_map.members.empty() &&
+              observed_shape_map.aggregates.empty(),
+          "missing body member fails the observed-body summary contract");
+
+  const MinimalIr template_shape = build_minimal_ir(
+      /*with_body=*/true, /*second_body=*/false,
+      ReplayBodyTemplateId::invalid(), /*slot_valid=*/true,
+      /*slot_template_valid=*/true, /*member_identity_valid=*/true,
+      /*member_orders=*/std::vector<std::uint32_t>{0},
+      /*with_body_member=*/true, /*invalid_task_ref=*/false,
+      /*invalid_event_ref=*/false, /*duplicate_position=*/false,
+      /*lane_inconsistent=*/false, /*invalid_unit_template=*/false,
+      /*invalid_occurrence=*/false, /*slot_template_out_of_range=*/false,
+      /*body_template_out_of_range=*/false, /*identity_out_of_range=*/false,
+      /*member_device_id=*/0, /*observed_compute_count=*/1,
+      /*template_compute_count=*/2);
+  const ReplayInternalCostMapResult template_shape_map =
+      build_replay_internal_cost_map(template_shape.ir);
+  require(template_shape_map.units[0].launch_members[0].reason_code ==
+              "body_template_shape_mismatch" &&
+              template_shape_map.members.empty() &&
+              template_shape_map.aggregates.empty(),
+          "body members must match the referenced exact template shape");
+
+  const MinimalIr cross_device = build_minimal_ir(
+      /*with_body=*/true, /*second_body=*/false,
+      ReplayBodyTemplateId::invalid(), /*slot_valid=*/true,
+      /*slot_template_valid=*/true, /*member_identity_valid=*/true,
+      /*member_orders=*/std::vector<std::uint32_t>{0},
+      /*with_body_member=*/true, /*invalid_task_ref=*/false,
+      /*invalid_event_ref=*/false, /*duplicate_position=*/false,
+      /*lane_inconsistent=*/false, /*invalid_unit_template=*/false,
+      /*invalid_occurrence=*/false, /*slot_template_out_of_range=*/false,
+      /*body_template_out_of_range=*/false, /*identity_out_of_range=*/false,
+      /*member_device_id=*/1);
+  const ReplayInternalCostMapResult cross_device_map =
+      build_replay_internal_cost_map(cross_device.ir);
+  require(cross_device_map.units[0].launch_members[0].reason_code ==
+              "body_device_mismatch" &&
+              cross_device_map.members.empty() &&
+              cross_device_map.aggregates.empty(),
+          "a replay body cannot cross its graph-launch device domain");
+}
+
 void test_fail_closed_invalid_foreign_keys() {
   // Unit graph template invalid.
   const MinimalIr bad_template = build_minimal_ir(
@@ -1039,7 +1106,9 @@ void test_no_replay_units() {
   const ReplayInternalCostMapResult map = build_replay_internal_cost_map(ir);
   require(map.units.empty() && map.members.empty() && map.aggregates.empty() &&
               map.result_reason_codes.size() == 1 &&
-              map.result_reason_codes[0] == "no_replay_units",
+              map.result_reason_codes[0] == "no_replay_units" &&
+              map.issues.size() == 1 &&
+              map.issues[0].code == "no_replay_units",
           "no replay units is an explicit reason, not an empty success");
 }
 
@@ -1094,6 +1163,7 @@ int main() {
   test_fail_closed_invalid_member_reference();
   test_fail_closed_duplicate_position();
   test_fail_closed_lane_inconsistency();
+  test_fail_closed_body_shape_and_device();
   test_fail_closed_invalid_foreign_keys();
   test_scheduled_work_share_zero_denominator();
   test_missing_identity_member();

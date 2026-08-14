@@ -23,6 +23,98 @@ void require(bool condition, const char* message) {
   }
 }
 
+void require_primitive_ir_equal(const traceloom::NativeIr& lhs,
+                                const traceloom::NativeIr& rhs) {
+  using namespace traceloom;
+  require(lhs.source_refs.size() == rhs.source_refs.size(),
+          "parallel TASK ingestion changed source domains");
+  for (std::size_t index = 0; index < lhs.source_refs.size(); ++index) {
+    const SourceRefRow& left = lhs.source_refs.row(SourceRefId(index));
+    const SourceRefRow& right = rhs.source_refs.row(SourceRefId(index));
+    require(left.id == right.id && left.source_kind == right.source_kind &&
+                left.source_path == right.source_path &&
+                left.table_name == right.table_name &&
+                left.row_id == right.row_id,
+            "parallel TASK ingestion changed source identity");
+  }
+  require(lhs.symbols.size() == rhs.symbols.size(),
+          "parallel TASK ingestion changed symbol cardinality");
+  for (std::size_t index = 0; index < lhs.symbols.size(); ++index) {
+    require(lhs.symbols.value(SymbolId(index)) ==
+                rhs.symbols.value(SymbolId(index)),
+            "parallel TASK ingestion changed symbol identity");
+  }
+  require(lhs.streams.size() == rhs.streams.size(),
+          "parallel TASK ingestion changed stream cardinality");
+  for (std::size_t index = 0; index < lhs.streams.size(); ++index) {
+    const StreamRow& left = lhs.streams.row(StreamId(index));
+    const StreamRow& right = rhs.streams.row(StreamId(index));
+    require(left.id == right.id && left.source_ref_id == right.source_ref_id &&
+                left.device_id == right.device_id &&
+                left.raw_stream_id == right.raw_stream_id,
+            "parallel TASK ingestion changed stream identity");
+  }
+  require(lhs.trace_events.size() == rhs.trace_events.size(),
+          "parallel TASK ingestion changed event cardinality");
+  for (std::size_t index = 0; index < lhs.trace_events.size(); ++index) {
+    const TraceEventRow& left = lhs.trace_events.row(TraceEventId(index));
+    const TraceEventRow& right = rhs.trace_events.row(TraceEventId(index));
+    require(left.id == right.id &&
+                left.source_ref_id == right.source_ref_id &&
+                left.source_row_id == right.source_row_id &&
+                left.device_id == right.device_id &&
+                left.stream_id == right.stream_id &&
+                left.start_ns == right.start_ns && left.end_ns == right.end_ns &&
+                left.raw_name_symbol_id == right.raw_name_symbol_id,
+            "parallel TASK ingestion changed normalized event identity");
+  }
+  require(lhs.tasks.size() == rhs.tasks.size(),
+          "parallel TASK ingestion changed task cardinality");
+  for (std::size_t index = 0; index < lhs.tasks.size(); ++index) {
+    const TaskRow& left = lhs.tasks.row(TaskId(index));
+    const TaskRow& right = rhs.tasks.row(TaskId(index));
+    require(left.id == right.id &&
+                left.source_ref_id == right.source_ref_id &&
+                left.trace_event_id == right.trace_event_id &&
+                left.raw_task_id == right.raw_task_id &&
+                left.raw_global_task_id == right.raw_global_task_id &&
+                left.raw_connection_id == right.raw_connection_id &&
+                left.raw_context_id == right.raw_context_id &&
+                left.task_type_symbol_id == right.task_type_symbol_id &&
+                left.op_name_symbol_id == right.op_name_symbol_id &&
+                left.op_type_symbol_id == right.op_type_symbol_id &&
+                left.compute_task_type_symbol_id ==
+                    right.compute_task_type_symbol_id &&
+                left.comm_name_symbol_id == right.comm_name_symbol_id &&
+                left.raw_model_id == right.raw_model_id &&
+                left.communication_task_type_symbol_id ==
+                    right.communication_task_type_symbol_id,
+            "parallel TASK ingestion changed normalized task identity");
+  }
+  require(lhs.communication_ops.size() == rhs.communication_ops.size(),
+          "parallel TASK ingestion changed communication cardinality");
+  for (std::size_t index = 0; index < lhs.communication_ops.size(); ++index) {
+    const CommunicationOpRow& left =
+        lhs.communication_ops.row(CommunicationOpId(index));
+    const CommunicationOpRow& right =
+        rhs.communication_ops.row(CommunicationOpId(index));
+    require(left.id == right.id &&
+                left.source_ref_id == right.source_ref_id &&
+                left.trace_event_id == right.trace_event_id &&
+                left.raw_connection_id == right.raw_connection_id &&
+                left.raw_op_id == right.raw_op_id &&
+                left.linked_task_count == right.linked_task_count &&
+                left.linked_stream_count == right.linked_stream_count &&
+                left.op_name_symbol_id == right.op_name_symbol_id &&
+                left.op_type_symbol_id == right.op_type_symbol_id &&
+                left.linked_task_name_symbol_id ==
+                    right.linked_task_name_symbol_id &&
+                left.linked_task_type_symbol_id ==
+                    right.linked_task_type_symbol_id,
+            "parallel TASK ingestion changed communication identity");
+  }
+}
+
 std::string temp_db_path(const char* suffix) {
   const auto now = std::chrono::steady_clock::now().time_since_epoch().count();
   const std::filesystem::path path =
@@ -740,6 +832,10 @@ int main() {
   const AscendSQLiteAdapter adapter(
       AscendSQLiteAdapterOptions{db_path, "ascend_smoke"});
   const NativeIr ir = adapter.load();
+  AscendSQLiteAdapterOptions parallel_options{db_path, "ascend_smoke"};
+  parallel_options.thread_count = 4;
+  const NativeIr parallel_ir = AscendSQLiteAdapter(parallel_options).load();
+  require_primitive_ir_equal(ir, parallel_ir);
 
   require(!ir.source_refs.empty(), "adapter did not emit SourceRef rows");
   require(ir.source_refs.row(SourceRefId(0)).source_kind == "ascend_smoke",
