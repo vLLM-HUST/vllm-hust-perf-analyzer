@@ -217,6 +217,32 @@ NativeIr build_source_locator_ir(const std::string& source_path,
   return ir;
 }
 
+NativeIr build_reconciled_evidence_role_ir() {
+  NativeIr ir;
+  const SourceRefId source =
+      ir.source_refs.append("ascend", "memory", "TASK", 0);
+  const SymbolId mix_aiv = ir.symbols.intern("KERNEL_MIX_AIV");
+  const SymbolId reduce_all = ir.symbols.intern("ReduceAll");
+  const TraceEventId envelope =
+      ir.trace_events.append(source, 1, 0, 46, 10, 30, mix_aiv);
+  const TraceEventId detail =
+      ir.trace_events.append(source, 2, 0, 46, 12, 28, mix_aiv);
+  ir.tasks.append(source, envelope, 1, 1, 1, mix_aiv,
+                  SymbolId::invalid(), SymbolId::invalid(),
+                  SymbolId::invalid(), SymbolId::invalid(), -1,
+                  SymbolId::invalid(), 4294967295LL);
+  ir.tasks.append(source, detail, 1, 2, 1, mix_aiv, SymbolId::invalid(),
+                  reduce_all, SymbolId::invalid(), SymbolId::invalid(), -1,
+                  SymbolId::invalid(), 0);
+
+  FlatAnchorBuildConfig config;
+  config.filter_auxiliary_task_anchors = true;
+  const FlatAnchorBuildStats stats = build_flat_anchors(ir, config);
+  traceloom::testing::require(stats.reconciled_event_groups == 1);
+  traceloom::testing::require(stats.reconciled_event_members == 2);
+  return ir;
+}
+
 NativeIr build_collective_repeat_ir() {
   NativeIr ir;
   const SourceRefId source =
@@ -773,6 +799,29 @@ int main() {
 
   std::remove(db_path.c_str());
 
+  const std::string reconciled_db_path = temp_db_path();
+  compat::NativeCompatibilitySidecarOptions reconciled_options;
+  reconciled_options.source_kind = "ascend_sqlite_hot_path";
+  reconciled_options.source_path = "memory";
+  reconciled_options.evidence_role_config.classification_rules =
+      load_default_signal_classification_ruleset();
+  reconciled_options.evidence_role_config.filter_auxiliary_task_anchors = true;
+  compat::write_basic_native_compatibility_sidecar(
+      reconciled_db_path, build_reconciled_evidence_role_ir(),
+      reconciled_options);
+  require(run_scalar_int(
+              reconciled_db_path,
+              "SELECT COUNT(*) FROM traceloom_evidence_role_decision WHERE "
+              "rule_id = 'system.event_reconciliation' AND final_role = "
+              "'anchor'") == 1);
+  require(run_scalar_int(
+              reconciled_db_path,
+              "SELECT COUNT(*) FROM traceloom_evidence_role_decision d LEFT "
+              "JOIN traceloom_evidence_role_rule r ON r.policy_id = "
+              "d.policy_id AND r.rule_id = d.rule_id WHERE r.rule_id IS "
+              "NULL") == 0);
+  std::remove(reconciled_db_path.c_str());
+
   const std::string graph_db_path = temp_db_path();
   compat::NativeCompatibilitySidecarOptions graph_options;
   graph_options.db_idx = 4;
@@ -1255,6 +1304,13 @@ int main() {
   require(run_scalar_int(augmented_path,
                          "SELECT COUNT(*) FROM "
                          "traceloom_evidence_role_rule") > 60);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_evidence_role_rule WHERE "
+              "rule_id = 'system.event_reconciliation' AND rule_class = "
+              "'provider_relation' AND role = 'anchor' AND required_fields "
+              "= 'event_reconciliation_membership' AND "
+              "structural_participation = 'identity'") == 1);
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_evidence_role_decision") ==
