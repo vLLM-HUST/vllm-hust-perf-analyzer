@@ -1,6 +1,7 @@
 #include "traceloom/report/report_tree_builder.h"
 #include "traceloom/testing/test_util.h"
 
+#include <utility>
 #include <vector>
 
 namespace {
@@ -98,6 +99,37 @@ int main() {
     caught_bad_min_run = true;
   }
   require(caught_bad_min_run);
+
+  const auto rejects_tree = [&](ReportTree tree) {
+    try {
+      validate_report_tree_or_throw(tree,
+                                    static_cast<std::uint32_t>(run_tokens.size()));
+    } catch (const std::invalid_argument&) {
+      return true;
+    }
+    return false;
+  };
+
+  ReportTree bad_def_id = run_tree;
+  bad_def_id.node_defs[1].id = ReportNodeDefId(99);
+  require(rejects_tree(std::move(bad_def_id)));
+
+  ReportTree bad_occurrence_index = run_tree;
+  bad_occurrence_index.occurrences.back().occurrence_index_for_def = 0;
+  require(rejects_tree(std::move(bad_occurrence_index)));
+
+  ReportTree bad_cached_count = run_tree;
+  bad_cached_count.occurrence_counts_by_def[atom.id.value()] -= 1;
+  require(rejects_tree(std::move(bad_cached_count)));
+
+  ReportTree unrealized_definition = run_tree;
+  ReportNodeDef unused = unrealized_definition.node_defs.back();
+  unused.id = ReportNodeDefId(
+      static_cast<ReportNodeDefId::value_type>(unrealized_definition.node_defs.size()));
+  unused.local_node_id = "N004";
+  unrealized_definition.node_defs.push_back(std::move(unused));
+  unrealized_definition.occurrence_counts_by_def.push_back(0);
+  require(rejects_tree(std::move(unrealized_definition)));
 
   return 0;
 }

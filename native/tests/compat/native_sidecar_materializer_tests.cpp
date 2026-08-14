@@ -1382,6 +1382,20 @@ int main() {
               "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
               "WHERE source_projection = 'scope_catalog' AND "
               "target_projection = 'position_occurrences'") == 0);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
+              "WHERE source_projection = 'scope_catalog' AND "
+              "target_projection IN ('bubble_occurrences', "
+              "'bubble_host_context')") == 0);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
+              "WHERE source_projection = 'bubble_hotspots' AND "
+              "target_projection = 'bubble_occurrences' AND source_column = "
+              "'structural_position_id' AND target_parameter = "
+              "'structural_position_id' AND coordinate_kind = "
+              "'structural_position_id'") == 1);
   require(run_scalar_text(
               augmented_path,
               "SELECT selector_parameters FROM traceloom_projection_recipe "

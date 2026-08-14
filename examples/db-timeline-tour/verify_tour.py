@@ -95,6 +95,15 @@ def verify(database: Path) -> None:
             required_transitions <= transitions,
             f"missing continuations: {required_transitions - transitions}",
         )
+        forbidden_transitions = {
+            ("scope_catalog", "bubble_occurrences"),
+            ("scope_catalog", "bubble_host_context"),
+        }
+        require(
+            not (forbidden_transitions & transitions),
+            "coordinate typing advertised a node id as a bubble position: "
+            f"{forbidden_transitions & transitions}",
+        )
 
         scope = db.execute(
             "SELECT node_id, occurrence_count FROM traceloom_v_tree_node "

@@ -971,13 +971,29 @@ void validate_report_tree_or_throw(const ReportTree& tree,
     throw std::invalid_argument("report tree has no occurrences");
   }
 
+  for (std::size_t index = 0; index < tree.node_defs.size(); ++index) {
+    const ReportNodeDef& def = tree.node_defs[index];
+    if (!def.id.valid() || def.id.value() != index) {
+      throw std::invalid_argument(
+          "report tree node definitions must use dense ordered ids");
+    }
+    if (def.kind == ReportNodeKind::kRepeat && def.repeat_count == 0) {
+      throw std::invalid_argument(
+          "report tree repeat definition has zero repeat count");
+    }
+  }
+
   std::size_t root_count = 0;
   ReportNodeOccurrenceId root_id = ReportNodeOccurrenceId::invalid();
   std::vector<std::vector<ReportNodeOccurrenceId>> children(
       tree.occurrences.size());
-  for (const ReportNodeOccurrence& occurrence : tree.occurrences) {
-    if (!occurrence.id.valid() || occurrence.id.value() >= tree.occurrences.size()) {
-      throw std::invalid_argument("occurrence id out of range");
+  std::vector<std::vector<std::uint32_t>> occurrence_indices_by_def(
+      tree.node_defs.size());
+  for (std::size_t index = 0; index < tree.occurrences.size(); ++index) {
+    const ReportNodeOccurrence& occurrence = tree.occurrences[index];
+    if (!occurrence.id.valid() || occurrence.id.value() != index) {
+      throw std::invalid_argument(
+          "report tree occurrences must use dense ordered ids");
     }
     if (!occurrence.node_def_id.valid() ||
         occurrence.node_def_id.value() >= tree.node_defs.size()) {
@@ -987,6 +1003,8 @@ void validate_report_tree_or_throw(const ReportTree& tree,
         occurrence.token_end_ordinal > token_count) {
       throw std::invalid_argument("occurrence span out of range");
     }
+    occurrence_indices_by_def[occurrence.node_def_id.value()].push_back(
+        occurrence.occurrence_index_for_def);
     if (!occurrence.parent_occurrence_id.valid()) {
       ++root_count;
       root_id = occurrence.id;
@@ -1002,6 +1020,28 @@ void validate_report_tree_or_throw(const ReportTree& tree,
   }
   if (root_count != 1) {
     throw std::invalid_argument("report tree must have exactly one root");
+  }
+  for (std::size_t def_index = 0; def_index < tree.node_defs.size();
+       ++def_index) {
+    std::vector<std::uint32_t>& indices = occurrence_indices_by_def[def_index];
+    if (indices.empty()) {
+      throw std::invalid_argument(
+          "report tree node definition has no realized occurrence");
+    }
+    std::sort(indices.begin(), indices.end());
+    for (std::size_t occurrence_index = 0;
+         occurrence_index < indices.size(); ++occurrence_index) {
+      if (indices[occurrence_index] != occurrence_index) {
+        throw std::invalid_argument(
+            "report tree per-definition occurrence indices are not dense");
+      }
+    }
+    if (!tree.occurrence_counts_by_def.empty() &&
+        (tree.occurrence_counts_by_def.size() != tree.node_defs.size() ||
+         tree.occurrence_counts_by_def[def_index] != indices.size())) {
+      throw std::invalid_argument(
+          "report tree cached occurrence count disagrees with occurrences");
+    }
   }
   const ReportNodeOccurrence& root = node_occurrence(tree, root_id);
   if (root.token_start_ordinal != 0 ||
@@ -1055,6 +1095,13 @@ void validate_report_tree_or_throw(const ReportTree& tree,
             "report tree atom must own exactly one token and no children");
       }
       continue;
+    }
+    if (def.kind == ReportNodeKind::kRepeat &&
+        (occurrence.token_end_ordinal - occurrence.token_start_ordinal) %
+                def.repeat_count !=
+            0) {
+      throw std::invalid_argument(
+          "report tree repeat span is not divisible by repeat count");
     }
     std::uint32_t cursor = occurrence.token_start_ordinal;
     for (ReportNodeOccurrenceId child_id : occurrence_children) {

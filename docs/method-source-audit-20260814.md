@@ -292,6 +292,46 @@ summary/support surface in the augmented DB or narrow the prose to an audited
 construction diagnostic and component-scaling workload.  Do not imply that
 the scaling experiment parallelizes recursive hierarchy recovery.
 
+### A10. Projection continuation confused node and bubble-position domains
+
+**Severity:** query-composition correctness; repaired in this branch.
+
+The projection catalog originally labeled `structural_position_id` returned by
+the bubble surfaces as `structural_node_id`; the corresponding required bubble
+selectors used the same incorrect coordinate kind.  The continuation view
+therefore advertised routes such as `scope_catalog -> bubble_occurrences`: a
+syntactically valid node id could be bound as a different identifier domain and
+produce a misleading empty answer.  The catalog now gives bubble positions
+their own `structural_position_id` kind.  Positive oracles retain the intended
+`bubble_hotspots -> bubble_occurrences` route, while both the unit fixture and
+the executable real-profile tour reject node-to-bubble continuations.
+
+### A11. Occurrence populations and denominator rules are internally exact
+
+**Severity:** audited invariant; validation strengthened in this branch.
+
+Every report definition now must have one or more realized occurrences, dense
+per-definition occurrence indices, and (when present) an exact cached count.
+Definition and occurrence ids must match their dense storage coordinates, and a
+Repeat span must be divisible by its nonzero `repeat_count`.  This prevents a
+dormant definition or stale count from being published as an invented
+one-member population.  The previous `display_occurrence_count()` fallback is
+therefore unreachable for validated trees.
+
+The materialized measures use two deliberate denominators.  Occurrence rows
+retain the full realized scope; ordinary node averages divide by actual
+`occurrence_count`, while Repeat-node averages divide by
+`occurrence_count * repeat_count` and therefore describe one body iteration.
+The raw `repeat_count`, full `total_us`, occurrence rows, and per-position rows
+remain available, so the normalization is auditable rather than implicit.
+
+On both the real Ascend kickstart artifact and a newly regenerated two-device
+CUDA DP2 training artifact, node counts equal materialized occurrence rows,
+node cost equals both occurrence and anchor sums, occurrence positions are
+unique, and every aligned position covers the complete node population.  The
+CUDA artifact publishes one independent complete tree per device (1,471
+anchors each) with zero cross-device coverage.
+
 ## Next audit slices
 
 1. Device-local structural domains and typed grammar completion status.
