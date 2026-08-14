@@ -192,14 +192,96 @@ that this is a real tail boundary rather than an interior placement loss.
 auxiliary link. Regenerated kickstart databases retain 92 and 134 such tail
 outcomes respectively; none becomes an error or a zero-valued placement.
 
+### A6. The evaluated partition-local reducer was not on `main`
+
+**Severity:** implementation/evaluation fidelity; repaired in this branch.
+
+The production branch still scanned every owned partition in parallel, moved
+every candidate occurrence back to one global vector, and globally sorted that
+vector in `reduce_candidates()`.  The paper-evaluated implementation at
+`7d8768a` instead reduces occurrences inside each partition and merges only
+compact `CandidateSummaryRow`s plus typed diagnostics.  The latter is the path
+that produced the retained scaling result, but it had remained on historical
+analysis branches rather than the current product branch.
+
+**Repair in this branch.** The production and parity-test portion of
+`7d8768a` is now adopted with its original Fletcher authorship.  Each start
+coordinate still has one partition owner; local summaries are merged in
+candidate-key/first-position order, counts and first positions are combined,
+and a key blocked by any ambiguous-boundary diagnostic is removed globally.
+The aggregate retains the exact accepted occurrence count without retaining
+the occurrence-sized intermediate table.  One- and multi-thread summary and
+diagnostic parity tests remain executable.
+
+The audit also found an unstated completeness precondition: a deterministic
+result can still be incomplete if the read halo is shorter than the longest
+forward window at an interior partition seam.  Both partitioned scan APIs now
+validate contiguous ownership and sufficient per-partition read reach before
+starting workers.  A seam oracle proves that a one-token halo fails for
+length-three windows and that a two-token halo retains all 13 length-two/three
+windows of an eight-token fixture.
+
+### A7. Recursive grammar commit is deterministic but deliberately serial
+
+**Severity:** claim-boundary clarification; implementation and current paper
+agree.
+
+`GrammarStateConfig.worker_count` assigns chunks to logical worker owners and
+the read-only rounds expose per-owner candidate buckets, but
+`run_adjacent_run_readonly_round()`, `run_pair_grammar_readonly_round()`, and
+`run_native_macro_run_readonly_round()` currently traverse one dense frozen
+snapshot in the calling thread.  They then reduce with total tie-break orders,
+select one global action, revalidate generation/spans/nonoverlap/protected
+boundaries, and apply one serial rewrite.  `worker_count` therefore does not
+make recursive grammar induction parallel.
+
+This is not currently a paper defect: the implementation section explicitly
+calls the partitioned bounded-window path discovery evidence and states that
+it does not select grammar productions.  It describes grammar rounds as
+globally ordered serial rounds and limits the evaluated speedup to the
+map/reduce component.  Existing grammar tests compare exact semantic output
+signatures across chunk sizes and worker counts, including pairs and nested
+macro-run folding.
+
+### A8. Grammar safety-limit and exception fallbacks are not queryable
+
+**Severity:** typed-support gap; a partial or failed hierarchy can look like an
+ordinary complete tree.
+
+After exact-run folding, `run_grammar_state_machine()` stops pair discovery
+when the live sequence exceeds `full_discovery_cap`.  It marks the result
+`sequence_too_large_for_full_pair_discovery` but also treats that result as
+`ok()`.  The sidecar may consequently lower an exact but incomplete run-only
+grammar.  Separately, `build_sidecar_report_tree()` catches every grammar
+exception and silently emits the flat-token tree.  Neither outcome is carried
+into `traceloom_semantic_tree.macro_discovery` or another queryable support
+surface.
+
+**Required repair.** Preserve the useful exact partial structure, but publish
+its stop reason per device/tree; publish a typed flat-fallback reason on
+grammar rejection or exception.  An empty grammar that reached a real fixpoint
+is not an error.  Tests must distinguish complete fixpoint, size-limited
+partial hierarchy, and fail-closed flat fallback through the augmented DB.
+
+### A9. Bounded-window discovery is not an augmented-DB relation
+
+**Severity:** paper/product wording; no structural correctness defect.
+
+The bounded length-two/three scan emits reduced summaries and diagnostic
+previews in the legacy in-memory JSON result.  It neither chooses recursive
+grammar productions nor materializes complete candidate/diagnostic relations
+in the queryable database timeline.  The paper currently calls the summaries
+"published discovery evidence," which is stronger than the primary product
+surface supports.  Before submission, either materialize an explicitly bounded
+summary/support surface in the augmented DB or narrow the prose to an audited
+construction diagnostic and component-scaling workload.  Do not imply that
+the scaling experiment parallelizes recursive hierarchy recovery.
+
 ## Next audit slices
 
-1. Positive evidence-role selection, unknown retention, and auxiliary tail
-   placement.
-2. Candidate discovery, parallel reduction, deterministic commit, and grammar
-   hierarchy.
-3. Occurrence populations, denominator rules, and projection-coordinate
+1. Device-local structural domains and typed grammar completion status.
+2. Occurrence populations, denominator rules, and projection-coordinate
    composability.
-4. Replay-unit internal structure and cost lenses.
-5. Host/device bridge relations, typed support boundaries, and source
+3. Replay-unit internal structure and cost lenses.
+4. Host/device bridge relations, typed support boundaries, and source
    provenance.

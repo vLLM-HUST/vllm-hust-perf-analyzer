@@ -148,6 +148,22 @@ std::uint32_t primary_device_id(const std::vector<ReportToken>& tokens) {
   return tokens.empty() ? 0 : tokens.front().device_id;
 }
 
+std::string macro_discovery_status(const ReportTree& tree) {
+  for (const Diagnostic& diagnostic : tree.diagnostics) {
+    if (diagnostic.code ==
+        "grammar_partial_sequence_too_large_for_full_pair_discovery") {
+      return "native_report_tree_partial_size_limit";
+    }
+    if (diagnostic.code == "grammar_recovery_rejected") {
+      return "native_report_tree_flat_fallback_rejected";
+    }
+    if (diagnostic.code == "grammar_recovery_exception") {
+      return "native_report_tree_flat_fallback_exception";
+    }
+  }
+  return "native_report_tree_complete";
+}
+
 std::string lower_ascii(std::string value) {
   for (char& ch : value) {
     ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
@@ -1021,7 +1037,7 @@ SemanticTreeSqlRows build_report_tree_semantic_sql_rows(
   header.stem = "native_report_tree";
   header.schema_version = "compat-v1";
   header.semantic_projection = "native_report_tree";
-  header.macro_discovery = "native_report_tree";
+  header.macro_discovery = macro_discovery_status(tree);
   header.readable_macro_mode = "native_report_tree";
   header.auxiliary_attribution =
       aux_rows.aux_links.empty() ? "none" : "native_aux_attribution";

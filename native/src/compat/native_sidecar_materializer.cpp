@@ -1507,13 +1507,34 @@ ReportTree build_sidecar_report_tree(
                   << last_step.replace_count << "\n";
       }
     }
-    if (!grammar_result.ok() || grammar_state.stage != GrammarStage::kDone ||
-        grammar_state.macro_defs.empty()) {
-      return build_report_tree_from_tokens(report_tokens);
+    if (!grammar_result.ok() || grammar_state.stage != GrammarStage::kDone) {
+      ReportTree fallback = build_report_tree_from_tokens(report_tokens);
+      fallback.diagnostics.push_back(Diagnostic{
+          DiagnosticSeverity::kWarning, "grammar_recovery_rejected",
+          "recursive grammar recovery failed closed with stop reason " +
+              std::string(
+                  grammar_engine_stop_reason_name(grammar_result.stop_reason))});
+      return fallback;
     }
-    return build_report_tree_from_grammar_state(report_tokens, grammar_state);
-  } catch (const std::exception&) {
-    return build_report_tree_from_tokens(report_tokens);
+    ReportTree tree = grammar_state.macro_defs.empty()
+                          ? build_report_tree_from_tokens(report_tokens)
+                          : build_report_tree_from_grammar_state(
+                                report_tokens, grammar_state);
+    if (grammar_result.stop_reason ==
+        GrammarEngineStopReason::kSequenceTooLargeForFullPairDiscovery) {
+      tree.diagnostics.push_back(Diagnostic{
+          DiagnosticSeverity::kWarning,
+          "grammar_partial_sequence_too_large_for_full_pair_discovery",
+          "exact run folding was retained, but pair discovery was skipped "
+          "because the live sequence exceeded full_discovery_cap"});
+    }
+    return tree;
+  } catch (const std::exception& ex) {
+    ReportTree fallback = build_report_tree_from_tokens(report_tokens);
+    fallback.diagnostics.push_back(Diagnostic{
+        DiagnosticSeverity::kWarning, "grammar_recovery_exception",
+        std::string("recursive grammar recovery failed closed: ") + ex.what()});
+    return fallback;
   }
 }
 

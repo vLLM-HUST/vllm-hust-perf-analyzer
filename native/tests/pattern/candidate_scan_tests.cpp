@@ -7,6 +7,7 @@
 #include "traceloom/sequence/protected_sequence.h"
 #include "traceloom/testing/test_util.h"
 
+#include <stdexcept>
 #include <vector>
 
 namespace {
@@ -168,6 +169,37 @@ int main() {
   const std::vector<CandidateSummaryRow> deduped =
       reduce_candidates(duplicated);
   require(has_key_count(deduped, {SymbolId(2), SymbolId(3)}, 1));
+
+  TokenTable seam_tokens;
+  for (std::uint32_t index = 0; index < 8; ++index) {
+    seam_tokens.append(AnchorId(index), SymbolId(index % 3), 0, index,
+                       index * 10, index * 10 + 10);
+  }
+  const ProtectedSequence seam_sequence =
+      ProtectedSequence::from_token_table(seam_tokens);
+  const BoundaryIndex seam_boundaries =
+      BoundaryIndex::build(seam_sequence, ProtectedIntervalTable{});
+  const PartitionPlan incomplete_halo =
+      PartitionPlan::build(seam_sequence.size(), PartitionPlanConfig{3, 1});
+  bool rejected_incomplete_halo = false;
+  try {
+    (void)scan_and_reduce_candidate_partitions(
+        seam_sequence, seam_boundaries, incomplete_halo,
+        CandidateScanConfig{2, 3}, 2);
+  } catch (const std::invalid_argument&) {
+    rejected_incomplete_halo = true;
+  }
+  require(rejected_incomplete_halo,
+          "incomplete partition halo must fail instead of dropping windows");
+
+  const PartitionPlan complete_halo =
+      PartitionPlan::build(seam_sequence.size(), PartitionPlanConfig{3, 2});
+  const CandidateAggregateResult seam_aggregate =
+      scan_and_reduce_candidate_partitions(
+          seam_sequence, seam_boundaries, complete_halo,
+          CandidateScanConfig{2, 3}, 2);
+  require(seam_aggregate.occurrence_count == 13,
+          "complete halo must preserve every length-2/3 window");
 
   ProtectedIntervalTable ambiguous_intervals;
   ambiguous_intervals.append(

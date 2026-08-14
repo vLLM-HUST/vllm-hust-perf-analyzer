@@ -92,6 +92,47 @@ struct LocalCandidateAggregate {
   std::vector<CandidateDiagnostic> diagnostics;
 };
 
+void validate_partition_plan_for_complete_scan(
+    const ProtectedSequence& sequence,
+    const PartitionPlan& plan,
+    CandidateScanConfig config) {
+  if (config.min_length == 0 || config.max_length < config.min_length) {
+    throw std::invalid_argument("invalid candidate scan length config");
+  }
+
+  std::size_t expected_owned_begin = 0;
+  for (const Partition& partition : plan.partitions()) {
+    if (partition.owned_begin != expected_owned_begin ||
+        partition.owned_begin >= partition.owned_end ||
+        partition.read_begin > partition.owned_begin ||
+        partition.owned_end > partition.read_end ||
+        partition.read_end > sequence.size()) {
+      throw std::invalid_argument(
+          "partition plan does not cover the sequence contiguously");
+    }
+
+    // The final owned start is owned_end - 1.  Its longest legal forward
+    // window ends max_length tokens later, unless the sequence ends first.
+    // Requiring that endpoint here prevents a too-small halo from silently
+    // dropping seam-crossing candidates while still producing deterministic
+    // (but incomplete) summaries.
+    const std::size_t remaining = sequence.size() - partition.owned_end;
+    const std::size_t required_halo =
+        std::min(remaining, config.max_length - 1);
+    const std::size_t required_read_end =
+        partition.owned_end + required_halo;
+    if (partition.read_end < required_read_end) {
+      throw std::invalid_argument(
+          "partition read halo is too small for complete candidate scan");
+    }
+    expected_owned_begin = partition.owned_end;
+  }
+  if (expected_owned_begin != sequence.size()) {
+    throw std::invalid_argument(
+        "partition plan does not cover the complete sequence");
+  }
+}
+
 }  // namespace
 
 CandidateScanResult scan_candidates_with_diagnostics(
@@ -147,6 +188,7 @@ CandidateScanResult scan_candidate_partitions_with_diagnostics(
     const PartitionPlan& plan,
     CandidateScanConfig config,
     std::size_t thread_count) {
+  validate_partition_plan_for_complete_scan(sequence, plan, config);
   std::vector<CandidateScanResult> local_results(plan.size());
   ThreadPool pool(thread_count);
   pool.parallel_for(plan.size(), [&](std::size_t partition_index) {
@@ -184,6 +226,7 @@ CandidateAggregateResult scan_and_reduce_candidate_partitions(
     const PartitionPlan& plan,
     CandidateScanConfig config,
     std::size_t thread_count) {
+  validate_partition_plan_for_complete_scan(sequence, plan, config);
   std::vector<LocalCandidateAggregate> local_results(plan.size());
   ThreadPool pool(thread_count);
   pool.parallel_for(plan.size(), [&](std::size_t partition_index) {
