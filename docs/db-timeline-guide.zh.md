@@ -104,6 +104,27 @@ ORDER BY db_idx, device_id, tree_id, segment_order;
 typed reason，而不是让客户端从时间戳猜测成员关系。这个关系只表达可观察的
 replay 分区，不推断它对应 prefill、decode 或任何模型语义。
 
+需要进入 replay 内部读成本时，不必背诵底层表名。三条 recipe 组成一条自描述
+下钻路径：
+
+```text
+replay_cost_units
+  -> replay_cost_launches (:cost_unit_id, optional :slot_order)
+  -> replay_cost_members  (:launch_id)
+  -> event_audit          (:event_id)
+```
+
+`replay_cost_units` 先显式返回每个 exact ReplayUnit 的 support 状态；支持的 unit
+再展开为有序 launch slots，以及 task sum、busy union、envelope 和类别成本。
+选中一个 `launch_id` 后，`replay_cost_members` 返回精确成员、顺序、时长、
+scheduled-work share 与 `event_id`。`scope_exact_replay_members` 也会返回同一组
+`cost_unit_id`、`launch_id` 和 `slot_order` 坐标，因此可以从一个树结构 occurrence
+自然分叉到 replay cost 或 host context，而不用重新猜 replay 边界。
+
+captured topology 中没有 scheduled member 的空 lane 仍然保留为 topology，不会
+制造零成本 member。只有 task-kind 成员完整、非空 stream/lane 一一对应且 lane
+落在声明拓扑内时，replay cost unit 才是 `supported`。
+
 以下横向、纵向、层级和 cross-domain 阅读方式不是四套模型，而是这组坐标上的
 不同投影。
 

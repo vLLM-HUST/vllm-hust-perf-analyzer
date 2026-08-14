@@ -1310,13 +1310,58 @@ void materialize_augmented_catalog(const std::string& path,
          ":node_id, :occurrence_idx (NULL selects all)",
          "expand supported graph/replay anchors to exact ordered body members "
          "without inferring membership from time overlap",
-         "SELECT node_id, occurrence_idx, node_member_order, lane_ordinal, "
-         "task_ordinal, event_id, member_symbol, start_ns, end_ns, dur_us, "
-         "source_table, source_row_id, evidence_level FROM "
-         "traceloom_v_node_graph_body_member WHERE node_id = :node_id AND "
-         "(:occurrence_idx IS NULL OR occurrence_idx = :occurrence_idx) "
-         "ORDER BY occurrence_idx, node_member_order, lane_ordinal, "
-         "task_ordinal;"},
+         "SELECT member.node_id, member.occurrence_idx, "
+         "cost.cost_unit_id, member.replay_unit_id, "
+         "member.node_launch_id AS launch_id, member.node_slot_order AS "
+         "slot_order, member.node_member_order, member.lane_ordinal, "
+         "member.task_ordinal, member.event_id, member.member_symbol, "
+         "member.start_ns, member.end_ns, member.dur_us, "
+         "member.source_table, member.source_row_id, member.evidence_level "
+         "FROM traceloom_v_node_graph_body_member member LEFT JOIN "
+         "traceloom_replay_cost_unit cost ON cost.db_idx = member.db_idx AND "
+         "cost.device_id = member.device_id AND cost.replay_unit_id = "
+         "member.replay_unit_id WHERE member.node_id = :node_id AND "
+         "(:occurrence_idx IS NULL OR member.occurrence_idx = "
+         ":occurrence_idx) ORDER BY member.occurrence_idx, "
+         "member.node_member_order, member.lane_ordinal, "
+         "member.task_ordinal;"},
+        {"replay_cost_units", "41", "exact_replay_unit",
+         "candidate_occurrences", "unit_cost_summary", "device",
+         "support_and_launch_inventory", "(none)",
+         "discover exact replay-unit cost support before selecting one "
+         "occurrence for launch-level inspection",
+         "SELECT cost_unit_id, db_idx, device_id, replay_unit_id, "
+         "graph_template_id, launch_member_count, resolved_launch_count, "
+         "support_status, reason_codes FROM traceloom_replay_cost_unit "
+         "ORDER BY db_idx, device_id, replay_unit_id;"},
+        {"replay_cost_launches", "42", "exact_replay_unit",
+         "one_or_all_slots", "ordered_launch_slots", "device",
+         "launch_cost_lenses",
+         ":cost_unit_id, :slot_order (NULL selects all)",
+         "inspect every ordered launch slot or one selected slot occurrence "
+         "inside an exact replay unit",
+         "SELECT launch_id, cost_unit_id, db_idx, device_id, replay_unit_id, "
+         "member_order, graph_launch_occurrence_id, composition_slot_id, "
+         "slot_role, slot_order, replay_body_template_id, body_id, "
+         "support_status, reason_code, member_count, task_sum_ns, "
+         "busy_union_ns, envelope_ns, compute_ns, communication_ns, "
+         "data_move_ns FROM traceloom_replay_cost_launch WHERE "
+         "cost_unit_id = :cost_unit_id AND (:slot_order IS NULL OR "
+         "slot_order = :slot_order) ORDER BY member_order, launch_id;"},
+        {"replay_cost_members", "43", "graph_launch",
+         "all_members", "ordered_body_members", "device",
+         "scheduled_member_cost_and_provenance", ":launch_id",
+         "expand one supported replay launch to exact ordered member costs "
+         "and normalized event coordinates",
+         "SELECT member_id, launch_id, cost_unit_id, db_idx, device_id, "
+         "composition_slot_id, slot_role, slot_order, "
+         "replay_body_template_id, body_id, stream_id, lane_ordinal, "
+         "task_ordinal, kind, event_id, identity, raw_task_id, start_ns, "
+         "end_ns, duration_ns, relative_start_ns, relative_end_ns, "
+         "scheduled_work_share_ppm, scheduled_work_share_supported, "
+         "scheduled_work_denominator_body_task_sum_ns FROM "
+         "traceloom_replay_cost_member WHERE launch_id = :launch_id "
+         "ORDER BY lane_ordinal, task_ordinal, member_id;"},
         {"exact_replay_partition", "45", "device_sequence",
          "complete_partition", "open_replay_between_segments", "device",
          "right_anchored_disjoint_cost", "(none)",
@@ -1529,6 +1574,15 @@ void materialize_augmented_catalog(const std::string& path,
          "1", "structural_occurrence_index",
          "traceloom_tree_node_occurrence", "occurrence_idx",
          "NULL selects all occurrences; a value selects one execution"},
+        {"replay_cost_launches", "10", "cost_unit_id", "TEXT", "0",
+         "replay_cost_unit_id", "traceloom_replay_cost_unit",
+         "cost_unit_id", "selected exact replay-unit cost occurrence"},
+        {"replay_cost_launches", "20", "slot_order", "INTEGER", "1",
+         "replay_slot_order", "traceloom_replay_cost_launch", "slot_order",
+         "NULL selects all launch slots; a value selects one slot"},
+        {"replay_cost_members", "10", "launch_id", "TEXT", "0",
+         "replay_cost_launch_id", "traceloom_replay_cost_launch",
+         "launch_id", "selected supported replay launch"},
         {"position_population", "10", "node_id", "TEXT", "0",
          "structural_node_id", "traceloom_v_tree_node", "node_id",
          "selected structural scope whose ordered positions are aligned"},
@@ -1636,8 +1690,44 @@ void materialize_augmented_catalog(const std::string& path,
          "structural_node_id", "selected structural scope"},
         {"scope_exact_replay_members", "20", "occurrence_idx",
          "structural_occurrence_index", "selected realized occurrence"},
-        {"scope_exact_replay_members", "30", "event_id",
+        {"scope_exact_replay_members", "30", "cost_unit_id",
+         "replay_cost_unit_id", "selected exact replay cost unit"},
+        {"scope_exact_replay_members", "40", "replay_unit_id",
+         "replay_unit_id", "selected exact replay occurrence"},
+        {"scope_exact_replay_members", "50", "launch_id",
+         "replay_cost_launch_id", "selected graph launch cost occurrence"},
+        {"scope_exact_replay_members", "60", "slot_order",
+         "replay_slot_order", "ordered launch slot inside the replay unit"},
+        {"scope_exact_replay_members", "70", "event_id",
          "normalized_event_id", "exact replay member available for audit"},
+        {"replay_cost_units", "10", "cost_unit_id",
+         "replay_cost_unit_id", "selected exact replay cost unit"},
+        {"replay_cost_units", "20", "replay_unit_id", "replay_unit_id",
+         "selected exact replay occurrence"},
+        {"replay_cost_units", "30", "graph_template_id",
+         "graph_template_id", "recovered replay template"},
+        {"replay_cost_units", "40", "device_id", "device_id",
+         "device coordinate"},
+        {"replay_cost_launches", "10", "launch_id",
+         "replay_cost_launch_id", "selected replay launch cost occurrence"},
+        {"replay_cost_launches", "20", "cost_unit_id",
+         "replay_cost_unit_id", "owning exact replay cost unit"},
+        {"replay_cost_launches", "30", "replay_unit_id",
+         "replay_unit_id", "owning exact replay occurrence"},
+        {"replay_cost_launches", "40", "graph_launch_occurrence_id",
+         "graph_launch_occurrence_id", "exact graph launch occurrence"},
+        {"replay_cost_launches", "50", "composition_slot_id",
+         "replay_composition_slot_id", "recovered composition slot"},
+        {"replay_cost_launches", "60", "slot_order",
+         "replay_slot_order", "ordered launch slot inside the replay unit"},
+        {"replay_cost_members", "10", "member_id",
+         "replay_cost_member_id", "selected exact replay member cost row"},
+        {"replay_cost_members", "20", "launch_id",
+         "replay_cost_launch_id", "owning replay launch cost occurrence"},
+        {"replay_cost_members", "30", "cost_unit_id",
+         "replay_cost_unit_id", "owning exact replay cost unit"},
+        {"replay_cost_members", "40", "event_id",
+         "normalized_event_id", "normalized event available for audit"},
         {"exact_replay_partition", "10", "tree_id", "structural_tree_id",
          "device-tree whose exact replay boundaries induce the partition"},
         {"exact_replay_partition", "20", "db_idx", "database_index",

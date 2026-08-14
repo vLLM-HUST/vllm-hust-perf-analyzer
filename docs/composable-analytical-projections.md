@@ -132,6 +132,29 @@ node-N006
   -> profiler rows            evidence audit
 ```
 
+Exact replay cost maps are also coordinate-composable rather than a hidden
+table family. `replay_cost_units` discovers supported and unsupported exact
+ReplayUnit occurrences; `replay_cost_launches` expands one returned
+`cost_unit_id` to all ordered slots or one `slot_order`; and
+`replay_cost_members` expands a returned `launch_id` to exact member costs and
+normalized `event_id` values. An event then continues to `event_audit`.
+`scope_exact_replay_members` returns the same `cost_unit_id`, `launch_id`, and
+`slot_order` coordinates, so an analyst can branch from one selected tree
+occurrence into either replay cost lenses or host context without rediscovering
+the replay boundary.
+
+```text
+ReplayUnit occurrence / cost_unit_id
+  -> ordered launch slots             task_sum / busy_union / envelope
+  -> one launch_id                    exact member cost and provenance
+  -> one event_id                     embedded profiler-row audit
+```
+
+Captured topology lanes without scheduled members remain topology, not
+zero-cost member rows. A cost unit is supported only after exact task-kind
+membership and the nonempty stream/lane mapping pass the replay cost-map
+contract.
+
 Exact replay evidence offers another horizontal coordinate system over the
 complete device sequence. The parameter-free `exact_replay_partition` recipe
 returns an ordered open/replay/between-replays cost partition for every
