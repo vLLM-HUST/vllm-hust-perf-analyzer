@@ -235,9 +235,10 @@ struct ReplayInternalCostMapResult {
 // start, body member id); aggregates by structural key. Missing, ambiguous,
 // or structurally invalid evidence (empty bodies, invalid body-member
 // references, duplicate within-stream positions, lane-inconsistent streams,
-// out-of-range foreign keys) is reported through per-member reason codes and
-// issues and suppresses the affected member/aggregate output -- never an
-// empty success and never an exception.
+// concrete/declared body-shape mismatches, cross-device bodies, or out-of-range
+// foreign keys) is reported through per-member reason codes and issues and
+// suppresses the affected member/aggregate output -- never an empty success
+// and never an exception.
 ReplayInternalCostMapResult build_replay_internal_cost_map(
     const NativeIr& ir);
 

@@ -156,6 +156,51 @@ struct BodyMembership {
   bool lane_inconsistent = false;
 };
 
+struct BodyMembershipShape {
+  std::uint32_t compute_count = 0;
+  std::uint32_t communication_count = 0;
+  std::uint32_t data_move_count = 0;
+  std::set<std::uint32_t> streams;
+  std::set<std::uint32_t> devices;
+};
+
+BodyMembershipShape body_membership_shape(const BodyMembership& membership) {
+  BodyMembershipShape out;
+  for (const BodyMemberRef& member : membership.members) {
+    switch (member.row->kind) {
+      case GraphLaunchBodyMemberRow::Kind::kCompute:
+        ++out.compute_count;
+        break;
+      case GraphLaunchBodyMemberRow::Kind::kCommunication:
+        ++out.communication_count;
+        break;
+      case GraphLaunchBodyMemberRow::Kind::kDataMove:
+        ++out.data_move_count;
+        break;
+    }
+    out.streams.insert(member.event->stream_id);
+    out.devices.insert(member.event->device_id);
+  }
+  return out;
+}
+
+bool body_row_matches_membership(const GraphLaunchBodyRow& body,
+                                 const BodyMembershipShape& shape) {
+  return body.compute_task_count == shape.compute_count &&
+         body.communication_task_count == shape.communication_count &&
+         body.data_move_task_count == shape.data_move_count &&
+         body.stream_count == shape.streams.size();
+}
+
+bool body_template_matches_membership(const ReplayBodyTemplateRow& body_template,
+                                      const BodyMembershipShape& shape) {
+  return body_template.compute_task_count == shape.compute_count &&
+         body_template.communication_task_count ==
+             shape.communication_count &&
+         body_template.data_move_task_count == shape.data_move_count &&
+         body_template.stream_count == shape.streams.size();
+}
+
 // Whole-body occurrence lenses computed locally from the pre-validated
 // membership with the same overlap-aware interval arithmetic as the shared
 // GraphBodyCostSummary (task_sum = sum of member durations, busy_union =
@@ -353,6 +398,9 @@ ReplayInternalCostMapResult build_replay_internal_cost_map(
 
   if (ir.replay_units.empty()) {
     result.result_reason_codes.push_back("no_replay_units");
+    add_issue(result, "no_replay_units", ReplayUnitId::invalid(),
+              ReplayUnitLaunchMemberId::invalid(),
+              "input contains no exact replay-unit occurrences");
     return result;
   }
 
@@ -505,6 +553,9 @@ ReplayInternalCostMapResult build_replay_internal_cost_map(
                   "launch member references an invalid or out-of-range "
                   "graph launch occurrence");
       } else {
+        const GraphLaunchOccurrenceRow& launch_occurrence =
+            ir.graph_launch_occurrences.row(
+                member.graph_launch_occurrence_id);
         const ReplayCompositionSlotRow* slot = nullptr;
         if (!slot_row_for(ir, member.replay_composition_slot_id, &slot)) {
           cost.reason_code = "missing_replay_composition_slot";
@@ -568,117 +619,155 @@ ReplayInternalCostMapResult build_replay_internal_cost_map(
                       "streams of body " + std::to_string(body.id.value()) +
                           " map to multiple lane ordinals");
                 } else {
-                  cost.supported = true;
-                  cost.graph_launch_body_id = body.id;
-                  const BodyOccurrenceCost occurrence_cost =
-                      body_occurrence_cost(*membership);
-                  cost.member_count = occurrence_cost.member_count;
-                  cost.task_sum_ns = occurrence_cost.task_sum_ns;
-                  cost.busy_union_ns = occurrence_cost.busy_union_ns;
-                  cost.envelope_ns = occurrence_cost.envelope_ns;
-                  cost.compute_ns = occurrence_cost.compute_ns;
-                  cost.communication_ns = occurrence_cost.communication_ns;
-                  cost.data_move_ns = occurrence_cost.data_move_ns;
+                  const BodyMembershipShape membership_shape =
+                      body_membership_shape(*membership);
+                  const ReplayBodyTemplateRow& body_template =
+                      ir.replay_body_templates.row(
+                          body.replay_body_template_id);
+                  if (!body_row_matches_membership(body, membership_shape)) {
+                    cost.reason_code = "body_membership_summary_mismatch";
+                    cost.replay_body_template_id =
+                        slot->replay_body_template_id;
+                    add_issue(
+                        result, "body_membership_summary_mismatch", unit.id,
+                        member.id,
+                        "body " + std::to_string(body.id.value()) +
+                            " member kinds or stream population disagree "
+                            "with the observed-body summary");
+                  } else if (!body_template_matches_membership(
+                                 body_template, membership_shape)) {
+                    cost.reason_code = "body_template_shape_mismatch";
+                    cost.replay_body_template_id =
+                        slot->replay_body_template_id;
+                    add_issue(
+                        result, "body_template_shape_mismatch", unit.id,
+                        member.id,
+                        "body " + std::to_string(body.id.value()) +
+                            " member kinds or stream population disagree "
+                            "with the referenced body template");
+                  } else if (membership_shape.devices.size() != 1 ||
+                             *membership_shape.devices.begin() !=
+                                 launch_occurrence.device_id) {
+                    cost.reason_code = "body_device_mismatch";
+                    cost.replay_body_template_id =
+                        slot->replay_body_template_id;
+                    add_issue(
+                        result, "body_device_mismatch", unit.id, member.id,
+                        "body " + std::to_string(body.id.value()) +
+                            " is not confined to its graph-launch device");
+                  } else {
+                    cost.supported = true;
+                    cost.graph_launch_body_id = body.id;
+                    const BodyOccurrenceCost occurrence_cost =
+                        body_occurrence_cost(*membership);
+                    cost.member_count = occurrence_cost.member_count;
+                    cost.task_sum_ns = occurrence_cost.task_sum_ns;
+                    cost.busy_union_ns = occurrence_cost.busy_union_ns;
+                    cost.envelope_ns = occurrence_cost.envelope_ns;
+                    cost.compute_ns = occurrence_cost.compute_ns;
+                    cost.communication_ns = occurrence_cost.communication_ns;
+                    cost.data_move_ns = occurrence_cost.data_move_ns;
 
-                  // Per-stream ordered member evidence from the pre-validated
-                  // membership (already ref-checked; no scan, no throw).
-                  std::vector<BodyMemberRef> body_members =
-                      membership->members;
-                  std::stable_sort(
-                      body_members.begin(), body_members.end(),
-                      [](const BodyMemberRef& lhs, const BodyMemberRef& rhs) {
-                        return std::make_tuple(lhs.row->lane_ordinal,
-                                                lhs.row->task_ordinal,
-                                                lhs.event->start_ns,
-                                                lhs.row->id.value()) <
-                               std::make_tuple(rhs.row->lane_ordinal,
-                                               rhs.row->task_ordinal,
-                                               rhs.event->start_ns,
-                                               rhs.row->id.value());
-                      });
+                    // Per-stream ordered member evidence from the pre-validated
+                    // membership (already ref-checked; no scan, no throw).
+                    std::vector<BodyMemberRef> body_members =
+                        membership->members;
+                    std::stable_sort(
+                        body_members.begin(), body_members.end(),
+                        [](const BodyMemberRef& lhs, const BodyMemberRef& rhs) {
+                          return std::make_tuple(lhs.row->lane_ordinal,
+                                                  lhs.row->task_ordinal,
+                                                  lhs.event->start_ns,
+                                                  lhs.row->id.value()) <
+                                 std::make_tuple(rhs.row->lane_ordinal,
+                                                 rhs.row->task_ordinal,
+                                                 rhs.event->start_ns,
+                                                 rhs.row->id.value());
+                        });
 
-                  std::int64_t body_min_start = 0;
-                  bool has_min_start = false;
-                  for (const BodyMemberRef& body_member : body_members) {
-                    if (!has_min_start ||
-                        body_member.event->start_ns < body_min_start) {
-                      body_min_start = body_member.event->start_ns;
-                      has_min_start = true;
+                    std::int64_t body_min_start = 0;
+                    bool has_min_start = false;
+                    for (const BodyMemberRef& body_member : body_members) {
+                      if (!has_min_start ||
+                          body_member.event->start_ns < body_min_start) {
+                        body_min_start = body_member.event->start_ns;
+                        has_min_start = true;
+                      }
                     }
-                  }
 
-                  std::map<std::uint32_t, std::vector<BodyMemberRef>>
-                      members_by_stream;
-                  for (const BodyMemberRef& body_member : body_members) {
-                    members_by_stream[body_member.event->stream_id].push_back(
-                        body_member);
-                    ReplayMemberCostRow member_row;
-                    member_row.replay_unit_id = unit.id;
-                    member_row.replay_unit_launch_member_id = member.id;
-                    member_row.member_order = member.member_order;
-                    member_row.graph_launch_occurrence_id =
-                        member.graph_launch_occurrence_id;
-                    member_row.replay_composition_slot_id =
-                        member.replay_composition_slot_id;
-                    member_row.slot_role = slot->role;
-                    member_row.slot_order = slot->slot_order;
-                    member_row.replay_body_template_id =
-                        body.replay_body_template_id;
-                    member_row.graph_launch_body_id = body.id;
-                    member_row.graph_launch_body_member_id =
-                        body_member.row->id;
-                    member_row.device_id = body_member.event->device_id;
-                    member_row.stream_id = body_member.event->stream_id;
-                    member_row.lane_ordinal = body_member.row->lane_ordinal;
-                    member_row.within_stream_position =
-                        body_member.row->task_ordinal;
-                    member_row.kind = body_member.row->kind;
-                    member_row.task_id = body_member.row->task_id;
-                    member_row.trace_event_id = body_member.event->id;
-                    member_row.source_ref_id = body_member.task->source_ref_id;
-                    SymbolId identity =
-                        member_identity(*body_member.task);
-                    if (identity.valid() &&
-                        identity.value() >= ir.symbols.size()) {
-                      add_issue(
-                          result, "invalid_member_identity", unit.id,
-                          member.id,
-                          "body member " +
-                              std::to_string(body_member.row->id.value()) +
-                              " has an out-of-range identity symbol");
-                      identity = SymbolId::invalid();
+                    std::map<std::uint32_t, std::vector<BodyMemberRef>>
+                        members_by_stream;
+                    for (const BodyMemberRef& body_member : body_members) {
+                      members_by_stream[body_member.event->stream_id].push_back(
+                          body_member);
+                      ReplayMemberCostRow member_row;
+                      member_row.replay_unit_id = unit.id;
+                      member_row.replay_unit_launch_member_id = member.id;
+                      member_row.member_order = member.member_order;
+                      member_row.graph_launch_occurrence_id =
+                          member.graph_launch_occurrence_id;
+                      member_row.replay_composition_slot_id =
+                          member.replay_composition_slot_id;
+                      member_row.slot_role = slot->role;
+                      member_row.slot_order = slot->slot_order;
+                      member_row.replay_body_template_id =
+                          body.replay_body_template_id;
+                      member_row.graph_launch_body_id = body.id;
+                      member_row.graph_launch_body_member_id =
+                          body_member.row->id;
+                      member_row.device_id = body_member.event->device_id;
+                      member_row.stream_id = body_member.event->stream_id;
+                      member_row.lane_ordinal = body_member.row->lane_ordinal;
+                      member_row.within_stream_position =
+                          body_member.row->task_ordinal;
+                      member_row.kind = body_member.row->kind;
+                      member_row.task_id = body_member.row->task_id;
+                      member_row.trace_event_id = body_member.event->id;
+                      member_row.source_ref_id = body_member.task->source_ref_id;
+                      SymbolId identity =
+                          member_identity(*body_member.task);
+                      if (identity.valid() &&
+                          identity.value() >= ir.symbols.size()) {
+                        add_issue(
+                            result, "invalid_member_identity", unit.id,
+                            member.id,
+                            "body member " +
+                                std::to_string(body_member.row->id.value()) +
+                                " has an out-of-range identity symbol");
+                        identity = SymbolId::invalid();
+                      }
+                      member_row.identity_symbol_id = identity;
+                      member_row.raw_task_id = body_member.task->raw_task_id;
+                      member_row.start_ns = body_member.event->start_ns;
+                      member_row.end_ns = body_member.event->end_ns;
+                      member_row.duration_ns =
+                          duration_ns(*body_member.event);
+                      member_row.relative_start_ns =
+                          body_member.event->start_ns - body_min_start;
+                      member_row.relative_end_ns =
+                          body_member.event->end_ns - body_min_start;
+                      if (!identity.valid()) {
+                        add_issue(result, "missing_member_identity", unit.id,
+                                  member.id,
+                                  "body member " +
+                                      std::to_string(
+                                          body_member.row->id.value()) +
+                                      " has no op or communication identity");
+                      }
+                      member_row.scheduled_work_denominator_body_task_sum_ns =
+                          occurrence_cost.task_sum_ns;
+                      if (occurrence_cost.task_sum_ns > 0) {
+                        member_row.scheduled_work_share_supported = true;
+                        member_row.scheduled_work_share_ppm = share_ppm(
+                            member_row.duration_ns,
+                            occurrence_cost.task_sum_ns);
+                      }
+                      result.members.push_back(std::move(member_row));
                     }
-                    member_row.identity_symbol_id = identity;
-                    member_row.raw_task_id = body_member.task->raw_task_id;
-                    member_row.start_ns = body_member.event->start_ns;
-                    member_row.end_ns = body_member.event->end_ns;
-                    member_row.duration_ns =
-                        duration_ns(*body_member.event);
-                    member_row.relative_start_ns =
-                        body_member.event->start_ns - body_min_start;
-                    member_row.relative_end_ns =
-                        body_member.event->end_ns - body_min_start;
-                    if (!identity.valid()) {
-                      add_issue(result, "missing_member_identity", unit.id,
-                                member.id,
-                                "body member " +
-                                    std::to_string(
-                                        body_member.row->id.value()) +
-                                    " has no op or communication identity");
-                    }
-                    member_row.scheduled_work_denominator_body_task_sum_ns =
-                        occurrence_cost.task_sum_ns;
-                    if (occurrence_cost.task_sum_ns > 0) {
-                      member_row.scheduled_work_share_supported = true;
-                      member_row.scheduled_work_share_ppm = share_ppm(
-                          member_row.duration_ns,
-                          occurrence_cost.task_sum_ns);
-                    }
-                    result.members.push_back(std::move(member_row));
-                  }
 
-                  for (auto& stream_item : members_by_stream) {
-                    append_stream_cost_row(cost, stream_item.second);
+                    for (auto& stream_item : members_by_stream) {
+                      append_stream_cost_row(cost, stream_item.second);
+                    }
                   }
                 }
               }

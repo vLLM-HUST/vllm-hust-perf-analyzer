@@ -162,7 +162,9 @@ composition slot, a slot with a valid in-range body template, exactly one
 graph-launch body for the occurrence, a body whose template is valid and
 matches the slot, nonempty body membership with valid task/event references,
 no duplicate (stream, within-stream position), no lane-inconsistent stream,
-and body cost evidence. Otherwise the member carries `supported = false` with
+exact agreement between concrete members and both observed-body and template
+kind/stream summaries, one launch-local device domain, and body cost evidence.
+Otherwise the member carries `supported = false` with
 an explicit `reason_code`:
 
 | reason code | meaning |
@@ -178,6 +180,9 @@ an explicit `reason_code`:
 | `missing_body_member_evidence` | body membership has invalid task/event references |
 | `duplicate_within_stream_position` | body repeats a (stream, position) key; no partial aggregates |
 | `stream_lane_inconsistency` | a stream maps to multiple lane ordinals; per-stream sequence ambiguous |
+| `body_membership_summary_mismatch` | concrete member kinds/streams disagree with the observed-body summary |
+| `body_template_shape_mismatch` | concrete member kinds/streams disagree with the referenced exact body template |
+| `body_device_mismatch` | body members are not confined to the graph-launch occurrence's device |
 
 Issue-only codes (do not by themselves revoke support, but are reported
 explicitly):

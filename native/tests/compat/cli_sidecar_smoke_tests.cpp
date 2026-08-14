@@ -213,6 +213,16 @@ void require_augmented_database(const std::string& path) {
                                   path,
                                   "SELECT COUNT(*) FROM "
                                   "traceloom_projection_coordinate") == 53);
+  const int replay_unit_count = run_scalar_int(
+      path, "SELECT COUNT(*) FROM traceloom_replay_cost_unit");
+  if (replay_unit_count == 0) {
+    traceloom::testing::require(run_scalar_int(
+                                    path,
+                                    "SELECT COUNT(*) FROM "
+                                    "traceloom_replay_cost_issue WHERE code = "
+                                    "'no_replay_units' AND replay_unit_id = -1 "
+                                    "AND launch_id IS NULL") == 1);
+  }
   traceloom::testing::require(run_scalar_int(
                                   path,
                                   "SELECT COUNT(*) FROM traceloom_metadata "

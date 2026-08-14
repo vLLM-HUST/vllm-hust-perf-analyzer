@@ -332,6 +332,32 @@ unique, and every aligned position covers the complete node population.  The
 CUDA artifact publishes one independent complete tree per device (1,471
 anchors each) with zero cross-device coverage.
 
+### A12. Replay completeness did not validate declared body shape
+
+**Severity:** replay cost correctness; repaired in this branch.
+
+Replay membership previously failed closed on invalid references, duplicate
+positions, and lane inconsistency, but a nonempty proper subset of otherwise
+valid member rows could still be costed as a complete body.  The analyzer did
+not compare concrete member kind/stream counts with either the observed
+`GraphLaunchBodyRow` summary or its referenced exact `ReplayBodyTemplateRow`.
+It also did not prove that all members belonged to the launch occurrence's
+device.
+
+Supported replay launches now require exact agreement among concrete members,
+the observed-body summary, and the referenced template, plus one device equal
+to the graph-launch device.  Each failure is typed and emits no partial member
+or aggregate rows.  `no_replay_units` is additionally materialized as an issue
+row, so the queryable database does not represent unsupported replay analysis
+as an unexplained group of empty cost tables.
+
+**Real-data oracle.** Regenerating the immutable CUDA real-model node-level
+artifact preserves five supported ReplayUnits, five supported launches,
+49,405 exact members (9,881 per body), 9,881 role-collapsed aggregates, and
+zero issues.  Launch member counts, task sums, kind partitions, stream sums,
+busy/envelope inequalities, aggregate contributor counts and denominators, and
+the one-to-one exact-member drill-down into tree occurrences all validate.
+
 ## Next audit slices
 
 1. Device-local structural domains and typed grammar completion status.
