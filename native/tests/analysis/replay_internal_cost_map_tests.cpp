@@ -3,6 +3,7 @@
 
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -674,6 +675,68 @@ MinimalIr build_minimal_ir(bool with_body = true,
   return out;
 }
 
+MinimalIr build_stream_topology_ir(
+    std::uint32_t declared_stream_count,
+    const std::vector<std::pair<std::uint32_t, std::uint32_t>>&
+        lane_streams) {
+  MinimalIr out;
+  out.source = out.ir.source_refs.append("fixture", "memory", "TASK", 0);
+  const SymbolId compute = out.ir.symbols.intern("MatMul");
+  const std::uint32_t member_count =
+      static_cast<std::uint32_t>(lane_streams.size());
+  out.body_template = out.ir.replay_body_templates.append(
+      out.source, 1, compute, member_count, 0, declared_stream_count,
+      ReplayBodyTopologyPolicy::kCapturedStreamSetUnordered);
+  const GraphTemplateId graph_template =
+      out.ir.graph_templates.append(out.source, 7, 1);
+  const ReplayCompositionCandidateId composition =
+      out.ir.replay_composition_candidates.append(
+          out.source, 0, GraphLaunchOccurrenceId::invalid(),
+          GraphLaunchOccurrenceId::invalid(), 1, 0, 1, 1, 0, 1,
+          ReplayCompositionIdentityPolicy::kGraphConnection,
+          ReplayCompositionOrderPolicy::kDeviceExecutionOrder,
+          ReplayCompositionShapePolicy::kSingleGraph,
+          ReplayCompositionBoundaryPolicy::kExactPeriodicSuffix);
+  out.slot = out.ir.replay_composition_slots.append(
+      composition, 0, CapturedGraphInstanceId::invalid(),
+      GraphSlotTemplateId::invalid(), out.body_template,
+      ReplayCompositionSlotRole::kGraph, -1);
+  out.unit = out.ir.replay_units.append(
+      graph_template, out.source, AnchorId::invalid(), AnchorId::invalid(),
+      TraceEventId::invalid());
+  const GraphLaunchOccurrenceId occurrence =
+      out.ir.graph_launch_occurrences.append(
+          out.source, out.source, 0, 1, 1, 1, 1, StreamId::invalid(),
+          StreamId::invalid(), CapturedGraphInstanceId::invalid(),
+          TaskId::invalid(), TaskId::invalid(), TaskId::invalid(), 0, 10, 0,
+          GraphLaunchMatchPolicy::kNotifyCompletionAdjacent,
+          GraphLaunchInstanceAssociationPolicy::kRecordModelId);
+
+  std::vector<TaskId> tasks;
+  tasks.reserve(lane_streams.size());
+  for (std::size_t index = 0; index < lane_streams.size(); ++index) {
+    const TraceEventId event = out.ir.trace_events.append(
+        out.source, index + 1, 0, lane_streams[index].second, 0, 10,
+        compute);
+    tasks.push_back(out.ir.tasks.append(
+        out.source, event, index + 1, static_cast<std::int64_t>(index + 1),
+        -1, compute, compute, compute, SymbolId::invalid(),
+        SymbolId::invalid()));
+  }
+  require(!tasks.empty(), "stream-topology fixture needs a body member");
+  out.task = tasks.front();
+  const GraphLaunchBodyId body = out.ir.graph_launch_bodies.append(
+      occurrence, out.body_template, tasks.front(), tasks.back(),
+      member_count, 0, declared_stream_count);
+  for (std::size_t index = 0; index < tasks.size(); ++index) {
+    out.ir.graph_launch_body_members.append(
+        body, tasks[index], lane_streams[index].first, 0,
+        GraphLaunchBodyMemberRow::Kind::kCompute);
+  }
+  out.ir.replay_unit_launch_members.append(out.unit, 0, occurrence, out.slot);
+  return out;
+}
+
 void test_fail_closed_missing_body() {
   const MinimalIr minimal = build_minimal_ir(/*with_body=*/false);
   const ReplayInternalCostMapResult map =
@@ -914,6 +977,50 @@ void test_fail_closed_body_shape_and_device() {
               cross_device_map.members.empty() &&
               cross_device_map.aggregates.empty(),
           "a replay body cannot cross its graph-launch device domain");
+}
+
+void test_captured_stream_topology_allows_empty_lanes() {
+  // The captured topology declares lanes 0 and 1, while this exact launch has
+  // scheduled work only on lane 1. Task-kind counts still prove complete body
+  // membership, so the empty captured lane must not make cost evidence
+  // unsupported.
+  const MinimalIr empty_lane =
+      build_stream_topology_ir(2, {{1, 7}});
+  const ReplayInternalCostMapResult empty_lane_map =
+      build_replay_internal_cost_map(empty_lane.ir);
+  require(empty_lane_map.units.size() == 1 &&
+              empty_lane_map.units[0].supported &&
+              empty_lane_map.fully_supported_unit_count == 1 &&
+              empty_lane_map.resolved_launch_count == 1 &&
+              empty_lane_map.unsupported_launch_count == 0 &&
+              empty_lane_map.members.size() == 1 &&
+              empty_lane_map.members[0].lane_ordinal == 1 &&
+              empty_lane_map.members[0].stream_id == 7,
+          "empty captured lane preserves exact replay cost support");
+
+  const MinimalIr lane_out_of_range =
+      build_stream_topology_ir(1, {{1, 7}});
+  const ReplayInternalCostMapResult out_of_range_map =
+      build_replay_internal_cost_map(lane_out_of_range.ir);
+  require(out_of_range_map.units.size() == 1 &&
+              !out_of_range_map.units[0].supported &&
+              out_of_range_map.units[0].launch_members[0].reason_code ==
+                  "body_membership_summary_mismatch" &&
+              out_of_range_map.members.empty() &&
+              out_of_range_map.aggregates.empty(),
+          "nonempty lane outside declared topology fails closed");
+
+  const MinimalIr lane_collision =
+      build_stream_topology_ir(2, {{1, 7}, {1, 9}});
+  const ReplayInternalCostMapResult collision_map =
+      build_replay_internal_cost_map(lane_collision.ir);
+  require(collision_map.units.size() == 1 &&
+              !collision_map.units[0].supported &&
+              collision_map.units[0].launch_members[0].reason_code ==
+                  "stream_lane_inconsistency" &&
+              collision_map.members.empty() &&
+              collision_map.aggregates.empty(),
+          "two nonempty streams cannot collapse onto one captured lane");
 }
 
 void test_fail_closed_invalid_foreign_keys() {
@@ -1164,6 +1271,7 @@ int main() {
   test_fail_closed_duplicate_position();
   test_fail_closed_lane_inconsistency();
   test_fail_closed_body_shape_and_device();
+  test_captured_stream_topology_allows_empty_lanes();
   test_fail_closed_invalid_foreign_keys();
   test_scheduled_work_share_zero_denominator();
   test_missing_identity_member();

@@ -161,9 +161,13 @@ unambiguously and the body membership is complete and well formed: a valid
 composition slot, a slot with a valid in-range body template, exactly one
 graph-launch body for the occurrence, a body whose template is valid and
 matches the slot, nonempty body membership with valid task/event references,
-no duplicate (stream, within-stream position), no lane-inconsistent stream,
-exact agreement between concrete members and both observed-body and template
-kind/stream summaries, one launch-local device domain, and body cost evidence.
+no duplicate (stream, within-stream position), exact agreement between
+concrete members and both observed-body and template task-kind summaries, a
+one-to-one mapping from nonempty streams to lane ordinals inside both declared
+captured-stream topologies, one launch-local device domain, and body cost
+evidence. Captured lanes with no scheduled member are valid and remain
+represented by the body/template topology; they do not manufacture zero-cost
+member rows.
 Otherwise the member carries `supported = false` with
 an explicit `reason_code`:
 
@@ -179,9 +183,9 @@ an explicit `reason_code`:
 | `empty_graph_launch_body` | body has no member rows (never supported zero-cost) |
 | `missing_body_member_evidence` | body membership has invalid task/event references |
 | `duplicate_within_stream_position` | body repeats a (stream, position) key; no partial aggregates |
-| `stream_lane_inconsistency` | a stream maps to multiple lane ordinals; per-stream sequence ambiguous |
-| `body_membership_summary_mismatch` | concrete member kinds/streams disagree with the observed-body summary |
-| `body_template_shape_mismatch` | concrete member kinds/streams disagree with the referenced exact body template |
+| `stream_lane_inconsistency` | nonempty streams and lane ordinals are not one-to-one; per-stream sequence ambiguous |
+| `body_membership_summary_mismatch` | concrete member kinds or nonempty lanes do not fit the observed-body summary/topology |
+| `body_template_shape_mismatch` | concrete member kinds or nonempty lanes do not fit the referenced exact body template/topology |
 | `body_device_mismatch` | body members are not confined to the graph-launch occurrence's device |
 
 Issue-only codes (do not by themselves revoke support, but are reported

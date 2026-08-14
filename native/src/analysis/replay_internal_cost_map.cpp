@@ -151,6 +151,7 @@ struct BodyMembership {
   std::vector<BodyMemberRef> members;
   std::set<std::pair<std::uint32_t, std::uint32_t>> positions;
   std::map<std::uint32_t, std::set<std::uint32_t>> lanes_by_stream;
+  std::map<std::uint32_t, std::set<std::uint32_t>> streams_by_lane;
   bool has_invalid_refs = false;
   bool duplicate_position = false;
   bool lane_inconsistent = false;
@@ -161,6 +162,7 @@ struct BodyMembershipShape {
   std::uint32_t communication_count = 0;
   std::uint32_t data_move_count = 0;
   std::set<std::uint32_t> streams;
+  std::set<std::uint32_t> lanes;
   std::set<std::uint32_t> devices;
 };
 
@@ -179,9 +181,28 @@ BodyMembershipShape body_membership_shape(const BodyMembership& membership) {
         break;
     }
     out.streams.insert(member.event->stream_id);
+    out.lanes.insert(member.row->lane_ordinal);
     out.devices.insert(member.event->device_id);
   }
   return out;
+}
+
+// Body/template stream_count describes the captured stream topology, not the
+// number of streams that happened to contain scheduled work in this launch.
+// Empty captured lanes are therefore valid. Concrete nonempty streams must
+// still form a one-to-one stream/lane mapping inside the declared topology;
+// exact task-kind counts independently prove that no scheduled member was
+// omitted.
+bool membership_fits_stream_topology(const BodyMembershipShape& shape,
+                                     std::uint32_t stream_count) {
+  if (shape.streams.size() != shape.lanes.size() ||
+      shape.streams.size() > stream_count) {
+    return false;
+  }
+  return std::all_of(shape.lanes.begin(), shape.lanes.end(),
+                     [stream_count](std::uint32_t lane) {
+                       return lane < stream_count;
+                     });
 }
 
 bool body_row_matches_membership(const GraphLaunchBodyRow& body,
@@ -189,7 +210,7 @@ bool body_row_matches_membership(const GraphLaunchBodyRow& body,
   return body.compute_task_count == shape.compute_count &&
          body.communication_task_count == shape.communication_count &&
          body.data_move_task_count == shape.data_move_count &&
-         body.stream_count == shape.streams.size();
+         membership_fits_stream_topology(shape, body.stream_count);
 }
 
 bool body_template_matches_membership(const ReplayBodyTemplateRow& body_template,
@@ -198,7 +219,7 @@ bool body_template_matches_membership(const ReplayBodyTemplateRow& body_template
          body_template.communication_task_count ==
              shape.communication_count &&
          body_template.data_move_task_count == shape.data_move_count &&
-         body_template.stream_count == shape.streams.size();
+         membership_fits_stream_topology(shape, body_template.stream_count);
 }
 
 // Whole-body occurrence lenses computed locally from the pre-validated
@@ -441,6 +462,8 @@ ReplayInternalCostMapResult build_replay_internal_cost_map(
     }
     membership.lanes_by_stream[event->stream_id].insert(
         body_member.lane_ordinal);
+    membership.streams_by_lane[body_member.lane_ordinal].insert(
+        event->stream_id);
     BodyMemberRef ref;
     ref.row = &body_member;
     ref.task = task;
@@ -450,6 +473,12 @@ ReplayInternalCostMapResult build_replay_internal_cost_map(
   for (auto& item : memberships_by_body) {
     for (const auto& stream_lanes : item.second.lanes_by_stream) {
       if (stream_lanes.second.size() > 1) {
+        item.second.lane_inconsistent = true;
+        break;
+      }
+    }
+    for (const auto& lane_streams : item.second.streams_by_lane) {
+      if (lane_streams.second.size() > 1) {
         item.second.lane_inconsistent = true;
         break;
       }
@@ -617,7 +646,7 @@ ReplayInternalCostMapResult build_replay_internal_cost_map(
                   add_issue(
                       result, "stream_lane_inconsistency", unit.id, member.id,
                       "streams of body " + std::to_string(body.id.value()) +
-                          " map to multiple lane ordinals");
+                          " do not map one-to-one to nonempty lane ordinals");
                 } else {
                   const BodyMembershipShape membership_shape =
                       body_membership_shape(*membership);
@@ -632,7 +661,7 @@ ReplayInternalCostMapResult build_replay_internal_cost_map(
                         result, "body_membership_summary_mismatch", unit.id,
                         member.id,
                         "body " + std::to_string(body.id.value()) +
-                            " member kinds or stream population disagree "
+                            " member kinds or stream topology disagree "
                             "with the observed-body summary");
                   } else if (!body_template_matches_membership(
                                  body_template, membership_shape)) {
@@ -643,7 +672,7 @@ ReplayInternalCostMapResult build_replay_internal_cost_map(
                         result, "body_template_shape_mismatch", unit.id,
                         member.id,
                         "body " + std::to_string(body.id.value()) +
-                            " member kinds or stream population disagree "
+                            " member kinds or stream topology disagree "
                             "with the referenced body template");
                   } else if (membership_shape.devices.size() != 1 ||
                              *membership_shape.devices.begin() !=
