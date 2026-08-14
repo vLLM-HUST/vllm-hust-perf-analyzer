@@ -148,12 +148,52 @@ SignalClassificationInput make_signal_classification_input(
                                    has_concrete_operator, provider_scope};
 }
 
-void validate_task_trace_event_refs(const TaskTable& tasks,
-                                    std::size_t trace_event_count) {
-  for (const TaskRow& task : tasks.rows()) {
+void validate_primitive_event_refs(const NativeIr& ir) {
+  std::unordered_set<TraceEventId::value_type> task_event_ids;
+  for (const TaskRow& task : ir.tasks.rows()) {
     if (!task.trace_event_id.valid() ||
-        task.trace_event_id.value() >= trace_event_count) {
+        task.trace_event_id.value() >= ir.trace_events.size()) {
       throw std::invalid_argument("TaskRow trace_event_id is out of range");
+    }
+    if (!task.source_ref_id.valid() ||
+        task.source_ref_id.value() >= ir.source_refs.size()) {
+      throw std::invalid_argument("TaskRow source_ref_id is out of range");
+    }
+    const TraceEventRow& event = ir.trace_events.row(task.trace_event_id);
+    if (task.source_ref_id != event.source_ref_id) {
+      throw std::invalid_argument(
+          "TaskRow and referenced TraceEventRow have different source_ref_id");
+    }
+    if (!task_event_ids.insert(task.trace_event_id.value()).second) {
+      throw std::invalid_argument(
+          "multiple TaskRows reference one TraceEventRow");
+    }
+  }
+
+  std::unordered_set<TraceEventId::value_type> communication_event_ids;
+  for (const CommunicationOpRow& communication :
+       ir.communication_ops.rows()) {
+    if (!communication.trace_event_id.valid() ||
+        communication.trace_event_id.value() >= ir.trace_events.size()) {
+      throw std::invalid_argument(
+          "CommunicationOpRow trace_event_id is out of range");
+    }
+    if (!communication.source_ref_id.valid() ||
+        communication.source_ref_id.value() >= ir.source_refs.size()) {
+      throw std::invalid_argument(
+          "CommunicationOpRow source_ref_id is out of range");
+    }
+    const TraceEventRow& event =
+        ir.trace_events.row(communication.trace_event_id);
+    if (communication.source_ref_id != event.source_ref_id) {
+      throw std::invalid_argument(
+          "CommunicationOpRow and referenced TraceEventRow have different "
+          "source_ref_id");
+    }
+    if (!communication_event_ids.insert(communication.trace_event_id.value())
+             .second) {
+      throw std::invalid_argument(
+          "multiple CommunicationOpRows reference one TraceEventRow");
     }
   }
 }
@@ -335,7 +375,7 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
         "build_flat_anchors expects empty AnchorTable and TokenTable");
   }
 
-  validate_task_trace_event_refs(ir.tasks, ir.trace_events.size());
+  validate_primitive_event_refs(ir);
   const std::unordered_set<TraceEventId::value_type> comm_event_ids =
       communication_trace_event_ids(ir.communication_ops);
   const std::unordered_map<std::uint64_t, std::vector<CommunicationSpan>>

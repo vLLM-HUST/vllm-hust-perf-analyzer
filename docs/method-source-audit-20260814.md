@@ -18,6 +18,22 @@ For each claimed relation or measure, check five things:
 5. **Oracle:** tests and real-data queries must distinguish the intended
    semantics from a merely deterministic implementation.
 
+## Claim-to-code status
+
+| Paper contract | Status at this branch | Evidence |
+| --- | --- | --- |
+| Provider facts remain primitive and source linked | **implementation corrected** | A13, A16; embedded-row and primitive event/source rejection tests |
+| Structural participation uses positive selection and preserves unknowns | **implementation corrected / matches** | A3--A5, A15; policy execution and unknown-first fixtures |
+| Backend spellings normalize without erasing observed identity | **matches** | A15; normalization decision, policy, rule, and source-lineage fixtures |
+| Horizontal realization is a deterministic device-local projection | **implementation corrected / matches** | A1, A2, A16; multi-device, comparator, and 1/4-reader equality oracles |
+| Provider-attested replay remains protected and expands only with visible support | **implementation corrected** | A8, A12; typed fallbacks and exact body-shape/device oracles |
+| Recursive grammar commits deterministic recurrent Patterns | **matches** | A17; snapshot, tie-order, revalidation, overlap, boundary, and recursive-lowering tests |
+| Parallel front-end analysis does not change the materialized result | **implementation corrected** | A6, A15, A16; seam completeness, adapter equality, and byte-identical augmented DB oracles |
+| Hierarchical cost measures keep distinct meanings and exact denominators | **implementation corrected / matches** | A2--A4, A11, A12; conservation, occurrence, repeat, and replay-cost oracles |
+| Returned coordinates compose across advertised projections | **implementation corrected** | A10, A11, A13; typed coordinate continuation and public tour |
+| Unsupported context remains typed rather than guessed or dropped | **implementation corrected / matches** | A5, A8, A10, A12, A13 |
+| Bounded-window summaries are augmented-DB discovery relations | **paper correction or new relation required** | A9; currently retained in the legacy result surface only |
+
 ## Findings
 
 ### A1. Device-local sequence domains are claimed but not enforced
@@ -486,8 +502,66 @@ locator. Together with the embedded-row validation in A13, a source locator can
 no longer be assembled from two unrelated provider domains or point at an
 absent embedded row.
 
+### A16. Primitive source identity and parallel ingestion are exact
+
+**Severity:** claim-to-code implementation corrected; no observed artifact
+counts changed.
+
+The horizontal builder previously checked only that a `TaskRow` referenced an
+in-range `TraceEventRow`. Its anchor source locator came from the event while
+classification fields came from the task. A malformed IR could therefore
+combine two provider domains, and duplicate tasks or communication rows for one
+event could be consumed by whichever unordered-map insertion happened first.
+Production adapters do not emit such rows, but the method contract requires an
+unambiguous primitive identity rather than relying on that convention.
+
+`build_flat_anchors()` now fails before classification when a task or
+communication observation has an invalid source/event reference, disagrees
+with its event's source domain, or duplicates same-kind ownership of one event.
+Task and communication rows may still both reference the same event where a
+provider deliberately represents the communication primitive that way; the
+uniqueness contract is within each primitive table. Dedicated corrupt-IR
+fixtures cover all four failure modes. The compatibility-layer check in A15
+remains as a second guard for callers that directly supply an already-built
+IR.
+
+Ascend's parallel `TASK` reader partitions physical rowid ranges, opens
+independent SQLite connections, and then sorts every raw row by device, stream,
+time, provider task identifiers, and rowid before interning any IR identity. A
+new adapter oracle loads the same SQLite input through one and four readers and
+compares source domains, symbol ids, streams, normalized events, tasks, and
+communication observations field-for-field. This complements the full
+augmented-DB byte equality in A15: reader parallelism cannot change primitive
+coordinates, and grammar worker/chunk configuration cannot change published
+relations.
+
+### A17. Recursive Pattern commitment matches the method's exact contract
+
+**Severity:** audited invariant; no defect found.
+
+The recursive grammar is deterministic compression, not exhaustive frequent-
+subsequence mining and not a minimum-grammar claim. Each round freezes a dense
+snapshot. Exact maximal one-symbol runs are keyed by symbol and multiplicity;
+unequal adjacent pairs are keyed by both ordered symbols; a committed macro
+symbol re-enters later pair rounds; and maximal runs of that macro are folded
+with their concrete multiplicities. This realizes variable-length and nested
+Patterns by recursive substitution without fuzzy equality or timestamp
+matching.
+
+Candidate selection uses declared total orders over gain, multiplicity or run
+length, first dense coordinate, and symbol key. A commit then rechecks snapshot
+generation, the symbol sequence and span endpoints, nonoverlap, and every
+protected interval. Application freezes and revalidates again, performs the
+rewrite on a copy, rejects no-progress or broken protected-contiguity outcomes,
+and publishes the next generation only after all checks pass. Report-tree
+validation requires dense occurrence indices, exact occurrence counts,
+single-parent membership, and ordered child spans that tile each parent's
+projected anchor interval. Existing grammar round/plan/apply/engine and report-
+tree tests exercise cross-chunk runs and pairs, tie selection, stale state,
+overlap, protected boundaries, recursive pair--repeat fixpoints, worker/chunk
+parity, and nested lowering. The paper's current Section 3 description matches
+these boundaries.
+
 ## Next audit slices
 
-1. Remaining claim-to-code cells, with special attention to adapter-level
-   primitive provenance and exact recursive-pattern commit semantics.
-2. Broad validation and paper-facing boundary reconciliation.
+1. Broad validation and paper-facing boundary reconciliation.

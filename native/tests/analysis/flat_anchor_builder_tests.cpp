@@ -2,6 +2,7 @@
 #include "traceloom/testing/test_util.h"
 
 #include <stdexcept>
+#include <utility>
 
 int main() {
   using namespace traceloom;
@@ -297,6 +298,70 @@ int main() {
   require(reconciled.anchors.row(AnchorId(1)).start_ns == 10);
   require(reconciled.anchors.row(AnchorId(1)).end_ns == 30);
   require(reconciled.anchors.row(AnchorId(2)).symbol_id == profiling_disable);
+
+  // Primitive rows and their normalized events form one evidence identity.
+  // Reject mismatched source domains and duplicate same-kind ownership before
+  // either can enter the structural sequence.
+  const auto require_rejected_primitive_ir = [&](NativeIr invalid_ir) {
+    bool rejected = false;
+    try {
+      (void)build_flat_anchors(invalid_ir);
+    } catch (const std::invalid_argument&) {
+      rejected = true;
+    }
+    require(rejected);
+  };
+
+  {
+    NativeIr invalid;
+    const SourceRefId task =
+        invalid.source_refs.append("fixture", "memory", "TASK", 0);
+    const SourceRefId other =
+        invalid.source_refs.append("fixture", "memory", "OTHER", 0);
+    const SymbolId symbol = invalid.symbols.intern("Kernel");
+    const TraceEventId event =
+        invalid.trace_events.append(other, 1, 0, 0, 0, 1, symbol);
+    invalid.tasks.append(task, event, 1, 1, -1, symbol, symbol, symbol,
+                         SymbolId::invalid(), SymbolId::invalid());
+    require_rejected_primitive_ir(std::move(invalid));
+  }
+  {
+    NativeIr invalid;
+    const SourceRefId communication = invalid.source_refs.append(
+        "fixture", "memory", "COMMUNICATION_OP", 0);
+    const SourceRefId other =
+        invalid.source_refs.append("fixture", "memory", "OTHER", 0);
+    const SymbolId symbol = invalid.symbols.intern("AllReduce");
+    const TraceEventId event =
+        invalid.trace_events.append(other, 1, 0, 0, 0, 1, symbol);
+    invalid.communication_ops.append(communication, event, 1, 1, 1, 1,
+                                     symbol);
+    require_rejected_primitive_ir(std::move(invalid));
+  }
+  {
+    NativeIr invalid;
+    const SourceRefId source =
+        invalid.source_refs.append("fixture", "memory", "TASK", 0);
+    const SymbolId symbol = invalid.symbols.intern("Kernel");
+    const TraceEventId event =
+        invalid.trace_events.append(source, 1, 0, 0, 0, 1, symbol);
+    invalid.tasks.append(source, event, 1, 1, -1, symbol, symbol, symbol,
+                         SymbolId::invalid(), SymbolId::invalid());
+    invalid.tasks.append(source, event, 2, 2, -1, symbol, symbol, symbol,
+                         SymbolId::invalid(), SymbolId::invalid());
+    require_rejected_primitive_ir(std::move(invalid));
+  }
+  {
+    NativeIr invalid;
+    const SourceRefId source = invalid.source_refs.append(
+        "fixture", "memory", "COMMUNICATION_OP", 0);
+    const SymbolId symbol = invalid.symbols.intern("AllReduce");
+    const TraceEventId event =
+        invalid.trace_events.append(source, 1, 0, 0, 0, 1, symbol);
+    invalid.communication_ops.append(source, event, 1, 1, 1, 1, symbol);
+    invalid.communication_ops.append(source, event, 2, 2, 1, 1, symbol);
+    require_rejected_primitive_ir(std::move(invalid));
+  }
 
   return 0;
 }
