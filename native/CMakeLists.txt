@@ -817,6 +817,15 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
 
     add_executable(traceloom_native_ascend_sqlite_adapter_tests
       tests/adapters/ascend_sqlite_adapter_tests.cpp
+      tests/support/sqlite_fixture.cpp
+    )
+    target_compile_definitions(
+      traceloom_native_ascend_sqlite_adapter_tests PRIVATE
+      TRACELOOM_NATIVE_FIXTURE_ROOT="${TRACELOOM_NATIVE_FIXTURE_ROOT}"
+    )
+    target_include_directories(
+      traceloom_native_ascend_sqlite_adapter_tests PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/tests
     )
     target_link_libraries(
       traceloom_native_ascend_sqlite_adapter_tests PRIVATE
