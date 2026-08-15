@@ -46,7 +46,6 @@ path cannot ambiguously name several device-local trees.
 
 Use `traceloom --help-advanced` for non-default outputs:
 
-- `--out PATH`: native result JSON;
 - `--grammar-debug-out PATH`: grammar-state diagnostics;
 - `--output PATH`: explicit path for the default queryable database timeline;
 - `--aug-db-out PATH`: compatibility spelling of `--output`;
@@ -59,7 +58,7 @@ Use `traceloom --help-advanced` for non-default outputs:
 Only one output may target stdout at a time, and explicit output paths require
 a single input database.
 
-Native JSON also carries two audit surfaces for graph-heavy comparisons:
+The database carries two audit surfaces for graph-heavy comparisons:
 
 - `graph_launch_body_members` retains every observed body task with launch,
   lane/order, raw operator, source row, interval, and task kind;
@@ -78,9 +77,8 @@ important. New operator identities therefore remain visible and sortable.
 `traceloom_metadata` binds structural output to the selected evidence-role
 projection through `evidence_role_policy_id`,
 `evidence_role_policy_version`, and `evidence_role_manifest_sha256`. The same
-identity appears in native JSON under `anchor_projection`; see
-[`evidence-role-projection.md`](evidence-role-projection.md) for the role and
-fallback contract.
+See [`evidence-role-projection.md`](evidence-role-projection.md) for the role
+and fallback contract.
 
 The complete audit relation is additive and does not overload the coarse
 `traceloom_event.role` field. `traceloom_evidence_role_decision` contains one
@@ -121,14 +119,13 @@ Equal-precedence runtime ambiguity is identity-preserving and appears as a
 typed `conflict` decision whose `candidate_rule_ids` names every competing
 rule.
 
-Native JSON also emits `replay_internal_cost_map`, the replay-internal
-query surface: ReplayUnit -> ordered launch/composition slots -> body
-template -> per-stream ordered members -> fine-grained costs and provenance.
-See [replay-internal-cost-map.md](replay-internal-cost-map.md) for the
-result contract, the role-collapsed aligned-aggregate key (repeated slot
-roles merge with `launch_member_count` multiplicity; exact member rows retain
-slot id/`slot_order` as the drill-down contract), the cost-lens boundaries
-(kind sums partition scheduled `task_sum` but are not an additive wall-clock
+The replay-cost relations expose ReplayUnit -> ordered launch/composition
+slots -> body template -> per-stream ordered members -> fine-grained costs and
+provenance. See [replay-internal-cost-map.md](replay-internal-cost-map.md) for
+the role-collapsed aligned-aggregate key (repeated slot roles merge with
+`launch_member_count` multiplicity; exact member rows retain slot id/
+`slot_order` as the drill-down contract), the cost-lens boundaries (kind sums
+partition scheduled `task_sum` but are not an additive wall-clock
 decomposition), scheduled-work-share denominators, and the fail-closed
 support/reason model.
 

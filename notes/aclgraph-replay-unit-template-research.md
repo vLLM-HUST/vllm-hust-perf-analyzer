@@ -815,9 +815,9 @@ by an authoritative dependency source, never inferred from timestamps alone.
 
 ## Typed Unknown Compatibility Ledger
 
-Native JSON was already honest about leading context, incomplete tails,
-missing replay-body evidence, and body mismatches, but the compatibility
-sidecar exposed only promoted ReplayUnits. Unknown structure is now carried in
+The retired native JSON debug snapshot was already honest about leading
+context, incomplete tails, missing replay-body evidence, and body mismatches,
+but the compatibility sidecar exposed only promoted ReplayUnits. Unknown structure is now carried in
 the additive `traceloom_aclgraph_reconstruction_region` table. Every region
 publishes its stable typed status, reconstruction policies, launch-occurrence
 bounds, observed/expected launch counts, and interval; recognized regions are
@@ -898,8 +898,9 @@ The completion record itself runs on a model stream listed by
 captured graph instance on both ranks, making it a direct schema relationship,
 not an order, timestamp, or cardinality guess. TraceLoom now uses model id when
 present and otherwise uses this unique record-stream membership. Ambiguous
-stream ownership remains unassociated. Native JSON publishes the choice as
-`instance_association_policy = record_model_id | record_model_stream | none`.
+stream ownership remains unassociated. The analysis relation publishes the
+choice as `instance_association_policy = record_model_id |
+record_model_stream | none`.
 
 This also exposed a separate cutover hole: the exact projector accepted only
 host-submission-order candidates even though the candidate builder explicitly

@@ -108,20 +108,21 @@ This normalization makes a loop node directly comparable with its loop body.
 
 ## 5. Drill Down When Needed
 
-The database is already portable and queryable. Request Markdown or native
-JSON only as an explicit human/debug projection:
+The database is already portable and queryable. Request Markdown only as an
+explicit human projection:
 
 ```bash
 traceloom /path/to/msprof.db \
   --loop-tree-out /tmp/loop_tree_v2.md \
-  --output /tmp/traceloom-analysis.db \
-  --out /tmp/native_result.json
+  --output /tmp/traceloom-analysis.db
 ```
 
 It contains embedded raw profiler tables as well as the TraceLoom hierarchy and
 cost relations, so source references remain queryable after inputs are moved.
 Run
 `traceloom --help-advanced` for grammar and auxiliary-attribution options.
+Peripheral debug exporters consume this database rather than linking to an
+in-memory TraceLoom result.
 
 ## 6. Share A Reproducible Diagnosis
 

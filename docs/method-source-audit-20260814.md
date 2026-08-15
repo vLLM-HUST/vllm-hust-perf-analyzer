@@ -298,10 +298,10 @@ complete status independently in SQL.
 
 **Severity:** paper/product wording; no structural correctness defect.
 
-The bounded length-two/three scan emits reduced summaries and diagnostic
-previews in the legacy in-memory JSON result.  It neither chooses recursive
-grammar productions nor materializes complete candidate/diagnostic relations
-in the queryable database timeline.  The paper currently calls the summaries
+The retired in-memory JSON debug surface emitted reduced summaries and
+diagnostic previews from the bounded length-two/three scan. The scan neither
+chooses recursive grammar productions nor materializes complete candidate/
+diagnostic relations in the queryable database timeline. The paper currently calls the summaries
 "published discovery evidence," which is stronger than the primary product
 surface supports.  Before submission, either materialize an explicitly bounded
 summary/support surface in the augmented DB or narrow the prose to an audited

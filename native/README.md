@@ -147,14 +147,9 @@ Some deep regression tests use external design fixtures from the larger
 research workspace. Fresh standalone clones skip those tests when the fixtures
 are not present; normal unit tests still run.
 
-Advanced analyzer output and the inventory tool remain available for
-development:
+The inventory tool remains available for development:
 
 ```bash
-build/native/native/traceloom \
-  --source-db examples/kickstart_smoke/msprof_raw/.../msprof_*.db \
-  --out native_result.json
-
 build/native/native/traceloom-native-ascend-sqlite-inventory \
   examples/kickstart_smoke/msprof_raw/.../msprof_*.db
 ```

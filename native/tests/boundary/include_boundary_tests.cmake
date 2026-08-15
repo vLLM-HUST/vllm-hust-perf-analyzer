@@ -65,6 +65,10 @@ set(_removed_debt_paths
   "${TRACELOOM_NATIVE_ROOT}/include/traceloom/compat/aclgraph_graph_replay_rows.h"
   "${TRACELOOM_NATIVE_ROOT}/src/compat/aclgraph_graph_replay_rows.cpp"
   "${TRACELOOM_NATIVE_ROOT}/tests/compat/aclgraph_graph_replay_rows_tests.cpp"
+  "${TRACELOOM_NATIVE_ROOT}/include/traceloom/materialize/native_result_json.h"
+  "${TRACELOOM_NATIVE_ROOT}/src/materialize/native_result_json.cpp"
+  "${TRACELOOM_NATIVE_ROOT}/tests/materialize/native_result_json_tests.cpp"
+  "${TRACELOOM_NATIVE_ROOT}/src/tools/analyze_aclgraph_fixture_main.cpp"
 )
 
 foreach(_path IN LISTS _removed_debt_paths)
@@ -91,6 +95,10 @@ set(_removed_debt_patterns
   "drop_report_compatibility_views"
   "build_aclgraph_fixture_graph_replay_sql_rows"
   "write_aclgraph_fixture_compatibility_sidecar"
+  "native_result_json"
+  "NativeResultJson"
+  "native_in_memory_result_v1"
+  "write_native_result_json"
 )
 
 foreach(_file IN LISTS _native_cpp_files)

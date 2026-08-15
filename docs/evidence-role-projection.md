@@ -122,8 +122,8 @@ pretends to be a different input table.
 ## Audit surfaces
 
 The selected `policy_id`, `policy_version`, and exact manifest SHA-256 are
-emitted in native JSON under `anchor_projection` and in the queryable database
-timeline's `traceloom_metadata`. `traceloom_evidence_role_policy` and
+emitted in the queryable database timeline's `traceloom_metadata`.
+`traceloom_evidence_role_policy` and
 `traceloom_evidence_role_rule` embed the effective flat table; per-event
 decisions, placements, cost coverage, and typed issues live in the corresponding
 `traceloom_evidence_role_*` relations. Build statistics separately report

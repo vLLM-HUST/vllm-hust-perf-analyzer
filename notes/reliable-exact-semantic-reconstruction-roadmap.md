@@ -125,8 +125,8 @@ The compatibility sidecar now publishes a complete ACLGraph reconstruction
 ledger in `traceloom_aclgraph_reconstruction_region`. Recognized regions and
 all six unknown statuses share one typed schema with candidate policy,
 launch-occurrence bounds, observed/expected launch counts, time bounds, and a
-forward-compatible raw payload. The status and policy spellings are shared
-with native JSON rather than duplicated across materializers.
+forward-compatible raw payload. The status and policy spellings come from the
+shared native analysis model rather than being duplicated by materializers.
 
 Unknown regions deliberately do not become fake graph replay rows or timeline
 events. `traceloom_cuda_graph_replay` therefore retains its strong join to a
@@ -309,7 +309,7 @@ metadata cannot establish a complete lane set.
   artifacts;
 - portable ambiguity, truncation, lineage, and cost-conservation regression
   fixtures as new provider/schema variants appear;
-- versioned JSON/SQLite/report contracts and large-profile performance gates;
+- versioned SQLite/projection contracts and large-profile performance gates;
 - optional host/device correlation only after real clock calibration and a
   provider-validated host allowlist exist.
 
@@ -319,8 +319,8 @@ Operator filtering now follows an unknown-first invariant: an observation
 remains a sequence anchor unless a positive auxiliary or transparent rule
 admits it out of identity matching. Known generic carrier rows may therefore
 remain auxiliary or transparent, while any unmatched row stays explicit even
-when its schema has no operator field. The native JSON and default report
-publish an exact-identity
+when its schema has no operator field. The queryable database timeline
+publishes an exact-identity
 registration census with counts, durations, fuzzy-family lineage, and
 graph-body membership, so a new graph kernel cannot be hidden by replay
 protection or by a broad substring match. `DispatchFFNCombineBF16` has a

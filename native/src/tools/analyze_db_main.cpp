@@ -21,13 +21,11 @@
 #include "traceloom/adapters/hygon_sqlite_adapter.h"
 #include "traceloom/analysis/event_reconciliation.h"
 #include "traceloom/analysis/flat_anchor_builder.h"
-#include "traceloom/analysis/native_pipeline.h"
 #include "traceloom/compat/native_sidecar_materializer.h"
 #include "traceloom/compat/structural_projection_rows.h"
 #include "traceloom/ir/native_ir.h"
 #include "traceloom/materialize/grammar_debug_json.h"
 #include "traceloom/materialize/loop_tree_markdown.h"
-#include "traceloom/materialize/native_result_json.h"
 #include "traceloom/pattern/grammar_engine.h"
 #include "traceloom/pattern/grammar_state.h"
 
@@ -58,8 +56,6 @@ struct CliOptions {
   std::string source_input;
   std::string source_kind = "auto";
   std::vector<std::string> source_dbs;
-  std::string out_path;
-  bool out_path_set = false;
   std::string grammar_debug_out_path;
   std::string compat_sidecar_out_path;
   std::string augmented_db_out_path;
@@ -75,7 +71,6 @@ struct CliOptions {
   bool sidecar_only = false;
   bool timings = false;
   std::size_t threads = 0;
-  std::size_t top_candidate_limit = 16;
   std::string classification_rules_path;
   std::string extend_classification_rules_path;
   std::vector<std::string> classification_rule_overrides;
@@ -118,7 +113,6 @@ void print_advanced_usage(const char* argv0) {
             << " --source-db <profiler.sqlite-or-db> [--threads N]"
                " [--source-kind auto|ascend_sqlite_hot_path|"
                "ascend_sqlite_split|hygon_sqlite|cuda_nsys_sqlite]"
-               " [--out PATH|-] [--top-candidates N]"
                " [--grammar-debug-out PATH|-]"
                " [--compat-db-out PATH]"
                " [--output PATH|--aug-db-out PATH|--no-aug-db]"
@@ -169,9 +163,6 @@ CliOptions parse_args(int argc, char** argv) {
       options.source_kind = require_value(arg);
     } else if (arg == "--threads") {
       options.threads = parse_size(require_value(arg), arg);
-    } else if (arg == "--out") {
-      options.out_path = require_value(arg);
-      options.out_path_set = true;
     } else if (arg == "--grammar-debug-out") {
       options.grammar_debug_out_path = require_value(arg);
     } else if (arg == "--compat-db-out" || arg == "--compat-sidecar-out") {
@@ -218,8 +209,6 @@ CliOptions parse_args(int argc, char** argv) {
       options.sidecar_only = true;
     } else if (arg == "--timings") {
       options.timings = true;
-    } else if (arg == "--top-candidates") {
-      options.top_candidate_limit = parse_size(require_value(arg), arg);
     } else if (arg == "--help" || arg == "-h") {
       print_usage(argc > 0 ? argv[0] : "traceloom");
       std::exit(0);
@@ -257,7 +246,7 @@ CliOptions parse_args(int argc, char** argv) {
                                 options.source_input);
   }
   if (options.source_dbs.size() > 1 &&
-      (options.out_path_set || !options.grammar_debug_out_path.empty() ||
+      (!options.grammar_debug_out_path.empty() ||
        !options.compat_sidecar_out_path.empty() ||
        !options.augmented_db_out_path.empty() ||
        options.loop_tree_out_path_set)) {
@@ -279,17 +268,13 @@ CliOptions parse_args(int argc, char** argv) {
   if (options.augmented_db_out_path == "-") {
     throw std::invalid_argument("SQLite analysis output cannot use '-'");
   }
-  if (!options.augmented_db_enabled && !options.out_path_set &&
-      options.grammar_debug_out_path.empty() &&
+  if (!options.augmented_db_enabled && options.grammar_debug_out_path.empty() &&
       options.compat_sidecar_out_path.empty() &&
       !options.loop_tree_out_path_set) {
     throw std::invalid_argument(
         "--no-aug-db requires another explicit output");
   }
   int stdout_outputs = 0;
-  if (!options.sidecar_only && options.out_path_set && options.out_path == "-") {
-    ++stdout_outputs;
-  }
   if (options.grammar_debug_out_path == "-") {
     ++stdout_outputs;
   }
@@ -494,10 +479,6 @@ void write_text_output(const std::string& path, const std::string& contents) {
 
 int analyze_one_db(const CliOptions& cli, const std::string& source_db,
                    std::size_t db_index) {
-  const bool report_only =
-      cli.sidecar_only ||
-      (!cli.out_path_set && cli.grammar_debug_out_path.empty());
-
   const bool is_cuda =
       cli.source_kind == "cuda_nsys_sqlite" ||
       (cli.source_kind == "auto" &&
@@ -544,114 +525,88 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
       std::cerr << "timing source_kind=" << source_kind << "\n";
     }
 
-    traceloom::NativePipelineOptions pipeline_options;
-    pipeline_options.thread_count = cli.threads;
-    pipeline_options.partition_config = traceloom::PartitionPlanConfig{4096, 3};
-    pipeline_options.candidate_scan_config =
-        traceloom::CandidateScanConfig{2, 3};
-    pipeline_options.anchor_config.skip_tasks_covered_by_communication_ops =
-        true;
-    pipeline_options.anchor_config.skip_events_covered_by_replay_units = true;
-    pipeline_options.anchor_config.filter_auxiliary_task_anchors = true;
-    pipeline_options.anchor_config.classification_rules =
+    constexpr std::size_t kGrammarTargetNodesPerChunk = 4096;
+    traceloom::FlatAnchorBuildConfig anchor_config;
+    anchor_config.skip_tasks_covered_by_communication_ops = true;
+    anchor_config.skip_events_covered_by_replay_units = true;
+    anchor_config.filter_auxiliary_task_anchors = true;
+    anchor_config.classification_rules =
         cli.classification_rules_path.empty()
             ? traceloom::load_default_signal_classification_ruleset(
                   cli.executable_path)
             : traceloom::load_signal_classification_ruleset(
                   cli.classification_rules_path);
     if (!cli.extend_classification_rules_path.empty()) {
-      pipeline_options.anchor_config.classification_rules =
+      anchor_config.classification_rules =
           traceloom::extend_signal_classification_ruleset(
-              pipeline_options.anchor_config.classification_rules,
+              anchor_config.classification_rules,
               traceloom::load_signal_classification_ruleset(
                   cli.extend_classification_rules_path));
     }
     for (const std::string& specification :
          cli.classification_rule_overrides) {
-      pipeline_options.anchor_config.classification_overrides.push_back(
+      anchor_config.classification_overrides.push_back(
           traceloom::parse_signal_classification_override(specification));
     }
-    if (!pipeline_options.anchor_config.classification_overrides.empty()) {
-      pipeline_options.anchor_config.classification_rules =
+    if (!anchor_config.classification_overrides.empty()) {
+      anchor_config.classification_rules =
           traceloom::override_signal_classification_ruleset(
-              pipeline_options.anchor_config.classification_rules,
-              pipeline_options.anchor_config.classification_overrides);
-      pipeline_options.anchor_config.classification_overrides.clear();
+              anchor_config.classification_rules,
+              anchor_config.classification_overrides);
+      anchor_config.classification_overrides.clear();
     }
-    pipeline_options.anchor_config.structural_symbol_rules =
+    anchor_config.structural_symbol_rules =
         cli.symbol_rules_path.empty()
             ? traceloom::load_default_structural_symbol_ruleset(
                   cli.executable_path)
             : traceloom::load_structural_symbol_ruleset(
                   cli.symbol_rules_path);
     if (!cli.extend_symbol_rules_path.empty()) {
-      pipeline_options.anchor_config.structural_symbol_rules =
+      anchor_config.structural_symbol_rules =
           traceloom::extend_structural_symbol_ruleset(
-              pipeline_options.anchor_config.structural_symbol_rules,
+              anchor_config.structural_symbol_rules,
               traceloom::load_structural_symbol_ruleset(
                   cli.extend_symbol_rules_path));
     }
-    pipeline_options.anchor_config.event_reconciliation_rules =
+    anchor_config.event_reconciliation_rules =
         cli.event_reconciliation_rules_path.empty()
             ? traceloom::load_default_event_reconciliation_ruleset(
                   cli.executable_path)
             : traceloom::load_event_reconciliation_ruleset(
                   cli.event_reconciliation_rules_path);
     if (!cli.extend_event_reconciliation_rules_path.empty()) {
-      pipeline_options.anchor_config.event_reconciliation_rules =
+      anchor_config.event_reconciliation_rules =
           traceloom::overlay_event_reconciliation_ruleset(
-              pipeline_options.anchor_config.event_reconciliation_rules,
+              anchor_config.event_reconciliation_rules,
               traceloom::load_event_reconciliation_ruleset(
                   cli.extend_event_reconciliation_rules_path));
     }
 
-    traceloom::NativePipelineResult pipeline;
-    if (report_only) {
-      const Stopwatch anchor_watch;
-      traceloom::build_flat_anchors(ir, pipeline_options.anchor_config);
-      if (cli.timings) {
-        std::cerr << "timing build_anchor_tokens_ms="
-                  << anchor_watch.elapsed_ms() << "\n";
-      }
-    } else {
-      const Stopwatch pipeline_watch;
-      pipeline = traceloom::run_native_pipeline(ir, pipeline_options);
-      if (cli.timings) {
-        std::cerr << "timing native_pipeline_ms="
-                  << pipeline_watch.elapsed_ms() << "\n";
-      }
+    const Stopwatch anchor_watch;
+    traceloom::build_flat_anchors(ir, anchor_config);
+    if (cli.timings) {
+      std::cerr << "timing build_anchor_tokens_ms="
+                << anchor_watch.elapsed_ms() << "\n";
     }
 
-    traceloom::NativeResultJsonOptions json_options;
-    json_options.source_kind = source_kind;
-    json_options.source_path = source_db;
-    json_options.thread_count = cli.threads;
-    json_options.top_candidate_limit = cli.top_candidate_limit;
-    json_options.load_source_adapter_ms = load_ms;
-    json_options.native_ir = &ir;
-
-    std::ostringstream first_pass;
-    const Stopwatch materialize_watch;
     traceloom::compat::NativeCompatibilitySidecarOptions sidecar_options;
-    sidecar_options.source_kind = json_options.source_kind;
-    sidecar_options.source_path = json_options.source_path;
+    sidecar_options.source_kind = source_kind;
+    sidecar_options.source_path = source_db;
     sidecar_options.grammar_worker_count = cli.threads;
     sidecar_options.grammar_target_nodes_per_chunk =
-        pipeline_options.partition_config.target_tokens_per_partition;
+        kGrammarTargetNodesPerChunk;
     sidecar_options.grammar_full_discovery_cap =
         cli.loop_tree_full_discovery_cap;
     sidecar_options.materialize_grammar_structural_projection = cli.loop_tree_grammar;
     sidecar_options.materialize_aux_attribution = cli.loop_tree_aux;
     sidecar_options.timing_diagnostics = cli.timings;
     sidecar_options.evidence_role_policy_id =
-        pipeline_options.anchor_config.classification_rules.metadata().policy_id;
+        anchor_config.classification_rules.metadata().policy_id;
     sidecar_options.evidence_role_policy_version =
-        pipeline_options.anchor_config.classification_rules.metadata()
-            .policy_version;
+        anchor_config.classification_rules.metadata().policy_version;
     sidecar_options.evidence_role_manifest_sha256 =
-        pipeline_options.anchor_config.classification_rules.metadata()
-            .manifest_sha256;
-    sidecar_options.evidence_role_config = pipeline_options.anchor_config;
+        anchor_config.classification_rules.metadata().manifest_sha256;
+    sidecar_options.evidence_role_config = anchor_config;
 
     if (!cli.compat_sidecar_out_path.empty()) {
       const Stopwatch sidecar_watch;
@@ -733,8 +688,8 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
           cli.loop_tree_db_label.empty()
               ? default_db_label(source_db, db_index, cli.source_dbs.size())
               : cli.loop_tree_db_label;
-      markdown_options.source_kind = json_options.source_kind;
-      markdown_options.source_path = json_options.source_path;
+      markdown_options.source_kind = source_kind;
+      markdown_options.source_path = source_db;
       markdown_options.db_idx = sidecar_options.db_idx;
       markdown_options.has_device_id = true;
       markdown_options.device_id = render_device_id;
@@ -780,25 +735,10 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
                   << loop_tree_render_watch.elapsed_ms() << "\n";
       }
     }
-    if (report_only) {
-      return 0;
-    }
-    traceloom::write_native_result_json(first_pass, ir.symbols, pipeline,
-                                        json_options);
-    json_options.materialization_ms = materialize_watch.elapsed_ms();
-
-    std::ostringstream final_json;
-    traceloom::write_native_result_json(final_json, ir.symbols, pipeline,
-                                        json_options);
-
-    if (cli.out_path_set) {
-      write_text_output(cli.out_path, final_json.str());
-    }
-
     if (!cli.grammar_debug_out_path.empty()) {
       traceloom::GrammarStateConfig grammar_state_config;
       grammar_state_config.target_nodes_per_chunk =
-          pipeline_options.partition_config.target_tokens_per_partition;
+          kGrammarTargetNodesPerChunk;
       grammar_state_config.worker_count = cli.threads;
       traceloom::GlobalGrammarState grammar_state =
           traceloom::build_initial_grammar_state(ir, grammar_state_config);
@@ -820,7 +760,7 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
       write_text_output(cli.grammar_debug_out_path,
                         grammar_debug_json.str());
     }
-  return 0;
+    return 0;
 }
 
 }  // namespace

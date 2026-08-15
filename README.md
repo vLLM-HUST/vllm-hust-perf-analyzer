@@ -410,15 +410,17 @@ its embedded table and preserved source-rowid column.
 
 ### 5. Request Other Advanced Evidence
 
-Markdown and native JSON are explicit projections/debug products, not a second
-analytical model:
+Markdown and grammar diagnostics are explicit projections/debug products, not
+a second analytical model:
 
 ```bash
 traceloom /path/to/msprof.db \
   --loop-tree-out /tmp/loop_tree_v2.md \
-  --output /tmp/traceloom-analysis.db \
-  --out /tmp/native_result.json
+  --output /tmp/traceloom-analysis.db
 ```
+
+Peripheral debug exporters should read the self-contained analysis database;
+the production CLI does not publish a second in-memory JSON model.
 
 Run `traceloom --help-advanced` for grammar diagnostics and auxiliary
 materialization options.

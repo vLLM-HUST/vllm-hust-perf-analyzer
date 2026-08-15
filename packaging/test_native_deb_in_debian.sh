@@ -25,13 +25,11 @@ sample=examples/kickstart_smoke/msprof_raw/PROF_000001_20260609064648517_AJJGNKP
 traceloom "$sample" \
   --threads 2 \
   --output /tmp/traceloom-analysis.db \
-  --loop-tree-out /tmp/loop_tree_v2.md \
-  --out /tmp/native_result.json
+  --loop-tree-out /tmp/loop_tree_v2.md
 test -s /tmp/traceloom-analysis.db
 sqlite3 -readonly /tmp/traceloom-analysis.db \
   "SELECT COUNT(*) FROM traceloom_analysis_surface" | grep -Eq '^[1-9][0-9]*$'
 test -s /tmp/loop_tree_v2.md
-test -s /tmp/native_result.json
 
 dpkg -r traceloom-native
 hash -r 2>/dev/null || true

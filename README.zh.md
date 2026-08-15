@@ -289,9 +289,11 @@ Markdown 不再是默认产物；需要时显式导出。`--output` 设置一等
 ```bash
 traceloom /path/to/msprof.db \
   --loop-tree-out /tmp/loop_tree_v2.md \
-  --output /tmp/traceloom-analysis.db \
-  --out /tmp/native_result.json
+  --output /tmp/traceloom-analysis.db
 ```
+
+外围调试导出器应读取这个自包含分析数据库；生产 CLI 不再维护第二套内存 JSON
+模型。
 
 运行 `traceloom --help-advanced` 可以查看 grammar diagnostics 和辅助归因
 materialization 选项。

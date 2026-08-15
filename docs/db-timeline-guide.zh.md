@@ -379,8 +379,9 @@ repeated region 选择一个 node_id，并明确投影坐标：
 不要先按算子名全局汇总。SQL 与结果表应和 `analysis.db` 的 SHA-256 一起保留，
 让诊断可复核。
 
-## Markdown 和 JSON 的位置
+## Markdown 和外围导出器的位置
 
-`--loop-tree-out` 与 `--out` 仍可生成面向人或调试的投影，但它们不是另一套
-产品，也不是分析前置条件。网页图、论文图和 Markdown 报告都应当由 queryable
-DB timeline 的查询结果确定性生成。
+`--loop-tree-out` 仍可生成面向人的 Markdown 投影；外围调试导出器则直接读取
+自包含的 analysis DB。它们都不是另一套产品，也不是分析前置条件。网页图、
+论文图、Markdown 报告和调试快照都应当由 queryable DB timeline 的查询结果
+确定性生成。

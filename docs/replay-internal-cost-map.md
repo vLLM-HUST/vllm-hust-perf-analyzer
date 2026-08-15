@@ -207,14 +207,7 @@ keeps its strict base behavior unchanged.
 A unit is `supported` only when every launch member is supported; units with
 zero launch members are explicit `empty_replay_unit` results.
 
-## Queryable database timeline and JSON projection
-
-`traceloom --out PATH` (native result JSON) now includes the
-`replay_internal_cost_map` section with `units` (nested launch members and
-per-stream rows), flat `members`, `aligned_aggregates` (with
-`aggregation_scope: "role_collapsed"` and scheduled-work share fields),
-`issues`, and result-level counts/reasons. The section is `null` when no
-native IR is available.
+## Queryable database timeline
 
 The queryable database timeline publishes the same authoritative result without
 re-deriving it in SQL: `traceloom_replay_cost_{unit,launch,stream,member}` keep

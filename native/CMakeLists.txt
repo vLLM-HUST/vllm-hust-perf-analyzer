@@ -161,7 +161,6 @@ add_library(traceloom_native_materialize
   src/compat/symbol_normalization_rows.cpp
   src/materialize/grammar_debug_json.cpp
   src/materialize/loop_tree_markdown.cpp
-  src/materialize/native_result_json.cpp
 )
 
 target_link_libraries(traceloom_native_materialize PUBLIC traceloom_native_core)
@@ -274,15 +273,6 @@ add_executable(traceloom-native-analyze-fixture
 )
 target_link_libraries(
   traceloom-native-analyze-fixture PRIVATE
-  traceloom_native_adapters
-  traceloom_native_materialize
-)
-
-add_executable(traceloom-native-analyze-aclgraph-fixture
-  src/tools/analyze_aclgraph_fixture_main.cpp
-)
-target_link_libraries(
-  traceloom-native-analyze-aclgraph-fixture PRIVATE
   traceloom_native_adapters
   traceloom_native_materialize
 )
@@ -596,19 +586,6 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     COMMAND traceloom_native_anchor_graph_child_cost_tests
   )
 
-  add_executable(traceloom_native_result_json_tests
-    tests/materialize/native_result_json_tests.cpp
-  )
-  target_link_libraries(
-    traceloom_native_result_json_tests PRIVATE
-    traceloom_native_adapters
-    traceloom_native_materialize
-  )
-  add_test(
-    NAME traceloom_native_result_json_tests
-    COMMAND traceloom_native_result_json_tests
-  )
-
   add_executable(traceloom_native_loop_tree_markdown_tests
     tests/materialize/loop_tree_markdown_tests.cpp
   )
@@ -763,48 +740,11 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
       --fixture
       ${TRACELOOM_NATIVE_FIXTURE_ROOT}/protected_sequence/f1_tiny_repeated_pair.json
       --threads 2
-      --out ${CMAKE_CURRENT_BINARY_DIR}/fixture_cli_result.json
       --grammar-debug-out -
   )
   set_tests_properties(
     traceloom_native_analyze_fixture_grammar_debug_cli
     PROPERTIES PASS_REGULAR_EXPRESSION "native_grammar_debug_v1"
-  )
-
-  add_test(
-    NAME traceloom_native_analyze_fixture_stdout_conflict
-    COMMAND traceloom-native-analyze-fixture
-      --fixture
-      ${TRACELOOM_NATIVE_FIXTURE_ROOT}/protected_sequence/f1_tiny_repeated_pair.json
-      --out -
-      --grammar-debug-out -
-  )
-  set_tests_properties(
-    traceloom_native_analyze_fixture_stdout_conflict
-    PROPERTIES
-      WILL_FAIL TRUE
-  )
-
-  add_test(
-    NAME traceloom_native_analyze_aclgraph_fixture_cli
-    COMMAND traceloom-native-analyze-aclgraph-fixture
-      --fixture
-      ${TRACELOOM_NATIVE_FIXTURE_ROOT}/aclgraph/aclgraph_python_minimal_assets.json
-      --threads 2
-      --out -
-  )
-  set_tests_properties(
-    traceloom_native_analyze_aclgraph_fixture_cli
-    PROPERTIES PASS_REGULAR_EXPRESSION "anchor_internal_cost_breakdown"
-  )
-
-  add_test(
-    NAME traceloom_native_analyze_aclgraph_fixture_rejects_compat_sidecar
-    COMMAND ${CMAKE_COMMAND}
-      -DTRACELOOM_ACLGRAPH_ANALYZER=$<TARGET_FILE:traceloom-native-analyze-aclgraph-fixture>
-      -DTRACELOOM_ACLGRAPH_FIXTURE=${TRACELOOM_NATIVE_FIXTURE_ROOT}/aclgraph/aclgraph_python_minimal_assets.json
-      -DTRACELOOM_REMOVED_SIDECAR_PATH=${CMAKE_CURRENT_BINARY_DIR}/removed_aclgraph_fixture_sidecar.db
-      -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/boundary/reject_removed_aclgraph_sidecar_option.cmake
   )
 
   add_executable(traceloom_native_fixture_adapter_tests
@@ -867,6 +807,14 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
   )
 
   if(TRACELOOM_NATIVE_SQLITE_ADAPTERS_AVAILABLE)
+    add_test(
+      NAME traceloom_native_rejects_removed_json_option
+      COMMAND ${CMAKE_COMMAND}
+        -DTRACELOOM_ANALYZER=$<TARGET_FILE:traceloom>
+        -DTRACELOOM_REMOVED_JSON_PATH=${CMAKE_CURRENT_BINARY_DIR}/removed_native_result.json
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/boundary/reject_removed_native_json_option.cmake
+    )
+
     add_executable(traceloom_native_ascend_sqlite_adapter_tests
       tests/adapters/ascend_sqlite_adapter_tests.cpp
     )
@@ -1248,12 +1196,7 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
         --fixture
         ${TRACELOOM_NATIVE_FIXTURE_ROOT}/protected_sequence/f1_tiny_repeated_pair.json
         --threads 2
-        --out -
         --compat-sidecar-out ${CMAKE_CURRENT_BINARY_DIR}/fixture_cli_compat.db
-    )
-    set_tests_properties(
-      traceloom_native_analyze_fixture_compat_sidecar_cli
-      PROPERTIES PASS_REGULAR_EXPRESSION "native_in_memory_result_v1"
     )
     add_test(
       NAME traceloom_native_analyze_fixture_compat_sidecar_db
