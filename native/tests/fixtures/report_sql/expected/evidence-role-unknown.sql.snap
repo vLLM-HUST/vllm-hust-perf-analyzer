@@ -1,0 +1,3 @@
+traceloom_report_query_snapshot_v1
+columns	node_id	occurrence_idx	event_id	final_role	rule_id	support_state	reason_code	symbol	retained_duration_ns	source_table	source_key
+row	t:node-N001	i:1	t:event-2	t:unknown_anchor	t:fallback.unknown_observation	t:supported_unknown_first	t:unmatched_observation_unknown_first	t:FutureFusedKernel	i:10	t:TASK	t:3

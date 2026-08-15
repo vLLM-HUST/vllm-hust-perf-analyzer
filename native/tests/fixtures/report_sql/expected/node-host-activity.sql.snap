@@ -1,0 +1,3 @@
+traceloom_report_query_snapshot_v1
+columns	node_id	local_node_id	occurrence_idx	anchor_order	anchor_idx	right_anchor_idx	right_anchor_symbol	right_anchor_role	host_interval_us	placement_semantics	left_anchor_id	right_anchor_id	api_name	observed_call_count	scheduled_overlap_us	scope_policy	support_state
+row	t:node-1	t:N001	i:1	i:1	i:1	i:2	t:kernel	t:compute	f:0.09	t:after_anchor_interval	t:anchor-1	t:anchor-2	t:cudaEventQuery	i:1	f:0.01	t:same_thread	t:supported_ordered

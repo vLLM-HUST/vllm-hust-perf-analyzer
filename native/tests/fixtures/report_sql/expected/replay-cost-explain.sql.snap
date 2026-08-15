@@ -1,0 +1,3 @@
+traceloom_report_query_snapshot_v1
+columns	aggregate_id	aggregation_scope	aggregate_identity	duration_p25_ns	duration_median_ns	duration_p75_ns	contributor_order	cost_unit_id	launch_id	member_id	slot_order	stream_id	task_ordinal	duration_ns	event_id	source_table	source_row_id
+row	t:replay-cost-aggregate-0	t:role_collapsed	t:MatMul	i:5000	i:5000	i:5000	i:0	t:replay-cost-unit-1	t:graph-launch-query-1	t:graph-body-member-query-1	i:0	i:7	i:0	i:5000	t:event-anchor-1	t:TASK	i:10

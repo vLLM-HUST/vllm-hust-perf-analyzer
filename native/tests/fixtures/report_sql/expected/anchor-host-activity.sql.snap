@@ -1,0 +1,3 @@
+traceloom_report_query_snapshot_v1
+columns	left_anchor_id	right_anchor_id	support_state	scope_policy	host_start_ns	host_end_ns	observed_runtime_call_id	api_name	api_type	observed_start_ns	observed_end_ns	call_duration_us	interval_overlap_us	interval_relation	observed_source_table	observed_source_key
+row	t:anchor-1	t:anchor-2	t:supported_ordered	t:same_thread	i:110	i:200	t:runtime-call-middle	t:cudaEventQuery	t:cuda_runtime	i:150	i:160	f:0.01	f:0.01	t:contained	t:CUPTI_ACTIVITY_KIND_RUNTIME	t:runtime-call-middle

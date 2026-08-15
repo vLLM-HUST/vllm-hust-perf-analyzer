@@ -1041,10 +1041,6 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
       traceloom_native_report_sql_compat_tests PRIVATE
       TRACELOOM_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/.."
     )
-    target_link_libraries(
-      traceloom_native_report_sql_compat_tests PRIVATE
-      traceloom_native_materialize
-    )
     if(TARGET SQLite::SQLite3)
       target_link_libraries(
         traceloom_native_report_sql_compat_tests PRIVATE SQLite::SQLite3
@@ -1062,6 +1058,33 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     add_test(
       NAME traceloom_native_report_sql_compat_tests
       COMMAND traceloom_native_report_sql_compat_tests
+    )
+
+    add_executable(traceloom_native_evidence_role_materialization_tests
+      tests/compat/evidence_role_materialization_tests.cpp
+    )
+    target_link_libraries(
+      traceloom_native_evidence_role_materialization_tests PRIVATE
+      traceloom_native_materialize
+    )
+    if(TARGET SQLite::SQLite3)
+      target_link_libraries(
+        traceloom_native_evidence_role_materialization_tests
+        PRIVATE SQLite::SQLite3
+      )
+    else()
+      target_include_directories(
+        traceloom_native_evidence_role_materialization_tests
+        PRIVATE ${SQLite3_INCLUDE_DIRS}
+      )
+      target_link_libraries(
+        traceloom_native_evidence_role_materialization_tests
+        PRIVATE ${SQLite3_LIBRARIES}
+      )
+    endif()
+    add_test(
+      NAME traceloom_native_evidence_role_materialization_tests
+      COMMAND traceloom_native_evidence_role_materialization_tests
     )
 
     add_executable(traceloom_native_generated_sidecar_projection_tests

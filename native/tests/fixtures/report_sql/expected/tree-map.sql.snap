@@ -1,0 +1,4 @@
+traceloom_report_query_snapshot_v1
+columns	node	label	depth	occ	avg_total_us	avg_aux_us	total_us
+row	t:N001	t:repeat x2	i:0	i:1	f:6	f:2.75	f:12
+row	t:N027	t:MatMul	i:1	i:1	f:10.5	f:5.5	f:10.5

@@ -1,0 +1,17 @@
+PRAGMA foreign_keys=OFF;
+BEGIN TRANSACTION;
+CREATE TABLE traceloom_event (event_id TEXT NOT NULL, db_idx INTEGER NOT NULL, device_id INTEGER NOT NULL, step_idx INTEGER NOT NULL, source_table TEXT NOT NULL, source_key TEXT NOT NULL, stream_id INTEGER, start_ns INTEGER, end_ns INTEGER, dur_us REAL, category TEXT, role TEXT, semantic_role TEXT, semantic_role_reason TEXT, symbol TEXT, label TEXT, raw_label TEXT, op_type TEXT, compute_task_type TEXT, family TEXT, task_type TEXT, raw_json TEXT);
+INSERT INTO traceloom_event VALUES('event-anchor-1',0,0,10,'TASK','task-10',3,1000,6000,5.0,'exec','compute','anchor','','MatMul','MatMul','','','','','','');
+INSERT INTO traceloom_event VALUES('event-aux-1',0,0,8,'TASK','task-8',3,800,2000,1.1999999999999999556,'wait','prelude','aux','','Memcpy','','','','','','','');
+INSERT INTO traceloom_event VALUES('event-aux-2',0,0,9,'TASK','task-9',3,2100,6400,4.2999999999999998224,'wait','prelude','aux','','AclrtSynchronize','','','','','','','');
+CREATE TABLE traceloom_event_source (event_id TEXT NOT NULL, source_ordinal INTEGER NOT NULL, db_idx INTEGER NOT NULL, device_id INTEGER NOT NULL, source_table TEXT NOT NULL, source_key TEXT NOT NULL, source_role TEXT, raw_json TEXT);
+INSERT INTO traceloom_event_source VALUES('event-anchor-1',0,0,0,'TASK','task-10','primary','');
+INSERT INTO traceloom_event_source VALUES('event-aux-1',0,0,0,'TASK','task-8','aux','');
+CREATE TABLE traceloom_anchor (anchor_id TEXT NOT NULL, db_idx INTEGER NOT NULL, device_id INTEGER NOT NULL, anchor_idx INTEGER NOT NULL, event_id TEXT NOT NULL, step_idx INTEGER NOT NULL, symbol TEXT, role TEXT, label TEXT, family TEXT, start_ns INTEGER, end_ns INTEGER, dur_us REAL);
+INSERT INTO traceloom_anchor VALUES('anchor-1',0,0,1,'event-anchor-1',10,'MatMul','compute','MatMul','compute',1000,6000,5.0);
+CREATE TABLE traceloom_anchor_aux_slot (anchor_id TEXT NOT NULL, db_idx INTEGER NOT NULL, device_id INTEGER NOT NULL, anchor_idx INTEGER NOT NULL, anchor_step_idx INTEGER NOT NULL, aux_start_step_idx INTEGER, aux_end_step_idx INTEGER, aux_event_count INTEGER, aux_dur_us REAL, raw_json TEXT);
+INSERT INTO traceloom_anchor_aux_slot VALUES('anchor-1',0,0,1,10,8,9,2,5.5,'');
+CREATE TABLE traceloom_aux_link (anchor_id TEXT NOT NULL, aux_event_id TEXT NOT NULL, db_idx INTEGER NOT NULL, device_id INTEGER NOT NULL, aux_order INTEGER NOT NULL, aux_step_idx INTEGER NOT NULL, link_type TEXT NOT NULL, reason TEXT, aux_kind TEXT, aux_dur_us REAL, raw_json TEXT);
+INSERT INTO traceloom_aux_link VALUES('anchor-1','event-aux-1',0,0,0,8,'prelude','fixture','runtime',1.1999999999999999556,'');
+INSERT INTO traceloom_aux_link VALUES('anchor-1','event-aux-2',0,0,1,9,'prelude','fixture','runtime',4.2999999999999998224,'');
+COMMIT;

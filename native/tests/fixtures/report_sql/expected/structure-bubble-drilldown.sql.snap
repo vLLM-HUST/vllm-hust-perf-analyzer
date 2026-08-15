@@ -1,0 +1,3 @@
+traceloom_report_query_snapshot_v1
+columns	bubble_id	structural_position_id	right_occurrence_idx	left_anchor_symbol	right_anchor_symbol	bubble_us	host_observation_status	host_start_ns	host_end_ns	host_interval_us	observed_order	api_name	api_family	runtime_start_ns	runtime_end_ns	runtime_dur_us	observed_overlap_us	interval_relation	thread_id	runtime_source_table	runtime_source_key	api_association_semantics
+row	t:bubble-anchor-2	t:node-1	i:2	t:kernel	t:kernel	f:0.9	t:supported_ordered	i:110	i:200	f:0.09	i:0	t:cudaEventQuery	t:query	i:150	i:160	f:0.01	f:0.01	t:contained	t:9	t:CUPTI_ACTIVITY_KIND_RUNTIME	t:runtime-call-middle	t:upstream_between_correlated_anchor_endpoints

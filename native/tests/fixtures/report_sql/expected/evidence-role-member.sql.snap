@@ -1,0 +1,3 @@
+traceloom_report_query_snapshot_v1
+columns	placement_kind	placement_id	owner_id	event_id	final_role	policy_id	rule_id	support_state	reason_code	retained_duration_ns	source_table	source_key
+row	t:anchor	t:anchor-0	n:	t:event-1	t:anchor	t:traceloom.default.accelerator-task-projection	t:any.anchor.blob.matmul.b362963b	t:supported	t:matched_positive_rule	i:10	t:TASK	t:2

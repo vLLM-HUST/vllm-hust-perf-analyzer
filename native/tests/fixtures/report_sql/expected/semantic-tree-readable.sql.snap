@@ -1,0 +1,4 @@
+traceloom_report_query_snapshot_v1
+columns	line
+row	t:- [root] N001 Repeat x2 | repeat x2 | anchors=1 total_us=12.000
+row	t:  - [/N001/N027] N027 Atom | MatMul | anchors=1 total_us=10.500 hidden_aux=2 hidden_aux_us=5.500

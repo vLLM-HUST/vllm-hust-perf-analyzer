@@ -1,0 +1,3 @@
+traceloom_report_query_snapshot_v1
+columns	local_node_id	level	kind	node_type	repeat_count	occurrence_count	anchor_count	total_us	avg_total_us
+row	t:N027	i:1	t:leaf	t:Atom	n:	i:1	i:1	f:10.5	f:10.5

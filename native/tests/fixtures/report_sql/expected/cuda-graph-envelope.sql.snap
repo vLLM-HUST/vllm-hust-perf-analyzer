@@ -1,0 +1,3 @@
+traceloom_report_query_snapshot_v1
+columns	graph_provider	graph_kind	graph_event_idx	anchor_idx	graph_exec_id	graph_id	stream_id	graph_us	enclosed_event_count	enclosed_event_us	enclosed_kernel_count	enclosed_kernel_us	first_child_step_idx	last_child_step_idx
+row	t:aclgraph	t:aclgraph_replay	i:1	i:20	t:exec-1	t:graph-1	i:7	f:8	i:2	f:5	i:2	f:5	i:21	i:22

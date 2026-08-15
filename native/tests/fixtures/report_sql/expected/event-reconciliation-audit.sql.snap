@@ -1,0 +1,4 @@
+traceloom_report_query_snapshot_v1
+columns	decision_id	status	reason_code	event_id	member_role	contributes_timing	contributes_symbol	contributes_cost	canonical_event_id	envelope_event_id	canonical_anchor_id	observed_symbol	canonical_symbol	observed_dur_us	canonical_anchor_dur_us	source_path	source_table	source_key	raw_task_id	raw_global_task_id	raw_connection_id	raw_context_id
+row	t:reconciliation-0	t:reconciled	t:unique_contained_detail	t:event-0	t:timing_envelope	i:1	i:0	i:0	t:event-1	t:event-0	t:anchor-0	t:KERNEL_MIX_AIV	t:ReduceAll	f:0.04	f:0.04	t:memory	t:TASK	t:1	i:31	i:500	n:	i:4294967295
+row	t:reconciliation-0	t:reconciled	t:unique_contained_detail	t:event-1	t:canonical_detail	i:0	i:1	i:1	t:event-1	t:event-0	t:anchor-0	t:ReduceAll	t:ReduceAll	f:0.03	f:0.04	t:memory	t:TASK	t:2	i:9	i:500	n:	i:0

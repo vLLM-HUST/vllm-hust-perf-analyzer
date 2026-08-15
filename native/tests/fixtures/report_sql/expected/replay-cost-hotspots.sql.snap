@@ -1,0 +1,3 @@
+traceloom_report_query_snapshot_v1
+columns	aggregate_id	graph_template_id	slot_role	replay_body_template_id	stream_id	task_ordinal	identity	kind	member_occurrence_count	replay_unit_count	duration_p25_ns	duration_median_ns	duration_p75_ns	scheduled_work_share_ppm
+row	t:replay-cost-aggregate-0	i:2	t:cuda_graph	i:4	i:7	i:0	t:MatMul	t:compute	i:1	i:1	i:5000	i:5000	i:5000	i:1000000

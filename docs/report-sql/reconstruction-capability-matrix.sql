@@ -99,4 +99,5 @@ select
   coalesce(p.legacy_replay_unit_count, 0) as legacy_replay_unit_count
 from metadata m
 cross join regions r
-cross join replays p;
+cross join replays p
+order by m.source_kind, m.source_path;

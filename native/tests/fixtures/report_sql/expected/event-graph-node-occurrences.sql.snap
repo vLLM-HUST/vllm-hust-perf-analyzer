@@ -1,0 +1,4 @@
+traceloom_report_query_snapshot_v1
+columns	event_id	member_symbol	graph_node_id	original_graph_node_id	node_id	occurrence_idx	anchor_id	node_member_order	node_slot_order	correlation_id	source_table	source_row_id
+row	t:event-anchor-1	t:MatMul	i:8589934592	i:4294967296	t:node-1	i:0	t:anchor-1	i:0	n:	t:101	t:TASK	i:10
+row	t:event-anchor-1	t:MatMul	i:8589934592	i:4294967296	t:node-27	i:0	t:anchor-1	i:0	n:	t:101	t:TASK	i:10

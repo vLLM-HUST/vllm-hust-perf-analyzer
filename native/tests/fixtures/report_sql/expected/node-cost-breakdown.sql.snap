@@ -1,0 +1,3 @@
+traceloom_report_query_snapshot_v1
+columns	node	depth	loop_depth	kind	label	repeat_count	occurrence_count	total_us	avg_total_us	avg_compute_us	avg_comm_us	avg_idle_us	avg_active_us	avg_aux_us	compute_pct	comm_pct	idle_pct	active_pct	aux_pct
+row	t:N027	i:1	i:1	t:leaf	t:MatMul	n:	i:1	f:10.5	f:10.5	f:5	f:0	f:0	f:5	f:5.5	f:47.62	f:0	f:0	f:47.62	f:52.38

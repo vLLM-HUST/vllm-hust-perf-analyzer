@@ -1,0 +1,4 @@
+traceloom_report_query_snapshot_v1
+columns	anchor_idx	symbol	anchor_kind	total_us	self_us	aux_us	graph_child_us	residual_us	raw_child_task_count	top_ops	diagnostic_flags
+row	i:2	t:ACLL	t:graph_l	f:123.456	f:1	f:2	f:120	f:0.456	i:20	t:MatMul:16	t:partial_overlap
+row	i:3	t:Kernel	t:exec	f:7	f:7	f:0	f:0	f:0	i:0	t:	t:

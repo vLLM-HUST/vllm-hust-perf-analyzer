@@ -1,0 +1,3 @@
+traceloom_report_query_snapshot_v1
+columns	following_anchor_id	event_id	final_role	rule_id	support_state	reason_code	retained_duration_ns	source_table	source_key
+row	t:anchor-0	t:event-0	t:auxiliary	t:ascend.aux.task.type.event.wait.28ab0f94	t:supported	t:matched_positive_rule	i:10	t:TASK	t:1

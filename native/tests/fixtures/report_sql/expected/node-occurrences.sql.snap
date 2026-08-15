@@ -1,0 +1,3 @@
+traceloom_report_query_snapshot_v1
+columns	node	occurrence_idx	repeat_context	anchor_start_idx	anchor_end_idx	anchor_count	start_ns	end_ns	total_us	compute_us	comm_us	idle_us	aux_us
+row	t:N027	i:0	t:N001#0	i:1	i:1	i:1	i:1000	i:6000	f:10.5	f:5	f:0	f:5.5	f:5.5

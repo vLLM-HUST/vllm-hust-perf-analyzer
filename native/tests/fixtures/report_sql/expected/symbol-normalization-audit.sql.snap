@@ -1,0 +1,4 @@
+traceloom_report_query_snapshot_v1
+columns	node_id	local_node_id	occurrence_idx	anchor_order	anchor_id	observed_symbol	observed_symbol_source	structural_symbol	rule_id	outcome	reason_code	anchor_dur_us	source_table	source_key
+row	t:node-N002	t:N002	i:1	i:1	t:anchor-0	t:MatMulV2	t:task.op_type	t:MatMul	t:ascend.task.matmul-backend-variant	t:canonicalized	t:explicit_rule_match	f:0.01	t:TASK	t:2
+row	t:node-N003	t:N003	i:1	i:1	t:anchor-1	t:FutureFusedKernel	t:task.op_type	t:FutureFusedKernel	t:fallback.identity-preserve	t:identity	t:no_explicit_rule_identity_preserved	f:0.01	t:TASK	t:3

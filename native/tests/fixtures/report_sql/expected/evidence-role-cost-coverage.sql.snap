@@ -1,0 +1,6 @@
+traceloom_report_query_snapshot_v1
+columns	provider	policy_id	policy_version	final_role	support_state	event_count	retained_duration_ns	identity_duration_ns	non_identity_duration_ns
+row	t:ascend	t:traceloom.default.accelerator-task-projection	t:1	t:anchor	t:supported	i:1	i:10	i:10	i:0
+row	t:ascend	t:traceloom.default.accelerator-task-projection	t:1	t:auxiliary	t:retained_unplaced	i:1	i:10	i:0	i:10
+row	t:ascend	t:traceloom.default.accelerator-task-projection	t:1	t:auxiliary	t:supported	i:1	i:10	i:0	i:10
+row	t:ascend	t:traceloom.default.accelerator-task-projection	t:1	t:unknown_anchor	t:supported_unknown_first	i:1	i:10	i:10	i:0

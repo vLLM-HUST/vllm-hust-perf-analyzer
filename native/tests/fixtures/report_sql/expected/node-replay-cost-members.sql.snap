@@ -1,0 +1,3 @@
+traceloom_report_query_snapshot_v1
+columns	node_id	occurrence_idx	anchor_id	launch_id	member_id	slot_role	slot_order	stream_id	lane_ordinal	task_ordinal	identity	kind	duration_ns	scheduled_work_share_ppm	event_id	source_table	source_row_id
+row	t:node-1	i:0	t:anchor-1	t:graph-launch-query-1	t:graph-body-member-query-1	t:cuda_graph	i:0	i:7	i:0	i:0	t:MatMul	t:compute	i:5000	i:1000000	t:event-anchor-1	t:TASK	i:10

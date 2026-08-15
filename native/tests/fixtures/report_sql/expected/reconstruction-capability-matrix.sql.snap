@@ -1,0 +1,3 @@
+traceloom_report_query_snapshot_v1
+columns	source_kind	source_path	capability_state	body_capability	completion_capability	ordering_mode	region_count	recognized_region_count	unrecognized_region_count	missing_body_capability_count	missing_body_evidence_count	missing_completion_evidence_count	incomplete_tail_count	body_mismatch_count	leading_context_count	exact_replay_unit_count	legacy_replay_unit_count
+row	t:ascend_sqlite_hot_path	t:capability-golden.db	t:capability_incomplete	t:unavailable	t:incomplete	t:mixed	i:5	i:2	i:3	i:1	i:0	i:1	i:1	i:0	i:0	i:1	i:0
