@@ -1,6 +1,7 @@
 #include "augmented_catalog_materializer.h"
 
 #include "augmented_projection_catalog.h"
+#include "augmented_replay_body_projection_catalog.h"
 
 #include <algorithm>
 #include <map>
@@ -556,6 +557,7 @@ void materialize_augmented_catalog(const std::string& path,
             quote_literal(std::to_string(operator_occurrences)) + ")",
         "failed to add operator audit metadata");
     materialize_projection_catalog(db, packaging);
+    materialize_replay_body_projection_catalog(db);
     sqlite_exec(db, "COMMIT", "failed to commit catalog transaction");
     sqlite3_close(db);
   } catch (...) {

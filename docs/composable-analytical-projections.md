@@ -164,6 +164,24 @@ zero-cost member rows. A cost unit is supported only after exact task-kind
 membership and the nonempty stream/lane mapping pass the replay cost-map
 contract.
 
+Supported exact replay bodies add a recursive structural route over those
+aligned Positions:
+
+```text
+replay_body_domains
+  -> replay_body_patterns                 recursive definitions
+  -> replay_body_pattern_occurrences      realized Position spans and costs
+  -> replay_body_pattern_positions        aligned Position distributions
+  -> replay_body_pattern_members          exact members and event coordinates
+  -> event_audit                          embedded source rows
+```
+
+The route is per stream and never invents cross-stream ordering. A full-body
+decode replay can therefore be folded into repeated nested structure, compared
+across occurrences, and audited back to embedded raw evidence without leaving
+the coordinate contract. See
+[Recursive Replay-Body Patterns](replay-body-patterns.md).
+
 Exact replay evidence offers another horizontal coordinate system over the
 complete device sequence. The parameter-free `exact_replay_partition` recipe
 returns an ordered open/replay/between-replays cost partition for every

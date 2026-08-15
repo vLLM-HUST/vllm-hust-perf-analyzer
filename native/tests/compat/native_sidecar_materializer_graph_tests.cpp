@@ -491,6 +491,35 @@ void run_graph_materializer_tests() {
   require(run_scalar_int(exact_cuda_graph_db_path,
                          "SELECT COUNT(*) FROM "
                          "traceloom_replay_cost_aggregate_member") == 3);
+  require(run_scalar_text(
+              exact_cuda_graph_db_path,
+              "SELECT support_status FROM "
+              "traceloom_replay_body_pattern_run") == "supported");
+  require(run_scalar_int(
+              exact_cuda_graph_db_path,
+              "SELECT COUNT(*) FROM "
+              "traceloom_replay_body_pattern_domain WHERE support_status = "
+              "'supported' AND position_count = 3") == 1);
+  require(run_scalar_int(
+              exact_cuda_graph_db_path,
+              "SELECT COUNT(*) FROM traceloom_replay_body_position") == 3);
+  require(run_scalar_int(
+              exact_cuda_graph_db_path,
+              "SELECT COUNT(*) FROM "
+              "traceloom_replay_body_pattern_occurrence WHERE "
+              "parent_occurrence_id IS NULL AND position_start = 0 AND "
+              "position_end_exclusive = 3 AND "
+              "duration_median_sum_ns = 30") == 1);
+  require(run_scalar_int(
+              exact_cuda_graph_db_path,
+              "SELECT COUNT(*) FROM "
+              "traceloom_v_replay_body_pattern_member WHERE occurrence_id "
+              "= 'replay-body-domain-0-occurrence-0'") == 3);
+  require(run_scalar_int(
+              exact_cuda_graph_db_path,
+              "SELECT COUNT(*) FROM "
+              "traceloom_v_replay_body_pattern_source_locator WHERE "
+              "occurrence_id = 'replay-body-domain-0-occurrence-0'") == 3);
   require(run_scalar_int(exact_cuda_graph_db_path,
                          "SELECT COUNT(*) FROM "
                          "traceloom_v_node_replay_cost_member") == 3);
