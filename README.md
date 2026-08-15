@@ -114,6 +114,8 @@ Make sure `$HOME/.local/bin` is in `PATH`, then run `traceloom --version`.
 
 ```bash
 traceloom /path/to/PROF_.../msprof_YYYYMMDDHHMMSS.db
+# Or an official torch-npu profiler package:
+traceloom /path/to/ASCEND_PROFILER_OUTPUT/ascend_pytorch_profiler_0.db
 ```
 
 The default product is a self-contained queryable database timeline written beside the source database:
@@ -128,8 +130,10 @@ The default product is a self-contained queryable database timeline written besi
 traceloom /path/to/msprof_output
 ```
 
-TraceLoom discovers monolithic `PROF_*/msprof_*.db` files and split
-`PROF_*/{host,device_*}/sqlite/*.db` layouts, then writes one self-contained
+TraceLoom discovers schema-compatible monolithic Ascend profiler databases,
+including `PROF_*/msprof_*.db` and official torch-npu
+`ASCEND_PROFILER_OUTPUT/ascend_pytorch_profiler_*.db` files, as well as split
+`PROF_*/{host,device_*}/sqlite/*.db` layouts. It writes one self-contained
 database per discovered analysis input:
 
 ```text

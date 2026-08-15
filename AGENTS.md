@@ -42,9 +42,11 @@ large build to one job.
 build/native-tests/native/traceloom /path/to/msprof_raw
 ```
 
-Valid Ascend inputs include one `msprof_*.db` or a directory containing
-monolithic `PROF_*/msprof_*.db` or split
-`PROF_*/{host,device_*}/sqlite/*.db` layouts. The default queryable database timeline is a neighboring
+Valid Ascend inputs include one schema-compatible profiler SQLite DB, such as
+`msprof_*.db` or the official torch-npu
+`ASCEND_PROFILER_OUTPUT/ascend_pytorch_profiler_*.db`, or a directory containing
+those monolithic DBs or split `PROF_*/{host,device_*}/sqlite/*.db` layouts. The
+default queryable database timeline is a neighboring
 `traceloom/analysis.db` or one `analysis_dbNN.db` per discovered analysis
 input. Markdown is an explicit human projection requested with
 `--loop-tree-out`.
