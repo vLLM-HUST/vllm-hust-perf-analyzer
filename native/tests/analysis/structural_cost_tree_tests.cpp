@@ -1,30 +1,30 @@
-#include "traceloom/report/report_cost_tree.h"
-#include "traceloom/report/report_tree_builder.h"
+#include "traceloom/analysis/structural_cost_tree.h"
+#include "traceloom/analysis/structural_occurrence_builder.h"
 #include "traceloom/testing/test_util.h"
 
 #include <vector>
 
 namespace {
 
-traceloom::ReportToken token(std::uint32_t ordinal,
-                             traceloom::SymbolId symbol,
-                             const char* op) {
-  traceloom::ReportToken out;
+traceloom::StructuralProjectionToken token(std::uint32_t ordinal,
+                                            traceloom::SymbolId symbol,
+                                            const char* op) {
+  traceloom::StructuralProjectionToken out;
   out.ordinal = ordinal;
   out.symbol_id = symbol;
   out.display_op = op;
   out.display_category = "exec";
-  out.anchor_kind = traceloom::ReportAnchorKind::kExec;
+  out.anchor_kind = traceloom::StructuralAnchorKind::kExec;
   out.start_ns = static_cast<std::int64_t>(ordinal) * 10;
   out.end_ns = out.start_ns + 5;
   return out;
 }
 
-traceloom::ReportCostLeaf leaf(std::uint32_t id,
+traceloom::StructuralCostLeaf leaf(std::uint32_t id,
                                std::uint32_t token_ordinal,
                                std::int64_t duration_ns) {
-  traceloom::ReportCostLeaf out;
-  out.id = traceloom::ReportCostLeafId(id);
+  traceloom::StructuralCostLeaf out;
+  out.id = traceloom::StructuralCostLeafId(id);
   out.token_ordinal = token_ordinal;
   out.duration_ns = duration_ns;
   out.source_label = "token_fixture";
@@ -38,34 +38,34 @@ int main() {
   using traceloom::testing::require;
 
   const SymbolId matmul(1);
-  const std::vector<ReportToken> tokens{
+  const std::vector<StructuralProjectionToken> tokens{
       token(0, matmul, "MatMul"),
       token(1, matmul, "MatMul"),
   };
 
-  const ReportTree tree = build_report_tree_from_tokens(tokens);
-  const std::vector<ReportCostLeaf> leaves{
+  const StructuralOccurrenceGraph tree = build_structural_occurrence_graph_from_tokens(tokens);
+  const std::vector<StructuralCostLeaf> leaves{
       leaf(0, 0, 7),
       leaf(1, 1, 11),
   };
-  const ReportCostTree cost_tree = build_report_cost_tree(tree, leaves);
+  const StructuralCostTree cost_tree = build_structural_cost_tree(tree, leaves);
 
   require(cost_tree.diagnostics.empty());
   require(cost_tree.metrics.size() == tree.occurrences.size() + leaves.size());
 
-  const ReportNodeOccurrenceId root_id = tree.occurrences[0].id;
-  const ReportNodeOccurrenceId repeat_id = tree.occurrences[1].id;
-  const ReportNodeOccurrenceId first_atom_id = tree.occurrences[2].id;
-  const ReportNodeOccurrenceId second_atom_id = tree.occurrences[3].id;
+  const StructuralNodeOccurrenceId root_id = tree.occurrences[0].id;
+  const StructuralNodeOccurrenceId repeat_id = tree.occurrences[1].id;
+  const StructuralNodeOccurrenceId first_atom_id = tree.occurrences[2].id;
+  const StructuralNodeOccurrenceId second_atom_id = tree.occurrences[3].id;
 
-  const ReportCostMetric* root_metric =
-      find_report_cost_metric(cost_tree, root_id);
-  const ReportCostMetric* repeat_metric =
-      find_report_cost_metric(cost_tree, repeat_id);
-  const ReportCostMetric* first_atom_metric =
-      find_report_cost_metric(cost_tree, first_atom_id);
-  const ReportCostMetric* second_atom_metric =
-      find_report_cost_metric(cost_tree, second_atom_id);
+  const StructuralCostMetric* root_metric =
+      find_structural_cost_metric(cost_tree, root_id);
+  const StructuralCostMetric* repeat_metric =
+      find_structural_cost_metric(cost_tree, repeat_id);
+  const StructuralCostMetric* first_atom_metric =
+      find_structural_cost_metric(cost_tree, first_atom_id);
+  const StructuralCostMetric* second_atom_metric =
+      find_structural_cost_metric(cost_tree, second_atom_id);
   require(root_metric != nullptr);
   require(repeat_metric != nullptr);
   require(first_atom_metric != nullptr);
@@ -95,16 +95,16 @@ int main() {
   require(second_atom_metric->direct_cost_leaf_count == 1);
   require(second_atom_metric->subtree_cost_leaf_count == 1);
 
-  const ReportCostMetric* first_leaf_metric =
-      find_report_cost_leaf_metric(cost_tree, ReportCostLeafId(0));
+  const StructuralCostMetric* first_leaf_metric =
+      find_structural_cost_leaf_metric(cost_tree, StructuralCostLeafId(0));
   require(first_leaf_metric != nullptr);
   require(first_leaf_metric->self_duration_ns == 7);
   require(first_leaf_metric->direct_child_duration_ns == 0);
   require(first_leaf_metric->total_duration_ns == 7);
 
   std::uint32_t direct_atom_leaf_edges = 0;
-  for (const ReportCostTreeEdge& edge : cost_tree.edges) {
-    if (edge.child_kind == ReportCostItemKind::kCostLeaf) {
+  for (const StructuralCostTreeEdge& edge : cost_tree.edges) {
+    if (edge.child_kind == StructuralCostItemKind::kCostLeaf) {
       require(edge.parent_occurrence_id == first_atom_id ||
               edge.parent_occurrence_id == second_atom_id);
       direct_atom_leaf_edges += 1;
@@ -112,16 +112,16 @@ int main() {
   }
   require(direct_atom_leaf_edges == 2);
 
-  const ReportCostTree orphan =
-      build_report_cost_tree(tree, std::vector<ReportCostLeaf>{leaf(0, 99, 3)});
+  const StructuralCostTree orphan =
+      build_structural_cost_tree(tree, std::vector<StructuralCostLeaf>{leaf(0, 99, 3)});
   require(!orphan.diagnostics.empty());
   require(orphan.diagnostics[0].severity == DiagnosticSeverity::kError);
   require(orphan.diagnostics[0].code == "cost_tree_orphan_cost_leaf");
   require(orphan.edges.empty());
   require(orphan.metrics.empty());
 
-  const ReportCostTree invalid_leaf_id =
-      build_report_cost_tree(tree, std::vector<ReportCostLeaf>{leaf(1, 0, 3)});
+  const StructuralCostTree invalid_leaf_id =
+      build_structural_cost_tree(tree, std::vector<StructuralCostLeaf>{leaf(1, 0, 3)});
   require(!invalid_leaf_id.diagnostics.empty());
   require(invalid_leaf_id.diagnostics[0].severity == DiagnosticSeverity::kError);
   require(invalid_leaf_id.diagnostics[0].code ==

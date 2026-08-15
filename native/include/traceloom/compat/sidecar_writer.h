@@ -637,7 +637,7 @@ void materialize_compatibility_schema(
     const std::string& sqlite_path,
     const std::vector<CompatTableSchema>& schemas);
 
-void materialize_report_compatibility_views(const std::string& sqlite_path);
+void materialize_structural_compatibility_views(const std::string& sqlite_path);
 
 void materialize_global_collective_compatibility_schema(
     const std::string& sqlite_path);

@@ -170,7 +170,7 @@ int main() {
     require(breakdown.diagnostics.empty());
     require(breakdown.rows.size() == 5);
     require(breakdown.rows[1].symbol == "ACLL");
-    require(breakdown.rows[1].anchor_kind == ReportAnchorKind::kGraphL);
+    require(breakdown.rows[1].anchor_kind == StructuralAnchorKind::kGraphL);
     require(breakdown.rows[1].graph_child_ns == 100);
     require(breakdown.rows[1].raw_child_task_count == 20);
     require(breakdown.rows[1].top_ops == "MatMul:16");

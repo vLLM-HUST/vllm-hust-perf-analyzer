@@ -1,7 +1,7 @@
 #include "traceloom/adapters/fixture_adapter.h"
+#include "traceloom/analysis/structural_occurrence_builder.h"
 #include "traceloom/pattern/grammar_engine.h"
 #include "traceloom/pattern/grammar_state.h"
-#include "traceloom/report/report_tree_builder.h"
 #include "traceloom/testing/test_util.h"
 
 #include <algorithm>
@@ -174,32 +174,32 @@ traceloom::NativeIr make_generic_exact_replay_ir() {
   return ir;
 }
 
-std::vector<traceloom::ReportToken> report_tokens_for_ir(
+std::vector<traceloom::StructuralProjectionToken> structural_tokens_for_ir(
     const traceloom::NativeIr& ir) {
   using namespace traceloom;
-  std::vector<ReportToken> out;
+  std::vector<StructuralProjectionToken> out;
   for (const TokenRow& token : ir.tokens.rows()) {
     const AnchorRow& anchor = ir.anchors.row(token.anchor_id);
-    ReportAnchorKind kind = ReportAnchorKind::kExec;
+    StructuralAnchorKind kind = StructuralAnchorKind::kExec;
     if (anchor.kind == AnchorKind::kGraphH) {
-      kind = ReportAnchorKind::kGraphH;
+      kind = StructuralAnchorKind::kGraphH;
     } else if (anchor.kind == AnchorKind::kGraphL) {
-      kind = ReportAnchorKind::kGraphL;
+      kind = StructuralAnchorKind::kGraphL;
     } else if (anchor.kind == AnchorKind::kGraphT) {
-      kind = ReportAnchorKind::kGraphT;
+      kind = StructuralAnchorKind::kGraphT;
     }
-    ReportToken report;
-    report.ordinal = token.sequence_index;
-    report.device_id = token.device_id;
-    report.symbol_id = token.symbol_id;
-    report.display_op = ir.symbols.value(token.symbol_id);
-    report.display_category =
-        kind == ReportAnchorKind::kExec ? "exec" : "graph";
-    report.anchor_kind = kind;
-    report.anchor_id = token.anchor_id;
-    report.start_ns = token.start_ns;
-    report.end_ns = token.end_ns;
-    out.push_back(std::move(report));
+    StructuralProjectionToken structural_token;
+    structural_token.ordinal = token.sequence_index;
+    structural_token.device_id = token.device_id;
+    structural_token.symbol_id = token.symbol_id;
+    structural_token.display_op = ir.symbols.value(token.symbol_id);
+    structural_token.display_category =
+        kind == StructuralAnchorKind::kExec ? "exec" : "graph";
+    structural_token.anchor_kind = kind;
+    structural_token.anchor_id = token.anchor_id;
+    structural_token.start_ns = token.start_ns;
+    structural_token.end_ns = token.end_ns;
+    out.push_back(std::move(structural_token));
   }
   return out;
 }
@@ -375,27 +375,27 @@ int main() {
           "semantic grammar engine stage");
   require(exact_state.live_node_count == 1,
           "semantic grammar outer repeat compression");
-  const ReportTree exact_tree = build_report_tree_from_grammar_state(
-      report_tokens_for_ir(exact_ir), exact_state);
+  const StructuralOccurrenceGraph exact_tree = build_structural_occurrence_graph_from_grammar_state(
+      structural_tokens_for_ir(exact_ir), exact_state);
   const auto semantic_def = std::find_if(
       exact_tree.node_defs.begin(), exact_tree.node_defs.end(),
-      [](const ReportNodeDef& def) {
+      [](const StructuralNodeDef& def) {
         return def.display_op == "ReplayUnit T1";
       });
   require(semantic_def != exact_tree.node_defs.end(),
-          "semantic report unit def");
-  require(semantic_def->kind == ReportNodeKind::kSeq,
-          "semantic report unit kind");
+          "semantic structural unit def");
+  require(semantic_def->kind == StructuralNodeKind::kSeq,
+          "semantic structural unit kind");
   require(semantic_def->display_category == "graph_unit",
-          "semantic report unit category");
-  require(occurrence_count_for_def(exact_tree, semantic_def->id) == 4,
-          "semantic report unit occurrences");
+          "semantic structural unit category");
+  require(structural_occurrence_count_for_def(exact_tree, semantic_def->id) == 4,
+          "semantic structural unit occurrences");
   require(std::any_of(exact_tree.node_defs.begin(), exact_tree.node_defs.end(),
-                      [](const ReportNodeDef& def) {
-                        return def.kind == ReportNodeKind::kRepeat &&
+                      [](const StructuralNodeDef& def) {
+                        return def.kind == StructuralNodeKind::kRepeat &&
                                def.repeat_count == 4;
                       }),
-          "semantic report outer repeat");
+          "semantic structural outer repeat");
 
   NativeIr generic_exact_ir = make_generic_exact_replay_ir();
   GlobalGrammarState generic_exact_state =

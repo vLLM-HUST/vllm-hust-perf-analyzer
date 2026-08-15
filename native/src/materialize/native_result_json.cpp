@@ -100,7 +100,7 @@ void write_anchor_internal_cost_breakdown(
         << ", \"symbol\": ";
     write_json_string(out, row.symbol);
     out << ", \"anchor_kind\": ";
-    write_json_string(out, report_anchor_kind_name(row.anchor_kind));
+    write_json_string(out, structural_anchor_kind_name(row.anchor_kind));
     out << ", \"total_ns\": " << row.total_ns
         << ", \"self_ns\": " << row.self_ns
         << ", \"aux_ns\": " << row.aux_ns

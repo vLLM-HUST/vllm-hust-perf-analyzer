@@ -1,5 +1,5 @@
-#include "traceloom/compat/native_sidecar_materializer.h"
 #include "traceloom/analysis/flat_anchor_builder.h"
+#include "traceloom/compat/native_sidecar_materializer.h"
 #include "traceloom/core/sha256.h"
 #include "traceloom/testing/test_util.h"
 
@@ -654,7 +654,7 @@ NativeIr build_ascend_multi_slot_exact_graph_sql_ir() {
   return ir;
 }
 
-NativeIr build_multi_device_report_ir() {
+NativeIr build_multi_device_structural_ir() {
   NativeIr ir;
   const SourceRefId source =
       ir.source_refs.append("fixture", "multi-device-sidecar", "TASK", 0);
@@ -1829,7 +1829,7 @@ int main() {
   multi_options.source_path = "memory";
   multi_options.grammar_full_discovery_cap = 1;
   compat::write_basic_native_compatibility_sidecar(
-      multi_db_path, build_multi_device_report_ir(), multi_options);
+      multi_db_path, build_multi_device_structural_ir(), multi_options);
   require(run_scalar_int(
               multi_db_path,
               "SELECT COUNT(DISTINCT device_id) FROM traceloom_viz_node "

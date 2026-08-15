@@ -24,7 +24,7 @@ int main() {
   AnchorInternalCostBreakdownRow graph_row;
   graph_row.anchor_idx = 2;
   graph_row.symbol = "ACLL";
-  graph_row.anchor_kind = ReportAnchorKind::kGraphL;
+  graph_row.anchor_kind = StructuralAnchorKind::kGraphL;
   graph_row.total_ns = 123456;
   graph_row.self_ns = 1000;
   graph_row.aux_ns = 2000;
@@ -38,7 +38,7 @@ int main() {
   AnchorInternalCostBreakdownRow exec_row;
   exec_row.anchor_idx = 3;
   exec_row.symbol = "Kernel";
-  exec_row.anchor_kind = ReportAnchorKind::kExec;
+  exec_row.anchor_kind = StructuralAnchorKind::kExec;
   exec_row.total_ns = 7000;
   exec_row.self_ns = 7000;
   breakdown.rows.push_back(exec_row);

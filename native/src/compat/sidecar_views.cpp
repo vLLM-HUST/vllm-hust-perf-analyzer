@@ -36,15 +36,15 @@ void materialize_event_reconciliation_view(SqliteDb& db) {
 }  // namespace
 #endif
 
-void materialize_report_compatibility_views(const std::string& sqlite_path) {
+void materialize_structural_compatibility_views(const std::string& sqlite_path) {
 #if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
   materialize_compatibility_schema(sqlite_path);
 
   SqliteDb db(sqlite_path);
   db.exec("BEGIN IMMEDIATE");
   try {
-    drop_report_compatibility_views(db);
-    materialize_report_compatibility_indexes(db);
+    drop_structural_compatibility_views(db);
+    materialize_structural_compatibility_indexes(db);
     materialize_runtime_device_views(db);
     materialize_structure_bubble_views(db);
     materialize_event_reconciliation_view(db);

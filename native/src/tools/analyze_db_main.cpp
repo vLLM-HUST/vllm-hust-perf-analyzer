@@ -1,5 +1,5 @@
-#include <chrono>
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <cstdlib>
 #include <exception>
@@ -23,7 +23,7 @@
 #include "traceloom/analysis/flat_anchor_builder.h"
 #include "traceloom/analysis/native_pipeline.h"
 #include "traceloom/compat/native_sidecar_materializer.h"
-#include "traceloom/compat/report_tree_rows.h"
+#include "traceloom/compat/structural_projection_rows.h"
 #include "traceloom/ir/native_ir.h"
 #include "traceloom/materialize/grammar_debug_json.h"
 #include "traceloom/materialize/loop_tree_markdown.h"
@@ -640,7 +640,7 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
         pipeline_options.partition_config.target_tokens_per_partition;
     sidecar_options.grammar_full_discovery_cap =
         cli.loop_tree_full_discovery_cap;
-    sidecar_options.materialize_grammar_report_tree = cli.loop_tree_grammar;
+    sidecar_options.materialize_grammar_structural_projection = cli.loop_tree_grammar;
     sidecar_options.materialize_aux_attribution = cli.loop_tree_aux;
     sidecar_options.timing_diagnostics = cli.timings;
     sidecar_options.evidence_role_policy_id =

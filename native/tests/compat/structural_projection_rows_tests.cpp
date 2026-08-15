@@ -1,7 +1,7 @@
-#include "traceloom/compat/report_tree_rows.h"
+#include "traceloom/analysis/structural_occurrence_builder.h"
 #include "traceloom/compat/native_sidecar_materializer.h"
+#include "traceloom/compat/structural_projection_rows.h"
 #include "traceloom/pattern/grammar_state.h"
-#include "traceloom/report/report_tree_builder.h"
 #include "traceloom/testing/test_util.h"
 
 #include <set>
@@ -36,46 +36,16 @@ int main() {
   const std::vector<compat::NativeDeviceStructuralProjection>
       structural_projections =
           compat::build_native_device_structural_projections(ir);
-  const std::vector<compat::NativeDeviceReportTree> legacy_report_trees =
-      compat::build_native_device_report_trees(ir);
-  require(structural_projections.size() == legacy_report_trees.size());
-  require(structural_projections.front().device_id ==
-          legacy_report_trees.front().device_id);
-  require(structural_projections.front().tokens.size() ==
-          legacy_report_trees.front().tokens.size());
-  require(structural_projections.front().graph.node_defs.size() ==
-          legacy_report_trees.front().tree.node_defs.size());
-  require(structural_projections.front().graph.occurrences.size() ==
-          legacy_report_trees.front().tree.occurrences.size());
-  require(structural_projections.front().graph.edges.size() ==
-          legacy_report_trees.front().tree.edges.size());
-  require(structural_projections.front().graph.coverage.size() ==
-          legacy_report_trees.front().tree.coverage.size());
+  require(structural_projections.size() == 1);
+  require(structural_projections.front().device_id == 0);
+  require(structural_projections.front().tokens.size() == 2);
+  require(structural_projections.front().graph.node_defs.size() == 3);
+  require(structural_projections.front().graph.occurrences.size() == 4);
+  require(structural_projections.front().graph.edges.size() == 3);
+  require(structural_projections.front().graph.coverage.size() == 4);
 
   const compat::NodeCoverageSqlRows rows =
-      compat::build_native_report_tree_node_coverage_sql_rows(ir, 7, "tree");
-  const compat::NodeCoverageSqlRows canonical_rows =
       compat::build_native_structural_node_coverage_sql_rows(ir, 7, "tree");
-
-  require(canonical_rows.nodes.size() == rows.nodes.size());
-  require(canonical_rows.edges.size() == rows.edges.size());
-  require(canonical_rows.loop_nodes.size() == rows.loop_nodes.size());
-  require(canonical_rows.node_anchors.size() == rows.node_anchors.size());
-  require(canonical_rows.anchor_primary_nodes.size() ==
-          rows.anchor_primary_nodes.size());
-  for (std::size_t index = 0; index < rows.nodes.size(); ++index) {
-    require(canonical_rows.nodes[index].node_id == rows.nodes[index].node_id);
-    require(canonical_rows.nodes[index].kind == rows.nodes[index].kind);
-    require(canonical_rows.nodes[index].total_us == rows.nodes[index].total_us);
-  }
-  for (std::size_t index = 0; index < rows.node_anchors.size(); ++index) {
-    require(canonical_rows.node_anchors[index].node_id ==
-            rows.node_anchors[index].node_id);
-    require(canonical_rows.node_anchors[index].anchor_id ==
-            rows.node_anchors[index].anchor_id);
-    require(canonical_rows.node_anchors[index].total_us ==
-            rows.node_anchors[index].total_us);
-  }
 
   require(rows.nodes.size() == 3);
   require(rows.edges.size() == 2);
@@ -154,20 +124,8 @@ int main() {
           rows.anchor_primary_nodes.size());
 
   const compat::SemanticTreeSqlRows semantic_rows =
-      compat::build_native_report_tree_semantic_sql_rows(ir, 7, "tree-1",
+      compat::build_native_structural_semantic_sql_rows(ir, 7, "tree-1",
                                                          "anchor_tree");
-  const compat::SemanticTreeSqlRows canonical_semantic_rows =
-      compat::build_native_structural_semantic_sql_rows(
-          ir, 7, "tree-1", "anchor_tree");
-  require(canonical_semantic_rows.trees.size() == semantic_rows.trees.size());
-  require(canonical_semantic_rows.nodes.size() == semantic_rows.nodes.size());
-  require(canonical_semantic_rows.edges.size() == semantic_rows.edges.size());
-  for (std::size_t index = 0; index < semantic_rows.nodes.size(); ++index) {
-    require(canonical_semantic_rows.nodes[index].node_id ==
-            semantic_rows.nodes[index].node_id);
-    require(canonical_semantic_rows.nodes[index].total_us ==
-            semantic_rows.nodes[index].total_us);
-  }
   require(semantic_rows.trees.size() == 1);
   require(semantic_rows.nodes.size() == rows.nodes.size());
   require(semantic_rows.edges.size() == rows.edges.size());
@@ -235,7 +193,7 @@ int main() {
   overlap_ir.tokens.append(overlap_anchor0, overlap_matmul, 0, 0, 0, 10000);
   overlap_ir.tokens.append(overlap_anchor1, all_reduce, 0, 1, 5000, 15000);
   const compat::NodeCoverageSqlRows overlap_rows =
-      compat::build_native_report_tree_node_coverage_sql_rows(overlap_ir);
+      compat::build_native_structural_node_coverage_sql_rows(overlap_ir);
   require(overlap_rows.nodes.front().compute_us == 5.0);
   require(overlap_rows.nodes.front().comm_us == 10.0);
   require(overlap_rows.nodes.front().idle_us == 0.0);
@@ -280,10 +238,10 @@ int main() {
   append_semantic_token(8, semantic_eager, AnchorKind::kDeviceEvent, 1, 45000,
                         50000);
 
-  const std::vector<ReportToken> semantic_cost_tokens =
-      compat::build_report_tokens_from_native_ir(semantic_cost_ir);
-  const ReportTree flat_cost_tree =
-      build_report_tree_from_tokens(semantic_cost_tokens);
+  const std::vector<StructuralProjectionToken> semantic_cost_tokens =
+      compat::build_structural_projection_tokens_from_native_ir(semantic_cost_ir);
+  const StructuralOccurrenceGraph flat_cost_tree =
+      build_structural_occurrence_graph_from_tokens(semantic_cost_tokens);
 
   const SymbolId semantic_unit_symbol(1000);
   GlobalGrammarState semantic_cost_state;
@@ -308,14 +266,15 @@ int main() {
       MacroDefId(0), semantic_unit_symbol, MacroLevel::kSemantic,
       {semantic_h, semantic_l, semantic_t}, 3, 2, 2, 0, "ReplayUnit T1"}};
   semantic_cost_state.live_node_count = 4;
-  const ReportTree semantic_cost_tree = build_report_tree_from_grammar_state(
-      semantic_cost_tokens, semantic_cost_state);
+  const StructuralOccurrenceGraph semantic_cost_tree =
+      build_structural_occurrence_graph_from_grammar_state(
+          semantic_cost_tokens, semantic_cost_state);
 
   const compat::NodeCoverageSqlRows flat_cost_rows =
-      compat::build_report_tree_node_coverage_sql_rows(flat_cost_tree,
+      compat::build_structural_node_coverage_sql_rows(flat_cost_tree,
                                                        semantic_cost_tokens);
   const compat::NodeCoverageSqlRows semantic_cost_rows =
-      compat::build_report_tree_node_coverage_sql_rows(
+      compat::build_structural_node_coverage_sql_rows(
           semantic_cost_tree, semantic_cost_tokens);
   require(flat_cost_rows.nodes.front().total_us == 50.0,
           "flat semantic fixture wall clock");
@@ -340,9 +299,9 @@ int main() {
 
   bool rejected_nonconserved_cost = false;
   try {
-    std::vector<ReportToken> bad_cost_tokens = semantic_cost_tokens;
+    std::vector<StructuralProjectionToken> bad_cost_tokens = semantic_cost_tokens;
     bad_cost_tokens.front().timeline_anchor_us += 1.0;
-    (void)compat::build_report_tree_node_coverage_sql_rows(
+    (void)compat::build_structural_node_coverage_sql_rows(
         semantic_cost_tree, bad_cost_tokens);
   } catch (const std::invalid_argument&) {
     rejected_nonconserved_cost = true;
@@ -385,7 +344,7 @@ int main() {
   prelude_ir.tokens.append(first_anchor, first, 0, 0, 1000, 2000);
   prelude_ir.tokens.append(second_anchor, second, 0, 1, 10000, 11000);
   const compat::NodeCoverageSqlRows prelude_rows =
-      compat::build_native_report_tree_node_coverage_sql_rows(prelude_ir);
+      compat::build_native_structural_node_coverage_sql_rows(prelude_ir);
   require(prelude_rows.nodes.front().compute_us == 6.0);
   require(prelude_rows.nodes.front().comm_us == 3.5);
   require(prelude_rows.nodes.front().idle_us == 0.5);
@@ -399,14 +358,14 @@ int main() {
   bad_ir.tokens.append(AnchorId(99), matmul, 0, 0, 0, 1);
   bool rejected_bad_token_anchor = false;
   try {
-    (void)compat::build_report_tokens_from_native_ir(bad_ir);
+    (void)compat::build_structural_projection_tokens_from_native_ir(bad_ir);
   } catch (const std::invalid_argument&) {
     rejected_bad_token_anchor = true;
   }
   require(rejected_bad_token_anchor);
   (void)bad_source;
 
-  // ---- Multi-device: one independently recovered report tree per device.
+  // ---- Multi-device: one independently recovered structural graph per device.
   // Device 0 owns a repeated [MatMul, AllReduce] pattern; device 1 owns a
   // distinct repeated Softmax run. Partitioning must never combine them into
   // one structural unit or stamp both trees with device 0.
@@ -448,24 +407,24 @@ int main() {
                        AnchorKind::kDeviceEvent, base, base + 300);
   }
 
-  const std::vector<compat::NativeReportDevicePartition> partitions =
-      compat::partition_report_tokens_by_device(multi_ir);
+  const std::vector<compat::NativeStructuralDevicePartition> partitions =
+      compat::partition_structural_projection_tokens_by_device(multi_ir);
   require(partitions.size() == 2, "two device partitions");
   require(partitions[0].device_id == 0);
   require(partitions[1].device_id == 1);
   require(partitions[0].tokens.size() == 6, "device 0 partition tokens");
   require(partitions[1].tokens.size() == 4, "device 1 partition tokens");
-  for (const compat::NativeReportDevicePartition& partition : partitions) {
-    for (const ReportToken& token : partition.tokens) {
+  for (const compat::NativeStructuralDevicePartition& partition : partitions) {
+    for (const StructuralProjectionToken& token : partition.tokens) {
       require(token.device_id == partition.device_id,
               "partition owns only its own device tokens");
     }
   }
 
   compat::NativeCompatibilitySidecarOptions multi_options;
-  multi_options.materialize_grammar_report_tree = false;
-  const std::vector<compat::NativeDeviceReportTree> multi_trees =
-      compat::build_native_device_report_trees(multi_ir, multi_options);
+  multi_options.materialize_grammar_structural_projection = false;
+  const std::vector<compat::NativeDeviceStructuralProjection> multi_trees =
+      compat::build_native_device_structural_projections(multi_ir, multi_options);
   require(multi_trees.size() == 2, "one tree per device");
   require(multi_trees[0].device_id == 0);
   require(multi_trees[1].device_id == 1);
@@ -544,7 +503,7 @@ int main() {
   // Semantic rows materialize one catalog entry per device with distinct
   // tree ids and scoped root ids.
   const compat::SemanticTreeSqlRows multi_semantic =
-      compat::build_native_report_tree_semantic_sql_rows(
+      compat::build_native_structural_semantic_sql_rows(
           multi_ir, 0, "native-report-tree", "anchor_tree");
   require(multi_semantic.trees.size() == 2,
           "one semantic tree per device");
@@ -564,7 +523,7 @@ int main() {
       cross_ir.source_refs.rows().front().id);
   bool rejected_cross_device_interval = false;
   try {
-    (void)compat::build_native_device_report_trees(cross_ir, multi_options);
+    (void)compat::build_native_device_structural_projections(cross_ir, multi_options);
   } catch (const std::invalid_argument&) {
     rejected_cross_device_interval = true;
   }

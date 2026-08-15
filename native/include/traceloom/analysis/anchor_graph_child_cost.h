@@ -4,9 +4,9 @@
 #include <string>
 #include <vector>
 
+#include "traceloom/analysis/anchor_internal_cost_breakdown.h"
 #include "traceloom/core/diagnostics.h"
 #include "traceloom/core/ids.h"
-#include "traceloom/report/anchor_internal_cost_breakdown.h"
 
 namespace traceloom {
 
@@ -39,7 +39,7 @@ struct AnchorGraphChildSummary {
 };
 
 struct AnchorGraphChildCostConfig {
-  ReportCostLeafId first_leaf_id{0};
+  StructuralCostLeafId first_leaf_id{0};
   std::uint32_t max_top_ops = 3;
   bool emit_zero_duration_windows = true;
   bool diagnostic_only_partial_overlap = true;

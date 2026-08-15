@@ -4,8 +4,8 @@
 #include <string>
 #include <vector>
 
+#include "traceloom/analysis/anchor_internal_cost_breakdown.h"
 #include "traceloom/compat/schema.h"
-#include "traceloom/report/anchor_internal_cost_breakdown.h"
 
 namespace traceloom {
 struct NativeIr;

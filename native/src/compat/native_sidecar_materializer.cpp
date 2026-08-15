@@ -98,7 +98,8 @@ StructuralOccurrenceGraph recover_structural_occurrence_graph(
     const NativeIr& ir,
     const NativeCompatibilitySidecarOptions& options,
     const std::vector<StructuralProjectionToken>& structural_tokens) {
-  if (!options.materialize_grammar_report_tree || structural_tokens.empty()) {
+  if (!options.materialize_grammar_structural_projection ||
+      structural_tokens.empty()) {
     return build_structural_occurrence_graph_from_tokens(structural_tokens);
   }
 
@@ -173,7 +174,7 @@ StructuralOccurrenceGraph recover_structural_occurrence_graph(
   }
 }
 
-// Projects the report-relevant IR tables onto a single device. The token
+// Projects the structural IR tables onto a single device. The token
 // table is filtered to the device with dense TokenIds and a renumbered
 // sequence_index (the grammar state machine requires both). Anchor, event,
 // task, communication-op, symbol, source-ref, and semantic replay tables are
@@ -182,7 +183,7 @@ StructuralOccurrenceGraph recover_structural_occurrence_graph(
 // indices consistent with the global sidecar tables. Protected intervals are
 // kept only when their whole token span belongs to the device; a span that
 // crosses devices fails closed because cross-device replay units are not
-// supported by the structural report.
+// supported by the structural projection.
 NativeIr project_ir_for_device(const NativeIr& ir, std::uint32_t device_id) {
   NativeIr out;
   out.symbols = ir.symbols;
@@ -222,7 +223,7 @@ NativeIr project_ir_for_device(const NativeIr& ir, std::uint32_t device_id) {
   if (out.tokens.empty()) {
     throw std::invalid_argument(
         "device " + std::to_string(device_id) +
-        " has no report tokens to project");
+        " has no structural tokens to project");
   }
 
   for (const ProtectedIntervalRow& interval : ir.protected_intervals.rows()) {
@@ -240,7 +241,7 @@ NativeIr project_ir_for_device(const NativeIr& ir, std::uint32_t device_id) {
         token_devices[interval.last_token_id.value()]) {
       throw std::invalid_argument(
           "protected interval spans devices; cross-device replay units are "
-          "unsupported in the structural report");
+          "unsupported in the structural projection");
     }
     if (interval_device != device_id) {
       continue;
@@ -250,7 +251,7 @@ NativeIr project_ir_for_device(const NativeIr& ir, std::uint32_t device_id) {
       if (token_devices[token_id] != interval_device) {
         throw std::invalid_argument(
             "protected interval spans devices; cross-device replay units are "
-            "unsupported in the structural report");
+            "unsupported in the structural projection");
       }
     }
     const auto first_found = token_remap.find(interval.first_token_id.value());
@@ -302,30 +303,13 @@ build_native_device_structural_projections(
                                               partition.tokens);
     }
     if (options.timing_diagnostics) {
-      std::cerr << "timing loop_tree_report_tree_ms_device="
+      std::cerr << "timing loop_tree_structural_projection_ms_device="
                 << partition.device_id << " " << tree_watch.elapsed_ms()
                 << "\n";
     }
     device_trees.push_back(std::move(device));
   }
   return device_trees;
-}
-
-std::vector<NativeDeviceReportTree> build_native_device_report_trees(
-    const NativeIr& ir,
-    const NativeCompatibilitySidecarOptions& options) {
-  std::vector<NativeDeviceStructuralProjection> projections =
-      build_native_device_structural_projections(ir, options);
-  std::vector<NativeDeviceReportTree> legacy;
-  legacy.reserve(projections.size());
-  for (NativeDeviceStructuralProjection& projection : projections) {
-    NativeDeviceReportTree device;
-    device.device_id = projection.device_id;
-    device.tokens = std::move(projection.tokens);
-    device.tree = std::move(projection.graph);
-    legacy.push_back(std::move(device));
-  }
-  return legacy;
 }
 
 NodeCoverageSqlRows build_native_loop_tree_node_coverage_rows(
@@ -591,12 +575,12 @@ void write_basic_native_compatibility_sidecar(
       sqlite_path, split_semantic_tree_catalog_sql_rows(semantic_rows));
   replace_semantic_graph_rows(sqlite_path,
                               split_semantic_graph_sql_rows(semantic_rows));
-  if (options.materialize_report_views) {
-    const Stopwatch report_views_watch;
-    materialize_report_compatibility_views(sqlite_path);
+  if (options.materialize_structural_views) {
+    const Stopwatch structural_views_watch;
+    materialize_structural_compatibility_views(sqlite_path);
     if (options.timing_diagnostics) {
-      std::cerr << "timing report_views_ms="
-                << report_views_watch.elapsed_ms() << "\n";
+      std::cerr << "timing structural_views_ms="
+                << structural_views_watch.elapsed_ms() << "\n";
     }
   }
   replace_evidence_role_sql_rows(sqlite_path, ir, evidence_role_config,

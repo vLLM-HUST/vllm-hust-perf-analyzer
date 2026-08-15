@@ -6,7 +6,7 @@ namespace traceloom::compat {
 
 #if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
 
-void drop_report_compatibility_views(SqliteDb& db) {
+void drop_structural_compatibility_views(SqliteDb& db) {
   db.exec("DROP VIEW IF EXISTS traceloom_v_structure_bubble_host_context");
   db.exec("DROP VIEW IF EXISTS traceloom_v_structure_bubble_position");
   db.exec("DROP VIEW IF EXISTS traceloom_v_structure_bubble_api_stats");

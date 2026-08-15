@@ -4,9 +4,9 @@
 #include <string>
 #include <vector>
 
+#include "traceloom/analysis/structural_occurrence_graph.h"
 #include "traceloom/core/diagnostics.h"
 #include "traceloom/core/ids.h"
-#include "traceloom/report/report_tree.h"
 
 namespace traceloom {
 
@@ -18,7 +18,7 @@ enum class AnchorCostComponentKind {
 };
 
 struct AnchorCostComponentLeaf {
-  ReportCostLeafId id;
+  StructuralCostLeafId id;
   std::uint32_t token_ordinal = 0;
   AnchorCostComponentKind kind = AnchorCostComponentKind::kSelf;
   std::int64_t duration_ns = 0;
@@ -29,11 +29,11 @@ struct AnchorCostComponentLeaf {
 };
 
 struct AnchorInternalCostBreakdownRow {
-  ReportNodeOccurrenceId anchor_occurrence_id;
-  ReportNodeDefId anchor_def_id;
+  StructuralNodeOccurrenceId anchor_occurrence_id;
+  StructuralNodeDefId anchor_def_id;
   std::uint32_t anchor_idx = 0;
   std::string symbol;
-  ReportAnchorKind anchor_kind = ReportAnchorKind::kUnknown;
+  StructuralAnchorKind anchor_kind = StructuralAnchorKind::kUnknown;
   std::int64_t total_ns = 0;
   std::int64_t self_ns = 0;
   std::int64_t aux_ns = 0;
@@ -51,8 +51,8 @@ struct AnchorInternalCostBreakdown {
 };
 
 AnchorInternalCostBreakdown build_anchor_internal_cost_breakdown(
-    const ReportTree& tree,
-    const std::vector<ReportToken>& tokens,
+    const StructuralOccurrenceGraph& tree,
+    const std::vector<StructuralProjectionToken>& tokens,
     const std::vector<AnchorCostComponentLeaf>& component_leaves);
 
 }  // namespace traceloom

@@ -101,27 +101,6 @@ void require_basic_sidecar(const std::string& path) {
                      "WHERE a.anchor_idx IS NULL") == 0);
 }
 
-void require_aclgraph_sidecar(const std::string& path) {
-  traceloom::testing::require(
-      run_scalar_int(path,
-                     "SELECT COUNT(*) FROM traceloom_cuda_graph_replay") > 0);
-  traceloom::testing::require(
-      run_scalar_int(path,
-                     "SELECT COUNT(*) FROM traceloom_cuda_graph_envelope") > 0);
-  traceloom::testing::require(run_scalar_int(
-                                  path,
-                                  "SELECT COUNT(*) FROM "
-                                  "traceloom_cuda_graph_replay WHERE "
-                                  "graph_provider != 'aclgraph' OR "
-                                  "NOT json_valid(raw_json)") == 0);
-  traceloom::testing::require(
-      run_scalar_int(path,
-                     "SELECT COUNT(*) FROM traceloom_cuda_graph_envelope ge "
-                     "LEFT JOIN traceloom_event e ON "
-                     "e.event_id = ge.child_event_id "
-                     "WHERE e.event_id IS NULL") == 0);
-}
-
 void require_cuda_sidecar(const std::string& path) {
   traceloom::testing::require(run_scalar_int(
                                   path,
@@ -309,9 +288,7 @@ int main(int argc, char** argv) {
   const std::string path = argv[1];
   const std::string mode = argv[2];
   require_basic_sidecar(path);
-  if (mode == "aclgraph") {
-    require_aclgraph_sidecar(path);
-  } else if (mode == "cuda") {
+  if (mode == "cuda") {
     traceloom::testing::require(
         argc == 4, "CUDA sidecar smoke test requires Loop Tree Markdown");
     require_cuda_sidecar(path);

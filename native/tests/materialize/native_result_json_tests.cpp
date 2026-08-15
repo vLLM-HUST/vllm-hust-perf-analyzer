@@ -126,11 +126,11 @@ int main() {
 
   AnchorInternalCostBreakdown breakdown;
   AnchorInternalCostBreakdownRow row;
-  row.anchor_occurrence_id = ReportNodeOccurrenceId(7);
-  row.anchor_def_id = ReportNodeDefId(3);
+  row.anchor_occurrence_id = StructuralNodeOccurrenceId(7);
+  row.anchor_def_id = StructuralNodeDefId(3);
   row.anchor_idx = 2;
   row.symbol = "ACLL";
-  row.anchor_kind = ReportAnchorKind::kGraphL;
+  row.anchor_kind = StructuralAnchorKind::kGraphL;
   row.total_ns = 100;
   row.graph_child_ns = 100;
   row.raw_child_task_count = 20;

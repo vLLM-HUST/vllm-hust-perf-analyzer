@@ -1,7 +1,7 @@
 #include "traceloom/adapters/aclgraph_fixture_adapter.h"
 
-#include "traceloom/report/anchor_graph_child_cost.h"
-#include "traceloom/report/report_tree_builder.h"
+#include "traceloom/analysis/anchor_graph_child_cost.h"
+#include "traceloom/analysis/structural_occurrence_builder.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -35,34 +35,34 @@ RoleId role_id_for_slot_symbol(const std::string& slot_symbol) {
   return RoleId(0);
 }
 
-ReportAnchorKind report_anchor_kind_for_anchor_kind(AnchorKind anchor_kind) {
+StructuralAnchorKind structural_anchor_kind_for_anchor_kind(AnchorKind anchor_kind) {
   switch (anchor_kind) {
     case AnchorKind::kDeviceEvent:
-      return ReportAnchorKind::kExec;
+      return StructuralAnchorKind::kExec;
     case AnchorKind::kCommunication:
-      return ReportAnchorKind::kCollective;
+      return StructuralAnchorKind::kCollective;
     case AnchorKind::kGraphH:
-      return ReportAnchorKind::kGraphH;
+      return StructuralAnchorKind::kGraphH;
     case AnchorKind::kGraphL:
-      return ReportAnchorKind::kGraphL;
+      return StructuralAnchorKind::kGraphL;
     case AnchorKind::kGraphT:
-      return ReportAnchorKind::kGraphT;
+      return StructuralAnchorKind::kGraphT;
     default:
-      return ReportAnchorKind::kUnknown;
+      return StructuralAnchorKind::kUnknown;
   }
 }
 
-std::vector<ReportToken> report_tokens_from_ir(const NativeIr& ir) {
-  std::vector<ReportToken> tokens;
+std::vector<StructuralProjectionToken> structural_tokens_from_ir(const NativeIr& ir) {
+  std::vector<StructuralProjectionToken> tokens;
   tokens.reserve(ir.tokens.size());
   for (const TokenRow& token : ir.tokens.rows()) {
     const AnchorRow& anchor = ir.anchors.row(token.anchor_id);
-    ReportToken out;
+    StructuralProjectionToken out;
     out.ordinal = token.sequence_index;
     out.symbol_id = token.symbol_id;
     out.display_op = ir.symbols.value(token.symbol_id);
     out.display_category = "graph";
-    out.anchor_kind = report_anchor_kind_for_anchor_kind(anchor.kind);
+    out.anchor_kind = structural_anchor_kind_for_anchor_kind(anchor.kind);
     out.anchor_id = token.anchor_id;
     out.start_ns = token.start_ns;
     out.end_ns = token.end_ns;
@@ -262,10 +262,11 @@ AnchorInternalCostBreakdown build_aclgraph_fixture_anchor_cost_breakdown(
 
   const AnchorGraphChildCostResult graph_cost =
       build_anchor_graph_child_summary_components(summaries);
-  const std::vector<ReportToken> report_tokens = report_tokens_from_ir(ir);
-  const ReportTree tree = build_report_tree_from_tokens(report_tokens);
+  const std::vector<StructuralProjectionToken> structural_tokens = structural_tokens_from_ir(ir);
+  const StructuralOccurrenceGraph tree =
+      build_structural_occurrence_graph_from_tokens(structural_tokens);
   breakdown = build_anchor_internal_cost_breakdown(
-      tree, report_tokens, graph_cost.component_leaves);
+      tree, structural_tokens, graph_cost.component_leaves);
   breakdown.diagnostics.insert(breakdown.diagnostics.begin(),
                                graph_cost.diagnostics.begin(),
                                graph_cost.diagnostics.end());

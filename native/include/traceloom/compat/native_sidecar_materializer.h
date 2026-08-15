@@ -9,7 +9,6 @@
 #include "traceloom/analysis/structural_occurrence_graph.h"
 #include "traceloom/compat/sidecar_writer.h"
 #include "traceloom/ir/native_ir.h"
-#include "traceloom/report/report_tree.h"
 
 namespace traceloom::compat {
 
@@ -17,13 +16,13 @@ struct NativeCompatibilitySidecarOptions {
   std::uint32_t db_idx = 0;
   std::string source_kind = "native_ir";
   std::string source_path;
-  bool materialize_report_views = true;
+  bool materialize_structural_views = true;
   bool materialize_collective_tags = true;
   bool materialize_aux_attribution = true;
   std::string collective_run_name;
   std::string collective_db_name;
   std::uint32_t collective_expected_world_size = 0;
-  bool materialize_grammar_report_tree = true;
+  bool materialize_grammar_structural_projection = true;
   std::size_t grammar_worker_count = 1;
   std::size_t grammar_target_nodes_per_chunk = 4096;
   std::size_t grammar_full_discovery_cap = 50000;
@@ -42,14 +41,6 @@ struct NativeDeviceStructuralProjection {
   std::uint32_t device_id = 0;
   std::vector<StructuralProjectionToken> tokens;
   StructuralOccurrenceGraph graph;
-};
-
-// Transitional source compatibility for the former report product API. The
-// serialized compatibility relations intentionally keep their existing names.
-struct NativeDeviceReportTree {
-  std::uint32_t device_id = 0;
-  std::vector<ReportToken> tokens;
-  ReportTree tree;
 };
 
 void write_basic_native_compatibility_sidecar(
@@ -85,12 +76,6 @@ void write_queryable_database_timeline(
 // device and never invents a cross-device graph.
 std::vector<NativeDeviceStructuralProjection>
 build_native_device_structural_projections(
-    const NativeIr& ir,
-    const NativeCompatibilitySidecarOptions& options =
-        NativeCompatibilitySidecarOptions{});
-
-// Legacy API retained as a thin alias-backed wrapper.
-std::vector<NativeDeviceReportTree> build_native_device_report_trees(
     const NativeIr& ir,
     const NativeCompatibilitySidecarOptions& options =
         NativeCompatibilitySidecarOptions{});

@@ -6,7 +6,7 @@ namespace traceloom::compat {
 
 #if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
 
-void materialize_report_compatibility_indexes(SqliteDb& db) {
+void materialize_structural_compatibility_indexes(SqliteDb& db) {
   db.exec(
       "CREATE UNIQUE INDEX IF NOT EXISTS idx_traceloom_runtime_call_id "
       "ON traceloom_runtime_call(runtime_call_id)");

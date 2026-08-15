@@ -1,16 +1,17 @@
-#include "traceloom/report/anchor_internal_cost_breakdown.h"
-#include "traceloom/report/report_tree_builder.h"
+#include "traceloom/analysis/anchor_internal_cost_breakdown.h"
+#include "traceloom/analysis/structural_occurrence_builder.h"
 #include "traceloom/testing/test_util.h"
 
 #include <vector>
 
 namespace {
 
-traceloom::ReportToken token(std::uint32_t ordinal,
-                             traceloom::SymbolId symbol,
-                             const char* op,
-                             traceloom::ReportAnchorKind kind) {
-  traceloom::ReportToken out;
+traceloom::StructuralProjectionToken token(
+    std::uint32_t ordinal,
+    traceloom::SymbolId symbol,
+    const char* op,
+    traceloom::StructuralAnchorKind kind) {
+  traceloom::StructuralProjectionToken out;
   out.ordinal = ordinal;
   out.symbol_id = symbol;
   out.display_op = op;
@@ -27,7 +28,7 @@ traceloom::AnchorCostComponentLeaf component(
     traceloom::AnchorCostComponentKind kind,
     std::int64_t duration_ns) {
   traceloom::AnchorCostComponentLeaf out;
-  out.id = traceloom::ReportCostLeafId(id);
+  out.id = traceloom::StructuralCostLeafId(id);
   out.token_ordinal = token_ordinal;
   out.kind = kind;
   out.duration_ns = duration_ns;
@@ -40,13 +41,13 @@ int main() {
   using namespace traceloom;
   using traceloom::testing::require;
 
-  const std::vector<ReportToken> tokens{
-      token(0, SymbolId(1), "MatMul", ReportAnchorKind::kExec),
-      token(1, SymbolId(2), "H", ReportAnchorKind::kGraphH),
-      token(2, SymbolId(3), "Memcpy", ReportAnchorKind::kExec),
+  const std::vector<StructuralProjectionToken> tokens{
+      token(0, SymbolId(1), "MatMul", StructuralAnchorKind::kExec),
+      token(1, SymbolId(2), "H", StructuralAnchorKind::kGraphH),
+      token(2, SymbolId(3), "Memcpy", StructuralAnchorKind::kExec),
   };
 
-  const ReportTree tree = build_report_tree_from_tokens(tokens);
+  const StructuralOccurrenceGraph tree = build_structural_occurrence_graph_from_tokens(tokens);
   std::vector<AnchorCostComponentLeaf> leaves{
       component(0, 0, AnchorCostComponentKind::kSelf, 100),
       component(1, 0, AnchorCostComponentKind::kAux, 20),
@@ -68,7 +69,7 @@ int main() {
   const AnchorInternalCostBreakdownRow& exec = breakdown.rows[0];
   require(exec.anchor_idx == 1);
   require(exec.symbol == "MatMul");
-  require(exec.anchor_kind == ReportAnchorKind::kExec);
+  require(exec.anchor_kind == StructuralAnchorKind::kExec);
   require(exec.self_ns == 100);
   require(exec.aux_ns == 20);
   require(exec.graph_child_ns == 0);
@@ -78,7 +79,7 @@ int main() {
   const AnchorInternalCostBreakdownRow& graph_h = breakdown.rows[1];
   require(graph_h.anchor_idx == 2);
   require(graph_h.symbol == "H");
-  require(graph_h.anchor_kind == ReportAnchorKind::kGraphH);
+  require(graph_h.anchor_kind == StructuralAnchorKind::kGraphH);
   require(graph_h.self_ns == 0);
   require(graph_h.aux_ns == 5);
   require(graph_h.graph_child_ns == 300);

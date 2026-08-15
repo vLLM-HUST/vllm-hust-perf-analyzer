@@ -983,7 +983,7 @@ int main() {
   }
   require(rejected_bad_schema);
 
-  traceloom::compat::materialize_report_compatibility_views(db_path);
+  traceloom::compat::materialize_structural_compatibility_views(db_path);
   std::vector<std::string> analyzed_tables = expected_tables;
   analyzed_tables.push_back("traceloom_structure_bubble_api_occurrence");
   analyzed_tables.push_back("traceloom_structure_bubble_api_stats");

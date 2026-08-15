@@ -139,10 +139,4 @@ using StructuralNodeDefId = Id<StructuralNodeDefIdTag>;
 using StructuralNodeOccurrenceId = Id<StructuralNodeOccurrenceIdTag>;
 using StructuralCostLeafId = Id<StructuralCostLeafIdTag>;
 
-// Compatibility aliases for the former report product vocabulary. Rebuilding
-// clients is required; this refactor does not promise binary compatibility.
-using ReportNodeDefId = StructuralNodeDefId;
-using ReportNodeOccurrenceId = StructuralNodeOccurrenceId;
-using ReportCostLeafId = StructuralCostLeafId;
-
 }  // namespace traceloom

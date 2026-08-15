@@ -268,7 +268,7 @@ void validate_root_wall_clock_conservation(
       });
   if (root_found == tree.occurrences.end()) {
     throw std::invalid_argument(
-        "report cost conservation requires a root occurrence");
+        "structural cost conservation requires a root occurrence");
   }
   const StructuralNodeDefId root_def_id = root_found->node_def_id;
   const std::size_t root_def_occurrences = static_cast<std::size_t>(
@@ -278,12 +278,12 @@ void validate_root_wall_clock_conservation(
                     }));
   if (root_def_occurrences != 1) {
     throw std::invalid_argument(
-        "report cost conservation requires a unique root definition");
+        "structural cost conservation requires a unique root definition");
   }
   const NodeAccum& root_accum = accum[root_def_id.value()];
   if (root_accum.token_ordinals.size() != tokens.size()) {
     throw std::invalid_argument(
-        "report root cost does not cover every token exactly once");
+        "structural root cost does not cover every token exactly once");
   }
 
   struct DeviceBounds {
@@ -313,7 +313,7 @@ void validate_root_wall_clock_conservation(
       std::max(1e-9, std::abs(expected_us) * 1e-9);
   if (std::abs(actual_us - expected_us) > tolerance_us) {
     throw std::invalid_argument(
-        "report root wall-clock cost is not conserved");
+        "structural root wall-clock cost is not conserved");
   }
 }
 

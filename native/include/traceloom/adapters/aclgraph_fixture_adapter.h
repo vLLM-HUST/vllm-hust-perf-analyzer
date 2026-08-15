@@ -2,7 +2,7 @@
 
 #include "traceloom/adapters/aclgraph_fixture_reader.h"
 #include "traceloom/adapters/source_adapter.h"
-#include "traceloom/report/anchor_internal_cost_breakdown.h"
+#include "traceloom/analysis/anchor_internal_cost_breakdown.h"
 
 namespace traceloom {
 

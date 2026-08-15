@@ -1,7 +1,7 @@
-#include "traceloom/compat/schema.h"
-#include "traceloom/compat/sidecar_writer.h"
 #include "traceloom/compat/evidence_role_sql_rows.h"
 #include "traceloom/compat/native_sidecar_materializer.h"
+#include "traceloom/compat/schema.h"
+#include "traceloom/compat/sidecar_writer.h"
 #include "traceloom/testing/test_util.h"
 
 #include <sqlite3.h>
@@ -713,7 +713,7 @@ void seed_exact_graph_query_fixture(const std::string& db_path) {
 }
 
 void seed_replay_cost_query_fixture(const std::string& db_path) {
-  traceloom::compat::materialize_report_compatibility_views(db_path);
+  traceloom::compat::materialize_structural_compatibility_views(db_path);
   execute_sql(db_path, R"SQL(
 INSERT INTO traceloom_replay_cost_unit VALUES
  ('replay-cost-unit-1',0,0,1,2,1,1,'supported','');
@@ -732,7 +732,7 @@ INSERT INTO traceloom_replay_cost_aggregate VALUES
 INSERT INTO traceloom_replay_cost_aggregate_member VALUES
  ('replay-cost-aggregate-0','graph-body-member-query-1',0,0,0);
 )SQL");
-  traceloom::compat::materialize_report_compatibility_views(db_path);
+  traceloom::compat::materialize_structural_compatibility_views(db_path);
 }
 
 void seed_graph_replay_fixture(const std::string& db_path) {
@@ -1128,7 +1128,7 @@ void seed_runtime_device_fixture(const std::string& db_path) {
   primary.anchor_id = right_anchor.anchor_id;
   node_rows.anchor_primary_nodes.push_back(primary);
   replace_node_coverage_rows(db_path, node_rows);
-  materialize_report_compatibility_views(db_path);
+  materialize_structural_compatibility_views(db_path);
 }
 
 std::vector<QueryCase> active_query_cases() {
@@ -1652,7 +1652,7 @@ int main() {
           checked_in_report_sql_filenames());
 
   const std::string empty_db_path = temp_db_path();
-  traceloom::compat::materialize_report_compatibility_views(empty_db_path);
+  traceloom::compat::materialize_structural_compatibility_views(empty_db_path);
   traceloom::FlatAnchorBuildConfig empty_config;
   empty_config.classification_rules =
       traceloom::load_default_signal_classification_ruleset();
@@ -1721,7 +1721,7 @@ int main() {
       seed_replay_cost_query_fixture(db_path);
     } else if (query_case.filename == "symbol-normalization-audit.sql" ||
                query_case.filename == "event-reconciliation-audit.sql") {
-      traceloom::compat::materialize_report_compatibility_views(db_path);
+      traceloom::compat::materialize_structural_compatibility_views(db_path);
     }
 
     const QueryResult result = run_query(db_path, query_case);

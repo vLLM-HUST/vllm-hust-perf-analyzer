@@ -35,7 +35,7 @@ void validate_tokens_for_structural_anchors(
   for (const StructuralProjectionToken& token : tokens) {
     if (token.anchor_kind == StructuralAnchorKind::kGraphLaunchActivity) {
       throw std::invalid_argument(
-          "graph launch/activity metadata cannot become a report anchor");
+          "graph launch/activity metadata cannot become a structural anchor");
     }
   }
 }
@@ -327,7 +327,7 @@ std::uint32_t append_grammar_atom(StructuralOccurrenceGraph& tree,
     throw std::invalid_argument("grammar atom token span is out of range");
   }
   if (lowering.tokens[token_start].symbol_id != symbol) {
-    throw std::invalid_argument("grammar atom does not match report token");
+    throw std::invalid_argument("grammar atom does not match structural token");
   }
   const StructuralNodeDefId atom_def =
       append_atom_def_for_symbol(tree, lowering.tokens, symbol, display_depth,

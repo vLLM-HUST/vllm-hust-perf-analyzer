@@ -1,5 +1,5 @@
 #include "traceloom/compat/aux_attribution_rows.h"
-#include "traceloom/compat/report_tree_rows.h"
+#include "traceloom/compat/structural_projection_rows.h"
 #include "traceloom/testing/test_util.h"
 
 #include <stdexcept>
@@ -98,8 +98,8 @@ int main() {
       compat::build_aux_attribution_sql_rows(policy_ir, retained_config);
   require(retained_rows.aux_links.size() == 1);
   require(retained_rows.aux_links[0].aux_event_id == "event-1");
-  const std::vector<ReportToken> retained_tokens =
-      compat::build_report_tokens_from_native_ir(policy_ir, retained_config);
+  const std::vector<StructuralProjectionToken> retained_tokens =
+      compat::build_structural_projection_tokens_from_native_ir(policy_ir, retained_config);
   require(retained_tokens.size() == 2);
   require(retained_tokens[1].prelude_aux_event_count == 1.0);
   require(retained_tokens[1].prelude_aux_us == 3.0);
@@ -113,8 +113,8 @@ int main() {
       compat::build_aux_attribution_sql_rows(policy_ir,
                                              evidence_only_config);
   require(evidence_only_rows.aux_links.empty());
-  const std::vector<ReportToken> evidence_only_tokens =
-      compat::build_report_tokens_from_native_ir(policy_ir,
+  const std::vector<StructuralProjectionToken> evidence_only_tokens =
+      compat::build_structural_projection_tokens_from_native_ir(policy_ir,
                                                  evidence_only_config);
   require(evidence_only_tokens.size() == 2);
   require(evidence_only_tokens[1].prelude_aux_event_count == 0.0);

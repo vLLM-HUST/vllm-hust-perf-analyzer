@@ -318,7 +318,7 @@ int main() {
   const std::string reused_sync_path = temp_db_path();
   compat::materialize_compatibility_schema(reused_sync_path);
   compat::replace_runtime_device_rows(reused_sync_path, reused_sync_rows);
-  compat::materialize_report_compatibility_views(reused_sync_path);
+  compat::materialize_structural_compatibility_views(reused_sync_path);
   require(scalar_int(reused_sync_path,
                      "SELECT COUNT(*) FROM traceloom_v_sync_runtime_call") ==
           2);
@@ -498,7 +498,7 @@ int main() {
   primary.anchor_id = "anchor-1";
   node_rows.anchor_primary_nodes.push_back(primary);
   compat::replace_node_coverage_rows(path, node_rows);
-  compat::materialize_report_compatibility_views(path);
+  compat::materialize_structural_compatibility_views(path);
 
   require(scalar_int(path,
                      "SELECT COUNT(*) FROM traceloom_v_anchor_runtime_call "
@@ -621,7 +621,7 @@ int main() {
       "right_endpoint_count,provider,clock_domain,scope_policy,support_state) "
       "VALUES('interval-missing',0,0,'anchor-left','anchor-right',0,0,'cuda',"
       "'profiler_host','unavailable','missing_endpoint');");
-  compat::materialize_report_compatibility_views(unsupported_path);
+  compat::materialize_structural_compatibility_views(unsupported_path);
   require(scalar_int(
               unsupported_path,
               "SELECT COUNT(*) FROM traceloom_v_node_host_interval WHERE "

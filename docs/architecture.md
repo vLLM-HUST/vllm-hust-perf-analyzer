@@ -77,14 +77,14 @@ available for legacy workflows.
 The augmented database is the analytical product; no in-memory report object
 is a second source of truth. Provider-neutral structural semantics live under
 `analysis/structural_occurrence_*`, and SQL-row projection lives under
-`compat/structural_projection_*`. The former `ReportTree` headers and row
-builders remain as thin source-compatibility wrappers for embedding clients and
-the optional Markdown renderer.
+`compat/structural_projection_*`. The pre-publication `Report*` C++ facade has
+been removed rather than maintained as a second vocabulary; embedding clients
+must build against the canonical structural API.
 
 Persisted compatibility names such as `native_report_tree`,
 `native-report-tree`, and the existing tree/semantic relations are deliberately
-unchanged. Renaming an internal owner is not authority to break stored queries;
-those names can move only through an explicit, versioned schema migration.
+unchanged. They are storage labels, not C++ ownership boundaries. Renaming them
+would require an explicit, versioned schema migration.
 
 ## Maintenance Boundaries
 

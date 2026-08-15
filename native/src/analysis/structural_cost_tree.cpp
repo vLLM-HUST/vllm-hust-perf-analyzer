@@ -1,6 +1,6 @@
-#include "traceloom/report/report_cost_tree.h"
+#include "traceloom/analysis/structural_cost_tree.h"
 
-#include "traceloom/report/report_tree_cost_handoff.h"
+#include "traceloom/analysis/structural_cost_handoff.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -12,7 +12,7 @@ namespace traceloom {
 
 namespace {
 
-void add_error(ReportCostTree& out, std::string code, std::string message) {
+void add_error(StructuralCostTree& out, std::string code, std::string message) {
   out.diagnostics.push_back(Diagnostic{
       DiagnosticSeverity::kError,
       std::move(code),
@@ -20,14 +20,14 @@ void add_error(ReportCostTree& out, std::string code, std::string message) {
   });
 }
 
-bool has_errors(const ReportCostTree& out) {
+bool has_errors(const StructuralCostTree& out) {
   return std::any_of(out.diagnostics.begin(), out.diagnostics.end(),
                      [](const Diagnostic& diagnostic) {
                        return diagnostic.severity == DiagnosticSeverity::kError;
                      });
 }
 
-std::size_t checked_index(ReportNodeOccurrenceId id,
+std::size_t checked_index(StructuralNodeOccurrenceId id,
                           std::size_t size,
                           const char* what) {
   if (!id.valid() || id.value() >= size) {
@@ -36,7 +36,7 @@ std::size_t checked_index(ReportNodeOccurrenceId id,
   return id.value();
 }
 
-std::size_t checked_index(ReportCostLeafId id,
+std::size_t checked_index(StructuralCostLeafId id,
                           std::size_t size,
                           const char* what) {
   if (!id.valid() || id.value() >= size) {
@@ -47,33 +47,34 @@ std::size_t checked_index(ReportCostLeafId id,
 
 }  // namespace
 
-ReportCostTree build_report_cost_tree(
-    const ReportTree& tree,
-    const std::vector<ReportCostLeaf>& cost_leaves) {
-  ReportCostTree out;
+StructuralCostTree build_structural_cost_tree(
+    const StructuralOccurrenceGraph& tree,
+    const std::vector<StructuralCostLeaf>& cost_leaves) {
+  StructuralCostTree out;
 
   std::vector<std::uint32_t> structural_child_counts(tree.occurrences.size(), 0);
-  for (const ReportTreeEdge& edge : tree.edges) {
+  for (const StructuralOccurrenceEdge& edge : tree.edges) {
     if (!edge.parent_occurrence_id.valid() ||
         edge.parent_occurrence_id.value() >= tree.occurrences.size() ||
         !edge.child_occurrence_id.valid() ||
         edge.child_occurrence_id.value() >= tree.occurrences.size()) {
       add_error(out, "cost_tree_invalid_structural_edge",
-                "report tree structural edge references an unknown occurrence");
+                "structural graph edge references an unknown occurrence");
       continue;
     }
     structural_child_counts[edge.parent_occurrence_id.value()] += 1;
-    out.edges.push_back(ReportCostTreeEdge{
+    out.edges.push_back(StructuralCostTreeEdge{
         edge.parent_occurrence_id,
-        ReportCostItemKind::kStructuralOccurrence,
+        StructuralCostItemKind::kStructuralOccurrence,
         edge.child_occurrence_id,
-        ReportCostLeafId::invalid(),
+        StructuralCostLeafId::invalid(),
         edge.edge_order,
     });
   }
 
-  std::unordered_map<std::uint32_t, ReportNodeOccurrenceId> atom_by_token;
-  for (const ReportCostHandoffRow& row : collect_report_cost_handoff_rows(tree)) {
+  std::unordered_map<std::uint32_t, StructuralNodeOccurrenceId> atom_by_token;
+  for (const StructuralCostHandoffRow& row :
+       collect_structural_cost_handoff_rows(tree)) {
     if (row.token_end_ordinal <= row.token_start_ordinal) {
       add_error(out, "cost_tree_empty_atom_span",
                 "atom cost handoff row has an empty token span");
@@ -89,9 +90,9 @@ ReportCostTree build_report_cost_tree(
     }
   }
 
-  std::vector<std::vector<ReportNodeOccurrenceId>> structural_children(
+  std::vector<std::vector<StructuralNodeOccurrenceId>> structural_children(
       tree.occurrences.size());
-  for (const ReportTreeEdge& edge : tree.edges) {
+  for (const StructuralOccurrenceEdge& edge : tree.edges) {
     if (edge.parent_occurrence_id.valid() &&
         edge.parent_occurrence_id.value() < tree.occurrences.size() &&
         edge.child_occurrence_id.valid() &&
@@ -101,10 +102,10 @@ ReportCostTree build_report_cost_tree(
     }
   }
 
-  std::vector<std::vector<ReportCostLeafId>> cost_leaf_children(
+  std::vector<std::vector<StructuralCostLeafId>> cost_leaf_children(
       tree.occurrences.size());
   for (std::size_t i = 0; i < cost_leaves.size(); ++i) {
-    const ReportCostLeaf& leaf = cost_leaves[i];
+    const StructuralCostLeaf& leaf = cost_leaves[i];
     if (!leaf.id.valid() || leaf.id.value() != i) {
       add_error(out, "cost_tree_invalid_cost_leaf_id",
                 "cost leaf ids must be dense and ordered");
@@ -121,12 +122,12 @@ ReportCostTree build_report_cost_tree(
                 "cost leaf token ordinal is not covered by an atom occurrence");
       continue;
     }
-    const ReportNodeOccurrenceId parent_id = owner->second;
+    const StructuralNodeOccurrenceId parent_id = owner->second;
     cost_leaf_children[parent_id.value()].push_back(leaf.id);
-    out.edges.push_back(ReportCostTreeEdge{
+    out.edges.push_back(StructuralCostTreeEdge{
         parent_id,
-        ReportCostItemKind::kCostLeaf,
-        ReportNodeOccurrenceId::invalid(),
+        StructuralCostItemKind::kCostLeaf,
+        StructuralNodeOccurrenceId::invalid(),
         leaf.id,
         structural_child_counts[parent_id.value()] +
             static_cast<std::uint32_t>(
@@ -140,12 +141,12 @@ ReportCostTree build_report_cost_tree(
   }
 
   out.metrics.reserve(tree.occurrences.size() + cost_leaves.size());
-  std::vector<ReportCostMetric> occurrence_metrics(tree.occurrences.size());
-  for (const ReportNodeOccurrence& occurrence : tree.occurrences) {
-    ReportCostMetric& metric = occurrence_metrics[occurrence.id.value()];
-    metric.item_kind = ReportCostItemKind::kStructuralOccurrence;
+  std::vector<StructuralCostMetric> occurrence_metrics(tree.occurrences.size());
+  for (const StructuralNodeOccurrence& occurrence : tree.occurrences) {
+    StructuralCostMetric& metric = occurrence_metrics[occurrence.id.value()];
+    metric.item_kind = StructuralCostItemKind::kStructuralOccurrence;
     metric.occurrence_id = occurrence.id;
-    metric.cost_leaf_id = ReportCostLeafId::invalid();
+    metric.cost_leaf_id = StructuralCostLeafId::invalid();
     metric.direct_structural_child_count =
         static_cast<std::uint32_t>(
             structural_children[occurrence.id.value()].size());
@@ -154,10 +155,10 @@ ReportCostTree build_report_cost_tree(
             cost_leaf_children[occurrence.id.value()].size());
   }
 
-  for (const ReportCostLeaf& leaf : cost_leaves) {
-    out.metrics.push_back(ReportCostMetric{
-        ReportCostItemKind::kCostLeaf,
-        ReportNodeOccurrenceId::invalid(),
+  for (const StructuralCostLeaf& leaf : cost_leaves) {
+    out.metrics.push_back(StructuralCostMetric{
+        StructuralCostItemKind::kCostLeaf,
+        StructuralNodeOccurrenceId::invalid(),
         leaf.id,
         leaf.duration_ns,
         0,
@@ -169,34 +170,34 @@ ReportCostTree build_report_cost_tree(
   }
 
   std::vector<std::uint8_t> visit_state(tree.occurrences.size(), 0);
-  auto compute = [&](auto&& self,
-                     ReportNodeOccurrenceId occurrence_id) -> ReportCostMetric& {
+  auto compute = [&](auto&& self, StructuralNodeOccurrenceId occurrence_id)
+      -> StructuralCostMetric& {
     const std::size_t index =
         checked_index(occurrence_id, tree.occurrences.size(),
-                      "ReportNodeOccurrenceId out of range");
+                      "StructuralNodeOccurrenceId out of range");
     if (visit_state[index] == 2) {
       return occurrence_metrics[index];
     }
     if (visit_state[index] == 1) {
-      throw std::invalid_argument("report cost tree structural cycle");
+      throw std::invalid_argument("structural cost tree cycle");
     }
     visit_state[index] = 1;
 
-    ReportCostMetric& metric = occurrence_metrics[index];
+    StructuralCostMetric& metric = occurrence_metrics[index];
     metric.direct_child_duration_ns = 0;
     metric.total_duration_ns = metric.self_duration_ns;
     metric.subtree_cost_leaf_count = 0;
 
-    for (ReportNodeOccurrenceId child_id : structural_children[index]) {
-      const ReportCostMetric& child = self(self, child_id);
+    for (StructuralNodeOccurrenceId child_id : structural_children[index]) {
+      const StructuralCostMetric& child = self(self, child_id);
       metric.direct_child_duration_ns += child.total_duration_ns;
       metric.total_duration_ns += child.total_duration_ns;
       metric.subtree_cost_leaf_count += child.subtree_cost_leaf_count;
     }
-    for (ReportCostLeafId leaf_id : cost_leaf_children[index]) {
-      const ReportCostLeaf& leaf =
+    for (StructuralCostLeafId leaf_id : cost_leaf_children[index]) {
+      const StructuralCostLeaf& leaf =
           cost_leaves[checked_index(leaf_id, cost_leaves.size(),
-                                    "ReportCostLeafId out of range")];
+                                    "StructuralCostLeafId out of range")];
       metric.direct_child_duration_ns += leaf.duration_ns;
       metric.total_duration_ns += leaf.duration_ns;
       metric.subtree_cost_leaf_count += 1;
@@ -206,21 +207,21 @@ ReportCostTree build_report_cost_tree(
     return metric;
   };
 
-  for (const ReportNodeOccurrence& occurrence : tree.occurrences) {
+  for (const StructuralNodeOccurrence& occurrence : tree.occurrences) {
     compute(compute, occurrence.id);
   }
 
-  for (const ReportNodeOccurrence& occurrence : tree.occurrences) {
+  for (const StructuralNodeOccurrence& occurrence : tree.occurrences) {
     out.metrics.push_back(occurrence_metrics[occurrence.id.value()]);
   }
 
   std::sort(out.metrics.begin(), out.metrics.end(),
-            [](const ReportCostMetric& lhs, const ReportCostMetric& rhs) {
+            [](const StructuralCostMetric& lhs, const StructuralCostMetric& rhs) {
               if (lhs.item_kind != rhs.item_kind) {
                 return lhs.item_kind ==
-                       ReportCostItemKind::kStructuralOccurrence;
+                       StructuralCostItemKind::kStructuralOccurrence;
               }
-              if (lhs.item_kind == ReportCostItemKind::kStructuralOccurrence) {
+              if (lhs.item_kind == StructuralCostItemKind::kStructuralOccurrence) {
                 return lhs.occurrence_id < rhs.occurrence_id;
               }
               return lhs.cost_leaf_id < rhs.cost_leaf_id;
@@ -229,11 +230,11 @@ ReportCostTree build_report_cost_tree(
   return out;
 }
 
-const ReportCostMetric* find_report_cost_metric(
-    const ReportCostTree& cost_tree,
-    ReportNodeOccurrenceId occurrence_id) {
-  for (const ReportCostMetric& metric : cost_tree.metrics) {
-    if (metric.item_kind == ReportCostItemKind::kStructuralOccurrence &&
+const StructuralCostMetric* find_structural_cost_metric(
+    const StructuralCostTree& cost_tree,
+    StructuralNodeOccurrenceId occurrence_id) {
+  for (const StructuralCostMetric& metric : cost_tree.metrics) {
+    if (metric.item_kind == StructuralCostItemKind::kStructuralOccurrence &&
         metric.occurrence_id == occurrence_id) {
       return &metric;
     }
@@ -241,11 +242,11 @@ const ReportCostMetric* find_report_cost_metric(
   return nullptr;
 }
 
-const ReportCostMetric* find_report_cost_leaf_metric(
-    const ReportCostTree& cost_tree,
-    ReportCostLeafId cost_leaf_id) {
-  for (const ReportCostMetric& metric : cost_tree.metrics) {
-    if (metric.item_kind == ReportCostItemKind::kCostLeaf &&
+const StructuralCostMetric* find_structural_cost_leaf_metric(
+    const StructuralCostTree& cost_tree,
+    StructuralCostLeafId cost_leaf_id) {
+  for (const StructuralCostMetric& metric : cost_tree.metrics) {
+    if (metric.item_kind == StructuralCostItemKind::kCostLeaf &&
         metric.cost_leaf_id == cost_leaf_id) {
       return &metric;
     }

@@ -1,5 +1,5 @@
+#include "traceloom/analysis/structural_occurrence_builder.h"
 #include "traceloom/pattern/grammar_state.h"
-#include "traceloom/report/report_tree_builder.h"
 #include "traceloom/testing/test_util.h"
 
 #include <stdexcept>
@@ -7,15 +7,15 @@
 
 namespace {
 
-traceloom::ReportToken token(std::uint32_t ordinal,
-                             traceloom::SymbolId symbol,
-                             const char* op) {
-  traceloom::ReportToken out;
+traceloom::StructuralProjectionToken token(std::uint32_t ordinal,
+                                            traceloom::SymbolId symbol,
+                                            const char* op) {
+  traceloom::StructuralProjectionToken out;
   out.ordinal = ordinal;
   out.symbol_id = symbol;
   out.display_op = op;
   out.display_category = "exec";
-  out.anchor_kind = traceloom::ReportAnchorKind::kExec;
+  out.anchor_kind = traceloom::StructuralAnchorKind::kExec;
   out.start_ns = static_cast<std::int64_t>(ordinal) * 10;
   out.end_ns = out.start_ns + 5;
   return out;
@@ -31,38 +31,38 @@ int main() {
   const SymbolId b(2);
   const SymbolId c(3);
 
-  const std::vector<ReportToken> macro_run_tokens{
+  const std::vector<StructuralProjectionToken> macro_run_tokens{
       token(0, a, "A"), token(1, b, "B"), token(2, a, "A"),
       token(3, b, "B"), token(4, a, "A"), token(5, b, "B"),
   };
-  ReportGrammarEvidence macro_run;
+  StructuralGrammarEvidence macro_run;
   macro_run.macros.push_back(
-      ReportMacroDefinition{"M1", {a, b}, ReportMacroVisibility::kKeepRepeat});
-  macro_run.final_sequence.push_back(ReportGrammarItem::macro("M1"));
-  macro_run.final_sequence.push_back(ReportGrammarItem::macro("M1"));
-  macro_run.final_sequence.push_back(ReportGrammarItem::macro("M1"));
+      StructuralMacroDefinition{"M1", {a, b}, StructuralMacroVisibility::kKeepRepeat});
+  macro_run.final_sequence.push_back(StructuralGrammarItem::macro("M1"));
+  macro_run.final_sequence.push_back(StructuralGrammarItem::macro("M1"));
+  macro_run.final_sequence.push_back(StructuralGrammarItem::macro("M1"));
 
-  const ReportTree macro_tree =
-      build_report_tree_from_grammar(macro_run_tokens, macro_run);
+  const StructuralOccurrenceGraph macro_tree =
+      build_structural_occurrence_graph_from_grammar(macro_run_tokens, macro_run);
   require(macro_tree.node_defs.size() == 5);
   require(macro_tree.node_defs[0].local_node_id == "N001");
-  require(macro_tree.node_defs[0].kind == ReportNodeKind::kSeq);
+  require(macro_tree.node_defs[0].kind == StructuralNodeKind::kSeq);
   require(macro_tree.node_defs[1].local_node_id == "N002");
-  require(macro_tree.node_defs[1].kind == ReportNodeKind::kRepeat);
+  require(macro_tree.node_defs[1].kind == StructuralNodeKind::kRepeat);
   require(macro_tree.node_defs[1].repeat_count == 3);
   require(macro_tree.node_defs[1].display_op == "Rep x3");
   require(macro_tree.node_defs[2].local_node_id == "N003");
-  require(macro_tree.node_defs[2].kind == ReportNodeKind::kSeq);
+  require(macro_tree.node_defs[2].kind == StructuralNodeKind::kSeq);
   require(macro_tree.node_defs[3].display_op == "A");
   require(macro_tree.node_defs[4].display_op == "B");
-  require(occurrence_count_for_def(macro_tree, macro_tree.node_defs[2].id) ==
+  require(structural_occurrence_count_for_def(macro_tree, macro_tree.node_defs[2].id) ==
           3);
-  require(occurrence_count_for_def(macro_tree, macro_tree.node_defs[3].id) ==
+  require(structural_occurrence_count_for_def(macro_tree, macro_tree.node_defs[3].id) ==
           3);
-  require(occurrence_count_for_def(macro_tree, macro_tree.node_defs[4].id) ==
+  require(structural_occurrence_count_for_def(macro_tree, macro_tree.node_defs[4].id) ==
           3);
   require(macro_tree.diagnostics.empty());
-  validate_report_tree_or_throw(macro_tree, macro_run_tokens.size());
+  validate_structural_occurrence_graph_or_throw(macro_tree, macro_run_tokens.size());
 
   GlobalGrammarState grammar_state_run;
   grammar_state_run.stage = GrammarStage::kDone;
@@ -84,38 +84,38 @@ int main() {
                   2, 0, ""}};
   grammar_state_run.live_node_count = 3;
 
-  const ReportTree grammar_state_tree =
-      build_report_tree_from_grammar_state(macro_run_tokens,
+  const StructuralOccurrenceGraph grammar_state_tree =
+      build_structural_occurrence_graph_from_grammar_state(macro_run_tokens,
                                            grammar_state_run);
   require(grammar_state_tree.node_defs.size() == 4);
-  require(grammar_state_tree.node_defs[1].kind == ReportNodeKind::kRepeat);
+  require(grammar_state_tree.node_defs[1].kind == StructuralNodeKind::kRepeat);
   require(grammar_state_tree.node_defs[1].display_op == "Rep x3");
   require(grammar_state_tree.node_defs[1].repeat_count == 3);
   require(grammar_state_tree.node_defs[2].display_op == "A");
   require(grammar_state_tree.node_defs[3].display_op == "B");
-  require(occurrence_count_for_def(grammar_state_tree,
+  require(structural_occurrence_count_for_def(grammar_state_tree,
                                    grammar_state_tree.node_defs[2].id) == 3);
-  require(occurrence_count_for_def(grammar_state_tree,
+  require(structural_occurrence_count_for_def(grammar_state_tree,
                                    grammar_state_tree.node_defs[3].id) == 3);
   for (std::size_t index = 2; index < grammar_state_tree.node_defs.size();
        ++index) {
-    require(grammar_state_tree.node_defs[index].kind == ReportNodeKind::kAtom);
+    require(grammar_state_tree.node_defs[index].kind == StructuralNodeKind::kAtom);
   }
-  validate_report_tree_or_throw(grammar_state_tree, macro_run_tokens.size());
+  validate_structural_occurrence_graph_or_throw(grammar_state_tree, macro_run_tokens.size());
 
-  const std::vector<ReportToken> inline_tokens{
+  const std::vector<StructuralProjectionToken> inline_tokens{
       token(0, a, "A"),
       token(1, b, "B"),
       token(2, c, "C"),
   };
-  ReportGrammarEvidence inline_macro;
+  StructuralGrammarEvidence inline_macro;
   inline_macro.macros.push_back(
-      ReportMacroDefinition{"M1", {a, b}, ReportMacroVisibility::kInline});
-  inline_macro.final_sequence.push_back(ReportGrammarItem::macro("M1"));
-  inline_macro.final_sequence.push_back(ReportGrammarItem::symbol(c));
+      StructuralMacroDefinition{"M1", {a, b}, StructuralMacroVisibility::kInline});
+  inline_macro.final_sequence.push_back(StructuralGrammarItem::macro("M1"));
+  inline_macro.final_sequence.push_back(StructuralGrammarItem::symbol(c));
 
-  const ReportTree inline_tree =
-      build_report_tree_from_grammar(inline_tokens, inline_macro);
+  const StructuralOccurrenceGraph inline_tree =
+      build_structural_occurrence_graph_from_grammar(inline_tokens, inline_macro);
   require(inline_tree.node_defs.size() == 4);
   require(inline_tree.occurrences.size() == 4);
   require(inline_tree.edges.size() == 3);
@@ -127,12 +127,12 @@ int main() {
   require(inline_tree.diagnostics[0].severity == DiagnosticSeverity::kWarning);
   require(inline_tree.diagnostics[0].code ==
           "macro_inlined_single_visible_reference");
-  validate_report_tree_or_throw(inline_tree, inline_tokens.size());
+  validate_structural_occurrence_graph_or_throw(inline_tree, inline_tokens.size());
 
   const SymbolId h(4);
   const SymbolId l(5);
   const SymbolId t(6);
-  const std::vector<ReportToken> semantic_tokens{
+  const std::vector<StructuralProjectionToken> semantic_tokens{
       token(0, h, "ACLH"), token(1, l, "ACLL"),
       token(2, l, "ACLL"), token(3, t, "ACLT")};
   GlobalGrammarState semantic_state;
@@ -147,25 +147,26 @@ int main() {
       MacroDefId(0), SymbolId(101), MacroLevel::kSemantic, {h, l, l, t}, 4,
       1, 3, 0, "ReplayUnit T1"}};
   semantic_state.live_node_count = 1;
-  const ReportTree semantic_tree = build_report_tree_from_grammar_state(
-      semantic_tokens, semantic_state);
+  const StructuralOccurrenceGraph semantic_tree =
+      build_structural_occurrence_graph_from_grammar_state(semantic_tokens,
+                                                            semantic_state);
   require(semantic_tree.node_defs.size() == 6);
-  require(semantic_tree.node_defs[1].kind == ReportNodeKind::kSeq);
+  require(semantic_tree.node_defs[1].kind == StructuralNodeKind::kSeq);
   require(semantic_tree.node_defs[1].display_op == "ReplayUnit T1");
   require(semantic_tree.node_defs[1].display_category == "graph_unit");
-  require(semantic_tree.node_defs[3].kind == ReportNodeKind::kRepeat);
+  require(semantic_tree.node_defs[3].kind == StructuralNodeKind::kRepeat);
   require(semantic_tree.node_defs[3].display_op == "Rep x2");
   require(semantic_tree.node_defs[3].repeat_count == 2);
   require(semantic_tree.node_defs[4].display_op == "ACLL");
-  require(occurrence_count_for_def(semantic_tree,
+  require(structural_occurrence_count_for_def(semantic_tree,
                                    semantic_tree.node_defs[4].id) == 2);
-  validate_report_tree_or_throw(semantic_tree, semantic_tokens.size());
+  validate_structural_occurrence_graph_or_throw(semantic_tree, semantic_tokens.size());
 
   bool caught_mismatch = false;
   try {
-    ReportGrammarEvidence bad = macro_run;
+    StructuralGrammarEvidence bad = macro_run;
     bad.macros[0].body_symbols = {b, a};
-    (void)build_report_tree_from_grammar(macro_run_tokens, bad);
+    (void)build_structural_occurrence_graph_from_grammar(macro_run_tokens, bad);
   } catch (const std::invalid_argument&) {
     caught_mismatch = true;
   }
@@ -173,9 +174,9 @@ int main() {
 
   bool caught_unknown_macro = false;
   try {
-    ReportGrammarEvidence bad;
-    bad.final_sequence.push_back(ReportGrammarItem::macro("missing"));
-    (void)build_report_tree_from_grammar(inline_tokens, bad);
+    StructuralGrammarEvidence bad;
+    bad.final_sequence.push_back(StructuralGrammarItem::macro("missing"));
+    (void)build_structural_occurrence_graph_from_grammar(inline_tokens, bad);
   } catch (const std::invalid_argument&) {
     caught_unknown_macro = true;
   }

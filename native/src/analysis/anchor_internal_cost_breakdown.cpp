@@ -1,6 +1,6 @@
-#include "traceloom/report/anchor_internal_cost_breakdown.h"
+#include "traceloom/analysis/anchor_internal_cost_breakdown.h"
 
-#include "traceloom/report/report_tree_cost_handoff.h"
+#include "traceloom/analysis/structural_cost_handoff.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -41,24 +41,25 @@ void append_field(std::string& target, const std::string& value) {
 }  // namespace
 
 AnchorInternalCostBreakdown build_anchor_internal_cost_breakdown(
-    const ReportTree& tree,
-    const std::vector<ReportToken>& tokens,
+    const StructuralOccurrenceGraph& tree,
+    const std::vector<StructuralProjectionToken>& tokens,
     const std::vector<AnchorCostComponentLeaf>& component_leaves) {
   AnchorInternalCostBreakdown out;
 
-  std::unordered_map<std::uint32_t, const ReportToken*> token_by_ordinal;
+  std::unordered_map<std::uint32_t, const StructuralProjectionToken*> token_by_ordinal;
   token_by_ordinal.reserve(tokens.size());
-  for (const ReportToken& token : tokens) {
+  for (const StructuralProjectionToken& token : tokens) {
     const auto inserted = token_by_ordinal.emplace(token.ordinal, &token);
     if (!inserted.second) {
       add_error(out, "anchor_cost_duplicate_token_ordinal",
-                "report tokens must have unique ordinals");
+                "structural tokens must have unique ordinals");
     }
   }
 
-  std::unordered_map<std::uint32_t, ReportNodeOccurrenceId> atom_by_token;
-  std::unordered_map<std::uint32_t, ReportCostHandoffRow> handoff_by_token;
-  for (const ReportCostHandoffRow& row : collect_report_cost_handoff_rows(tree)) {
+  std::unordered_map<std::uint32_t, StructuralNodeOccurrenceId> atom_by_token;
+  std::unordered_map<std::uint32_t, StructuralCostHandoffRow> handoff_by_token;
+  for (const StructuralCostHandoffRow& row :
+       collect_structural_cost_handoff_rows(tree)) {
     if (row.token_end_ordinal <= row.token_start_ordinal) {
       add_error(out, "anchor_cost_empty_atom_span",
                 "atom cost handoff row has an empty token span");
@@ -80,16 +81,17 @@ AnchorInternalCostBreakdown build_anchor_internal_cost_breakdown(
   out.rows.reserve(handoff_by_token.size());
   for (const auto& entry : handoff_by_token) {
     const std::uint32_t token_ordinal = entry.first;
-    const ReportCostHandoffRow& handoff = entry.second;
+    const StructuralCostHandoffRow& handoff = entry.second;
     const auto token_it = token_by_ordinal.find(token_ordinal);
     if (token_it == token_by_ordinal.end()) {
-      add_error(out, "anchor_cost_missing_report_token",
-                "atom cost handoff row references a token absent from report "
-                "tokens");
+      add_error(
+          out, "anchor_cost_missing_structural_token",
+          "atom cost handoff row references a token absent from the structural "
+          "token stream");
       continue;
     }
 
-    const ReportToken& token = *token_it->second;
+    const StructuralProjectionToken& token = *token_it->second;
     AnchorInternalCostBreakdownRow row;
     row.anchor_occurrence_id = handoff.atom_occurrence_id;
     row.anchor_def_id = handoff.node_def_id;

@@ -4,9 +4,9 @@
 #include <iosfwd>
 #include <string>
 
+#include "traceloom/analysis/anchor_internal_cost_breakdown.h"
 #include "traceloom/analysis/native_pipeline.h"
 #include "traceloom/core/string_table.h"
-#include "traceloom/report/anchor_internal_cost_breakdown.h"
 
 namespace traceloom {
 

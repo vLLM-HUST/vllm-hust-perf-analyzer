@@ -59,12 +59,10 @@ add_library(traceloom_native_core
   src/pattern/grammar_state.cpp
   src/pattern/pattern_candidate_table.cpp
   src/pattern/pattern_candidate_summary.cpp
-  src/report/anchor_graph_child_cost.cpp
-  src/report/anchor_internal_cost_breakdown.cpp
-  src/report/report_tree.cpp
-  src/report/report_tree_builder.cpp
-  src/report/report_cost_tree.cpp
-  src/report/report_tree_cost_handoff.cpp
+  src/analysis/anchor_graph_child_cost.cpp
+  src/analysis/anchor_internal_cost_breakdown.cpp
+  src/analysis/structural_cost_tree.cpp
+  src/analysis/structural_cost_handoff.cpp
   src/runtime/thread_pool.cpp
   src/sequence/boundary_index.cpp
   src/sequence/partition_plan.cpp
@@ -118,7 +116,6 @@ add_library(traceloom_native_adapters
 target_link_libraries(traceloom_native_adapters PUBLIC traceloom_native_core)
 
 add_library(traceloom_native_materialize
-  src/compat/aclgraph_graph_replay_rows.cpp
   src/compat/anchor_sequence_rows.cpp
   src/compat/anchor_cost_breakdown_rows.cpp
   src/compat/augmented_catalog_materializer.cpp
@@ -129,7 +126,6 @@ add_library(traceloom_native_materialize
   src/compat/native_graph_replay_rows.cpp
   src/compat/native_sidecar_materializer.cpp
   src/compat/native_sidecar_packaging.cpp
-  src/compat/report_tree_rows.cpp
   src/compat/structural_projection_rows.cpp
   src/compat/structural_projection_tokens.cpp
   src/compat/replay_cost_sql_rows.cpp
@@ -517,65 +513,65 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     COMMAND traceloom_native_pipeline_tests
   )
 
-  add_executable(traceloom_native_report_tree_builder_tests
-    tests/report/report_tree_builder_tests.cpp
+  add_executable(traceloom_native_structural_occurrence_builder_tests
+    tests/analysis/structural_occurrence_builder_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_report_tree_builder_tests PRIVATE traceloom_native_core
+    traceloom_native_structural_occurrence_builder_tests PRIVATE traceloom_native_core
   )
   add_test(
-    NAME traceloom_native_report_tree_builder_tests
-    COMMAND traceloom_native_report_tree_builder_tests
+    NAME traceloom_native_structural_occurrence_builder_tests
+    COMMAND traceloom_native_structural_occurrence_builder_tests
   )
 
-  add_executable(traceloom_native_report_tree_visibility_tests
-    tests/report/report_tree_visibility_tests.cpp
+  add_executable(traceloom_native_structural_occurrence_visibility_tests
+    tests/analysis/structural_occurrence_visibility_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_report_tree_visibility_tests PRIVATE traceloom_native_core
+    traceloom_native_structural_occurrence_visibility_tests PRIVATE traceloom_native_core
   )
   add_test(
-    NAME traceloom_native_report_tree_visibility_tests
-    COMMAND traceloom_native_report_tree_visibility_tests
+    NAME traceloom_native_structural_occurrence_visibility_tests
+    COMMAND traceloom_native_structural_occurrence_visibility_tests
   )
 
-  add_executable(traceloom_native_report_tree_graph_boundary_tests
-    tests/report/report_tree_graph_boundary_tests.cpp
+  add_executable(traceloom_native_structural_occurrence_graph_boundary_tests
+    tests/analysis/structural_occurrence_graph_boundary_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_report_tree_graph_boundary_tests PRIVATE
+    traceloom_native_structural_occurrence_graph_boundary_tests PRIVATE
     traceloom_native_core
   )
   add_test(
-    NAME traceloom_native_report_tree_graph_boundary_tests
-    COMMAND traceloom_native_report_tree_graph_boundary_tests
+    NAME traceloom_native_structural_occurrence_graph_boundary_tests
+    COMMAND traceloom_native_structural_occurrence_graph_boundary_tests
   )
 
-  add_executable(traceloom_native_report_tree_cost_handoff_tests
-    tests/report/report_tree_cost_handoff_tests.cpp
+  add_executable(traceloom_native_structural_cost_handoff_tests
+    tests/analysis/structural_cost_handoff_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_report_tree_cost_handoff_tests PRIVATE
+    traceloom_native_structural_cost_handoff_tests PRIVATE
     traceloom_native_core
   )
   add_test(
-    NAME traceloom_native_report_tree_cost_handoff_tests
-    COMMAND traceloom_native_report_tree_cost_handoff_tests
+    NAME traceloom_native_structural_cost_handoff_tests
+    COMMAND traceloom_native_structural_cost_handoff_tests
   )
 
-  add_executable(traceloom_native_report_cost_tree_tests
-    tests/report/report_cost_tree_tests.cpp
+  add_executable(traceloom_native_structural_cost_tree_tests
+    tests/analysis/structural_cost_tree_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_report_cost_tree_tests PRIVATE traceloom_native_core
+    traceloom_native_structural_cost_tree_tests PRIVATE traceloom_native_core
   )
   add_test(
-    NAME traceloom_native_report_cost_tree_tests
-    COMMAND traceloom_native_report_cost_tree_tests
+    NAME traceloom_native_structural_cost_tree_tests
+    COMMAND traceloom_native_structural_cost_tree_tests
   )
 
   add_executable(traceloom_native_anchor_internal_cost_breakdown_tests
-    tests/report/anchor_internal_cost_breakdown_tests.cpp
+    tests/analysis/anchor_internal_cost_breakdown_tests.cpp
   )
   target_link_libraries(
     traceloom_native_anchor_internal_cost_breakdown_tests PRIVATE
@@ -587,7 +583,7 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
   )
 
   add_executable(traceloom_native_anchor_graph_child_cost_tests
-    tests/report/anchor_graph_child_cost_tests.cpp
+    tests/analysis/anchor_graph_child_cost_tests.cpp
   )
   target_link_libraries(
     traceloom_native_anchor_graph_child_cost_tests PRIVATE traceloom_native_core
@@ -632,19 +628,6 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
   add_test(
     NAME traceloom_native_anchor_cost_breakdown_rows_tests
     COMMAND traceloom_native_anchor_cost_breakdown_rows_tests
-  )
-
-  add_executable(traceloom_native_aclgraph_graph_replay_rows_tests
-    tests/compat/aclgraph_graph_replay_rows_tests.cpp
-  )
-  target_link_libraries(
-    traceloom_native_aclgraph_graph_replay_rows_tests PRIVATE
-    traceloom_native_adapters
-    traceloom_native_materialize
-  )
-  add_test(
-    NAME traceloom_native_aclgraph_graph_replay_rows_tests
-    COMMAND traceloom_native_aclgraph_graph_replay_rows_tests
   )
 
   add_executable(traceloom_native_anchor_sequence_rows_tests
@@ -722,16 +705,16 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     COMMAND traceloom_native_collective_tag_rows_tests
   )
 
-  add_executable(traceloom_native_report_tree_rows_tests
-    tests/compat/report_tree_rows_tests.cpp
+  add_executable(traceloom_native_structural_projection_rows_tests
+    tests/compat/structural_projection_rows_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_report_tree_rows_tests PRIVATE
+    traceloom_native_structural_projection_rows_tests PRIVATE
     traceloom_native_materialize
   )
   add_test(
-    NAME traceloom_native_report_tree_rows_tests
-    COMMAND traceloom_native_report_tree_rows_tests
+    NAME traceloom_native_structural_projection_rows_tests
+    COMMAND traceloom_native_structural_projection_rows_tests
   )
 
   add_executable(traceloom_native_timeline_rows_tests
@@ -810,6 +793,15 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
   set_tests_properties(
     traceloom_native_analyze_aclgraph_fixture_cli
     PROPERTIES PASS_REGULAR_EXPRESSION "anchor_internal_cost_breakdown"
+  )
+
+  add_test(
+    NAME traceloom_native_analyze_aclgraph_fixture_rejects_compat_sidecar
+    COMMAND ${CMAKE_COMMAND}
+      -DTRACELOOM_ACLGRAPH_ANALYZER=$<TARGET_FILE:traceloom-native-analyze-aclgraph-fixture>
+      -DTRACELOOM_ACLGRAPH_FIXTURE=${TRACELOOM_NATIVE_FIXTURE_ROOT}/aclgraph/aclgraph_python_minimal_assets.json
+      -DTRACELOOM_REMOVED_SIDECAR_PATH=${CMAKE_CURRENT_BINARY_DIR}/removed_aclgraph_fixture_sidecar.db
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/boundary/reject_removed_aclgraph_sidecar_option.cmake
   )
 
   add_executable(traceloom_native_fixture_adapter_tests
@@ -1091,36 +1083,35 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
       COMMAND traceloom_native_report_sql_compat_tests
     )
 
-    add_executable(traceloom_native_generated_sidecar_report_tests
-      tests/compat/native_generated_sidecar_report_tests.cpp
+    add_executable(traceloom_native_generated_sidecar_projection_tests
+      tests/compat/generated_sidecar_projection_tests.cpp
     )
     target_compile_definitions(
-      traceloom_native_generated_sidecar_report_tests PRIVATE
+      traceloom_native_generated_sidecar_projection_tests PRIVATE
       TRACELOOM_NATIVE_SOURCE_ROOT="${CMAKE_CURRENT_SOURCE_DIR}"
-      TRACELOOM_NATIVE_FIXTURE_ROOT="${TRACELOOM_NATIVE_FIXTURE_ROOT}"
     )
     target_link_libraries(
-      traceloom_native_generated_sidecar_report_tests PRIVATE
+      traceloom_native_generated_sidecar_projection_tests PRIVATE
       traceloom_native_adapters
       traceloom_native_materialize
     )
     if(TARGET SQLite::SQLite3)
       target_link_libraries(
-        traceloom_native_generated_sidecar_report_tests PRIVATE SQLite::SQLite3
+        traceloom_native_generated_sidecar_projection_tests PRIVATE SQLite::SQLite3
       )
     else()
       target_include_directories(
-        traceloom_native_generated_sidecar_report_tests
+        traceloom_native_generated_sidecar_projection_tests
         PRIVATE ${SQLite3_INCLUDE_DIRS}
       )
       target_link_libraries(
-        traceloom_native_generated_sidecar_report_tests
+        traceloom_native_generated_sidecar_projection_tests
         PRIVATE ${SQLite3_LIBRARIES}
       )
     endif()
     add_test(
-      NAME traceloom_native_generated_sidecar_report_tests
-      COMMAND traceloom_native_generated_sidecar_report_tests
+      NAME traceloom_native_generated_sidecar_projection_tests
+      COMMAND traceloom_native_generated_sidecar_projection_tests
     )
 
     add_executable(traceloom_native_cli_sidecar_smoke_tests
@@ -1241,29 +1232,6 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
       PROPERTIES DEPENDS traceloom_native_analyze_fixture_compat_sidecar_cli
     )
 
-    add_test(
-      NAME traceloom_native_analyze_aclgraph_fixture_compat_sidecar_cli
-      COMMAND traceloom-native-analyze-aclgraph-fixture
-        --fixture
-        ${TRACELOOM_NATIVE_FIXTURE_ROOT}/aclgraph/aclgraph_python_minimal_assets.json
-        --threads 2
-        --out -
-        --compat-sidecar-out ${CMAKE_CURRENT_BINARY_DIR}/aclgraph_fixture_cli_compat.db
-    )
-    set_tests_properties(
-      traceloom_native_analyze_aclgraph_fixture_compat_sidecar_cli
-      PROPERTIES PASS_REGULAR_EXPRESSION "native_in_memory_result_v1"
-    )
-    add_test(
-      NAME traceloom_native_analyze_aclgraph_fixture_compat_sidecar_db
-      COMMAND traceloom_native_cli_sidecar_smoke_tests
-        ${CMAKE_CURRENT_BINARY_DIR}/aclgraph_fixture_cli_compat.db aclgraph
-    )
-    set_tests_properties(
-      traceloom_native_analyze_aclgraph_fixture_compat_sidecar_db
-      PROPERTIES
-        DEPENDS traceloom_native_analyze_aclgraph_fixture_compat_sidecar_cli
-    )
   endif()
 
   add_test(

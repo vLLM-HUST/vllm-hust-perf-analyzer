@@ -1,4 +1,4 @@
-#include "traceloom/report/anchor_graph_child_cost.h"
+#include "traceloom/analysis/anchor_graph_child_cost.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -206,9 +206,9 @@ AnchorGraphChildCostResult build_anchor_graph_child_cost_components(
     }
 
     AnchorCostComponentLeaf leaf;
-    leaf.id = ReportCostLeafId(
+    leaf.id = StructuralCostLeafId(
         config.first_leaf_id.value() +
-        static_cast<ReportCostLeafId::value_type>(out.component_leaves.size()));
+        static_cast<StructuralCostLeafId::value_type>(out.component_leaves.size()));
     leaf.token_ordinal = windows[i].token_ordinal;
     leaf.kind = AnchorCostComponentKind::kGraphChild;
     leaf.duration_ns = window.duration_ns;
@@ -258,9 +258,9 @@ AnchorGraphChildCostResult build_anchor_graph_child_summary_components(
     }
 
     AnchorCostComponentLeaf leaf;
-    leaf.id = ReportCostLeafId(
+    leaf.id = StructuralCostLeafId(
         config.first_leaf_id.value() +
-        static_cast<ReportCostLeafId::value_type>(out.component_leaves.size()));
+        static_cast<StructuralCostLeafId::value_type>(out.component_leaves.size()));
     leaf.token_ordinal = summary.token_ordinal;
     leaf.kind = AnchorCostComponentKind::kGraphChild;
     leaf.duration_ns = summary.duration_ns;

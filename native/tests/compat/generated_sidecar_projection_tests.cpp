@@ -1,9 +1,5 @@
-#include "traceloom/adapters/aclgraph_fixture_adapter.h"
-#include "traceloom/adapters/aclgraph_fixture_reader.h"
-#include "traceloom/compat/aclgraph_graph_replay_rows.h"
 #include "traceloom/compat/native_sidecar_materializer.h"
 #include "traceloom/ir/native_ir.h"
-#include "traceloom/report/anchor_internal_cost_breakdown.h"
 #include "traceloom/testing/test_util.h"
 
 #include <sqlite3.h>
@@ -21,7 +17,7 @@ std::string temp_db_path() {
   const auto now = std::chrono::steady_clock::now().time_since_epoch().count();
   const std::filesystem::path path =
       std::filesystem::temp_directory_path() /
-      ("traceloom_native_generated_sidecar_report_" + std::to_string(now) +
+      ("traceloom_native_generated_sidecar_projection_" + std::to_string(now) +
        ".db");
   return path.string();
 }
@@ -178,23 +174,6 @@ void require_anchor_cost_rows_link_to_anchors(const std::string& db_path) {
                      "WHERE a.anchor_idx IS NULL") == 0);
 }
 
-void materialize_aclgraph_fixture_sidecar(const std::string& db_path) {
-  const std::filesystem::path fixture_path =
-      std::filesystem::path(TRACELOOM_NATIVE_FIXTURE_ROOT) / "aclgraph" /
-      "aclgraph_python_minimal_assets.json";
-  const traceloom::AclGraphSemanticFixture fixture =
-      traceloom::load_aclgraph_semantic_fixture(fixture_path.string());
-  const traceloom::NativeIr ir = traceloom::AclGraphFixtureAdapter(fixture).load();
-  const traceloom::AnchorInternalCostBreakdown breakdown =
-      traceloom::build_aclgraph_fixture_anchor_cost_breakdown(fixture, ir);
-
-  traceloom::compat::NativeCompatibilitySidecarOptions options;
-  options.source_kind = "aclgraph_semantic_fixture";
-  options.source_path = fixture_path.string();
-  traceloom::compat::write_aclgraph_fixture_compatibility_sidecar(
-      db_path, fixture, ir, breakdown, options);
-}
-
 void materialize_aux_fixture_sidecar(const std::string& db_path) {
   traceloom::NativeIr ir;
   const traceloom::SourceRefId source =
@@ -250,33 +229,6 @@ void materialize_repeat_fixture_sidecar(const std::string& db_path) {
 
 int main() {
   using traceloom::testing::require;
-
-  const std::string db_path = temp_db_path();
-  materialize_aclgraph_fixture_sidecar(db_path);
-
-  require(run_report_sql_row_count(db_path, "cuda-graph-envelope.sql") > 0);
-  require(run_report_sql_row_count(db_path, "anchor-cost-breakdown.sql") > 0);
-  require(run_report_sql_row_count(db_path, "node-cost-breakdown.sql") > 0);
-  require(run_report_sql_row_count(db_path, "node-events.sql") > 0);
-  require(run_report_sql_row_count(db_path, "node-occurrences.sql") > 0);
-  require(run_report_sql_row_count(db_path, "tree-map.sql") > 0);
-  require(run_report_sql_row_count(db_path, "semantic-tree-readable.sql") > 0);
-  require(run_scalar_int(
-              db_path,
-              "SELECT COUNT(*) FROM traceloom_tree_node_anchor na "
-              "JOIN traceloom_anchor a ON a.anchor_id = na.anchor_id "
-              "JOIN traceloom_event e ON e.event_id = a.event_id") > 0);
-  require(run_scalar_int(
-              db_path,
-              "SELECT COUNT(*) FROM traceloom_cuda_graph_envelope ge "
-              "LEFT JOIN traceloom_event e ON e.event_id = ge.child_event_id "
-              "WHERE e.event_id IS NULL") == 0);
-  require_node_coverage_invariants(db_path);
-  require_all_anchors_have_primary_node_coverage(db_path);
-  require_semantic_tree_invariants(db_path);
-  require_anchor_cost_rows_link_to_anchors(db_path);
-
-  std::remove(db_path.c_str());
 
   const std::string aux_db_path = temp_db_path();
   materialize_aux_fixture_sidecar(aux_db_path);

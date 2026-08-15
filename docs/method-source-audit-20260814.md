@@ -60,7 +60,7 @@ Relevant paths:
 - `native/src/pattern/candidate_scan.cpp`
 - `native/include/traceloom/pattern/grammar_state.h`
 - `native/src/pattern/grammar_state.cpp`
-- `native/src/compat/report_tree_rows.cpp`
+- `native/src/compat/structural_projection_rows.cpp`
 
 **Why existing checks can miss it.** Root-cost conservation already groups
 time bounds by device and sums the envelopes. A cross-device global tree can
@@ -111,7 +111,7 @@ anchor share. `traceloom_tree_node_occurrence` then sums position packets.
 
 Relevant paths:
 
-- `native/src/compat/report_tree_rows.cpp`
+- `native/src/compat/structural_projection_rows.cpp`
 - `native/src/compat/sidecar_tree_views.cpp`
 - `docs/db-timeline-schema.md`
 - `docs/workflow.md`

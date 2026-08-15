@@ -1,6 +1,6 @@
-#include "traceloom/report/anchor_graph_child_cost.h"
-#include "traceloom/report/anchor_internal_cost_breakdown.h"
-#include "traceloom/report/report_tree_builder.h"
+#include "traceloom/analysis/anchor_graph_child_cost.h"
+#include "traceloom/analysis/anchor_internal_cost_breakdown.h"
+#include "traceloom/analysis/structural_occurrence_builder.h"
 #include "traceloom/testing/test_util.h"
 
 #include <vector>
@@ -35,11 +35,12 @@ traceloom::AnchorGraphChildTask task(std::uint32_t stream_id,
   return out;
 }
 
-traceloom::ReportToken token(std::uint32_t ordinal,
-                             traceloom::SymbolId symbol,
-                             const char* op,
-                             traceloom::ReportAnchorKind kind) {
-  traceloom::ReportToken out;
+traceloom::StructuralProjectionToken token(
+    std::uint32_t ordinal,
+    traceloom::SymbolId symbol,
+    const char* op,
+    traceloom::StructuralAnchorKind kind) {
+  traceloom::StructuralProjectionToken out;
   out.ordinal = ordinal;
   out.symbol_id = symbol;
   out.display_op = op;
@@ -69,7 +70,7 @@ int main() {
   };
 
   AnchorGraphChildCostConfig config;
-  config.first_leaf_id = ReportCostLeafId(2);
+  config.first_leaf_id = StructuralCostLeafId(2);
   const AnchorGraphChildCostResult graph_cost =
       build_anchor_graph_child_cost_components(windows, tasks, config);
 
@@ -80,7 +81,7 @@ int main() {
           "anchor_graph_child_partial_overlap");
 
   const AnchorCostComponentLeaf& first = graph_cost.component_leaves[0];
-  require(first.id == ReportCostLeafId(2));
+  require(first.id == StructuralCostLeafId(2));
   require(first.token_ordinal == 0);
   require(first.kind == AnchorCostComponentKind::kGraphChild);
   require(first.duration_ns == 70);
@@ -90,7 +91,7 @@ int main() {
   require(first.diagnostic_flags == "partial_overlap_diagnostic_only");
 
   const AnchorCostComponentLeaf& second = graph_cost.component_leaves[1];
-  require(second.id == ReportCostLeafId(3));
+  require(second.id == StructuralCostLeafId(3));
   require(second.token_ordinal == 1);
   require(second.duration_ns == 95);
   require(second.raw_child_task_count == 1);
@@ -98,17 +99,18 @@ int main() {
   require(second.top_ops == "MatMul:95");
   require(second.diagnostic_flags.empty());
 
-  const std::vector<ReportToken> report_tokens{
-      token(0, SymbolId(1), "ACLH", ReportAnchorKind::kGraphH),
-      token(1, SymbolId(2), "ACLL", ReportAnchorKind::kGraphL),
+  const std::vector<StructuralProjectionToken> structural_tokens{
+      token(0, SymbolId(1), "ACLH", StructuralAnchorKind::kGraphH),
+      token(1, SymbolId(2), "ACLL", StructuralAnchorKind::kGraphL),
   };
-  const ReportTree tree = build_report_tree_from_tokens(report_tokens);
+  const StructuralOccurrenceGraph tree =
+      build_structural_occurrence_graph_from_tokens(structural_tokens);
   std::vector<AnchorCostComponentLeaf> leaves = graph_cost.component_leaves;
   for (std::size_t i = 0; i < leaves.size(); ++i) {
-    leaves[i].id = ReportCostLeafId(static_cast<std::uint32_t>(i));
+    leaves[i].id = StructuralCostLeafId(static_cast<std::uint32_t>(i));
   }
   const AnchorInternalCostBreakdown breakdown =
-      build_anchor_internal_cost_breakdown(tree, report_tokens, leaves);
+      build_anchor_internal_cost_breakdown(tree, structural_tokens, leaves);
   require(breakdown.diagnostics.empty());
   require(breakdown.rows.size() == 2);
   require(breakdown.rows[0].graph_child_ns == 70);
@@ -141,7 +143,7 @@ int main() {
       build_anchor_graph_child_summary_components(summaries);
   require(summary_cost.diagnostics.empty());
   require(summary_cost.component_leaves.size() == 2);
-  require(summary_cost.component_leaves[0].id == ReportCostLeafId(0));
+  require(summary_cost.component_leaves[0].id == StructuralCostLeafId(0));
   require(summary_cost.component_leaves[0].token_ordinal == 0);
   require(summary_cost.component_leaves[0].duration_ns == 100);
   require(summary_cost.component_leaves[0].raw_child_task_count == 4);

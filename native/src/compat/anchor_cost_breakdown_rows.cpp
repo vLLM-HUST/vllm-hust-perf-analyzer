@@ -20,25 +20,25 @@ std::string symbol_value_or_empty(const NativeIr& ir, SymbolId id) {
   return id.valid() ? ir.symbols.value(id) : std::string();
 }
 
-ReportAnchorKind report_anchor_kind_for_anchor_kind(AnchorKind kind) {
+StructuralAnchorKind structural_anchor_kind_for_anchor_kind(AnchorKind kind) {
   switch (kind) {
     case AnchorKind::kDeviceEvent:
-      return ReportAnchorKind::kExec;
+      return StructuralAnchorKind::kExec;
     case AnchorKind::kCommunication:
-      return ReportAnchorKind::kCollective;
+      return StructuralAnchorKind::kCollective;
     case AnchorKind::kGraphH:
-      return ReportAnchorKind::kGraphH;
+      return StructuralAnchorKind::kGraphH;
     case AnchorKind::kGraphL:
-      return ReportAnchorKind::kGraphL;
+      return StructuralAnchorKind::kGraphL;
     case AnchorKind::kGraphT:
-      return ReportAnchorKind::kGraphT;
+      return StructuralAnchorKind::kGraphT;
     case AnchorKind::kGraphReplayUnit:
-      return ReportAnchorKind::kGraphTemplate;
+      return StructuralAnchorKind::kGraphTemplate;
     case AnchorKind::kSynchronization:
     case AnchorKind::kUnknown:
-      return ReportAnchorKind::kUnknown;
+      return StructuralAnchorKind::kUnknown;
   }
-  return ReportAnchorKind::kUnknown;
+  return StructuralAnchorKind::kUnknown;
 }
 
 std::map<std::uint32_t, double> aux_us_by_anchor_idx(
@@ -60,7 +60,7 @@ std::vector<AnchorCostBreakdownSqlRow> build_anchor_cost_breakdown_sql_rows(
     AnchorCostBreakdownSqlRow row;
     row.anchor_idx = source.anchor_idx;
     row.symbol = source.symbol;
-    row.anchor_kind = report_anchor_kind_name(source.anchor_kind);
+    row.anchor_kind = structural_anchor_kind_name(source.anchor_kind);
     row.total_us = ns_to_us(source.total_ns);
     row.self_us = ns_to_us(source.self_ns);
     row.aux_us = ns_to_us(source.aux_ns);
@@ -96,7 +96,7 @@ build_native_anchor_cost_breakdown_sql_rows(
     row.anchor_idx = anchor.id.value() + 1;
     row.symbol = symbol_value_or_empty(ir, anchor.symbol_id);
     row.anchor_kind =
-        report_anchor_kind_name(report_anchor_kind_for_anchor_kind(anchor.kind));
+        structural_anchor_kind_name(structural_anchor_kind_for_anchor_kind(anchor.kind));
     row.self_us = ns_to_us(anchor.end_ns - anchor.start_ns);
     const auto aux_found = aux_by_anchor.find(row.anchor_idx);
     if (aux_found != aux_by_anchor.end()) {
