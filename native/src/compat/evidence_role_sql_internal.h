@@ -10,7 +10,6 @@
 namespace traceloom::compat::detail {
 
 struct EvidenceRolePlacementRow {
-  std::string decision_id;
   std::uint32_t placement_order = 0;
   std::string placement_kind;
   std::string placement_id;
@@ -21,7 +20,6 @@ struct EvidenceRolePlacementRow {
 };
 
 struct EvidenceRoleIssueRow {
-  std::string decision_id;
   std::string code;
   std::string support_state;
   std::string related_ids;
@@ -105,7 +103,8 @@ EvidenceRoleSqlRows build_evidence_role_sql_rows(
 void write_evidence_role_sql_rows(
     const std::string& sqlite_path,
     const SignalClassificationRuleset& ruleset,
-    const EvidenceRoleSqlRows& rows);
+    const EvidenceRoleSqlRows& rows,
+    bool timing_diagnostics = false);
 #endif
 
 }  // namespace traceloom::compat::detail

@@ -134,7 +134,9 @@ add_library(traceloom_native_materialize
   src/compat/evidence_role_sql_rows.cpp
   src/compat/evidence_role_sql_writer.cpp
   src/compat/event_reconciliation_rows.cpp
+  src/compat/runtime_api_family.cpp
   src/compat/runtime_device_rows.cpp
+  src/compat/source_locator_json.cpp
   src/compat/schema.cpp
   src/compat/schema_structural_tables.cpp
   src/compat/schema_replay_tables.cpp

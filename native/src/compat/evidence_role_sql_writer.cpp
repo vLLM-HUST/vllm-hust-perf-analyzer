@@ -2,7 +2,9 @@
 
 #if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
 
+#include <chrono>
 #include <cstdint>
+#include <iostream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -68,6 +70,15 @@ class Stmt {
     if (sqlite3_bind_text(stmt_, index, value.c_str(), -1, SQLITE_TRANSIENT) !=
         SQLITE_OK) {
       fail("text bind");
+    }
+  }
+  // Use only when `value` remains alive through run(). SQLite can then read
+  // the caller-owned bytes directly instead of copying every field into a
+  // transient binding buffer before the immediate insert step.
+  void borrowed_text(int index, const std::string& value) {
+    if (sqlite3_bind_text(stmt_, index, value.c_str(), -1, SQLITE_STATIC) !=
+        SQLITE_OK) {
+      fail("borrowed text bind");
     }
   }
   void integer(int index, std::int64_t value) {
@@ -324,7 +335,7 @@ void insert_decisions(Db& db, const std::vector<EvidenceRoleDecisionRow>& rows) 
   std::uint64_t issue_index = 0;
   for (const EvidenceRoleDecisionRow& row : rows) {
     int i = 1;
-    decision.text(i++, row.decision_id);
+    decision.borrowed_text(i++, row.decision_id);
     decision.integer(i++, row.db_idx);
     decision.integer(i++, row.device_id);
     if (row.task_id < 0) {
@@ -332,37 +343,37 @@ void insert_decisions(Db& db, const std::vector<EvidenceRoleDecisionRow>& rows) 
     } else {
       decision.integer(i++, row.task_id);
     }
-    decision.text(i++, row.event_id);
+    decision.borrowed_text(i++, row.event_id);
     decision.integer(i++, row.source_ref_id);
-    decision.text(i++, row.source_domain);
-    decision.text(i++, row.input_provider_scope);
-    decision.text(i++, row.policy_id);
-    decision.text(i++, row.policy_version);
-    decision.text(i++, row.manifest_sha256);
+    decision.borrowed_text(i++, row.source_domain);
+    decision.borrowed_text(i++, row.input_provider_scope);
+    decision.borrowed_text(i++, row.policy_id);
+    decision.borrowed_text(i++, row.policy_version);
+    decision.borrowed_text(i++, row.manifest_sha256);
     if (row.policy_role.empty()) {
       decision.null(i++);
     } else {
-      decision.text(i++, row.policy_role);
+      decision.borrowed_text(i++, row.policy_role);
     }
-    decision.text(i++, row.final_role);
-    decision.text(i++, row.rule_id);
-    decision.text(i++, row.rule_class);
+    decision.borrowed_text(i++, row.final_role);
+    decision.borrowed_text(i++, row.rule_id);
+    decision.borrowed_text(i++, row.rule_class);
     decision.boolean(i++, row.matched_rule);
     decision.integer(i++, row.priority);
     decision.integer(i++, static_cast<std::int64_t>(row.declaration_order));
-    decision.text(i++, row.policy_structural_participation);
-    decision.text(i++, row.effective_structural_participation);
-    decision.text(i++, row.support_state);
-    decision.text(i++, row.reason_code);
-    decision.text(i++, row.available_fields);
-    decision.text(i++, row.required_fields);
-    decision.text(i++, row.missing_required_fields);
-    decision.text(i++, row.missing_capability_rule_ids);
-    decision.text(i++, row.cost_treatment);
-    decision.text(i++, row.context_treatment);
-    decision.text(i++, row.provenance_treatment);
-    decision.text(i++, row.source_table);
-    decision.text(i++, row.source_key);
+    decision.borrowed_text(i++, row.policy_structural_participation);
+    decision.borrowed_text(i++, row.effective_structural_participation);
+    decision.borrowed_text(i++, row.support_state);
+    decision.borrowed_text(i++, row.reason_code);
+    decision.borrowed_text(i++, row.available_fields);
+    decision.borrowed_text(i++, row.required_fields);
+    decision.borrowed_text(i++, row.missing_required_fields);
+    decision.borrowed_text(i++, row.missing_capability_rule_ids);
+    decision.borrowed_text(i++, row.cost_treatment);
+    decision.borrowed_text(i++, row.context_treatment);
+    decision.borrowed_text(i++, row.provenance_treatment);
+    decision.borrowed_text(i++, row.source_table);
+    decision.borrowed_text(i++, row.source_key);
     decision.integer(i++, row.start_ns);
     decision.integer(i++, row.end_ns);
     decision.integer(i++, row.duration_ns);
@@ -370,26 +381,26 @@ void insert_decisions(Db& db, const std::vector<EvidenceRoleDecisionRow>& rows) 
 
     for (const EvidenceRolePlacementRow& item : row.placements) {
       int j = 1;
-      placement.text(j++, item.decision_id);
+      placement.borrowed_text(j++, row.decision_id);
       placement.integer(j++, item.placement_order);
-      placement.text(j++, item.placement_kind);
-      placement.text(j++, item.placement_id);
+      placement.borrowed_text(j++, item.placement_kind);
+      placement.borrowed_text(j++, item.placement_id);
       if (item.owner_id.empty()) {
         placement.null(j++);
       } else {
-        placement.text(j++, item.owner_id);
+        placement.borrowed_text(j++, item.owner_id);
       }
-      placement.text(j++, item.relation_name);
-      placement.text(j++, item.support_state);
-      placement.text(j++, item.reason_code);
+      placement.borrowed_text(j++, item.relation_name);
+      placement.borrowed_text(j++, item.support_state);
+      placement.borrowed_text(j++, item.reason_code);
       placement.run();
     }
     for (const EvidenceRoleIssueRow& item : row.issues) {
       issue.text(1, "role-issue-" + std::to_string(issue_index++));
-      issue.text(2, item.decision_id);
-      issue.text(3, item.code);
-      issue.text(4, item.support_state);
-      issue.text(5, item.related_ids);
+      issue.borrowed_text(2, row.decision_id);
+      issue.borrowed_text(3, item.code);
+      issue.borrowed_text(4, item.support_state);
+      issue.borrowed_text(5, item.related_ids);
       issue.run();
     }
   }
@@ -576,13 +587,25 @@ JOIN traceloom_viz_node_anchor n
 void write_evidence_role_sql_rows(
     const std::string& sqlite_path,
     const SignalClassificationRuleset& ruleset,
-    const EvidenceRoleSqlRows& rows) {
+    const EvidenceRoleSqlRows& rows,
+    bool timing_diagnostics) {
   Db db(sqlite_path);
   db.exec("BEGIN IMMEDIATE");
   try {
     // Policy, decisions, direct placements, protected intervals, and the
     // compact replay-to-anchor bridge share one transaction so no published
     // audit path can observe a mixed generation.
+    auto phase_start = std::chrono::steady_clock::now();
+    const auto emit_phase = [&](const char* name) {
+      const auto now = std::chrono::steady_clock::now();
+      if (timing_diagnostics) {
+        std::cerr << "timing evidence_role_" << name << "_ms="
+                  << std::chrono::duration<double, std::milli>(now - phase_start)
+                         .count()
+                  << "\n";
+      }
+      phase_start = now;
+    };
     create_schema(db);
     db.exec("DELETE FROM traceloom_evidence_role_issue");
     db.exec("DELETE FROM traceloom_evidence_role_placement");
@@ -591,12 +614,18 @@ void write_evidence_role_sql_rows(
     db.exec("DELETE FROM traceloom_protected_interval");
     db.exec("DELETE FROM traceloom_evidence_role_rule");
     db.exec("DELETE FROM traceloom_evidence_role_policy");
+    emit_phase("schema_clear");
     insert_policy_and_rules(db, ruleset);
+    emit_phase("policy_write");
     insert_decisions(db, rows.decisions);
+    emit_phase("decision_write");
     insert_replay_unit_anchors(db, rows.replay_unit_anchors);
     insert_protected_intervals(db, rows.protected_intervals);
+    emit_phase("compact_relation_write");
     create_indexes_and_views(db);
+    emit_phase("indexes_views");
     db.exec("COMMIT");
+    emit_phase("commit");
   } catch (...) {
     try {
       db.exec("ROLLBACK");

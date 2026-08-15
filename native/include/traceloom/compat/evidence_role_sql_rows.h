@@ -17,6 +17,7 @@ void replace_evidence_role_sql_rows(
     const NativeIr& ir,
     FlatAnchorBuildConfig config,
     std::uint32_t db_idx,
-    bool materialize_aux_attribution);
+    bool materialize_aux_attribution,
+    bool timing_diagnostics = false);
 
 }  // namespace traceloom::compat

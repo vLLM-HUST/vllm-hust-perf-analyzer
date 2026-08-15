@@ -1,5 +1,7 @@
 #include "sidecar_views.h"
 
+#include <chrono>
+#include <iostream>
 #include <stdexcept>
 #include <string>
 
@@ -36,15 +38,30 @@ void materialize_event_reconciliation_view(SqliteDb& db) {
 }  // namespace
 #endif
 
-void materialize_structural_compatibility_views(const std::string& sqlite_path) {
+void materialize_structural_compatibility_views(
+    const std::string& sqlite_path, bool timing_diagnostics) {
 #if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
+  auto phase_start = std::chrono::steady_clock::now();
+  const auto emit_phase = [&](const char* name) {
+    const auto now = std::chrono::steady_clock::now();
+    if (timing_diagnostics) {
+      std::cerr << "timing structural_views_" << name << "_ms="
+                << std::chrono::duration<double, std::milli>(now - phase_start)
+                       .count()
+                << "\n";
+    }
+    phase_start = now;
+  };
   materialize_compatibility_schema(sqlite_path);
+  emit_phase("schema");
 
   SqliteDb db(sqlite_path);
   db.exec("BEGIN IMMEDIATE");
   try {
     drop_structural_compatibility_views(db);
+    emit_phase("drop_views");
     materialize_structural_compatibility_indexes(db);
+    emit_phase("indexes");
     materialize_runtime_device_views(db);
     materialize_structure_bubble_views(db);
     materialize_event_reconciliation_view(db);
@@ -57,6 +74,7 @@ void materialize_structural_compatibility_views(const std::string& sqlite_path) 
     materialize_tree_node_view(db);
     materialize_symbol_normalization_views(db);
     materialize_semantic_tree_views(db);
+    emit_phase("create_views");
     // The queryable DB is a read-mostly analytical artifact. Persist planner
     // statistics after all materialized relations and indexes exist so agent
     // drill-downs begin with selective interval/identity indexes instead of a
@@ -69,7 +87,9 @@ void materialize_structural_compatibility_views(const std::string& sqlite_path) 
     db.exec("ANALYZE traceloom_structure_bubble_occurrence");
     db.exec("ANALYZE traceloom_structure_bubble_api_occurrence");
     db.exec("ANALYZE traceloom_structure_bubble_api_stats");
+    emit_phase("analyze");
     db.exec("COMMIT");
+    emit_phase("commit");
   } catch (...) {
     try {
       db.exec("ROLLBACK");
@@ -79,6 +99,7 @@ void materialize_structural_compatibility_views(const std::string& sqlite_path) 
   }
 #else
   (void)sqlite_path;
+  (void)timing_diagnostics;
   throw std::runtime_error(
       "compatibility sidecar writer requires SQLite support");
 #endif

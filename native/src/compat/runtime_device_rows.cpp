@@ -1,20 +1,20 @@
 #include "traceloom/compat/runtime_device_rows.h"
 
 #include <algorithm>
-#include <cctype>
-#include <filesystem>
 #include <limits>
 #include <map>
 #include <set>
-#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <tuple>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
 #include "traceloom/compat/anchor_sequence_rows.h"
 #include "traceloom/compat/timeline_rows.h"
+#include "runtime_api_family.h"
+#include "source_locator_json.h"
 
 namespace traceloom::compat {
 namespace {
@@ -29,56 +29,6 @@ std::string nullable_i64(std::int64_t value) {
 
 std::string symbol_value_or_empty(const NativeIr& ir, SymbolId id) {
   return id.valid() ? ir.symbols.value(id) : std::string();
-}
-
-std::string lowercase(std::string value) {
-  std::transform(value.begin(), value.end(), value.begin(),
-                 [](unsigned char c) {
-                   return static_cast<char>(std::tolower(c));
-                 });
-  return value;
-}
-
-bool contains(const std::string& value, const char* needle) {
-  return value.find(needle) != std::string::npos;
-}
-
-std::string public_api_family(const std::string& api_name) {
-  const std::string name = lowercase(api_name);
-  if (!(name.rfind("acl", 0) == 0 || name.rfind("cuda", 0) == 0 ||
-        name.rfind("hip", 0) == 0)) {
-    return {};
-  }
-  if (contains(name, "wait")) {
-    return "wait";
-  }
-  if (contains(name, "synchronize")) {
-    return "synchronize";
-  }
-  if (contains(name, "query")) {
-    return "query";
-  }
-  if (contains(name, "eventrecord") || contains(name, "recordevent")) {
-    return "event_record";
-  }
-  if (contains(name, "eventcreate") || contains(name, "createevent") ||
-      contains(name, "eventdestroy") || contains(name, "destroyevent")) {
-    return "event_lifecycle";
-  }
-  if (contains(name, "graphlaunch") || contains(name, "aclmdlriexecuteasync")) {
-    return "graph_launch";
-  }
-  if (contains(name, "launch")) {
-    return "launch";
-  }
-  if (contains(name, "memcpy") || contains(name, "memset") ||
-      contains(name, "inplacecopy")) {
-    return "memory";
-  }
-  if (contains(name, "capture") || contains(name, "graph")) {
-    return "graph_control";
-  }
-  return "other";
 }
 
 const char* provider_name(RuntimeCallProvider provider) {
@@ -165,34 +115,6 @@ std::string event_work_id(TraceEventId id) {
 
 std::string graph_work_id(GraphLaunchOccurrenceId id) {
   return "device-work-graph-launch-" + std::to_string(id.value());
-}
-
-std::string json_escape(const std::string& value) {
-  std::string out;
-  out.reserve(value.size());
-  for (char ch : value) {
-    if (ch == '\\' || ch == '"') out.push_back('\\');
-    out.push_back(ch);
-  }
-  return out;
-}
-
-std::string source_json(const SourceRefRow& source, const char* kind) {
-  std::string source_path = source.source_path;
-  std::error_code ec;
-  const std::filesystem::path observed_path(source_path);
-  if (std::filesystem::is_regular_file(observed_path, ec)) {
-    const std::filesystem::path absolute_path =
-        std::filesystem::absolute(observed_path, ec);
-    if (!ec) {
-      source_path = absolute_path.lexically_normal().string();
-    }
-  }
-  std::ostringstream out;
-  out << "{\"source_ref_id\":" << source.id.value()
-      << ",\"source_path\":\"" << json_escape(source_path) << "\""
-      << ",\"relation_object\":\"" << kind << "\"}";
-  return out.str();
 }
 
 struct WorkRef {
@@ -322,6 +244,24 @@ RuntimeDeviceSqlRows build_runtime_device_sql_rows(const NativeIr& ir,
   RuntimeDeviceSqlRows rows;
   rows.runtime_calls.reserve(ir.runtime_calls.size());
 
+  // A SourceRef is shared by a large population of runtime calls and device
+  // work. Resolve its path and render each relation-object JSON once instead
+  // of repeating filesystem probes and stream formatting for every row.
+  std::vector<std::string> runtime_source_json;
+  std::vector<std::string> event_source_json;
+  std::vector<std::string> graph_source_json;
+  runtime_source_json.reserve(ir.source_refs.size());
+  event_source_json.reserve(ir.source_refs.size());
+  graph_source_json.reserve(ir.source_refs.size());
+  for (const SourceRefRow& source : ir.source_refs.rows()) {
+    runtime_source_json.push_back(
+        detail::relation_source_locator_json(source, "runtime_call"));
+    event_source_json.push_back(
+        detail::relation_source_locator_json(source, "device_event"));
+    graph_source_json.push_back(
+        detail::relation_source_locator_json(source, "graph_launch"));
+  }
+
   std::map<CorrelationKey, std::vector<const RuntimeCallRow*>> calls_by_key;
   std::map<std::pair<SourceRefId::value_type, std::uint64_t>,
            std::vector<const RuntimeCallRow*>>
@@ -352,7 +292,7 @@ RuntimeDeviceSqlRows build_runtime_device_sql_rows(const NativeIr& ir,
                                        : std::string();
     row.correlation_id = nullable_i64(call.raw_correlation_id);
     row.match_policy = match_policy_name(call.match_policy);
-    row.raw_json = source_json(source, "runtime_call");
+    row.raw_json = runtime_source_json.at(source.id.value());
     rows.runtime_calls.push_back(std::move(row));
     calls_by_source[{call.source_ref_id.value(), call.source_row_id}].push_back(
         &call);
@@ -399,7 +339,7 @@ RuntimeDeviceSqlRows build_runtime_device_sql_rows(const NativeIr& ir,
     work.symbol = symbol_value_or_empty(
         ir, task.op_name_symbol_id.valid() ? task.op_name_symbol_id
                                           : event.raw_name_symbol_id);
-    work.raw_json = source_json(source, "device_event");
+    work.raw_json = event_source_json.at(source.id.value());
     const std::size_t row_index = rows.device_works.size();
     rows.device_works.push_back(std::move(work));
     if (task.raw_connection_id >= 0) {
@@ -571,7 +511,7 @@ RuntimeDeviceSqlRows build_runtime_device_sql_rows(const NativeIr& ir,
     work.dur_us = ns_to_us(launch.end_ns - launch.start_ns);
     work.symbol = "graph_launch";
     work.source_table = work_source->table_name;
-    work.raw_json = source_json(*work_source, "graph_launch");
+    work.raw_json = graph_source_json.at(work_source->id.value());
     rows.device_works.push_back(work);
 
     std::vector<const RuntimeCallRow*> calls;
@@ -613,9 +553,13 @@ RuntimeDeviceSqlRows build_runtime_device_sql_rows(const NativeIr& ir,
     }
   }
 
-  std::map<std::string, std::vector<const RuntimeDeviceRelationSqlRow*>>
+  std::unordered_map<std::string,
+                     std::vector<const RuntimeDeviceRelationSqlRow*>>
       relations_by_work;
-  std::map<std::string, const RuntimeDeviceRelationSqlRow*> relation_by_id;
+  std::unordered_map<std::string, const RuntimeDeviceRelationSqlRow*>
+      relation_by_id;
+  relations_by_work.reserve(rows.relations.size());
+  relation_by_id.reserve(rows.relations.size());
   for (const RuntimeDeviceRelationSqlRow& relation : rows.relations) {
     relation_by_id.emplace(relation.relation_id, &relation);
     if (!relation.device_work_id.empty()) {
@@ -659,11 +603,13 @@ RuntimeDeviceSqlRows build_runtime_device_sql_rows(const NativeIr& ir,
     }
   }
 
-  std::map<std::string, const RuntimeCallSqlRow*> call_by_id;
+  std::unordered_map<std::string, const RuntimeCallSqlRow*> call_by_id;
+  call_by_id.reserve(rows.runtime_calls.size());
   for (const RuntimeCallSqlRow& call : rows.runtime_calls) {
     call_by_id.emplace(call.runtime_call_id, &call);
   }
-  std::map<std::string, std::set<std::string>> supported_calls;
+  std::unordered_map<std::string, std::set<std::string>> supported_calls;
+  supported_calls.reserve(rows.anchor_relations.size());
   for (const AnchorRuntimeRelationSqlRow& link : rows.anchor_relations) {
     const auto relation_found = relation_by_id.find(link.relation_id);
     if (relation_found == relation_by_id.end()) continue;
@@ -805,7 +751,8 @@ RuntimeDeviceSqlRows build_runtime_device_sql_rows(const NativeIr& ir,
           call.runtime_call_id,
           observed_order++,
       });
-      const std::string api_family = public_api_family(call.api_name);
+      const std::string api_family =
+          detail::public_runtime_api_family(call.api_name);
       if (!api_family.empty()) {
         ApiSummary& summary = summaries[api_family];
         ++summary.call_count;

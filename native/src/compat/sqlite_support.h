@@ -130,6 +130,18 @@ inline void bind_text(SqliteStmt& stmt, int column, const std::string& value) {
   }
 }
 
+// `value` must remain alive until the caller steps and clears `stmt`.
+inline void bind_borrowed_text(SqliteStmt& stmt, int column,
+                               const std::string& value) {
+  const int rc = sqlite3_bind_text(stmt.get(), column, value.c_str(), -1,
+                                   SQLITE_STATIC);
+  if (rc != SQLITE_OK) {
+    throw std::runtime_error(
+        "failed to bind borrowed compatibility sidecar text: " +
+        std::string(sqlite3_errmsg(stmt.db())));
+  }
+}
+
 inline void bind_int64(SqliteStmt& stmt, int column, sqlite3_int64 value) {
   const int rc = sqlite3_bind_int64(stmt.get(), column, value);
   if (rc != SQLITE_OK) {
@@ -152,6 +164,15 @@ inline void bind_nullable_text(SqliteStmt& stmt, int column,
     bind_null(stmt, column);
   } else {
     bind_text(stmt, column, value);
+  }
+}
+
+inline void bind_nullable_borrowed_text(SqliteStmt& stmt, int column,
+                                        const std::string& value) {
+  if (value.empty()) {
+    bind_null(stmt, column);
+  } else {
+    bind_borrowed_text(stmt, column, value);
   }
 }
 

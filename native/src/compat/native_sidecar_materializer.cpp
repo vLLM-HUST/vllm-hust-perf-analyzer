@@ -57,6 +57,13 @@ class Stopwatch {
   Clock::time_point start_;
 };
 
+void emit_timing(const NativeCompatibilitySidecarOptions& options,
+                 const char* name, const Stopwatch& watch) {
+  if (options.timing_diagnostics) {
+    std::cerr << "timing " << name << "=" << watch.elapsed_ms() << "\n";
+  }
+}
+
 std::string basename_or_default(const std::string& path,
                                 const std::string& fallback) {
   if (path.empty()) {
@@ -422,8 +429,10 @@ void write_basic_native_compatibility_sidecar(
       {"evidence_role_manifest_sha256",
        evidence_role_policy.manifest_sha256},
   };
+  const Stopwatch symbol_rows_watch;
   const SymbolNormalizationSqlRows symbol_normalization_rows =
       build_symbol_normalization_sql_rows(ir, options.db_idx);
+  emit_timing(options, "sidecar_symbol_rows_ms", symbol_rows_watch);
   metadata.push_back(
       {"symbol_normalization_policy_id",
        symbol_normalization_rows.policies.front().policy_id});
@@ -471,11 +480,17 @@ void write_basic_native_compatibility_sidecar(
                 << runtime_write_watch.elapsed_ms() << "\n";
     }
   }
+  const Stopwatch timeline_rows_watch;
   const EventSqlRows event_rows = build_timeline_sql_rows(ir, options.db_idx);
+  emit_timing(options, "sidecar_timeline_rows_ms", timeline_rows_watch);
+  const Stopwatch timeline_write_watch;
   replace_timeline_rows(sqlite_path,
                         split_timeline_event_sql_rows(event_rows));
   replace_event_source_rows(sqlite_path,
                             split_source_lineage_sql_rows(event_rows));
+  emit_timing(options, "sidecar_timeline_write_ms", timeline_write_watch);
+
+  const Stopwatch graph_rows_watch;
   replace_graph_replay_evidence_rows(
       sqlite_path,
       build_native_graph_replay_evidence_sql_rows(
@@ -484,11 +499,17 @@ void write_basic_native_compatibility_sidecar(
       sqlite_path,
       build_exact_graph_sql_rows(ir, options.source_kind, options.db_idx));
   replace_replay_cost_rows(sqlite_path, ir, options.db_idx);
+  emit_timing(options, "sidecar_graph_rows_write_ms", graph_rows_watch);
+
+  const Stopwatch anchor_rows_watch;
   const std::vector<AnchorSqlRow> anchor_rows =
       build_anchor_sequence_sql_rows(ir, options.db_idx);
   replace_anchor_rows(sqlite_path, anchor_rows);
   replace_event_reconciliation_rows(sqlite_path, ir, options.db_idx);
   replace_symbol_normalization_rows(sqlite_path, symbol_normalization_rows);
+  emit_timing(options, "sidecar_anchor_rows_write_ms", anchor_rows_watch);
+
+  const Stopwatch aux_rows_watch;
   const AuxAttributionSqlRows aux_rows =
       options.materialize_aux_attribution
           ? build_aux_attribution_sql_rows(
@@ -497,8 +518,11 @@ void write_basic_native_compatibility_sidecar(
   replace_aux_attribution_rows(sqlite_path, aux_rows);
   replace_anchor_cost_breakdown_rows(
       sqlite_path, build_native_anchor_cost_breakdown_sql_rows(ir, aux_rows));
+  emit_timing(options, "sidecar_aux_rows_write_ms", aux_rows_watch);
+
   NativeCompatibilitySidecarOptions projection_options = options;
   projection_options.evidence_role_config = evidence_role_config;
+  const Stopwatch structural_rows_watch;
   const std::vector<NativeDeviceStructuralProjection> device_trees =
       build_native_device_structural_projections(ir, projection_options);
   const bool scope_node_ids = device_trees.size() > 1;
@@ -548,7 +572,11 @@ void write_basic_native_compatibility_sidecar(
   const NodeAnchorCoverageSqlRows coverage_rows =
       split_node_anchor_coverage_sql_rows(node_rows);
   replace_node_anchor_coverage_rows(sqlite_path, coverage_rows);
+  emit_timing(options, "sidecar_structural_rows_write_ms",
+              structural_rows_watch);
+
   if (options.materialize_collective_tags) {
+    const Stopwatch collective_watch;
     CollectiveTagMemberInput member;
     member.db_name = options.collective_db_name.empty()
                          ? basename_or_default(sqlite_path, "native_sidecar.db")
@@ -569,23 +597,33 @@ void write_basic_native_compatibility_sidecar(
         build_collective_tag_sql_rows({member}, tag_options);
     replace_collective_global_link_rows(sqlite_path,
                                         collective_rows.local_links);
+    emit_timing(options, "sidecar_collective_rows_write_ms",
+                collective_watch);
   }
 
+  const Stopwatch semantic_rows_watch;
   replace_semantic_tree_catalog_rows(
       sqlite_path, split_semantic_tree_catalog_sql_rows(semantic_rows));
   replace_semantic_graph_rows(sqlite_path,
                               split_semantic_graph_sql_rows(semantic_rows));
   if (options.materialize_structural_views) {
     const Stopwatch structural_views_watch;
-    materialize_structural_compatibility_views(sqlite_path);
+    materialize_structural_compatibility_views(sqlite_path,
+                                               options.timing_diagnostics);
     if (options.timing_diagnostics) {
       std::cerr << "timing structural_views_ms="
                 << structural_views_watch.elapsed_ms() << "\n";
     }
   }
+  emit_timing(options, "sidecar_semantic_rows_views_ms",
+              semantic_rows_watch);
+
+  const Stopwatch evidence_role_watch;
   replace_evidence_role_sql_rows(sqlite_path, ir, evidence_role_config,
                                  options.db_idx,
-                                 options.materialize_aux_attribution);
+                                 options.materialize_aux_attribution,
+                                 options.timing_diagnostics);
+  emit_timing(options, "sidecar_evidence_role_ms", evidence_role_watch);
 }
 
 void write_queryable_database_timeline(
@@ -639,8 +677,10 @@ void write_queryable_database_timeline(
       std::chrono::steady_clock::now().time_since_epoch().count());
   const fs::path temporary = output.string() + ".tmp." + suffix;
   try {
+    const Stopwatch packaging_watch;
     const RawPackagingResult packaging =
         package_sqlite_sources(sources, temporary.string());
+    emit_timing(options, "augmented_packaging_ms", packaging_watch);
     NativeCompatibilitySidecarOptions augmented_options = options;
     if (augmented_options.source_path.empty()) {
       augmented_options.source_path =
@@ -660,9 +700,14 @@ void write_queryable_database_timeline(
     augmented_options.source_sha256 =
         packaging.sources.size() == 1 ? packaging.sources.front().sha256
                                       : std::string();
+    const Stopwatch sidecar_watch;
     write_basic_native_compatibility_sidecar(
         temporary.string(), ir, augmented_options);
+    emit_timing(options, "augmented_sidecar_ms", sidecar_watch);
+
+    const Stopwatch catalog_watch;
     materialize_augmented_catalog(temporary.string(), packaging, ir);
+    emit_timing(options, "augmented_catalog_ms", catalog_watch);
     std::error_code ec;
     fs::rename(temporary, output, ec);
     if (ec) {

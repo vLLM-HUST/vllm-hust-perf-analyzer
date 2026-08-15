@@ -146,7 +146,6 @@ void add_placement(EvidenceRoleDecisionRow& row, std::string kind, std::string i
                    std::string reason,
                    std::string support = "supported") {
   EvidenceRolePlacementRow placement;
-  placement.decision_id = row.decision_id;
   placement.placement_order =
       static_cast<std::uint32_t>(row.placements.size());
   placement.placement_kind = std::move(kind);
@@ -160,9 +159,8 @@ void add_placement(EvidenceRoleDecisionRow& row, std::string kind, std::string i
 
 void add_issue(EvidenceRoleDecisionRow& row, std::string code, std::string support,
                std::string related) {
-  row.issues.push_back(
-      EvidenceRoleIssueRow{row.decision_id, std::move(code), std::move(support),
-               std::move(related)});
+  row.issues.push_back(EvidenceRoleIssueRow{
+      std::move(code), std::move(support), std::move(related)});
 }
 
 void apply_policy_decision(EvidenceRoleDecisionRow& row,
@@ -219,6 +217,14 @@ std::vector<EvidenceRoleDecisionRow> build_decisions(
     const FlatAnchorBuildConfig& config,
     std::uint32_t db_idx,
     bool materialize_aux_attribution) {
+  using ClassificationCacheKey =
+      std::tuple<SourceRefId, SymbolId, SymbolId, SymbolId, SymbolId, SymbolId>;
+  struct CachedClassification {
+    std::string input_provider_scope;
+    SignalClassificationDecision decision;
+  };
+  std::map<ClassificationCacheKey, CachedClassification> classification_cache;
+
   std::unordered_map<TraceEventId::value_type, const TaskRow*> task_by_event;
   for (const TaskRow& task : ir.tasks.rows()) {
     if (!task.trace_event_id.valid() ||
@@ -386,6 +392,10 @@ std::vector<EvidenceRoleDecisionRow> build_decisions(
     row.start_ns = event.start_ns;
     row.end_ns = event.end_ns;
     row.duration_ns = std::max<std::int64_t>(0, event.end_ns - event.start_ns);
+    // Most real-profile observations receive the normalized-event placement
+    // plus one protected-composite or direct-identity placement. Reserving the
+    // common shape avoids repeatedly reallocating each decision's tiny vector.
+    row.placements.reserve(4);
     add_placement(row, "normalized_event", row.event_id, "",
                   "traceloom_event", "normalized_event_retained");
 
@@ -395,11 +405,29 @@ std::vector<EvidenceRoleDecisionRow> build_decisions(
     if (task != nullptr) {
       row.task_id = task->id.value();
       row.source_domain = "task";
-      const SignalClassificationInput input =
-          signal_classification_input_for_task(ir, *task);
-      row.input_provider_scope = input.provider_scope;
-      const SignalClassificationDecision policy_decision =
-          config.classification_rules.decide(input);
+      // Classification depends on provider and symbolic task identity, not on
+      // an occurrence's timestamps or row id. Real traces repeat a small set
+      // of such identities hundreds of thousands of times; memoization keeps
+      // the fully auditable per-event decision rows without repeatedly
+      // normalizing strings and scanning the same ordered policy rules.
+      const ClassificationCacheKey classification_key{
+          task->source_ref_id, task->task_type_symbol_id,
+          task->op_name_symbol_id, task->op_type_symbol_id,
+          task->compute_task_type_symbol_id, task->comm_name_symbol_id};
+      auto cached = classification_cache.find(classification_key);
+      if (cached == classification_cache.end()) {
+        const SignalClassificationInput input =
+            signal_classification_input_for_task(ir, *task);
+        cached = classification_cache
+                     .emplace(classification_key,
+                              CachedClassification{
+                                  input.provider_scope,
+                                  config.classification_rules.decide(input)})
+                     .first;
+      }
+      const SignalClassificationDecision& policy_decision =
+          cached->second.decision;
+      row.input_provider_scope = cached->second.input_provider_scope;
       apply_policy_decision(row, policy_decision);
       if (!policy_decision.missing_required_fields.empty()) {
         add_issue(
