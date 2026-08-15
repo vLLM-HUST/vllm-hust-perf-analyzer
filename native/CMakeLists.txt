@@ -995,6 +995,9 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
 
     add_executable(traceloom_native_sidecar_materializer_tests
       tests/compat/native_sidecar_materializer_tests.cpp
+      tests/compat/native_sidecar_materializer_graph_tests.cpp
+      tests/compat/native_sidecar_materializer_packaging_tests.cpp
+      tests/compat/native_sidecar_materializer_test_support.cpp
     )
     target_link_libraries(
       traceloom_native_sidecar_materializer_tests PRIVATE
