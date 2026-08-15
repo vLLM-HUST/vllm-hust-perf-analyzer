@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "traceloom/analysis/flat_anchor_builder.h"
+#include "traceloom/compat/sidecar_writer.h"
 #include "traceloom/ir/native_ir.h"
 
 namespace traceloom::compat::detail {
@@ -97,7 +98,8 @@ EvidenceRoleSqlRows build_evidence_role_sql_rows(
     const NativeIr& ir,
     const FlatAnchorBuildConfig& config,
     std::uint32_t db_idx,
-    bool materialize_aux_attribution);
+    bool materialize_aux_attribution,
+    const AuxAttributionSqlRows* prebuilt_aux_attribution = nullptr);
 
 #if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
 void write_evidence_role_sql_rows(

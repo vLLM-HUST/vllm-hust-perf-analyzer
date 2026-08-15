@@ -619,10 +619,15 @@ void write_basic_native_compatibility_sidecar(
               semantic_rows_watch);
 
   const Stopwatch evidence_role_watch;
-  replace_evidence_role_sql_rows(sqlite_path, ir, evidence_role_config,
-                                 options.db_idx,
-                                 options.materialize_aux_attribution,
-                                 options.timing_diagnostics);
+  if (options.materialize_aux_attribution) {
+    replace_evidence_role_sql_rows(sqlite_path, ir, evidence_role_config,
+                                   options.db_idx, aux_rows,
+                                   options.timing_diagnostics);
+  } else {
+    replace_evidence_role_sql_rows(sqlite_path, ir, evidence_role_config,
+                                   options.db_idx, false,
+                                   options.timing_diagnostics);
+  }
   emit_timing(options, "sidecar_evidence_role_ms", evidence_role_watch);
 }
 

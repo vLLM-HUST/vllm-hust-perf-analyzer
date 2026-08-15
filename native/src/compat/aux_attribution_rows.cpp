@@ -77,22 +77,38 @@ reconciled_timing_envelope_event_ids(const NativeIr& ir) {
   return out;
 }
 
-const AnchorRow* following_anchor_for_aux_event(const NativeIr& ir,
-                                                const TraceEventRow& event) {
-  const AnchorRow* best = nullptr;
+using AnchorsByDevice =
+    std::map<std::uint32_t, std::vector<const AnchorRow*>>;
+
+AnchorsByDevice index_anchors_by_device(const NativeIr& ir) {
+  AnchorsByDevice result;
   for (const AnchorRow& anchor : ir.anchors.rows()) {
-    if (anchor.device_id != event.device_id) {
-      continue;
-    }
-    if (anchor.start_ns < event.end_ns) {
-      continue;
-    }
-    if (best == nullptr || anchor.start_ns < best->start_ns ||
-        (anchor.start_ns == best->start_ns && anchor.id < best->id)) {
-      best = &anchor;
-    }
+    result[anchor.device_id].push_back(&anchor);
   }
-  return best;
+  for (auto& [device_id, anchors] : result) {
+    (void)device_id;
+    std::sort(anchors.begin(), anchors.end(),
+              [](const AnchorRow* lhs, const AnchorRow* rhs) {
+                return lhs->start_ns < rhs->start_ns ||
+                       (lhs->start_ns == rhs->start_ns && lhs->id < rhs->id);
+              });
+  }
+  return result;
+}
+
+const AnchorRow* following_anchor_for_aux_event(
+    const AnchorsByDevice& anchors_by_device,
+    const TraceEventRow& event) {
+  const auto device = anchors_by_device.find(event.device_id);
+  if (device == anchors_by_device.end()) {
+    return nullptr;
+  }
+  const auto found = std::lower_bound(
+      device->second.begin(), device->second.end(), event.end_ns,
+      [](const AnchorRow* anchor, std::int64_t end_ns) {
+        return anchor->start_ns < end_ns;
+      });
+  return found == device->second.end() ? nullptr : *found;
 }
 
 struct AuxSlotAccum {
@@ -113,6 +129,7 @@ AuxAttributionSqlRows build_aux_attribution_sql_rows_impl(
   const std::unordered_set<TraceEventId::value_type>
       reconciled_timing_envelopes =
           reconciled_timing_envelope_event_ids(ir);
+  const AnchorsByDevice anchors_by_device = index_anchors_by_device(ir);
   AuxAttributionSqlRows rows;
   std::map<AnchorId::value_type, AuxSlotAccum> slots;
   std::map<AnchorId::value_type, std::uint32_t> next_aux_order;
@@ -135,7 +152,8 @@ AuxAttributionSqlRows build_aux_attribution_sql_rows_impl(
     if (cost_mask != nullptr && !cost_mask->includes(event.id)) {
       continue;
     }
-    const AnchorRow* anchor = following_anchor_for_aux_event(ir, event);
+    const AnchorRow* anchor =
+        following_anchor_for_aux_event(anchors_by_device, event);
     if (anchor == nullptr) {
       continue;
     }
