@@ -35,6 +35,31 @@ occurrence and query the indexed activity views or `host_window_calls` recipe.
 The empty compatibility activity/summary tables do not mean that the profiler
 observed no host activity.
 
+### Official torch-npu packaging and ACLGraph evidence
+
+The integrated `ASCEND_PROFILER_OUTPUT/ascend_pytorch_profiler_*.db` is a valid
+direct input for the base device timeline, costs, collectives, and host/runtime
+relations. It does not necessarily package the raw `CaptureStreamInfo` relation
+needed to reconstruct the visible body of an ACLGraph replay. In that case,
+TraceLoom keeps graph launches as observed runtime evidence but reports exact
+ReplayUnits as unsupported rather than guessing their contents.
+
+For exact ACLGraph body analysis, preserve the raw `PROF_*` directory emitted
+inside the torch-npu profile root and use the CANN exporter from the same
+official runtime before invoking TraceLoom:
+
+```bash
+msprof --export=on --type=db --output=/path/to/PROF_...
+traceloom /path/to/PROF_... --output /path/to/analysis.db
+```
+
+The DB export materializes the split host/device SQLite evidence, including
+`host/sqlite/stream_info.db` when capture-stream observations are available.
+TraceLoom combines that evidence with the exported task and API databases under
+the same fail-closed replay contract. Notice the CLI detail: `msprof` accepts
+the `--output=<path>` spelling above, while TraceLoom currently expects
+`--output <path>` as two arguments.
+
 For each `PROF_*` directory, the native analyzer prefers a monolithic DB with a
 nonempty `TASK` table. If it is absent or unusable, TraceLoom reports a warning
 and normalizes the split `AscendTask`, `TaskInfo`, `HostTask`, `ApiData`, and
