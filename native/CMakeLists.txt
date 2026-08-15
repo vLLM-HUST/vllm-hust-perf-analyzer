@@ -19,6 +19,7 @@ add_library(traceloom_native_core
   src/analysis/flat_anchor_builder.cpp
   src/analysis/graph_body_cost_summary.cpp
   src/analysis/signal_classification_rules.cpp
+  src/analysis/signal_classification_rules_io.cpp
   src/analysis/structural_occurrence_builder.cpp
   src/analysis/structural_occurrence_graph.cpp
   src/analysis/structural_occurrence_validation.cpp
