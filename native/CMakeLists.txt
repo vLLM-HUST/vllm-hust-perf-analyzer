@@ -474,6 +474,8 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
   )
 
   add_executable(traceloom_native_replay_internal_cost_map_tests
+    tests/analysis/replay_internal_cost_map_contract_tests.cpp
+    tests/analysis/replay_internal_cost_map_happy_path_tests.cpp
     tests/analysis/replay_internal_cost_map_tests.cpp
   )
   target_link_libraries(
