@@ -10,7 +10,7 @@
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "CMAKE_PREFIX_PATH": "$env{HOME}/.local",
         "TRACELOOM_NATIVE_BUILD_TESTS": "OFF",
-        "TRACELOOM_NATIVE_ENABLE_ASCEND_SQLITE": "ON"
+        "TRACELOOM_NATIVE_ENABLE_SQLITE_ADAPTERS": "ON"
       }
     },
     {
@@ -29,7 +29,7 @@
       "binaryDir": "${sourceDir}/build/native-no-sqlite",
       "cacheVariables": {
         "CMAKE_PREFIX_PATH": null,
-        "TRACELOOM_NATIVE_ENABLE_ASCEND_SQLITE": "OFF"
+        "TRACELOOM_NATIVE_ENABLE_SQLITE_ADAPTERS": "OFF"
       }
     }
   ],

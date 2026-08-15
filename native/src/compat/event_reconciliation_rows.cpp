@@ -13,6 +13,8 @@
 namespace traceloom::compat {
 namespace {
 
+#if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
+
 std::string decision_id(EventReconciliationDecisionId id) {
   return "reconciliation-decision-" + std::to_string(id.value());
 }
@@ -34,6 +36,8 @@ void bind_optional_id(SqliteStmt& stmt, int column, std::int64_t value) {
     bind_int64(stmt, column, value);
   }
 }
+
+#endif
 
 }  // namespace
 

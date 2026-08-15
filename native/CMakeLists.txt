@@ -6,11 +6,11 @@ include(GNUInstallDirs)
 
 option(TRACELOOM_NATIVE_BUILD_TESTS "Build TraceLoom native tests" ON)
 option(
-  TRACELOOM_NATIVE_ENABLE_ASCEND_SQLITE
-  "Build optional SQLite source adapters (legacy option name)"
+  TRACELOOM_NATIVE_ENABLE_SQLITE_ADAPTERS
+  "Build optional SQLite profile adapters"
   ON
 )
-set(TRACELOOM_NATIVE_ASCEND_SQLITE_AVAILABLE OFF)
+set(TRACELOOM_NATIVE_SQLITE_ADAPTERS_AVAILABLE OFF)
 
 add_library(traceloom_native_core
   src/analysis/event_cost_attribution.cpp
@@ -174,7 +174,7 @@ else()
   )
 endif()
 
-if(TRACELOOM_NATIVE_ENABLE_ASCEND_SQLITE)
+if(TRACELOOM_NATIVE_ENABLE_SQLITE_ADAPTERS)
   find_package(SQLite3 QUIET)
   if(SQLite3_FOUND)
     target_sources(traceloom_native_adapters
@@ -187,7 +187,10 @@ if(TRACELOOM_NATIVE_ENABLE_ASCEND_SQLITE)
         src/adapters/ascend_sqlite_split.cpp
         src/adapters/ascend_sqlite_tasks.cpp
         src/adapters/cuda_nsys_sqlite_adapter.cpp
+        src/adapters/cuda_nsys_sqlite_foundation.cpp
+        src/adapters/cuda_nsys_sqlite_graph.cpp
         src/adapters/hygon_sqlite_adapter.cpp
+        src/adapters/sqlite_profile_reader.cpp
     )
     if(TARGET SQLite::SQLite3)
       target_link_libraries(traceloom_native_adapters PRIVATE SQLite::SQLite3)
@@ -208,13 +211,13 @@ if(TRACELOOM_NATIVE_ENABLE_ASCEND_SQLITE)
     endif()
     target_compile_definitions(
       traceloom_native_adapters
-      PUBLIC TRACELOOM_NATIVE_HAS_ASCEND_SQLITE=1
+      PUBLIC TRACELOOM_NATIVE_HAS_SQLITE_ADAPTERS=1
     )
     target_compile_definitions(
       traceloom_native_materialize
       PRIVATE TRACELOOM_NATIVE_HAS_SQLITE_COMPAT=1
     )
-    set(TRACELOOM_NATIVE_ASCEND_SQLITE_AVAILABLE ON)
+    set(TRACELOOM_NATIVE_SQLITE_ADAPTERS_AVAILABLE ON)
   else()
     message(STATUS "SQLite3 not found; SQLite source adapters are disabled")
   endif()
@@ -226,7 +229,7 @@ else()
   target_compile_options(traceloom_native_adapters PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
-if(TRACELOOM_NATIVE_ASCEND_SQLITE_AVAILABLE)
+if(TRACELOOM_NATIVE_SQLITE_ADAPTERS_AVAILABLE)
   add_executable(traceloom-native-ascend-sqlite-inventory
     src/tools/ascend_sqlite_inventory_main.cpp
   )
@@ -666,7 +669,7 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     COMMAND traceloom_native_aux_attribution_rows_tests
   )
 
-  if(TRACELOOM_NATIVE_ASCEND_SQLITE_AVAILABLE)
+  if(TRACELOOM_NATIVE_SQLITE_ADAPTERS_AVAILABLE)
     add_executable(traceloom_native_runtime_device_rows_tests
       tests/compat/runtime_device_rows_tests.cpp
     )
@@ -863,7 +866,7 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     COMMAND traceloom_native_protected_sequence_fixture_reader_tests
   )
 
-  if(TRACELOOM_NATIVE_ASCEND_SQLITE_AVAILABLE)
+  if(TRACELOOM_NATIVE_SQLITE_ADAPTERS_AVAILABLE)
     add_executable(traceloom_native_ascend_sqlite_adapter_tests
       tests/adapters/ascend_sqlite_adapter_tests.cpp
     )
@@ -968,6 +971,36 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
       NAME traceloom_native_cuda_nsys_sqlite_adapter_tests
       COMMAND traceloom_native_cuda_nsys_sqlite_adapter_tests
         ${CMAKE_CURRENT_BINARY_DIR}/cuda_nsys_minimal_fixture.sqlite
+    )
+
+    add_executable(traceloom_native_sqlite_profile_reader_tests
+      tests/adapters/sqlite_profile_reader_tests.cpp
+    )
+    target_include_directories(
+      traceloom_native_sqlite_profile_reader_tests PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/adapters
+    )
+    target_link_libraries(
+      traceloom_native_sqlite_profile_reader_tests PRIVATE
+      traceloom_native_adapters
+    )
+    if(TARGET SQLite::SQLite3)
+      target_link_libraries(
+        traceloom_native_sqlite_profile_reader_tests PRIVATE SQLite::SQLite3
+      )
+    else()
+      target_include_directories(
+        traceloom_native_sqlite_profile_reader_tests
+        PRIVATE ${SQLite3_INCLUDE_DIRS}
+      )
+      target_link_libraries(
+        traceloom_native_sqlite_profile_reader_tests
+        PRIVATE ${SQLite3_LIBRARIES}
+      )
+    endif()
+    add_test(
+      NAME traceloom_native_sqlite_profile_reader_tests
+      COMMAND traceloom_native_sqlite_profile_reader_tests
     )
 
     add_executable(traceloom_native_sidecar_writer_tests

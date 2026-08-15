@@ -4,8 +4,8 @@
 #include <string>
 #include <vector>
 
-#include "traceloom/adapters/source_adapter.h"
 #include "traceloom/ir/anchor_table.h"
+#include "traceloom/ir/native_ir.h"
 #include "traceloom/ir/protected_interval_table.h"
 
 namespace traceloom {
@@ -33,11 +33,11 @@ struct FixtureInput {
   std::vector<FixtureProtectedInterval> protected_intervals;
 };
 
-class FixtureAdapter final : public SourceAdapter {
+class FixtureAdapter final {
  public:
   explicit FixtureAdapter(FixtureInput input);
 
-  NativeIr load() const override;
+  NativeIr load() const;
 
  private:
   FixtureInput input_;

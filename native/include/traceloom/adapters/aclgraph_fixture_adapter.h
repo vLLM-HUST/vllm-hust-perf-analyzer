@@ -1,16 +1,16 @@
 #pragma once
 
 #include "traceloom/adapters/aclgraph_fixture_reader.h"
-#include "traceloom/adapters/source_adapter.h"
 #include "traceloom/analysis/anchor_internal_cost_breakdown.h"
+#include "traceloom/ir/native_ir.h"
 
 namespace traceloom {
 
-class AclGraphFixtureAdapter final : public SourceAdapter {
+class AclGraphFixtureAdapter final {
  public:
   explicit AclGraphFixtureAdapter(AclGraphSemanticFixture fixture);
 
-  NativeIr load() const override;
+  NativeIr load() const;
 
  private:
   AclGraphSemanticFixture fixture_;

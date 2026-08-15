@@ -1,6 +1,6 @@
 #include "traceloom/adapters/hygon_sqlite_adapter.h"
 
-#include <sqlite3.h>
+#include "sqlite_profile_reader.h"
 
 #include <algorithm>
 #include <cctype>
@@ -18,6 +18,10 @@
 
 namespace traceloom {
 namespace {
+
+using SqliteDb = sqlite_profile_detail::ReadOnlyDatabase;
+using SqliteStmt = sqlite_profile_detail::Statement;
+using sqlite_profile_detail::quote_identifier;
 
 class Stopwatch {
  public:
@@ -56,64 +60,6 @@ void print_load_timing(const HygonLoadTiming& timing) {
   std::cerr << "timing load_hygon_hipcopy_ms=" << timing.hipcopy_ms << "\n";
 }
 
-class SqliteDb {
- public:
-  explicit SqliteDb(const std::string& path) {
-    sqlite3* raw = nullptr;
-    const int rc =
-        sqlite3_open_v2(path.c_str(), &raw, SQLITE_OPEN_READONLY, nullptr);
-    db_ = raw;
-    if (rc != SQLITE_OK) {
-      const std::string message =
-          db_ == nullptr ? "unknown sqlite open error" : sqlite3_errmsg(db_);
-      throw std::runtime_error("failed to open Hygon SQLite DB: " + message);
-    }
-  }
-
-  ~SqliteDb() {
-    if (db_ != nullptr) {
-      sqlite3_close(db_);
-    }
-  }
-
-  SqliteDb(const SqliteDb&) = delete;
-  SqliteDb& operator=(const SqliteDb&) = delete;
-
-  sqlite3* get() const noexcept { return db_; }
-
- private:
-  sqlite3* db_ = nullptr;
-};
-
-class SqliteStmt {
- public:
-  SqliteStmt(sqlite3* db, const std::string& sql) : db_(db) {
-    sqlite3_stmt* raw = nullptr;
-    const int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &raw, nullptr);
-    stmt_ = raw;
-    if (rc != SQLITE_OK) {
-      throw std::runtime_error("failed to prepare Hygon SQLite query: " +
-                               std::string(sqlite3_errmsg(db_)));
-    }
-  }
-
-  ~SqliteStmt() {
-    if (stmt_ != nullptr) {
-      sqlite3_finalize(stmt_);
-    }
-  }
-
-  SqliteStmt(const SqliteStmt&) = delete;
-  SqliteStmt& operator=(const SqliteStmt&) = delete;
-
-  sqlite3_stmt* get() const noexcept { return stmt_; }
-  sqlite3* db() const noexcept { return db_; }
-
- private:
-  sqlite3* db_ = nullptr;
-  sqlite3_stmt* stmt_ = nullptr;
-};
-
 bool file_exists(const std::string& path) {
   std::ifstream input(path);
   return input.good();
@@ -121,26 +67,19 @@ bool file_exists(const std::string& path) {
 
 std::int64_t sqlite_i64(sqlite3_stmt* stmt, int column,
                         std::int64_t fallback = 0) {
-  if (sqlite3_column_type(stmt, column) == SQLITE_NULL) {
-    return fallback;
-  }
-  return sqlite3_column_int64(stmt, column);
+  return sqlite_profile_detail::read_i64(stmt, column, fallback);
 }
 
 std::uint32_t sqlite_u32(sqlite3_stmt* stmt, int column) {
-  const std::int64_t value = sqlite_i64(stmt, column);
-  return value < 0 ? 0u : static_cast<std::uint32_t>(value);
+  return sqlite_profile_detail::read_u32(stmt, column);
 }
 
 std::uint64_t sqlite_u64(sqlite3_stmt* stmt, int column) {
-  const std::int64_t value = sqlite_i64(stmt, column);
-  return value < 0 ? 0u : static_cast<std::uint64_t>(value);
+  return sqlite_profile_detail::read_u64(stmt, column);
 }
 
 std::string sqlite_text(sqlite3_stmt* stmt, int column) {
-  const unsigned char* raw = sqlite3_column_text(stmt, column);
-  return raw == nullptr ? std::string()
-                        : std::string(reinterpret_cast<const char*>(raw));
+  return sqlite_profile_detail::read_text(stmt, column);
 }
 
 bool starts_with(const std::string& value, const std::string& prefix) {
@@ -185,7 +124,8 @@ std::vector<std::string> table_names(SqliteDb& db) {
 }
 
 std::uint64_t table_row_count(SqliteDb& db, const std::string& table_name) {
-  SqliteStmt stmt(db.get(), "SELECT COUNT(*) FROM \"" + table_name + "\"");
+  SqliteStmt stmt(db.get(),
+                  "SELECT COUNT(*) FROM " + quote_identifier(table_name));
   const int rc = sqlite3_step(stmt.get());
   if (rc != SQLITE_ROW) {
     if (rc == SQLITE_DONE) {

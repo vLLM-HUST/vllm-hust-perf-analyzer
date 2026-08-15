@@ -29,16 +29,7 @@ bool file_exists(const std::string& path) {
 }
 
 std::string quote_identifier(const std::string& value) {
-  std::string out = "\"";
-  for (char ch : value) {
-    if (ch == '\"') {
-      out += "\"\"";
-    } else {
-      out += ch;
-    }
-  }
-  out += "\"";
-  return out;
+  return sqlite_profile_detail::quote_identifier(value);
 }
 
 bool sqlite_table_has_rows(const std::string& path,
@@ -61,20 +52,15 @@ GraphReplayUnitView replay_unit_for_rows(std::vector<GraphTaskView> rows) {
 std::int64_t sqlite_i64(sqlite3_stmt* stmt,
                         int column,
                         std::int64_t fallback) {
-  if (sqlite3_column_type(stmt, column) == SQLITE_NULL) {
-    return fallback;
-  }
-  return sqlite3_column_int64(stmt, column);
+  return sqlite_profile_detail::read_i64(stmt, column, fallback);
 }
 
 std::uint32_t sqlite_u32(sqlite3_stmt* stmt, int column) {
-  const std::int64_t value = sqlite_i64(stmt, column, 0);
-  return value < 0 ? 0u : static_cast<std::uint32_t>(value);
+  return sqlite_profile_detail::read_u32(stmt, column);
 }
 
 std::uint64_t sqlite_u64(sqlite3_stmt* stmt, int column) {
-  const std::int64_t value = sqlite_i64(stmt, column, 0);
-  return value < 0 ? 0u : static_cast<std::uint64_t>(value);
+  return sqlite_profile_detail::read_u64(stmt, column);
 }
 
 std::int64_t normalize_raw_model_id(std::int64_t value) {
@@ -87,11 +73,7 @@ std::int64_t normalize_raw_model_id(std::int64_t value) {
 }
 
 std::string sqlite_text(sqlite3_stmt* stmt, int column) {
-  const unsigned char* raw = sqlite3_column_text(stmt, column);
-  if (raw == nullptr) {
-    return "";
-  }
-  return reinterpret_cast<const char*>(raw);
+  return sqlite_profile_detail::read_text(stmt, column);
 }
 
 std::string decode_string_id(

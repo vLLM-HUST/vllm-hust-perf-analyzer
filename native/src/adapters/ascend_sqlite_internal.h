@@ -1,8 +1,8 @@
 #pragma once
 
-#include "traceloom/adapters/ascend_sqlite_adapter.h"
+#include "sqlite_profile_reader.h"
 
-#include <sqlite3.h>
+#include "traceloom/adapters/ascend_sqlite_adapter.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -18,64 +18,8 @@
 
 namespace traceloom::ascend_sqlite_detail {
 
-class SqliteDb {
- public:
-  explicit SqliteDb(const std::string& path) {
-    sqlite3* raw = nullptr;
-    const int rc =
-        sqlite3_open_v2(path.c_str(), &raw, SQLITE_OPEN_READONLY, nullptr);
-    db_ = raw;
-    if (rc != SQLITE_OK) {
-      const std::string message =
-          db_ == nullptr ? "unknown sqlite open error" : sqlite3_errmsg(db_);
-      throw std::runtime_error("failed to open Ascend SQLite DB: " + message);
-    }
-  }
-
-  ~SqliteDb() {
-    if (db_ != nullptr) {
-      sqlite3_close(db_);
-    }
-  }
-
-  SqliteDb(const SqliteDb&) = delete;
-  SqliteDb& operator=(const SqliteDb&) = delete;
-
-  sqlite3* get() const noexcept { return db_; }
-
- private:
-  sqlite3* db_ = nullptr;
-};
-
-class SqliteStmt {
- public:
-  SqliteStmt(sqlite3* db, const char* sql) : db_(db) {
-    sqlite3_stmt* raw = nullptr;
-    const int rc = sqlite3_prepare_v2(db_, sql, -1, &raw, nullptr);
-    stmt_ = raw;
-    if (rc != SQLITE_OK) {
-      const std::string message = sqlite3_errmsg(db_);
-      throw std::runtime_error("failed to prepare Ascend SQLite inventory: " +
-                               message);
-    }
-  }
-
-  ~SqliteStmt() {
-    if (stmt_ != nullptr) {
-      sqlite3_finalize(stmt_);
-    }
-  }
-
-  SqliteStmt(const SqliteStmt&) = delete;
-  SqliteStmt& operator=(const SqliteStmt&) = delete;
-
-  sqlite3_stmt* get() const noexcept { return stmt_; }
-  sqlite3* db() const noexcept { return db_; }
-
- private:
-  sqlite3* db_ = nullptr;
-  sqlite3_stmt* stmt_ = nullptr;
-};
+using SqliteDb = sqlite_profile_detail::ReadOnlyDatabase;
+using SqliteStmt = sqlite_profile_detail::Statement;
 
 struct ComputeInfo {
   SymbolId op_name_symbol_id = SymbolId::invalid();

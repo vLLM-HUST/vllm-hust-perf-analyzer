@@ -7,7 +7,7 @@
 #include <utility>
 #include <vector>
 
-#include "traceloom/adapters/source_adapter.h"
+#include "traceloom/ir/native_ir.h"
 
 namespace traceloom {
 
@@ -30,14 +30,14 @@ struct AscendSQLiteAdapterOptions {
   bool timing_diagnostics = false;
 };
 
-class AscendSQLiteAdapter final : public SourceAdapter {
+class AscendSQLiteAdapter final {
  public:
-#if defined(TRACELOOM_NATIVE_HAS_ASCEND_SQLITE)
+#if defined(TRACELOOM_NATIVE_HAS_SQLITE_ADAPTERS)
   explicit AscendSQLiteAdapter(AscendSQLiteAdapterOptions options);
   explicit AscendSQLiteAdapter(std::string db_path,
                                std::string source_kind = "ascend_sqlite");
 
-  NativeIr load() const override;
+  NativeIr load() const;
 #else
   explicit AscendSQLiteAdapter(AscendSQLiteAdapterOptions options)
       : options_(std::move(options)) {}
@@ -46,7 +46,7 @@ class AscendSQLiteAdapter final : public SourceAdapter {
       : options_(AscendSQLiteAdapterOptions{std::move(db_path),
                                             std::move(source_kind)}) {}
 
-  NativeIr load() const override {
+  NativeIr load() const {
     throw std::runtime_error(
         "AscendSQLiteAdapter is unavailable: SQLite3 support was not built");
   }

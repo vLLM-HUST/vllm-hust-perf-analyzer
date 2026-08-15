@@ -8,6 +8,8 @@
 namespace traceloom::compat {
 namespace {
 
+#if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
+
 void finish_row(SqliteStmt& stmt, const char* failure) {
   const int rc = sqlite3_step(stmt.get());
   if (rc != SQLITE_DONE) {
@@ -17,6 +19,8 @@ void finish_row(SqliteStmt& stmt, const char* failure) {
   sqlite3_reset(stmt.get());
   sqlite3_clear_bindings(stmt.get());
 }
+
+#endif
 
 }  // namespace
 

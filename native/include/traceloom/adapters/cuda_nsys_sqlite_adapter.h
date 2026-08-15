@@ -7,7 +7,7 @@
 #include <utility>
 #include <vector>
 
-#include "traceloom/adapters/source_adapter.h"
+#include "traceloom/ir/native_ir.h"
 
 namespace traceloom {
 
@@ -31,14 +31,14 @@ CudaNsightSQLiteInventory inspect_cuda_nsys_sqlite_profile(
     const std::string& db_path);
 bool looks_like_cuda_nsys_sqlite_profile(const std::string& db_path);
 
-class CudaNsightSQLiteAdapter final : public SourceAdapter {
+class CudaNsightSQLiteAdapter final {
  public:
-#if defined(TRACELOOM_NATIVE_HAS_ASCEND_SQLITE)
+#if defined(TRACELOOM_NATIVE_HAS_SQLITE_ADAPTERS)
   explicit CudaNsightSQLiteAdapter(CudaNsightSQLiteAdapterOptions options);
   explicit CudaNsightSQLiteAdapter(
       std::string db_path, std::string source_kind = "cuda_nsys_sqlite");
 
-  NativeIr load() const override;
+  NativeIr load() const;
 #else
   explicit CudaNsightSQLiteAdapter(CudaNsightSQLiteAdapterOptions options)
       : options_(std::move(options)) {}
@@ -47,7 +47,7 @@ class CudaNsightSQLiteAdapter final : public SourceAdapter {
       : options_(CudaNsightSQLiteAdapterOptions{std::move(db_path),
                                                 std::move(source_kind)}) {}
 
-  NativeIr load() const override {
+  NativeIr load() const {
     throw std::runtime_error(
         "CudaNsightSQLiteAdapter is unavailable: SQLite3 support was not "
         "built");

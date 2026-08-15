@@ -5,7 +5,7 @@
 #include <string>
 #include <utility>
 
-#include "traceloom/adapters/source_adapter.h"
+#include "traceloom/ir/native_ir.h"
 
 namespace traceloom {
 
@@ -18,14 +18,14 @@ struct HygonSQLiteAdapterOptions {
 
 bool looks_like_hygon_sqlite_profile(const std::string& db_path);
 
-class HygonSQLiteAdapter final : public SourceAdapter {
+class HygonSQLiteAdapter final {
  public:
-#if defined(TRACELOOM_NATIVE_HAS_ASCEND_SQLITE)
+#if defined(TRACELOOM_NATIVE_HAS_SQLITE_ADAPTERS)
   explicit HygonSQLiteAdapter(HygonSQLiteAdapterOptions options);
   explicit HygonSQLiteAdapter(std::string db_path,
                               std::string source_kind = "hygon_sqlite");
 
-  NativeIr load() const override;
+  NativeIr load() const;
 #else
   explicit HygonSQLiteAdapter(HygonSQLiteAdapterOptions options)
       : options_(std::move(options)) {}
@@ -34,7 +34,7 @@ class HygonSQLiteAdapter final : public SourceAdapter {
       : options_(HygonSQLiteAdapterOptions{std::move(db_path),
                                            std::move(source_kind)}) {}
 
-  NativeIr load() const override {
+  NativeIr load() const {
     throw std::runtime_error(
         "HygonSQLiteAdapter is unavailable: SQLite3 support was not built");
   }
