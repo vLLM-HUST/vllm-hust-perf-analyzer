@@ -1,0 +1,3 @@
+BEGIN;
+DELETE FROM TASK WHERE taskType = 12 AND taskId = 70;
+COMMIT;

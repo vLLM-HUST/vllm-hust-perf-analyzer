@@ -125,10 +125,32 @@ std::string temp_db_path(const char* suffix) {
   return path.string();
 }
 
+std::filesystem::path ascend_sqlite_fixture_dir(const char* name) {
+  return std::filesystem::path(TRACELOOM_NATIVE_FIXTURE_ROOT) /
+         "ascend_sqlite" / name;
+}
+
+void materialize_aclgraph_fixture(const std::filesystem::path& output_dir,
+                                  const char* name) {
+  const std::filesystem::path fixture = ascend_sqlite_fixture_dir(name);
+  traceloom::test::materialize_sqlite_fixture(output_dir / "msprof.db",
+                                               fixture / "msprof.sql");
+  traceloom::test::materialize_sqlite_fixture(
+      output_dir / "host" / "sqlite" / "stream_info.db",
+      fixture / "host" / "sqlite" / "stream_info.sql");
+}
+
+void apply_ascend_fixture_mutation(const std::filesystem::path& database_path,
+                                   const char* fixture_name,
+                                   const char* mutation_name) {
+  traceloom::test::apply_sqlite_fixture_mutation(
+      database_path, ascend_sqlite_fixture_dir(fixture_name) / "mutations" /
+                         mutation_name);
+}
+
 void create_minimal_db(const std::string& path) {
   traceloom::test::materialize_sqlite_fixture(
-      path, std::filesystem::path(TRACELOOM_NATIVE_FIXTURE_ROOT) /
-                "ascend_sqlite" / "minimal_smoke" / "msprof.sql");
+      path, ascend_sqlite_fixture_dir("minimal_smoke") / "msprof.sql");
 }
 
 std::filesystem::path temp_prof_dir(const char* suffix) {
@@ -272,99 +294,6 @@ void create_split_golden_profiles(const std::filesystem::path& root,
   sqlite3_close(db);
 }
 
-void create_aclgraph_profile(const std::filesystem::path& dir) {
-  const std::filesystem::path fixture =
-      std::filesystem::path(TRACELOOM_NATIVE_FIXTURE_ROOT) / "ascend_sqlite" /
-      "aclgraph_smoke";
-  traceloom::test::materialize_sqlite_fixture(dir / "msprof.db",
-                                               fixture / "msprof.sql");
-  traceloom::test::materialize_sqlite_fixture(
-      dir / "host" / "sqlite" / "stream_info.db",
-      fixture / "host" / "sqlite" / "stream_info.sql");
-}
-
-void create_aclgraph_launch_identity_profile(const std::string& path) {
-  sqlite3* db = nullptr;
-  const int rc = sqlite3_open_v2(
-      path.c_str(), &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
-  require(rc == SQLITE_OK, "failed to create graph launch identity DB");
-  exec_sql(db,
-           "CREATE TABLE STRING_IDS(id INTEGER PRIMARY KEY, value TEXT);"
-           "INSERT INTO STRING_IDS VALUES "
-           "(10, 'MODEL_EXECUTE'), (11, 'NOTIFY_WAIT'), "
-           "(12, 'NOTIFY_RECORD'), (20, 'aclmdlRIExecuteAsync'), "
-           "(21, 'aclmdlRICaptureBegin'), (22, 'aclmdlRICaptureEnd'), "
-           "(23, 'aclnnMuls'), (24, 'aclnnAdds'), (25, 'aclnnSubs'), "
-           "(26, 'aclrtSynchronizeStreamWithTimeout'), "
-           "(30, 'KERNEL_AIVEC'), (31, 'Add'), (32, 'Sub'), "
-           "(33, 'hcom_allReduce__fixture'), (34, 'Reduce_Inline');"
-           "CREATE TABLE TASK(startNs INTEGER, endNs INTEGER, "
-           "deviceId INTEGER, connectionId INTEGER, globalTaskId INTEGER, "
-           "globalPid INTEGER, taskType INTEGER, contextId INTEGER, "
-           "streamId INTEGER, taskId INTEGER, modelId INTEGER);"
-           "INSERT INTO TASK VALUES "
-           "(100, 110, 0, 100, 1, 1, 10, 0, 3, 1, 7), "
-           "(115, 120, 0, 100, 2, 1, 11, 0, 3, 2, 7), "
-           "(118, 120, 0, 9001, 3, 1, 12, 0, 36, 3, 7), "
-           "(200, 210, 0, 101, 4, 1, 10, 0, 3, 4, 8), "
-           "(215, 220, 0, 101, 5, 1, 11, 0, 3, 5, 8), "
-           "(218, 220, 0, 9002, 6, 1, 12, 0, 37, 6, 8), "
-           "(300, 310, 0, 102, 7, 1, 10, 0, 3, 7, 7), "
-           "(315, 320, 0, 102, 8, 1, 11, 0, 3, 8, 7), "
-           "(699990, 700000, 0, 9001, 9, 1, 12, 0, 36, 9, 4294967295), "
-           "(800000, 800010, 0, 103, 10, 1, 10, 0, 3, 10, 7), "
-           "(116, 117, 0, 300, 100, 1, 30, 0, 36, 11, 7), "
-           "(216, 217, 0, 301, 101, 1, 30, 0, 37, 12, 8), "
-           "(316, 317, 0, 302, 100, 1, 30, 0, 36, 13, 7), "
-           "(116, 117, 0, 303, 102, 1, 30, 0, 38, 14, 7), "
-           "(316, 317, 0, 304, 102, 1, 30, 0, 38, 15, 7);"
-           "CREATE TABLE COMPUTE_TASK_INFO(globalTaskId INTEGER, "
-           "name INTEGER, opType INTEGER, taskType INTEGER);"
-           "INSERT INTO COMPUTE_TASK_INFO VALUES "
-           "(100, 31, 31, 30), (101, 32, 32, 30);"
-           "CREATE TABLE COMMUNICATION_TASK_INFO(globalTaskId INTEGER, "
-           "name INTEGER, taskType INTEGER);"
-           "INSERT INTO COMMUNICATION_TASK_INFO VALUES (102, 33, 34);"
-           "CREATE TABLE CANN_API(startNs INTEGER, endNs INTEGER, "
-           "type INTEGER, globalTid INTEGER, connectionId INTEGER, "
-           "name INTEGER);"
-           "INSERT INTO CANN_API VALUES "
-           "(10, 11, 0, 1, 10, 21), "
-           "(12, 13, 0, 1, 11, 23), "
-           "(14, 15, 0, 1, 12, 24), "
-           "(16, 17, 0, 1, 13, 22), "
-           "(20, 21, 0, 1, 20, 21), "
-           "(22, 23, 0, 1, 21, 23), "
-           "(24, 25, 0, 1, 22, 25), "
-           "(26, 27, 0, 1, 23, 22), "
-           "(90, 95, 0, 1, 100, 20), "
-           "(190, 195, 0, 1, 101, 20), "
-           "(290, 295, 0, 1, 102, 20), "
-           "(799990, 799995, 0, 1, 103, 20), "
-           "(250, 260, 0, 1, 200, 26), "
-           "(800020, 800030, 0, 1, 201, 26);");
-  sqlite3_close(db);
-
-  const std::filesystem::path stream_info_path =
-      std::filesystem::path(path).parent_path() / "host" / "sqlite" /
-      "stream_info.db";
-  std::filesystem::create_directories(stream_info_path.parent_path());
-  db = nullptr;
-  const int stream_rc = sqlite3_open_v2(
-      stream_info_path.string().c_str(), &db,
-      SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
-  require(stream_rc == SQLITE_OK,
-          "failed to create graph launch stream_info DB");
-  exec_sql(db,
-           "CREATE TABLE CaptureStreamInfo(device_id INTEGER, "
-           "model_id INTEGER, original_stream_id INTEGER, stream_id INTEGER, "
-           "timestamp NUMERIC);"
-           "INSERT INTO CaptureStreamInfo VALUES "
-           "(0, 7, 3, 36, 100), (0, 7, 4, 38, 100), "
-           "(0, 8, 3, 37, 200);");
-  sqlite3_close(db);
-}
-
 void create_split_aclgraph_profile_from_monolithic(
     const std::filesystem::path& root,
     const std::string& monolithic_path,
@@ -468,204 +397,9 @@ void create_split_aclgraph_profile_from_monolithic(
   sqlite3_close(db);
 }
 
-void create_aclgraph_body_mismatch_profile(const std::string& path) {
-  sqlite3* db = nullptr;
-  const int rc = sqlite3_open_v2(
-      path.c_str(), &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
-  require(rc == SQLITE_OK, "failed to create graph body mismatch DB");
-  exec_sql(db,
-           "CREATE TABLE STRING_IDS(id INTEGER PRIMARY KEY, value TEXT);"
-           "INSERT INTO STRING_IDS VALUES "
-           "(10, 'MODEL_EXECUTE'), (11, 'NOTIFY_WAIT'), "
-           "(12, 'NOTIFY_RECORD'), (20, 'aclmdlRIExecuteAsync'), "
-           "(30, 'KERNEL_AIVEC'), (31, 'Add'), (32, 'Sub');"
-           "CREATE TABLE TASK(startNs INTEGER, endNs INTEGER, "
-           "deviceId INTEGER, connectionId INTEGER, globalTaskId INTEGER, "
-           "globalPid INTEGER, taskType INTEGER, contextId INTEGER, "
-           "streamId INTEGER, taskId INTEGER, modelId INTEGER);"
-           "CREATE TABLE COMPUTE_TASK_INFO(globalTaskId INTEGER, "
-           "name INTEGER, opType INTEGER, taskType INTEGER);"
-           "INSERT INTO COMPUTE_TASK_INFO VALUES "
-           "(100, 31, 31, 30), (101, 32, 32, 30);"
-           "CREATE TABLE COMMUNICATION_TASK_INFO(globalTaskId INTEGER, "
-           "name INTEGER, taskType INTEGER);"
-           "CREATE TABLE CANN_API(startNs INTEGER, endNs INTEGER, "
-           "type INTEGER, globalTid INTEGER, connectionId INTEGER, "
-           "name INTEGER);");
-  for (std::int64_t index = 0; index < 7; ++index) {
-    const std::int64_t base = 100 + index * 100;
-    const std::int64_t connection = 1000 + index;
-    const std::int64_t first_task_id = index * 4 + 1;
-    const std::int64_t compute_global_task_id = index == 3 ? 101 : 100;
-    const std::string task_sql =
-        "INSERT INTO TASK VALUES "
-        "(" + std::to_string(base) + ", " + std::to_string(base + 10) +
-        ", 0, " + std::to_string(connection) + ", " +
-        std::to_string(200 + index) + ", 1, 10, 0, 3, " +
-        std::to_string(first_task_id) + ", 7), "
-        "(" + std::to_string(base + 15) + ", " +
-        std::to_string(base + 20) + ", 0, " +
-        std::to_string(connection) + ", " + std::to_string(300 + index) +
-        ", 1, 11, 0, 3, " + std::to_string(first_task_id + 1) +
-        ", 7), "
-        "(" + std::to_string(base + 16) + ", " +
-        std::to_string(base + 17) + ", 0, " +
-        std::to_string(400 + index) + ", " +
-        std::to_string(compute_global_task_id) + ", 1, 30, 0, 36, " +
-        std::to_string(first_task_id + 2) + ", 7), "
-        "(" + std::to_string(base + 18) + ", " +
-        std::to_string(base + 20) + ", 0, 9001, " +
-        std::to_string(500 + index) + ", 1, 12, 0, 36, " +
-        std::to_string(first_task_id + 3) + ", 7);";
-    exec_sql(db, task_sql.c_str());
-    const std::string api_sql =
-        "INSERT INTO CANN_API VALUES (" + std::to_string(base - 10) +
-        ", " + std::to_string(base - 5) + ", 0, 1, " +
-        std::to_string(connection) + ", 20);";
-    exec_sql(db, api_sql.c_str());
-  }
-  sqlite3_close(db);
 
-  const std::filesystem::path stream_info_path =
-      std::filesystem::path(path).parent_path() / "host" / "sqlite" /
-      "stream_info.db";
-  std::filesystem::create_directories(stream_info_path.parent_path());
-  db = nullptr;
-  const int stream_rc = sqlite3_open_v2(
-      stream_info_path.string().c_str(), &db,
-      SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
-  require(stream_rc == SQLITE_OK,
-          "failed to create graph body mismatch stream_info DB");
-  exec_sql(db,
-           "CREATE TABLE CaptureStreamInfo(device_id INTEGER, "
-           "model_id INTEGER, original_stream_id INTEGER, stream_id INTEGER, "
-           "timestamp NUMERIC);"
-           "INSERT INTO CaptureStreamInfo VALUES (0, 7, 3, 36, 1);");
-  sqlite3_close(db);
-}
 
-void create_aclgraph_exact_hlt_profile(
-    const std::string& path,
-    std::int64_t missing_body_launch_index = -1) {
-  sqlite3* db = nullptr;
-  const int rc = sqlite3_open_v2(
-      path.c_str(), &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
-  require(rc == SQLITE_OK, "failed to create exact HLT graph DB");
-  exec_sql(db,
-           "CREATE TABLE STRING_IDS(id INTEGER PRIMARY KEY, value TEXT);"
-           "INSERT INTO STRING_IDS VALUES "
-           "(10, 'MODEL_EXECUTE'), (11, 'NOTIFY_WAIT'), "
-           "(12, 'NOTIFY_RECORD'), (20, 'aclmdlRIExecuteAsync'), "
-           "(21, 'aclrtSynchronizeStreamWithTimeout'), "
-           "(30, 'KERNEL_AIVEC'), (31, 'HeadOp'), (32, 'LayerOp'), "
-           "(33, 'TailOp'), (34, 'PrefillHeadOp'), "
-           "(35, 'PrefillLayerOp'), (36, 'PrefillTailOp'), "
-           "(37, 'AuxGraphOp');"
-           "CREATE TABLE TASK(startNs INTEGER, endNs INTEGER, "
-           "deviceId INTEGER, connectionId INTEGER, globalTaskId INTEGER, "
-           "globalPid INTEGER, taskType INTEGER, contextId INTEGER, "
-           "streamId INTEGER, taskId INTEGER, modelId INTEGER);"
-           "CREATE TABLE COMPUTE_TASK_INFO(globalTaskId INTEGER, "
-           "name INTEGER, opType INTEGER, taskType INTEGER);"
-           "INSERT INTO COMPUTE_TASK_INFO VALUES "
-           "(100, 31, 31, 30), (101, 32, 32, 30), "
-           "(102, 33, 33, 30), (103, 34, 34, 30), "
-           "(104, 35, 35, 30), (105, 36, 36, 30), "
-           "(106, 37, 37, 30);"
-           "CREATE TABLE COMMUNICATION_TASK_INFO(globalTaskId INTEGER, "
-           "name INTEGER, taskType INTEGER);"
-           "CREATE TABLE CANN_API(startNs INTEGER, endNs INTEGER, "
-           "type INTEGER, globalTid INTEGER, connectionId INTEGER, "
-           "name INTEGER);");
 
-  // One exact one-shot prefill H/L/T, three periodic decode H/L/T
-  // compositions, then a valid decode H/L prefix.  The final prefix must
-  // remain explicit unrecognized evidence rather than becoming a partial
-  // replay unit.
-  for (std::int64_t index = 0; index < 14; ++index) {
-    const std::int64_t base = 100 + index * 100;
-    const std::int64_t launch_connection = 1000 + index;
-    const bool is_prefill = index < 3;
-    const std::int64_t slot = is_prefill ? index : (index - 3) % 3;
-    const std::int64_t graph_connection =
-        (is_prefill ? 9101 : 9001) + slot;
-    const bool missing_body = index == missing_body_launch_index;
-    const std::int64_t body_global_task_id =
-        missing_body ? 107 : (is_prefill ? 103 : 100) + slot;
-    const std::int64_t aux_global_task_id = missing_body ? 108 : 106;
-    const std::int64_t model_id = (is_prefill ? 10 : 7) + slot;
-    const std::int64_t main_stream = 36 + (model_id - 7) * 2;
-    const std::int64_t aux_stream = main_stream + 1;
-    const std::int64_t first_task_id = index * 5 + 1;
-    const std::string task_sql =
-        "INSERT INTO TASK VALUES "
-        "(" + std::to_string(base) + ", " + std::to_string(base + 10) +
-        ", 0, " + std::to_string(launch_connection) + ", " +
-        std::to_string(200 + index) + ", 1, 10, 0, 3, " +
-        std::to_string(first_task_id) + ", " +
-        std::to_string(model_id) + "), "
-        "(" + std::to_string(base + 15) + ", " +
-        std::to_string(base + 20) + ", 0, " +
-        std::to_string(launch_connection) + ", " +
-        std::to_string(300 + index) + ", 1, 11, 0, 3, " +
-        std::to_string(first_task_id + 1) + ", " +
-        std::to_string(model_id) + "), "
-        "(" + std::to_string(base + 16) + ", " +
-        std::to_string(base + 17) + ", 0, " +
-        std::to_string(400 + index) + ", " +
-        std::to_string(body_global_task_id) + ", 1, 30, 0, " +
-        std::to_string(main_stream) + ", " +
-        std::to_string(first_task_id + 2) + ", " +
-        std::to_string(model_id) + "), "
-        "(" + std::to_string(base + 16) + ", " +
-        std::to_string(base + 17) + ", 0, " +
-        std::to_string(450 + index) + ", " +
-        std::to_string(aux_global_task_id) + ", 1, 30, 0, " +
-        std::to_string(aux_stream) + ", " +
-        std::to_string(first_task_id + 3) + ", " +
-        std::to_string(model_id) + "), "
-        "(" + std::to_string(base + 18) + ", " +
-        std::to_string(base + 20) + ", 0, " +
-        std::to_string(graph_connection) + ", " +
-        std::to_string(500 + index) + ", 1, 12, 0, " +
-        std::to_string(main_stream) + ", " +
-        std::to_string(first_task_id + 4) + ", " +
-        std::to_string(model_id) + ");";
-    exec_sql(db, task_sql.c_str());
-    const std::string api_sql =
-        "INSERT INTO CANN_API VALUES (" + std::to_string(base - 10) +
-        ", " + std::to_string(base - 5) + ", 0, 1, " +
-        std::to_string(launch_connection) + ", 20);";
-    exec_sql(db, api_sql.c_str());
-  }
-  exec_sql(db,
-           "INSERT INTO CANN_API VALUES "
-           "(1490, 1500, 0, 1, 9999, 21);");
-  sqlite3_close(db);
-
-  const std::filesystem::path stream_info_path =
-      std::filesystem::path(path).parent_path() / "host" / "sqlite" /
-      "stream_info.db";
-  std::filesystem::create_directories(stream_info_path.parent_path());
-  db = nullptr;
-  const int stream_rc = sqlite3_open_v2(
-      stream_info_path.string().c_str(), &db,
-      SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
-  require(stream_rc == SQLITE_OK,
-          "failed to create exact HLT stream_info DB");
-  exec_sql(db,
-           "CREATE TABLE CaptureStreamInfo(device_id INTEGER, "
-           "model_id INTEGER, original_stream_id INTEGER, stream_id INTEGER, "
-           "timestamp NUMERIC);"
-           "INSERT INTO CaptureStreamInfo VALUES "
-           "(0, 7, 3, 36, 1), (0, 7, 4, 37, 1), "
-           "(0, 8, 3, 38, 2), (0, 8, 4, 39, 2), "
-           "(0, 9, 3, 40, 3), (0, 9, 4, 41, 3), "
-           "(0, 10, 3, 42, 4), (0, 10, 4, 43, 4), "
-           "(0, 11, 3, 44, 5), (0, 11, 4, 45, 5), "
-           "(0, 12, 3, 46, 6), (0, 12, 4, 47, 6);");
-  sqlite3_close(db);
-}
 
 }  // namespace
 
@@ -778,7 +512,7 @@ int main() {
           "COMMUNICATION_OP linked task type mismatch");
 
   const std::filesystem::path graph_dir = temp_prof_dir("_graph");
-  create_aclgraph_profile(graph_dir);
+  materialize_aclgraph_fixture(graph_dir, "aclgraph_smoke");
   const AscendSQLiteAdapter graph_adapter(
       AscendSQLiteAdapterOptions{(graph_dir / "msprof.db").string(),
                                  "ascend_graph_smoke"});
@@ -827,11 +561,8 @@ int main() {
 
   const std::string current_stream_db_path =
       (graph_dir / "host" / "sqlite" / "stream_info.db").string();
-  const std::filesystem::path graph_mutations =
-      std::filesystem::path(TRACELOOM_NATIVE_FIXTURE_ROOT) / "ascend_sqlite" /
-      "aclgraph_smoke" / "mutations";
-  traceloom::test::apply_sqlite_fixture_mutation(
-      current_stream_db_path, graph_mutations / "current_schema.sql");
+  apply_ascend_fixture_mutation(current_stream_db_path, "aclgraph_smoke",
+                                "current_schema.sql");
 
   const AscendSQLiteAdapter current_graph_adapter(
       AscendSQLiteAdapterOptions{(graph_dir / "msprof.db").string(),
@@ -842,8 +573,8 @@ int main() {
   require(current_graph_ir.graph_templates.size() == 1,
           "current ACLGraph stream_id schema changed graph identity");
 
-  traceloom::test::apply_sqlite_fixture_mutation(
-      current_stream_db_path, graph_mutations / "single_slot.sql");
+  apply_ascend_fixture_mutation(current_stream_db_path, "aclgraph_smoke",
+                                "single_slot.sql");
   const AscendSQLiteAdapter single_slot_graph_adapter(
       AscendSQLiteAdapterOptions{(graph_dir / "msprof.db").string(),
                                  "ascend_graph_single_slot_smoke"});
@@ -865,7 +596,7 @@ int main() {
   std::filesystem::create_directories(launch_identity_dir);
   const std::string launch_identity_path =
       (launch_identity_dir / "msprof.db").string();
-  create_aclgraph_launch_identity_profile(launch_identity_path);
+  materialize_aclgraph_fixture(launch_identity_dir, "launch_identity");
   const NativeIr launch_identity_ir =
       AscendSQLiteAdapter(launch_identity_path, "graph_launch_identity").load();
   require(launch_identity_ir.graph_launch_occurrences.size() == 4,
@@ -1096,7 +827,9 @@ int main() {
   std::filesystem::create_directories(body_mismatch_dir);
   const std::string body_mismatch_path =
       (body_mismatch_dir / "msprof.db").string();
-  create_aclgraph_body_mismatch_profile(body_mismatch_path);
+  materialize_aclgraph_fixture(body_mismatch_dir, "body_mismatch");
+  apply_ascend_fixture_mutation(body_mismatch_path, "body_mismatch",
+                                "body_sequence_mismatch.sql");
   NativeIr body_mismatch_ir =
       AscendSQLiteAdapter(body_mismatch_path, "graph_body_mismatch").load();
   require(body_mismatch_ir.replay_composition_candidates.size() == 1 &&
@@ -1171,7 +904,7 @@ int main() {
   std::filesystem::create_directories(exact_hlt_dir);
   const std::string exact_hlt_path =
       (exact_hlt_dir / "msprof.db").string();
-  create_aclgraph_exact_hlt_profile(exact_hlt_path);
+  materialize_aclgraph_fixture(exact_hlt_dir, "exact_hlt");
   NativeIr exact_hlt_ir =
       AscendSQLiteAdapter(exact_hlt_path, "graph_exact_hlt").load();
   require(exact_hlt_ir.replay_composition_candidates.size() == 2 &&
@@ -1316,7 +1049,9 @@ int main() {
   std::filesystem::create_directories(missing_body_dir);
   const std::string missing_body_path =
       (missing_body_dir / "msprof.db").string();
-  create_aclgraph_exact_hlt_profile(missing_body_path, 6);
+  materialize_aclgraph_fixture(missing_body_dir, "exact_hlt");
+  apply_ascend_fixture_mutation(missing_body_path, "exact_hlt",
+                                "missing_body.sql");
   const NativeIr missing_body_ir =
       AscendSQLiteAdapter(missing_body_path, "graph_missing_body").load();
   std::size_t missing_body_regions = 0;
@@ -1340,16 +1075,9 @@ int main() {
   std::filesystem::create_directories(truncated_launch_dir);
   const std::string truncated_launch_path =
       (truncated_launch_dir / "msprof.db").string();
-  create_aclgraph_exact_hlt_profile(truncated_launch_path);
-  sqlite3* truncated_db = nullptr;
-  const int truncated_rc = sqlite3_open_v2(
-      truncated_launch_path.c_str(), &truncated_db, SQLITE_OPEN_READWRITE,
-      nullptr);
-  require(truncated_rc == SQLITE_OK,
-          "failed to reopen truncated launch fixture");
-  exec_sql(truncated_db,
-           "DELETE FROM TASK WHERE taskType = 12 AND taskId = 70;");
-  sqlite3_close(truncated_db);
+  materialize_aclgraph_fixture(truncated_launch_dir, "exact_hlt");
+  apply_ascend_fixture_mutation(truncated_launch_path, "exact_hlt",
+                                "truncated_completion.sql");
   const NativeIr truncated_launch_ir =
       AscendSQLiteAdapter(truncated_launch_path, "graph_truncated_launch")
           .load();
@@ -1414,17 +1142,9 @@ int main() {
   std::filesystem::create_directories(incomplete_compute_dir);
   const std::string incomplete_compute_path =
       (incomplete_compute_dir / "msprof.db").string();
-  create_aclgraph_exact_hlt_profile(incomplete_compute_path);
-  sqlite3* incomplete_compute_db = nullptr;
-  require(sqlite3_open_v2(incomplete_compute_path.c_str(),
-                          &incomplete_compute_db, SQLITE_OPEN_READWRITE,
-                          nullptr) == SQLITE_OK,
-          "failed to reopen incomplete compute schema fixture");
-  exec_sql(incomplete_compute_db,
-           "DROP TABLE COMPUTE_TASK_INFO;"
-           "CREATE TABLE COMPUTE_TASK_INFO(globalTaskId INTEGER, "
-           "name INTEGER, taskType INTEGER);");
-  sqlite3_close(incomplete_compute_db);
+  materialize_aclgraph_fixture(incomplete_compute_dir, "exact_hlt");
+  apply_ascend_fixture_mutation(incomplete_compute_path, "exact_hlt",
+                                "incomplete_compute_schema.sql");
   require_missing_body_capability(
       AscendSQLiteAdapter(incomplete_compute_path,
                           "graph_incomplete_compute_schema")
@@ -1436,30 +1156,9 @@ int main() {
   std::filesystem::create_directories(missing_communication_dir);
   const std::string missing_communication_path =
       (missing_communication_dir / "msprof.db").string();
-  create_aclgraph_exact_hlt_profile(missing_communication_path);
-  sqlite3* missing_communication_db = nullptr;
-  require(sqlite3_open_v2(missing_communication_path.c_str(),
-                          &missing_communication_db, SQLITE_OPEN_READWRITE,
-                          nullptr) == SQLITE_OK,
-          "failed to reopen missing communication schema fixture");
-  exec_sql(missing_communication_db,
-           "DROP TABLE COMMUNICATION_TASK_INFO;"
-           "INSERT INTO STRING_IDS VALUES (40, 'SDMA');");
-  for (std::int64_t index = 0; index < 14; ++index) {
-    const std::int64_t base = 100 + index * 100;
-    const std::int64_t model_id = index < 3 ? 10 + index : 7 + (index - 3) % 3;
-    const std::int64_t stream_id = 36 + (model_id - 7) * 2;
-    const std::string ambiguous_task_sql =
-        "INSERT INTO TASK VALUES (" + std::to_string(base + 16) + ", " +
-        std::to_string(base + 17) + ", 0, " +
-        std::to_string(7777 + index) + ", " +
-        std::to_string(9999 + index) + ", 1, 40, 0, " +
-        std::to_string(stream_id) + ", " +
-        std::to_string(999 + index) + ", " + std::to_string(model_id) +
-        ");";
-    exec_sql(missing_communication_db, ambiguous_task_sql.c_str());
-  }
-  sqlite3_close(missing_communication_db);
+  materialize_aclgraph_fixture(missing_communication_dir, "exact_hlt");
+  apply_ascend_fixture_mutation(missing_communication_path, "exact_hlt",
+                                "missing_communication_schema.sql");
   require_missing_body_capability(
       AscendSQLiteAdapter(missing_communication_path,
                           "graph_missing_communication_schema")
@@ -1471,7 +1170,7 @@ int main() {
   std::filesystem::create_directories(missing_capture_dir);
   const std::string missing_capture_path =
       (missing_capture_dir / "msprof.db").string();
-  create_aclgraph_exact_hlt_profile(missing_capture_path);
+  materialize_aclgraph_fixture(missing_capture_dir, "exact_hlt");
   require(std::filesystem::remove(
               missing_capture_dir / "host" / "sqlite" / "stream_info.db"),
           "failed to remove capture schema fixture DB");
@@ -1488,16 +1187,8 @@ int main() {
       (exact_hlt_dir / "host" / "sqlite" / "stream_info.db").string());
   const std::string incomplete_split_task_info_path =
       (incomplete_split_dir / "host" / "sqlite" / "ge_info.db").string();
-  sqlite3* incomplete_split_task_info_db = nullptr;
-  require(sqlite3_open_v2(incomplete_split_task_info_path.c_str(),
-                          &incomplete_split_task_info_db,
-                          SQLITE_OPEN_READWRITE, nullptr) == SQLITE_OK,
-          "failed to reopen incomplete split TaskInfo fixture");
-  exec_sql(incomplete_split_task_info_db,
-           "ALTER TABLE TaskInfo RENAME TO CompleteTaskInfo;"
-           "CREATE TABLE TaskInfo AS SELECT device_id, stream_id, task_id, "
-           "context_id, op_name, task_type FROM CompleteTaskInfo;");
-  sqlite3_close(incomplete_split_task_info_db);
+  apply_ascend_fixture_mutation(incomplete_split_task_info_path, "exact_hlt",
+                                "incomplete_split_task_info.sql");
   require_missing_body_capability(
       AscendSQLiteAdapter(incomplete_split_dir.string(),
                           "graph_incomplete_split_task_info")
@@ -1509,13 +1200,9 @@ int main() {
   std::filesystem::create_directories(device_order_dir);
   const std::string device_order_path =
       (device_order_dir / "msprof.db").string();
-  create_aclgraph_exact_hlt_profile(device_order_path);
-  sqlite3* device_order_db = nullptr;
-  require(sqlite3_open_v2(device_order_path.c_str(), &device_order_db,
-                          SQLITE_OPEN_READWRITE, nullptr) == SQLITE_OK,
-          "failed to reopen device-order fixture");
-  exec_sql(device_order_db, "DROP TABLE CANN_API;");
-  sqlite3_close(device_order_db);
+  materialize_aclgraph_fixture(device_order_dir, "exact_hlt");
+  apply_ascend_fixture_mutation(device_order_path, "exact_hlt",
+                                "device_order_without_host_api.sql");
   const NativeIr device_order_ir =
       AscendSQLiteAdapter(device_order_path, "graph_device_order").load();
   require(device_order_ir.replay_composition_candidates.size() == 2 &&

@@ -1,0 +1,3 @@
+BEGIN;
+UPDATE TASK SET globalTaskId = 101 WHERE taskId = 15;
+COMMIT;

@@ -1,0 +1,16 @@
+PRAGMA foreign_keys=OFF;
+BEGIN TRANSACTION;
+CREATE TABLE CaptureStreamInfo(device_id INTEGER, model_id INTEGER, original_stream_id INTEGER, stream_id INTEGER, timestamp NUMERIC);
+INSERT INTO CaptureStreamInfo VALUES(0,7,3,36,1);
+INSERT INTO CaptureStreamInfo VALUES(0,7,4,37,1);
+INSERT INTO CaptureStreamInfo VALUES(0,8,3,38,2);
+INSERT INTO CaptureStreamInfo VALUES(0,8,4,39,2);
+INSERT INTO CaptureStreamInfo VALUES(0,9,3,40,3);
+INSERT INTO CaptureStreamInfo VALUES(0,9,4,41,3);
+INSERT INTO CaptureStreamInfo VALUES(0,10,3,42,4);
+INSERT INTO CaptureStreamInfo VALUES(0,10,4,43,4);
+INSERT INTO CaptureStreamInfo VALUES(0,11,3,44,5);
+INSERT INTO CaptureStreamInfo VALUES(0,11,4,45,5);
+INSERT INTO CaptureStreamInfo VALUES(0,12,3,46,6);
+INSERT INTO CaptureStreamInfo VALUES(0,12,4,47,6);
+COMMIT;
