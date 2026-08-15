@@ -93,9 +93,9 @@ struct PartitionIdTag {};
 struct GrammarNodeIdTag {};
 struct GrammarChunkIdTag {};
 struct MacroDefIdTag {};
-struct ReportNodeDefIdTag {};
-struct ReportNodeOccurrenceIdTag {};
-struct ReportCostLeafIdTag {};
+struct StructuralNodeDefIdTag {};
+struct StructuralNodeOccurrenceIdTag {};
+struct StructuralCostLeafIdTag {};
 
 using SourceRefId = Id<SourceRefIdTag>;
 using TraceEventId = Id<TraceEventIdTag>;
@@ -135,8 +135,14 @@ using PartitionId = Id<PartitionIdTag>;
 using GrammarNodeId = Id<GrammarNodeIdTag>;
 using GrammarChunkId = Id<GrammarChunkIdTag>;
 using MacroDefId = Id<MacroDefIdTag>;
-using ReportNodeDefId = Id<ReportNodeDefIdTag>;
-using ReportNodeOccurrenceId = Id<ReportNodeOccurrenceIdTag>;
-using ReportCostLeafId = Id<ReportCostLeafIdTag>;
+using StructuralNodeDefId = Id<StructuralNodeDefIdTag>;
+using StructuralNodeOccurrenceId = Id<StructuralNodeOccurrenceIdTag>;
+using StructuralCostLeafId = Id<StructuralCostLeafIdTag>;
+
+// Compatibility aliases for the former report product vocabulary. Rebuilding
+// clients is required; this refactor does not promise binary compatibility.
+using ReportNodeDefId = StructuralNodeDefId;
+using ReportNodeOccurrenceId = StructuralNodeOccurrenceId;
+using ReportCostLeafId = StructuralCostLeafId;
 
 }  // namespace traceloom

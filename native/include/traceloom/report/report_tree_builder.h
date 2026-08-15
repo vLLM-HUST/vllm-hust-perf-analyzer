@@ -1,61 +1,18 @@
 #pragma once
 
-#include <string>
-#include <vector>
-
+#include "traceloom/analysis/structural_occurrence_builder.h"
 #include "traceloom/report/report_tree.h"
 
 namespace traceloom {
 
-struct GlobalGrammarState;
-
-struct ReportTreeBuildConfig {
-  bool fold_adjacent_runs = true;
-  std::uint32_t min_run_length = 2;
-};
-
-enum class ReportMacroVisibility {
-  kInline,
-  kKeepRepeat,
-};
-
-struct ReportMacroDefinition {
-  std::string macro_name;
-  std::vector<SymbolId> body_symbols;
-  ReportMacroVisibility visibility = ReportMacroVisibility::kInline;
-};
-
-enum class ReportGrammarItemKind {
-  kSymbol,
-  kMacro,
-};
-
-struct ReportGrammarItem {
-  ReportGrammarItemKind kind = ReportGrammarItemKind::kSymbol;
-  SymbolId symbol_id;
-  std::string macro_name;
-
-  static ReportGrammarItem symbol(SymbolId symbol_id);
-  static ReportGrammarItem macro(std::string macro_name);
-};
-
-struct ReportGrammarEvidence {
-  std::vector<ReportMacroDefinition> macros;
-  std::vector<ReportGrammarItem> final_sequence;
-};
-
-enum class ReportGraphTilingStatus {
-  kNone,
-  kExact,
-  kGap,
-  kOverlap,
-  kAmbiguous,
-};
-
-struct ReportGraphReplayEvidence {
-  ReportGraphTilingStatus tiling_status = ReportGraphTilingStatus::kNone;
-  std::string diagnostic_code;
-};
+using ReportTreeBuildConfig = StructuralOccurrenceBuildConfig;
+using ReportMacroVisibility = StructuralMacroVisibility;
+using ReportMacroDefinition = StructuralMacroDefinition;
+using ReportGrammarItemKind = StructuralGrammarItemKind;
+using ReportGrammarItem = StructuralGrammarItem;
+using ReportGrammarEvidence = StructuralGrammarEvidence;
+using ReportGraphTilingStatus = StructuralGraphTilingStatus;
+using ReportGraphReplayEvidence = StructuralGraphReplayEvidence;
 
 ReportTree build_report_tree_from_tokens(
     const std::vector<ReportToken>& tokens,

@@ -1,24 +1,19 @@
 #include "traceloom/compat/native_sidecar_materializer.h"
 
 #include "augmented_catalog_materializer.h"
-#include "sidecar_sqlite_utils.h"
+#include "native_sidecar_packaging.h"
 
 #include <algorithm>
 #include <chrono>
 #include <exception>
 #include <filesystem>
-#include <iomanip>
 #include <iostream>
-#include <map>
-#include <set>
-#include <sstream>
 #include <stdexcept>
 #include <string>
-#include <tuple>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
+#include "traceloom/analysis/structural_occurrence_builder.h"
 #include "traceloom/compat/anchor_cost_breakdown_rows.h"
 #include "traceloom/compat/anchor_sequence_rows.h"
 #include "traceloom/compat/aux_attribution_rows.h"
@@ -27,20 +22,14 @@
 #include "traceloom/compat/event_reconciliation_rows.h"
 #include "traceloom/compat/exact_graph_sql_rows.h"
 #include "traceloom/compat/native_graph_replay_rows.h"
-#include "traceloom/compat/report_tree_rows.h"
 #include "traceloom/compat/replay_cost_sql_rows.h"
 #include "traceloom/compat/runtime_device_rows.h"
 #include "traceloom/compat/sidecar_writer.h"
-#include "traceloom/compat/timeline_rows.h"
 #include "traceloom/compat/symbol_normalization_rows.h"
-#include "traceloom/core/sha256.h"
+#include "traceloom/compat/structural_projection_rows.h"
+#include "traceloom/compat/timeline_rows.h"
 #include "traceloom/pattern/grammar_engine.h"
 #include "traceloom/pattern/grammar_state.h"
-#include "traceloom/report/report_tree_builder.h"
-
-#if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
-#include <sqlite3.h>
-#endif
 
 namespace traceloom::compat {
 namespace {
@@ -50,13 +39,8 @@ namespace fs = std::filesystem;
 #if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
 using detail::RawPackagingResult;
 using detail::RawSourceDatabase;
-using detail::RawTableCopy;
 using detail::materialize_augmented_catalog;
-using detail::open_sqlite_readwrite;
-using detail::quote_identifier;
-using detail::quote_literal;
-using detail::sqlite_exec;
-using detail::sqlite_scalar_u64;
+using detail::package_sqlite_sources;
 #endif
 
 class Stopwatch {
@@ -86,269 +70,36 @@ std::string basename_or_default(const std::string& path,
   return value.empty() ? fallback : value;
 }
 
-#if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
-std::string readonly_file_uri(const std::string& path) {
-  static constexpr char kHex[] = "0123456789ABCDEF";
-  std::string uri = "file:";
-  for (const unsigned char ch : path) {
-    const bool unreserved =
-        (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
-        (ch >= '0' && ch <= '9') || ch == '/' || ch == '-' || ch == '_' ||
-        ch == '.' || ch == '~';
-    if (unreserved) {
-      uri += static_cast<char>(ch);
-    } else {
-      uri += '%';
-      uri += kHex[(ch >> 4) & 0xf];
-      uri += kHex[ch & 0xf];
-    }
+FlatAnchorBuildConfig effective_evidence_role_config(
+    FlatAnchorBuildConfig config) {
+  if (config.classification_rules.rules().empty()) {
+    config.classification_rules = load_default_signal_classification_ruleset();
   }
-  uri += "?mode=ro";
-  return uri;
+  if (!config.classification_overrides.empty()) {
+    config.classification_rules = override_signal_classification_ruleset(
+        config.classification_rules, config.classification_overrides);
+    config.classification_overrides.clear();
+  }
+  return config;
 }
 
-std::vector<std::string> sqlite_table_names(sqlite3* db,
-                                            const std::string& schema) {
-  const std::string sql =
-      "SELECT name FROM " + quote_identifier(schema) +
-      ".sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' "
-      "ORDER BY name";
-  sqlite3_stmt* stmt = nullptr;
-  if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
-    throw std::runtime_error("failed to inventory profiler tables: " +
-                             std::string(sqlite3_errmsg(db)));
-  }
-  std::vector<std::string> names;
-  while (true) {
-    const int rc = sqlite3_step(stmt);
-    if (rc == SQLITE_DONE) {
-      break;
-    }
-    if (rc != SQLITE_ROW) {
-      const std::string message = sqlite3_errmsg(db);
-      sqlite3_finalize(stmt);
-      throw std::runtime_error("failed to inventory profiler tables: " +
-                               message);
-    }
-    const unsigned char* text = sqlite3_column_text(stmt, 0);
-    names.emplace_back(text == nullptr
-                           ? ""
-                           : reinterpret_cast<const char*>(text));
-  }
-  sqlite3_finalize(stmt);
-  return names;
-}
-
-bool sqlite_table_has_rowid(sqlite3* db, const std::string& schema,
-                            const std::string& table) {
-  const std::string sql = "SELECT rowid FROM " + quote_identifier(schema) +
-                          "." + quote_identifier(table) + " LIMIT 0";
-  sqlite3_stmt* stmt = nullptr;
-  const int rc = sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr);
-  if (stmt != nullptr) {
-    sqlite3_finalize(stmt);
-  }
-  return rc == SQLITE_OK;
-}
-
-std::set<std::string> sqlite_table_columns(sqlite3* db,
-                                           const std::string& schema,
-                                           const std::string& table) {
-  const std::string sql = "PRAGMA " + quote_identifier(schema) +
-                          ".table_info(" + quote_identifier(table) + ")";
-  sqlite3_stmt* stmt = nullptr;
-  if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
-    throw std::runtime_error("failed to inventory profiler columns: " +
-                             std::string(sqlite3_errmsg(db)));
-  }
-  std::set<std::string> columns;
-  while (sqlite3_step(stmt) == SQLITE_ROW) {
-    const unsigned char* text = sqlite3_column_text(stmt, 1);
-    if (text != nullptr) {
-      columns.emplace(reinterpret_cast<const char*>(text));
-    }
-  }
-  sqlite3_finalize(stmt);
-  return columns;
-}
-
-std::string unique_source_rowid_column(const std::set<std::string>& columns) {
-  std::string candidate = "__traceloom_source_rowid__";
-  while (columns.count(candidate) != 0) {
-    candidate += '_';
-  }
-  return candidate;
-}
-
-void sqlite_snapshot(const std::string& source_path,
-                     const std::string& destination_path) {
-  sqlite3* source = nullptr;
-  sqlite3* destination = nullptr;
-  if (sqlite3_open_v2(source_path.c_str(), &source, SQLITE_OPEN_READONLY,
-                      nullptr) != SQLITE_OK) {
-    const std::string message = source ? sqlite3_errmsg(source) : "open failed";
-    if (source != nullptr) {
-      sqlite3_close(source);
-    }
-    throw std::runtime_error("failed to open profiler DB for snapshot: " +
-                             message);
-  }
-  if (sqlite3_open_v2(destination_path.c_str(), &destination,
-                      SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) !=
-      SQLITE_OK) {
-    const std::string message =
-        destination ? sqlite3_errmsg(destination) : "open failed";
-    if (destination != nullptr) {
-      sqlite3_close(destination);
-    }
-    sqlite3_close(source);
-    throw std::runtime_error("failed to create augmented DB snapshot: " +
-                             message);
-  }
-  sqlite3_backup* backup =
-      sqlite3_backup_init(destination, "main", source, "main");
-  if (backup == nullptr) {
-    const std::string message = sqlite3_errmsg(destination);
-    sqlite3_close(destination);
-    sqlite3_close(source);
-    throw std::runtime_error("failed to initialize augmented DB snapshot: " +
-                             message);
-  }
-  const int step_rc = sqlite3_backup_step(backup, -1);
-  const int finish_rc = sqlite3_backup_finish(backup);
-  const std::string message = sqlite3_errmsg(destination);
-  sqlite3_close(destination);
-  sqlite3_close(source);
-  if (step_rc != SQLITE_DONE || finish_rc != SQLITE_OK) {
-    throw std::runtime_error("failed to copy profiler DB into augmented DB: " +
-                             message);
-  }
-}
-
-RawPackagingResult inventory_snapshot_source(const std::string& source_path,
-                                              sqlite3* snapshot_db) {
-  RawPackagingResult result;
-  RawSourceDatabase source;
-  source.source_id = "raw-source-000";
-  source.source_path = source_path;
-  source.embedded_mode = "sqlite_snapshot";
-  source.size_bytes = fs::file_size(source_path);
-  source.sha256 = sha256_file_hex(source_path);
-  result.sources.push_back(source);
-  for (const std::string& table : sqlite_table_names(snapshot_db, "main")) {
-    if (table.rfind("traceloom_", 0) == 0) {
-      throw std::invalid_argument(
-          "input already contains TraceLoom-owned tables: " + table);
-    }
-    RawTableCopy copy;
-    copy.source_id = source.source_id;
-    copy.source_path = source_path;
-    copy.source_table = table;
-    copy.embedded_table_name = table;
-    copy.source_rowid_column =
-        sqlite_table_has_rowid(snapshot_db, "main", table) ? "rowid" : "";
-    copy.row_count = sqlite_scalar_u64(
-        snapshot_db, "SELECT COUNT(*) FROM " + quote_identifier(table),
-        "failed to count profiler table");
-    result.tables.push_back(std::move(copy));
-  }
-  return result;
-}
-
-RawPackagingResult copy_multiple_sqlite_sources(
-    const std::vector<std::string>& source_paths,
-    const std::string& destination_path) {
-  sqlite3* db = open_sqlite_readwrite(destination_path);
-  RawPackagingResult result;
-  try {
-    for (std::size_t index = 0; index < source_paths.size(); ++index) {
-      const fs::path source =
-          fs::absolute(source_paths[index]).lexically_normal();
-      if (!fs::is_regular_file(source)) {
-        throw std::invalid_argument("raw source is not a regular SQLite file: " +
-                                    source.string());
-      }
-      std::ostringstream id;
-      id << "raw-source-" << std::setw(3) << std::setfill('0') << index;
-      std::ostringstream alias;
-      alias << "raw_source_" << std::setw(3) << std::setfill('0') << index;
-      RawSourceDatabase source_row;
-      source_row.source_id = id.str();
-      source_row.source_ordinal = static_cast<std::uint32_t>(index);
-      source_row.source_path = source.string();
-      source_row.embedded_mode = "namespaced_table_copy";
-      source_row.size_bytes = fs::file_size(source);
-      source_row.sha256 = sha256_file_hex(source.string());
-      result.sources.push_back(source_row);
-
-      sqlite_exec(db, "ATTACH DATABASE " +
-                          quote_literal(readonly_file_uri(source.string())) +
-                          " AS " + quote_identifier(alias.str()),
-                  "failed to attach split profiler DB");
-      try {
-        for (const std::string& table : sqlite_table_names(db, alias.str())) {
-          const std::string embedded =
-              "traceloom_raw_" + id.str().substr(id.str().size() - 3) +
-              "__" + table;
-          const bool has_rowid =
-              sqlite_table_has_rowid(db, alias.str(), table);
-          const std::set<std::string> columns =
-              sqlite_table_columns(db, alias.str(), table);
-          const std::string rowid_column =
-              has_rowid ? unique_source_rowid_column(columns) : std::string();
-          std::string select;
-          if (has_rowid) {
-            select = "SELECT rowid AS " + quote_identifier(rowid_column) +
-                     ", * FROM " + quote_identifier(alias.str()) + "." +
-                     quote_identifier(table) + " ORDER BY rowid";
-          } else {
-            select = "SELECT * FROM " + quote_identifier(alias.str()) + "." +
-                     quote_identifier(table);
-          }
-          sqlite_exec(db,
-                      "CREATE TABLE " + quote_identifier(embedded) +
-                          " AS " + select,
-                      "failed to embed split profiler table");
-          RawTableCopy table_row;
-          table_row.source_id = source_row.source_id;
-          table_row.source_path = source.string();
-          table_row.source_table = table;
-          table_row.embedded_table_name = embedded;
-          table_row.source_rowid_column = rowid_column;
-          table_row.row_count = sqlite_scalar_u64(
-              db, "SELECT COUNT(*) FROM " + quote_identifier(embedded),
-              "failed to count embedded profiler table");
-          result.tables.push_back(std::move(table_row));
-        }
-        sqlite_exec(db, "DETACH DATABASE " + quote_identifier(alias.str()),
-                    "failed to detach split profiler DB");
-      } catch (...) {
-        try {
-          sqlite_exec(db,
-                      "DETACH DATABASE " + quote_identifier(alias.str()),
-                      "failed to detach split profiler DB after error");
-        } catch (...) {
-        }
-        throw;
-      }
-    }
-    sqlite3_close(db);
-    return result;
-  } catch (...) {
-    sqlite3_close(db);
-    throw;
+void require_matching_policy_hint(const std::string& field,
+                                  const std::string& hint,
+                                  const std::string& actual) {
+  if (!hint.empty() && hint != actual) {
+    throw std::invalid_argument(field +
+                                " disagrees with evidence_role_config");
   }
 }
 
 
-#endif
 
-ReportTree build_sidecar_report_tree(
+StructuralOccurrenceGraph recover_structural_occurrence_graph(
     const NativeIr& ir,
     const NativeCompatibilitySidecarOptions& options,
-    const std::vector<ReportToken>& report_tokens) {
-  if (!options.materialize_grammar_report_tree || report_tokens.empty()) {
-    return build_report_tree_from_tokens(report_tokens);
+    const std::vector<StructuralProjectionToken>& structural_tokens) {
+  if (!options.materialize_grammar_report_tree || structural_tokens.empty()) {
+    return build_structural_occurrence_graph_from_tokens(structural_tokens);
   }
 
   try {
@@ -389,7 +140,8 @@ ReportTree build_sidecar_report_tree(
       }
     }
     if (!grammar_result.ok() || grammar_state.stage != GrammarStage::kDone) {
-      ReportTree fallback = build_report_tree_from_tokens(report_tokens);
+      StructuralOccurrenceGraph fallback =
+          build_structural_occurrence_graph_from_tokens(structural_tokens);
       fallback.diagnostics.push_back(Diagnostic{
           DiagnosticSeverity::kWarning, "grammar_recovery_rejected",
           "recursive grammar recovery failed closed with stop reason " +
@@ -397,10 +149,11 @@ ReportTree build_sidecar_report_tree(
                   grammar_engine_stop_reason_name(grammar_result.stop_reason))});
       return fallback;
     }
-    ReportTree tree = grammar_state.macro_defs.empty()
-                          ? build_report_tree_from_tokens(report_tokens)
-                          : build_report_tree_from_grammar_state(
-                                report_tokens, grammar_state);
+    StructuralOccurrenceGraph tree =
+        grammar_state.macro_defs.empty()
+            ? build_structural_occurrence_graph_from_tokens(structural_tokens)
+            : build_structural_occurrence_graph_from_grammar_state(
+                  structural_tokens, grammar_state);
     if (grammar_result.stop_reason ==
         GrammarEngineStopReason::kSequenceTooLargeForFullPairDiscovery) {
       tree.diagnostics.push_back(Diagnostic{
@@ -411,7 +164,8 @@ ReportTree build_sidecar_report_tree(
     }
     return tree;
   } catch (const std::exception& ex) {
-    ReportTree fallback = build_report_tree_from_tokens(report_tokens);
+    StructuralOccurrenceGraph fallback =
+        build_structural_occurrence_graph_from_tokens(structural_tokens);
     fallback.diagnostics.push_back(Diagnostic{
         DiagnosticSeverity::kWarning, "grammar_recovery_exception",
         std::string("recursive grammar recovery failed closed: ") + ex.what()});
@@ -516,32 +270,36 @@ NativeIr project_ir_for_device(const NativeIr& ir, std::uint32_t device_id) {
 
 }  // namespace
 
-std::vector<NativeDeviceReportTree> build_native_device_report_trees(
+std::vector<NativeDeviceStructuralProjection>
+build_native_device_structural_projections(
     const NativeIr& ir,
     const NativeCompatibilitySidecarOptions& options) {
   const Stopwatch tokens_watch;
-  const std::vector<NativeReportDevicePartition> partitions =
-      partition_report_tokens_by_device(ir, options.evidence_role_config);
+  const std::vector<NativeStructuralDevicePartition> partitions =
+      partition_structural_projection_tokens_by_device(
+          ir, options.evidence_role_config);
   if (options.timing_diagnostics) {
     std::cerr << "timing loop_tree_tokens_ms=" << tokens_watch.elapsed_ms()
               << "\n";
     std::cerr << "timing loop_tree_device_count=" << partitions.size()
               << "\n";
   }
-  std::vector<NativeDeviceReportTree> device_trees;
+  std::vector<NativeDeviceStructuralProjection> device_trees;
   device_trees.reserve(partitions.size());
-  for (const NativeReportDevicePartition& partition : partitions) {
+  for (const NativeStructuralDevicePartition& partition : partitions) {
     const Stopwatch tree_watch;
-    NativeDeviceReportTree device;
+    NativeDeviceStructuralProjection device;
     device.device_id = partition.device_id;
     device.tokens = partition.tokens;
     if (partitions.size() == 1) {
-      device.tree = build_sidecar_report_tree(ir, options, partition.tokens);
+      device.graph =
+          recover_structural_occurrence_graph(ir, options, partition.tokens);
     } else {
       const NativeIr projection =
           project_ir_for_device(ir, partition.device_id);
-      device.tree =
-          build_sidecar_report_tree(projection, options, partition.tokens);
+      device.graph =
+          recover_structural_occurrence_graph(projection, options,
+                                              partition.tokens);
     }
     if (options.timing_diagnostics) {
       std::cerr << "timing loop_tree_report_tree_ms_device="
@@ -553,11 +311,28 @@ std::vector<NativeDeviceReportTree> build_native_device_report_trees(
   return device_trees;
 }
 
+std::vector<NativeDeviceReportTree> build_native_device_report_trees(
+    const NativeIr& ir,
+    const NativeCompatibilitySidecarOptions& options) {
+  std::vector<NativeDeviceStructuralProjection> projections =
+      build_native_device_structural_projections(ir, options);
+  std::vector<NativeDeviceReportTree> legacy;
+  legacy.reserve(projections.size());
+  for (NativeDeviceStructuralProjection& projection : projections) {
+    NativeDeviceReportTree device;
+    device.device_id = projection.device_id;
+    device.tokens = std::move(projection.tokens);
+    device.tree = std::move(projection.graph);
+    legacy.push_back(std::move(device));
+  }
+  return legacy;
+}
+
 NodeCoverageSqlRows build_native_loop_tree_node_coverage_rows(
     const NativeIr& ir,
     const NativeCompatibilitySidecarOptions& options) {
-  const std::vector<NativeDeviceReportTree> device_trees =
-      build_native_device_report_trees(ir, options);
+  const std::vector<NativeDeviceStructuralProjection> device_trees =
+      build_native_device_structural_projections(ir, options);
   const Stopwatch aux_watch;
   const AuxAttributionSqlRows aux_rows =
       options.materialize_aux_attribution
@@ -571,9 +346,9 @@ NodeCoverageSqlRows build_native_loop_tree_node_coverage_rows(
   const Stopwatch coverage_watch;
   const bool scope_node_ids = device_trees.size() > 1;
   NodeCoverageSqlRows rows;
-  for (const NativeDeviceReportTree& device : device_trees) {
-    NodeCoverageSqlRows device_rows = build_report_tree_node_coverage_sql_rows(
-        device.tree, device.tokens, aux_rows, options.db_idx,
+  for (const NativeDeviceStructuralProjection& device : device_trees) {
+    NodeCoverageSqlRows device_rows = build_structural_node_coverage_sql_rows(
+        device.graph, device.tokens, aux_rows, options.db_idx,
         "native_report_tree", scope_node_ids);
     rows.nodes.insert(rows.nodes.end(), device_rows.nodes.begin(),
                       device_rows.nodes.end());
@@ -601,6 +376,19 @@ void write_basic_native_compatibility_sidecar(
     const std::string& sqlite_path,
     const NativeIr& ir,
     const NativeCompatibilitySidecarOptions& options) {
+  const FlatAnchorBuildConfig evidence_role_config =
+      effective_evidence_role_config(options.evidence_role_config);
+  const SignalClassificationPolicyMetadata& evidence_role_policy =
+      evidence_role_config.classification_rules.metadata();
+  require_matching_policy_hint("evidence_role_policy_id",
+                               options.evidence_role_policy_id,
+                               evidence_role_policy.policy_id);
+  require_matching_policy_hint("evidence_role_policy_version",
+                               options.evidence_role_policy_version,
+                               evidence_role_policy.policy_version);
+  require_matching_policy_hint("evidence_role_manifest_sha256",
+                               options.evidence_role_manifest_sha256,
+                               evidence_role_policy.manifest_sha256);
   std::vector<MetadataSqlRow> metadata{
       {"traceloom_schema_version", "augmented_db_v1"},
       {"native_compatibility_materializer", "basic_native_ir_v1"},
@@ -645,15 +433,11 @@ void write_basic_native_compatibility_sidecar(
              return region.status != ReplayCompositionRegionStatus::
                                          kRecognizedCompletePattern;
            }))},
+      {"evidence_role_policy_id", evidence_role_policy.policy_id},
+      {"evidence_role_policy_version", evidence_role_policy.policy_version},
+      {"evidence_role_manifest_sha256",
+       evidence_role_policy.manifest_sha256},
   };
-  if (!options.evidence_role_policy_id.empty()) {
-    metadata.push_back(
-        {"evidence_role_policy_id", options.evidence_role_policy_id});
-    metadata.push_back({"evidence_role_policy_version",
-                        options.evidence_role_policy_version});
-    metadata.push_back({"evidence_role_manifest_sha256",
-                        options.evidence_role_manifest_sha256});
-  }
   const SymbolNormalizationSqlRows symbol_normalization_rows =
       build_symbol_normalization_sql_rows(ir, options.db_idx);
   metadata.push_back(
@@ -724,20 +508,22 @@ void write_basic_native_compatibility_sidecar(
   const AuxAttributionSqlRows aux_rows =
       options.materialize_aux_attribution
           ? build_aux_attribution_sql_rows(
-                ir, options.evidence_role_config, options.db_idx)
+                ir, evidence_role_config, options.db_idx)
           : AuxAttributionSqlRows{};
   replace_aux_attribution_rows(sqlite_path, aux_rows);
   replace_anchor_cost_breakdown_rows(
       sqlite_path, build_native_anchor_cost_breakdown_sql_rows(ir, aux_rows));
-  const std::vector<NativeDeviceReportTree> device_trees =
-      build_native_device_report_trees(ir, options);
+  NativeCompatibilitySidecarOptions projection_options = options;
+  projection_options.evidence_role_config = evidence_role_config;
+  const std::vector<NativeDeviceStructuralProjection> device_trees =
+      build_native_device_structural_projections(ir, projection_options);
   const bool scope_node_ids = device_trees.size() > 1;
   NodeCoverageSqlRows node_rows;
   SemanticTreeSqlRows semantic_rows;
-  for (const NativeDeviceReportTree& device : device_trees) {
+  for (const NativeDeviceStructuralProjection& device : device_trees) {
     const NodeCoverageSqlRows device_node_rows =
-        build_report_tree_node_coverage_sql_rows(
-            device.tree, device.tokens, aux_rows, options.db_idx,
+        build_structural_node_coverage_sql_rows(
+            device.graph, device.tokens, aux_rows, options.db_idx,
             "native_report_tree", scope_node_ids);
     node_rows.nodes.insert(node_rows.nodes.end(),
                            device_node_rows.nodes.begin(),
@@ -761,8 +547,8 @@ void write_basic_native_compatibility_sidecar(
             ? "native-report-tree"
             : "native-report-tree-d" + std::to_string(device.device_id);
     const SemanticTreeSqlRows device_semantic_rows =
-        build_report_tree_semantic_sql_rows(
-            device.tree, device.tokens, aux_rows, options.db_idx, tree_id,
+        build_structural_semantic_sql_rows(
+            device.graph, device.tokens, aux_rows, options.db_idx, tree_id,
             "anchor_tree", scope_node_ids);
     semantic_rows.trees.insert(semantic_rows.trees.end(),
                                device_semantic_rows.trees.begin(),
@@ -813,7 +599,7 @@ void write_basic_native_compatibility_sidecar(
                 << report_views_watch.elapsed_ms() << "\n";
     }
   }
-  replace_evidence_role_sql_rows(sqlite_path, ir, options.evidence_role_config,
+  replace_evidence_role_sql_rows(sqlite_path, ir, evidence_role_config,
                                  options.db_idx,
                                  options.materialize_aux_attribution);
 }
@@ -869,20 +655,8 @@ void write_queryable_database_timeline(
       std::chrono::steady_clock::now().time_since_epoch().count());
   const fs::path temporary = output.string() + ".tmp." + suffix;
   try {
-    RawPackagingResult packaging;
-    if (sources.size() == 1) {
-      sqlite_snapshot(sources.front(), temporary.string());
-      sqlite3* snapshot_db = open_sqlite_readwrite(temporary.string());
-      try {
-        packaging = inventory_snapshot_source(sources.front(), snapshot_db);
-        sqlite3_close(snapshot_db);
-      } catch (...) {
-        sqlite3_close(snapshot_db);
-        throw;
-      }
-    } else {
-      packaging = copy_multiple_sqlite_sources(sources, temporary.string());
-    }
+    const RawPackagingResult packaging =
+        package_sqlite_sources(sources, temporary.string());
     NativeCompatibilitySidecarOptions augmented_options = options;
     if (augmented_options.source_path.empty()) {
       augmented_options.source_path =

@@ -19,6 +19,9 @@ add_library(traceloom_native_core
   src/analysis/flat_anchor_builder.cpp
   src/analysis/graph_body_cost_summary.cpp
   src/analysis/signal_classification_rules.cpp
+  src/analysis/structural_occurrence_builder.cpp
+  src/analysis/structural_occurrence_graph.cpp
+  src/analysis/structural_occurrence_validation.cpp
   src/analysis/structural_symbol_normalization.cpp
   src/analysis/native_pipeline.cpp
   src/analysis/replay_internal_cost_map.cpp
@@ -119,12 +122,16 @@ add_library(traceloom_native_materialize
   src/compat/anchor_sequence_rows.cpp
   src/compat/anchor_cost_breakdown_rows.cpp
   src/compat/augmented_catalog_materializer.cpp
+  src/compat/augmented_projection_catalog.cpp
   src/compat/aux_attribution_rows.cpp
   src/compat/collective_tag_rows.cpp
   src/compat/exact_graph_sql_rows.cpp
   src/compat/native_graph_replay_rows.cpp
   src/compat/native_sidecar_materializer.cpp
+  src/compat/native_sidecar_packaging.cpp
   src/compat/report_tree_rows.cpp
+  src/compat/structural_projection_rows.cpp
+  src/compat/structural_projection_tokens.cpp
   src/compat/replay_cost_sql_rows.cpp
   src/compat/evidence_role_decision_rows.cpp
   src/compat/evidence_role_sql_rows.cpp

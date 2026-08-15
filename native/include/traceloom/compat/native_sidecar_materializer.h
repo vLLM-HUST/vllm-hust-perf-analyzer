@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "traceloom/analysis/flat_anchor_builder.h"
+#include "traceloom/analysis/structural_occurrence_graph.h"
 #include "traceloom/compat/sidecar_writer.h"
 #include "traceloom/ir/native_ir.h"
 #include "traceloom/report/report_tree.h"
@@ -37,6 +38,14 @@ struct NativeCompatibilitySidecarOptions {
   FlatAnchorBuildConfig evidence_role_config;
 };
 
+struct NativeDeviceStructuralProjection {
+  std::uint32_t device_id = 0;
+  std::vector<StructuralProjectionToken> tokens;
+  StructuralOccurrenceGraph graph;
+};
+
+// Transitional source compatibility for the former report product API. The
+// serialized compatibility relations intentionally keep their existing names.
 struct NativeDeviceReportTree {
   std::uint32_t device_id = 0;
   std::vector<ReportToken> tokens;
@@ -71,11 +80,16 @@ void write_queryable_database_timeline(
     const NativeCompatibilitySidecarOptions& options =
         NativeCompatibilitySidecarOptions{});
 
-// Builds one independently recovered report tree per observed device. A
-// single-device IR yields exactly one entry whose tree is the same tree the
-// combined path produced; a multi-device IR yields one entry per device with
-// the device's own deterministic linear anchor sequence, never a combined
-// cross-device tree.
+// Builds one independently recovered structural occurrence graph per observed
+// device. A multi-device IR yields one deterministic device-local sequence per
+// device and never invents a cross-device graph.
+std::vector<NativeDeviceStructuralProjection>
+build_native_device_structural_projections(
+    const NativeIr& ir,
+    const NativeCompatibilitySidecarOptions& options =
+        NativeCompatibilitySidecarOptions{});
+
+// Legacy API retained as a thin alias-backed wrapper.
 std::vector<NativeDeviceReportTree> build_native_device_report_trees(
     const NativeIr& ir,
     const NativeCompatibilitySidecarOptions& options =

@@ -33,8 +33,49 @@ int main() {
   ir.tokens.append(anchor0, matmul, 0, 0, 2000, 3000);
   ir.tokens.append(anchor1, matmul, 0, 1, 10003000, 10005000);
 
+  const std::vector<compat::NativeDeviceStructuralProjection>
+      structural_projections =
+          compat::build_native_device_structural_projections(ir);
+  const std::vector<compat::NativeDeviceReportTree> legacy_report_trees =
+      compat::build_native_device_report_trees(ir);
+  require(structural_projections.size() == legacy_report_trees.size());
+  require(structural_projections.front().device_id ==
+          legacy_report_trees.front().device_id);
+  require(structural_projections.front().tokens.size() ==
+          legacy_report_trees.front().tokens.size());
+  require(structural_projections.front().graph.node_defs.size() ==
+          legacy_report_trees.front().tree.node_defs.size());
+  require(structural_projections.front().graph.occurrences.size() ==
+          legacy_report_trees.front().tree.occurrences.size());
+  require(structural_projections.front().graph.edges.size() ==
+          legacy_report_trees.front().tree.edges.size());
+  require(structural_projections.front().graph.coverage.size() ==
+          legacy_report_trees.front().tree.coverage.size());
+
   const compat::NodeCoverageSqlRows rows =
       compat::build_native_report_tree_node_coverage_sql_rows(ir, 7, "tree");
+  const compat::NodeCoverageSqlRows canonical_rows =
+      compat::build_native_structural_node_coverage_sql_rows(ir, 7, "tree");
+
+  require(canonical_rows.nodes.size() == rows.nodes.size());
+  require(canonical_rows.edges.size() == rows.edges.size());
+  require(canonical_rows.loop_nodes.size() == rows.loop_nodes.size());
+  require(canonical_rows.node_anchors.size() == rows.node_anchors.size());
+  require(canonical_rows.anchor_primary_nodes.size() ==
+          rows.anchor_primary_nodes.size());
+  for (std::size_t index = 0; index < rows.nodes.size(); ++index) {
+    require(canonical_rows.nodes[index].node_id == rows.nodes[index].node_id);
+    require(canonical_rows.nodes[index].kind == rows.nodes[index].kind);
+    require(canonical_rows.nodes[index].total_us == rows.nodes[index].total_us);
+  }
+  for (std::size_t index = 0; index < rows.node_anchors.size(); ++index) {
+    require(canonical_rows.node_anchors[index].node_id ==
+            rows.node_anchors[index].node_id);
+    require(canonical_rows.node_anchors[index].anchor_id ==
+            rows.node_anchors[index].anchor_id);
+    require(canonical_rows.node_anchors[index].total_us ==
+            rows.node_anchors[index].total_us);
+  }
 
   require(rows.nodes.size() == 3);
   require(rows.edges.size() == 2);
@@ -115,6 +156,18 @@ int main() {
   const compat::SemanticTreeSqlRows semantic_rows =
       compat::build_native_report_tree_semantic_sql_rows(ir, 7, "tree-1",
                                                          "anchor_tree");
+  const compat::SemanticTreeSqlRows canonical_semantic_rows =
+      compat::build_native_structural_semantic_sql_rows(
+          ir, 7, "tree-1", "anchor_tree");
+  require(canonical_semantic_rows.trees.size() == semantic_rows.trees.size());
+  require(canonical_semantic_rows.nodes.size() == semantic_rows.nodes.size());
+  require(canonical_semantic_rows.edges.size() == semantic_rows.edges.size());
+  for (std::size_t index = 0; index < semantic_rows.nodes.size(); ++index) {
+    require(canonical_semantic_rows.nodes[index].node_id ==
+            semantic_rows.nodes[index].node_id);
+    require(canonical_semantic_rows.nodes[index].total_us ==
+            semantic_rows.nodes[index].total_us);
+  }
   require(semantic_rows.trees.size() == 1);
   require(semantic_rows.nodes.size() == rows.nodes.size());
   require(semantic_rows.edges.size() == rows.edges.size());

@@ -19,6 +19,13 @@ The Ascend adapter reads CANN `msprof` SQLite data; the Hygon adapter reads
 supported HIP profiler exports. Every normalized row retains source path,
 table, and row provenance.
 
+The Ascend implementation keeps provider boundaries explicit: SQLite/schema
+foundation, evidence extraction, task/communication normalization, ACLGraph
+reconstruction, replay reconstruction, split-profile ingestion, and the public
+orchestrator are separate translation units. Monolithic and split schemas share
+the reconstruction core without pretending that their evidence or fallback
+contracts are identical.
+
 ## Native IR
 
 Tables under `native/include/traceloom/ir/` hold strings, symbols, streams,
@@ -37,16 +44,18 @@ compression does not delete normalized observations or source provenance.
 
 ## Pattern Grammar
 
-The sequence and pattern layers discover repeated fragments, commit macros,
-and promote stable repeated bodies into a compressed report tree. Protected
-intervals prevent grammar transformations from crossing semantic boundaries.
+The sequence and pattern layers discover repeated fragments and commit macros.
+Canonical analysis lowers the resulting grammar into a structural occurrence
+graph: definitions, realized occurrences, ordered edges, and exact token
+coverage. Protected intervals prevent grammar transformations from crossing
+semantic boundaries.
 
 ## Cost Model
 
-The report layer aggregates exact per-occurrence packets. Wall-clock totals use
-the union of overlapping stream intervals rather than summing streams twice.
-Repeat averages divide by both node occurrence count and loop-body repeat count,
-making loop nodes comparable with their children.
+The structural projection layer aggregates exact per-occurrence packets.
+Wall-clock totals use the union of overlapping stream intervals rather than
+summing streams twice. Repeat averages divide by both node occurrence count
+and loop-body repeat count, making loop nodes comparable with their children.
 
 ## Materialization
 
@@ -62,6 +71,32 @@ presentations rather than alternate models. Typed selector discovery lives in
 queries live in `traceloom_projection_coordinate` and
 `traceloom_v_projection_continuation`. The compatibility sidecar remains
 available for legacy workflows.
+
+## Compatibility Boundary
+
+The augmented database is the analytical product; no in-memory report object
+is a second source of truth. Provider-neutral structural semantics live under
+`analysis/structural_occurrence_*`, and SQL-row projection lives under
+`compat/structural_projection_*`. The former `ReportTree` headers and row
+builders remain as thin source-compatibility wrappers for embedding clients and
+the optional Markdown renderer.
+
+Persisted compatibility names such as `native_report_tree`,
+`native-report-tree`, and the existing tree/semantic relations are deliberately
+unchanged. Renaming an internal owner is not authority to break stored queries;
+those names can move only through an explicit, versioned schema migration.
+
+## Maintenance Boundaries
+
+No hand-written translation unit in the structural/Ascend debt surface may
+cross 1,000 lines again. In this surface, the remaining 800-line yellow-zone
+units each own one append-order-sensitive family: structural grammar lowering,
+structural SQL-row projection, replay reconstruction, split-profile ingestion,
+or the declarative augmented projection catalog. Validation, token
+construction, provider evidence, task normalization, graph reconstruction,
+raw-database packaging, and orchestration have already been split away. New
+responsibilities must form a new unit rather than making one of these family
+owners grow.
 
 ## CLI
 

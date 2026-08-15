@@ -724,7 +724,18 @@ int main() {
   compat::write_basic_native_compatibility_sidecar(db_path, ir, options);
 
   require(run_scalar_int(db_path,
-                         "SELECT COUNT(*) FROM traceloom_metadata") == 34);
+                         "SELECT COUNT(*) FROM traceloom_metadata") == 37);
+  require(run_scalar_text(db_path,
+                          "SELECT value FROM traceloom_metadata WHERE key = "
+                          "'evidence_role_policy_id'") ==
+          "traceloom.default.accelerator-task-projection");
+  require(run_scalar_text(db_path,
+                          "SELECT value FROM traceloom_metadata WHERE key = "
+                          "'evidence_role_policy_version'") == "1");
+  require(run_scalar_int(
+              db_path,
+              "SELECT length(value) FROM traceloom_metadata WHERE key = "
+              "'evidence_role_manifest_sha256'") == 64);
   require(run_scalar_text(db_path,
                           "SELECT value FROM traceloom_metadata "
                           "WHERE key = 'native_compatibility_materializer'") ==
