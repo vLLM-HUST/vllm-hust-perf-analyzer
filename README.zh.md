@@ -98,6 +98,8 @@ cmake --install build/native --prefix "$HOME/.local"
 
 ```bash
 traceloom /path/to/PROF_.../msprof_YYYYMMDDHHMMSS.db
+# 或华为官方 torch-npu profiler 产物：
+traceloom /path/to/ASCEND_PROFILER_OUTPUT/ascend_pytorch_profiler_0.db
 ```
 
 默认会在源数据库旁边生成一等产品——自包含的 queryable DB timeline：
@@ -112,8 +114,10 @@ traceloom /path/to/PROF_.../msprof_YYYYMMDDHHMMSS.db
 traceloom /path/to/msprof_output
 ```
 
-TraceLoom 会自动发现 monolithic `PROF_*/msprof_*.db` 和 split
-`PROF_*/{host,device_*}/sqlite/*.db`，并为每个发现到的分析输入生成数据库：
+TraceLoom 会按兼容的 `TASK` schema 发现 monolithic Ascend profiler DB，
+包括 `PROF_*/msprof_*.db` 和华为官方 torch-npu
+`ASCEND_PROFILER_OUTPUT/ascend_pytorch_profiler_*.db`，也支持 split
+`PROF_*/{host,device_*}/sqlite/*.db`。它会为每个发现到的分析输入生成数据库：
 
 ```text
 /path/to/msprof_output/traceloom/analysis_db01.db

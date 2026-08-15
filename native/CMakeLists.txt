@@ -1179,6 +1179,42 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
       )
     endif()
 
+    set(
+      TRACELOOM_OFFICIAL_ASCEND_CLI_INPUT
+      ${CMAKE_CURRENT_BINARY_DIR}/official_ascend_cli_input/ascend_pytorch_profiler_0.db
+    )
+    add_test(
+      NAME traceloom_native_prepare_official_ascend_cli_input
+      COMMAND traceloom_native_ascend_sqlite_adapter_tests
+        --materialize ${TRACELOOM_OFFICIAL_ASCEND_CLI_INPUT}
+    )
+    add_test(
+      NAME traceloom_native_analyze_official_ascend_cli_input
+      COMMAND traceloom
+        ${TRACELOOM_OFFICIAL_ASCEND_CLI_INPUT}
+        --threads 2
+        --timings
+        --sidecar-only
+        --no-aug-db
+        --compat-sidecar-out
+        ${CMAKE_CURRENT_BINARY_DIR}/official_ascend_cli_compat.db
+    )
+    set_tests_properties(
+      traceloom_native_analyze_official_ascend_cli_input
+      PROPERTIES
+        DEPENDS traceloom_native_prepare_official_ascend_cli_input
+        PASS_REGULAR_EXPRESSION "timing source_kind=ascend_sqlite_hot_path"
+    )
+    add_test(
+      NAME traceloom_native_analyze_official_ascend_cli_sidecar
+      COMMAND traceloom_native_cli_sidecar_smoke_tests
+        ${CMAKE_CURRENT_BINARY_DIR}/official_ascend_cli_compat.db fixture
+    )
+    set_tests_properties(
+      traceloom_native_analyze_official_ascend_cli_sidecar
+      PROPERTIES DEPENDS traceloom_native_analyze_official_ascend_cli_input
+    )
+
     add_test(
       NAME traceloom_native_analyze_cuda_nsys_compat_sidecar_cli
       COMMAND traceloom

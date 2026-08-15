@@ -34,12 +34,14 @@ traceloom --help
 
 ## 2. Collect A Profile
 
-Run the workload with Ascend/CANN `msprof`. TraceLoom does not launch the
-workload or require a runtime wrapper. Supported production layouts include:
+Run the workload with an Ascend/CANN profiler such as `msprof` or the official
+torch-npu profiler workflow. TraceLoom does not launch the workload or require
+a runtime wrapper. Supported production layouts include:
 
 ```text
 <run_dir>/msprof_raw/PROF_*/msprof_*.db
 <raw_dir>/PROF_*/msprof_*.db
+<profile_root>/ASCEND_PROFILER_OUTPUT/ascend_pytorch_profiler_*.db
 <raw_dir>/PROF_*/host/sqlite/*.db
 <raw_dir>/PROF_*/device_*/sqlite/*.db
 ```

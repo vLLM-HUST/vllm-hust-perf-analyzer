@@ -4,15 +4,20 @@ TraceLoom analyzes profiler output produced outside the tool.
 
 ## Ascend/CANN
 
-The native analyzer accepts one CANN `msprof_*.db` or a directory containing
-monolithic or split SQLite output:
+The native analyzer accepts one schema-compatible Ascend profiler SQLite DB or
+a directory containing monolithic or split SQLite output:
 
 ```text
 <run_dir>/msprof_raw/PROF_*/msprof_*.db
 <raw_dir>/PROF_*/msprof_*.db
+<profile_root>/ASCEND_PROFILER_OUTPUT/ascend_pytorch_profiler_*.db
 <raw_dir>/PROF_*/host/sqlite/*.db
 <raw_dir>/PROF_*/device_*/sqlite/*.db
 ```
+
+Monolithic inputs are recognized from their nonempty, compatible `TASK` schema
+rather than from a filename convention. This includes the database packaging
+emitted by the official vLLM Ascend/torch-npu profiler workflow.
 
 A monolithic DB can support bounded compute/event analysis, but a DB copied
 away from its neighboring `PROF_*` evidence is not a complete cross-layer

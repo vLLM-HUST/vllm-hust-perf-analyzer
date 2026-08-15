@@ -115,9 +115,21 @@ void require_primitive_ir_equal(const traceloom::NativeIr& lhs,
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
   using namespace traceloom;
   using namespace traceloom::test;
+
+  if (argc == 3 && std::string(argv[1]) == "--materialize") {
+    const std::filesystem::path output_path(argv[2]);
+    std::error_code ignored;
+    std::filesystem::remove(output_path, ignored);
+    materialize_ascend_minimal_fixture(output_path);
+    require(ascend_sqlite_has_usable_task_table(output_path.string()),
+            "materialized official-package fixture is not usable");
+    return 0;
+  }
+  require(argc == 1,
+          "usage: ascend_sqlite_adapter_tests [--materialize OUTPUT.db]");
 
   const std::string db_path = temp_ascend_db_path("_ok");
   materialize_ascend_minimal_fixture(db_path);
