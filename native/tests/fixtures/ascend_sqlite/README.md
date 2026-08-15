@@ -14,6 +14,11 @@ Variants are represented as SQL changes against those bases rather than copied
 whole-database snapshots, so reviews show the precise evidence being removed or
 made ambiguous.
 
+Directories named `split/` mirror the profiler's multi-file layout. Their SQL
+filenames materialize as sibling `.db` files at test time. The split corpus is
+captured evidence for adapter compatibility, not a second implementation that
+reconstructs profiler output from the monolithic fixture.
+
 This corpus is intentionally not a universal Ascend schema model. Add a base or
 mutation only when an adapter contract needs evidence that a smaller existing
 fixture cannot express.

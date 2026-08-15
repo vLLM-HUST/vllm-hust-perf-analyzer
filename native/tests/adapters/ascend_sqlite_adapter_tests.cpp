@@ -3,13 +3,12 @@
 #include "traceloom/analysis/native_pipeline.h"
 #include "support/sqlite_fixture.h"
 
-#include <sqlite3.h>
-
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <initializer_list>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -148,7 +147,7 @@ void apply_ascend_fixture_mutation(const std::filesystem::path& database_path,
                          mutation_name);
 }
 
-void create_minimal_db(const std::string& path) {
+void materialize_minimal_fixture(const std::string& path) {
   traceloom::test::materialize_sqlite_fixture(
       path, ascend_sqlite_fixture_dir("minimal_smoke") / "msprof.sql");
 }
@@ -159,247 +158,42 @@ std::filesystem::path temp_prof_dir(const char* suffix) {
          ("traceloom_ascend_sqlite_adapter_" + std::to_string(now) + suffix);
 }
 
-void exec_sql(sqlite3* db, const char* sql) {
-  char* error = nullptr;
-  const int rc = sqlite3_exec(db, sql, nullptr, nullptr, &error);
-  if (rc != SQLITE_OK) {
-    std::cerr << "failed to execute SQL: "
-              << (error == nullptr ? "unknown" : error) << '\n';
-    sqlite3_free(error);
-    sqlite3_close(db);
-    std::exit(1);
+void materialize_sqlite_profile(
+    const std::filesystem::path& output_root,
+    const std::filesystem::path& fixture_root,
+    std::initializer_list<const char*> relative_scripts) {
+  for (const char* relative_script : relative_scripts) {
+    std::filesystem::path relative_database(relative_script);
+    relative_database.replace_extension(".db");
+    traceloom::test::materialize_sqlite_fixture(
+        output_root / relative_database, fixture_root / relative_script);
   }
 }
 
-void create_split_golden_profiles(const std::filesystem::path& root,
-                                  const std::string& monolithic_path) {
-  std::filesystem::create_directories(root / "host" / "sqlite");
-  std::filesystem::create_directories(root / "device_0" / "sqlite");
-
-  sqlite3* db = nullptr;
-  int rc = sqlite3_open_v2(monolithic_path.c_str(), &db,
-                           SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
-  require(rc == SQLITE_OK, "failed to create golden monolithic DB");
-  exec_sql(db,
-           "CREATE TABLE STRING_IDS(id INTEGER PRIMARY KEY, value TEXT);"
-           "INSERT INTO STRING_IDS VALUES "
-           "(10, 'AI_CORE'), (11, 'EVENT_WAIT'), (20, 'linear'), "
-           "(21, 'MatMul'), (22, 'MIX_AIC'), (30, 'hcom_allReduce_'), "
-           "(31, 'hcom_allReduce__golden_0'), (32, 'SDMA');"
-           "CREATE TABLE TASK(startNs INTEGER, endNs INTEGER, "
-           "deviceId INTEGER, connectionId INTEGER, globalTaskId INTEGER, "
-           "globalPid INTEGER, taskType INTEGER, contextId INTEGER, "
-           "streamId INTEGER, taskId INTEGER, modelId INTEGER);"
-           "INSERT INTO TASK VALUES "
-           "(100, 160, 0, 700, 0, 1, 10, 0, 3, 99, 2), "
-           "(170, 210, 0, 701, 1, 1, 11, 0, 3, 100, 2), "
-           "(220, 260, 0, 702, 2, 1, 32, 0, 4, 101, 2);"
-           "CREATE TABLE COMPUTE_TASK_INFO(globalTaskId INTEGER, "
-           "name INTEGER, opType INTEGER, taskType INTEGER);"
-           "INSERT INTO COMPUTE_TASK_INFO VALUES (0, 20, 21, 22);"
-           "CREATE TABLE COMMUNICATION_TASK_INFO(globalTaskId INTEGER, "
-           "name INTEGER, taskType INTEGER);"
-           "INSERT INTO COMMUNICATION_TASK_INFO VALUES (2, 31, 30);"
-           "CREATE TABLE COMMUNICATION_OP(opName INTEGER, opType INTEGER, "
-           "startNs INTEGER, endNs INTEGER, connectionId INTEGER, "
-           "groupName INTEGER, opId INTEGER, deviceId INTEGER);"
-           "INSERT INTO COMMUNICATION_OP VALUES "
-           "(30, 30, 220, 260, 702, NULL, 55, 0);");
-  sqlite3_close(db);
-
-  rc = sqlite3_open_v2(
-      (root / "device_0" / "sqlite" / "ascend_task.db").string().c_str(),
-      &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
-  require(rc == SQLITE_OK, "failed to create split AscendTask DB");
-  exec_sql(db,
-           "CREATE TABLE AscendTask(model_id INTEGER, index_id INTEGER, "
-           "stream_id INTEGER, task_id INTEGER, context_id INTEGER, "
-           "batch_id INTEGER, start_time NUMERIC, duration NUMERIC, "
-           "host_task_type TEXT, device_task_type TEXT, "
-           "connection_id INTEGER);"
-           "INSERT INTO AscendTask VALUES "
-           "(2, -1, 3, 99, 0, 0, 100, 60, 'AI_CORE', 'AI_CORE', 700), "
-           "(2, -1, 3, 100, 0, 0, 170, 40, 'EVENT_WAIT', 'UNKNOWN', 701), "
-           "(2, -1, 4, 101, 0, 0, 220, 40, 'FFTS_PLUS', 'SDMA', 702);"
-           "INSERT INTO AscendTask VALUES "
-           "(2, -1, 3, 101, 0, 0, -1, -1, 'AI_CORE', 'UNKNOWN', 702);");
-  sqlite3_close(db);
-
-  rc = sqlite3_open_v2(
-      (root / "device_0" / "sqlite" / "hccl_single_device.db")
-          .string()
-          .c_str(),
-      &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
-  require(rc == SQLITE_OK, "failed to create split golden HCCL task DB");
-  exec_sql(db,
-           "CREATE TABLE HCCLTaskSingleDevice(stream_id INTEGER, "
-           "task_id INTEGER, context_id INTEGER, op_name TEXT, "
-           "hccl_name TEXT);"
-           "INSERT INTO HCCLTaskSingleDevice VALUES "
-           "(4, 101, 0, 'hcom_allReduce__golden_0', "
-           "'hcom_allReduce_');"
-           "CREATE TABLE HCCLOpSingleDevice(op_name TEXT, op_type TEXT, "
-           "timestamp NUMERIC, connection_id INTEGER);"
-           "INSERT INTO HCCLOpSingleDevice VALUES "
-           "('hcom_allReduce_', 'hcom_allReduce_', 9000, 702);");
-  sqlite3_close(db);
-
-  rc = sqlite3_open_v2(
-      (root / "host" / "sqlite" / "hccl.db").string().c_str(), &db,
-      SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
-  require(rc == SQLITE_OK, "failed to create split golden HCCL op DB");
-  exec_sql(db,
-           "CREATE TABLE HCCLOP(device_id INTEGER, index_id INTEGER, "
-           "op_name TEXT, op_type TEXT, begin REAL, end REAL, "
-           "connection_id INTEGER);"
-           // Deliberately use another clock domain. The operation row is
-           // identity evidence; linked AscendTask rows define its device
-           // geometry.
-           "INSERT INTO HCCLOP VALUES "
-           "(0, 55, 'hcom_allReduce_', 'hcom_allReduce_', 9000, 9001, "
-           "702);");
-  sqlite3_close(db);
-
-  rc = sqlite3_open_v2(
-      (root / "host" / "sqlite" / "ge_info.db").string().c_str(), &db,
-      SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
-  require(rc == SQLITE_OK, "failed to create split TaskInfo DB");
-  exec_sql(db,
-           "CREATE TABLE TaskInfo(model_id INTEGER, op_name TEXT, "
-           "stream_id INTEGER, task_id INTEGER, task_type TEXT, "
-           "op_type TEXT, index_id INTEGER, device_id INTEGER, "
-           "context_id INTEGER);"
-           "INSERT INTO TaskInfo VALUES "
-           "(2, 'linear', 3, 99, 'MIX_AIC', 'MatMul', -1, 0, 0);");
-  sqlite3_close(db);
-
-  rc = sqlite3_open_v2(
-      (root / "host" / "sqlite" / "runtime.db").string().c_str(), &db,
-      SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
-  require(rc == SQLITE_OK, "failed to create split HostTask DB");
-  exec_sql(db,
-           "CREATE TABLE HostTask(connection_id INTEGER, task_type TEXT);"
-           "INSERT INTO HostTask VALUES (700, 'AI_CORE'), "
-           "(701, 'EVENT_WAIT');");
-  sqlite3_close(db);
-
-  rc = sqlite3_open_v2(
-      (root / "host" / "sqlite" / "api_event.db").string().c_str(), &db,
-      SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
-  require(rc == SQLITE_OK, "failed to create split ApiData DB");
-  exec_sql(db,
-           "CREATE TABLE ApiData(start INTEGER, end INTEGER, "
-           "connection_id INTEGER, id TEXT);"
-           "INSERT INTO ApiData VALUES (1, 2, 10, 'aclrtSynchronizeStream');");
-  sqlite3_close(db);
+void materialize_aclgraph_split_fixture(
+    const std::filesystem::path& output_root, const char* name) {
+  materialize_sqlite_profile(
+      output_root, ascend_sqlite_fixture_dir(name) / "split",
+      {"device_0/sqlite/ascend_task.sql",
+       "device_0/sqlite/hccl_single_device.sql",
+       "host/sqlite/api_event.sql", "host/sqlite/ge_info.sql",
+       "host/sqlite/stream_info.sql"});
 }
 
-void create_split_aclgraph_profile_from_monolithic(
-    const std::filesystem::path& root,
-    const std::string& monolithic_path,
-    const std::string& stream_info_path) {
-  std::filesystem::create_directories(root / "host" / "sqlite");
-  std::filesystem::create_directories(root / "device_0" / "sqlite");
-  const std::string attach_monolithic =
-      "ATTACH DATABASE '" + monolithic_path + "' AS source;";
-
-  sqlite3* db = nullptr;
-  int rc = sqlite3_open_v2(
-      (root / "device_0" / "sqlite" / "ascend_task.db").string().c_str(),
-      &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
-  require(rc == SQLITE_OK, "failed to create split graph AscendTask DB");
-  exec_sql(db, attach_monolithic.c_str());
-  exec_sql(
-      db,
-      "CREATE TABLE AscendTask AS "
-      "SELECT modelId AS model_id, -1 AS index_id, streamId AS stream_id, "
-      "taskId AS task_id, contextId AS context_id, 0 AS batch_id, "
-      "startNs AS start_time, endNs - startNs AS duration, "
-      "(SELECT value FROM source.STRING_IDS WHERE id = t.taskType) AS "
-      "host_task_type, "
-      "(SELECT value FROM source.STRING_IDS WHERE id = t.taskType) AS "
-      "device_task_type, connectionId AS connection_id "
-      "FROM source.TASK t");
-  sqlite3_close(db);
-
-  db = nullptr;
-  rc = sqlite3_open_v2(
-      (root / "host" / "sqlite" / "ge_info.db").string().c_str(), &db,
-      SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
-  require(rc == SQLITE_OK, "failed to create split graph TaskInfo DB");
-  exec_sql(db, attach_monolithic.c_str());
-  exec_sql(
-      db,
-      "CREATE TABLE TaskInfo AS "
-      "SELECT t.modelId AS model_id, names.value AS op_name, "
-      "t.streamId AS stream_id, t.taskId AS task_id, types.value AS "
-      "task_type, ops.value AS op_type, -1 AS index_id, "
-      "t.deviceId AS device_id, t.contextId AS context_id "
-      "FROM source.TASK t "
-      "JOIN source.COMPUTE_TASK_INFO c ON c.globalTaskId = t.globalTaskId "
-      "LEFT JOIN source.STRING_IDS names ON names.id = c.name "
-      "LEFT JOIN source.STRING_IDS types ON types.id = c.taskType "
-      "LEFT JOIN source.STRING_IDS ops ON ops.id = c.opType");
-  sqlite3_close(db);
-
-  db = nullptr;
-  rc = sqlite3_open_v2(
-      (root / "host" / "sqlite" / "api_event.db").string().c_str(), &db,
-      SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
-  require(rc == SQLITE_OK, "failed to create split graph ApiData DB");
-  exec_sql(db, attach_monolithic.c_str());
-  exec_sql(
-      db,
-      "CREATE TABLE ApiData AS "
-      "SELECT 'api' AS struct_type, names.value AS id, 'node' AS level, "
-      "globalTid AS thread_id, CAST(api.rowid AS TEXT) AS item_id, "
-      "startNs AS start, endNs AS end, connectionId AS connection_id "
-      "FROM source.CANN_API api "
-      "LEFT JOIN source.STRING_IDS names ON names.id = api.name");
-  sqlite3_close(db);
-
-  db = nullptr;
-  rc = sqlite3_open_v2(
-      (root / "host" / "sqlite" / "stream_info.db").string().c_str(), &db,
-      SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
-  require(rc == SQLITE_OK,
-          "failed to create split graph CaptureStreamInfo DB");
-  const std::string attach_stream_info =
-      "ATTACH DATABASE '" + stream_info_path + "' AS source;";
-  exec_sql(db, attach_stream_info.c_str());
-  exec_sql(db,
-           "CREATE TABLE CaptureStreamInfo AS "
-           "SELECT device_id, model_id, original_stream_id, "
-           "stream_id, 0 AS batch_id, 0 AS capture_status, timestamp "
-           "FROM source.CaptureStreamInfo");
-  sqlite3_close(db);
-
-  db = nullptr;
-  rc = sqlite3_open_v2(
-      (root / "device_0" / "sqlite" / "hccl_single_device.db")
-          .string()
-          .c_str(),
-      &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
-  require(rc == SQLITE_OK,
-          "failed to create split graph HCCLTaskSingleDevice DB");
-  exec_sql(db, attach_monolithic.c_str());
-  exec_sql(
-      db,
-      "CREATE TABLE HCCLTaskSingleDevice AS "
-      "SELECT t.streamId AS stream_id, t.taskId AS task_id, "
-      "t.contextId AS context_id, names.value AS op_name, "
-      "types.value AS hccl_name "
-      "FROM source.TASK t "
-      "JOIN source.COMMUNICATION_TASK_INFO c "
-      "ON c.globalTaskId = t.globalTaskId "
-      "LEFT JOIN source.STRING_IDS names ON names.id = c.name "
-      "LEFT JOIN source.STRING_IDS types ON types.id = c.taskType");
-  sqlite3_close(db);
+void materialize_split_golden_profiles(
+    const std::filesystem::path& output_root,
+    const std::filesystem::path& monolithic_path) {
+  const std::filesystem::path fixture =
+      ascend_sqlite_fixture_dir("split_golden");
+  traceloom::test::materialize_sqlite_fixture(monolithic_path,
+                                               fixture / "monolithic.sql");
+  materialize_sqlite_profile(
+      output_root, fixture,
+      {"device_0/sqlite/ascend_task.sql",
+       "device_0/sqlite/hccl_single_device.sql",
+       "host/sqlite/api_event.sql", "host/sqlite/ge_info.sql",
+       "host/sqlite/hccl.sql", "host/sqlite/runtime.sql"});
 }
-
-
-
-
 
 }  // namespace
 
@@ -407,7 +201,7 @@ int main() {
   using namespace traceloom;
 
   const std::string db_path = temp_db_path("_ok");
-  create_minimal_db(db_path);
+  materialize_minimal_fixture(db_path);
 
   const AscendSQLiteAdapter adapter(
       AscendSQLiteAdapterOptions{db_path, "ascend_smoke"});
@@ -754,9 +548,7 @@ int main() {
 
   const std::filesystem::path split_graph_dir =
       launch_identity_dir / "split_profile";
-  create_split_aclgraph_profile_from_monolithic(
-      split_graph_dir, launch_identity_path,
-      (launch_identity_dir / "host" / "sqlite" / "stream_info.db").string());
+  materialize_aclgraph_split_fixture(split_graph_dir, "launch_identity");
   const NativeIr split_graph_ir =
       AscendSQLiteAdapter(split_graph_dir.string(),
                           "graph_launch_identity_split")
@@ -963,9 +755,7 @@ int main() {
 
   const std::filesystem::path split_exact_hlt_dir =
       exact_hlt_dir / "split_profile";
-  create_split_aclgraph_profile_from_monolithic(
-      split_exact_hlt_dir, exact_hlt_path,
-      (exact_hlt_dir / "host" / "sqlite" / "stream_info.db").string());
+  materialize_aclgraph_split_fixture(split_exact_hlt_dir, "exact_hlt");
   const NativeIr split_exact_hlt_ir =
       AscendSQLiteAdapter(split_exact_hlt_dir.string(),
                           "graph_exact_hlt_split")
@@ -1182,9 +972,7 @@ int main() {
 
   const std::filesystem::path incomplete_split_dir =
       exact_hlt_dir / "split_incomplete_task_info";
-  create_split_aclgraph_profile_from_monolithic(
-      incomplete_split_dir, exact_hlt_path,
-      (exact_hlt_dir / "host" / "sqlite" / "stream_info.db").string());
+  materialize_aclgraph_split_fixture(incomplete_split_dir, "exact_hlt");
   const std::string incomplete_split_task_info_path =
       (incomplete_split_dir / "host" / "sqlite" / "ge_info.db").string();
   apply_ascend_fixture_mutation(incomplete_split_task_info_path, "exact_hlt",
@@ -1226,7 +1014,7 @@ int main() {
 
   const std::filesystem::path split_dir = temp_prof_dir("_split");
   const std::string golden_path = temp_db_path("_split_golden");
-  create_split_golden_profiles(split_dir, golden_path);
+  materialize_split_golden_profiles(split_dir, golden_path);
   require(ascend_sqlite_has_usable_task_table(golden_path),
           "golden monolithic TASK table should be usable");
   require(looks_like_ascend_split_sqlite_profile(split_dir.string()),
@@ -1243,27 +1031,18 @@ int main() {
           "split inventory did not report AscendTask schema/row count");
   const std::string unusable_monolithic =
       (split_dir / "msprof_without_task.db").string();
-  sqlite3* unusable_db = nullptr;
-  int unusable_rc = sqlite3_open_v2(
-      unusable_monolithic.c_str(), &unusable_db,
-      SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
-  require(unusable_rc == SQLITE_OK,
-          "failed to create unusable monolithic fixture");
-  exec_sql(unusable_db, "CREATE TABLE metadata(value TEXT);");
-  sqlite3_close(unusable_db);
+  traceloom::test::materialize_sqlite_fixture(
+      unusable_monolithic,
+      ascend_sqlite_fixture_dir("split_golden") / "negatives" /
+          "unusable_monolithic.sql");
   require(!ascend_sqlite_has_usable_task_table(unusable_monolithic),
           "monolithic DB without TASK should not suppress split fallback");
   const std::string incompatible_monolithic =
       (split_dir / "msprof_incompatible_task.db").string();
-  sqlite3* incompatible_db = nullptr;
-  require(sqlite3_open_v2(incompatible_monolithic.c_str(), &incompatible_db,
-                          SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE,
-                          nullptr) == SQLITE_OK,
-          "failed to create incompatible monolithic fixture");
-  exec_sql(incompatible_db,
-           "CREATE TABLE TASK(startNs INTEGER);"
-           "INSERT INTO TASK VALUES (1);");
-  sqlite3_close(incompatible_db);
+  traceloom::test::materialize_sqlite_fixture(
+      incompatible_monolithic,
+      ascend_sqlite_fixture_dir("split_golden") / "negatives" /
+          "incompatible_monolithic.sql");
   require(!ascend_sqlite_has_usable_task_table(incompatible_monolithic),
           "incompatible TASK schema should not suppress split fallback");
 
