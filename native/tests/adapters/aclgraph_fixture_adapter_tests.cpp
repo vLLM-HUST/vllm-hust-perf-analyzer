@@ -9,8 +9,7 @@
 namespace {
 
 std::string fixture_path(const std::string& name) {
-  return std::string(TRACELOOM_WORKSPACE_ROOT) +
-         "/drafts/refactor/80_tests_fixtures/fixtures/aclgraph/" + name +
+  return std::string(TRACELOOM_NATIVE_FIXTURE_ROOT) + "/aclgraph/" + name +
          ".json";
 }
 
@@ -60,6 +59,8 @@ int main() {
     require(ir.anchors.size() == 4);
     require(ir.tokens.size() == 4);
     require(ir.protected_intervals.size() == 1);
+    require(ir.trace_events.size() ==
+            fixture.replay_units.size() + fixture.replay_subslots.size());
     require(token_sequence(ir) == "ACLH ACLL ACLL ACLT");
 
     require(ir.anchors.row(AnchorId(0)).kind == AnchorKind::kGraphH);
@@ -70,6 +71,10 @@ int main() {
     const ReplayUnitRow& replay_unit = ir.replay_units.row(ReplayUnitId(0));
     require(replay_unit.first_anchor_id == AnchorId(0));
     require(replay_unit.last_anchor_id == AnchorId(3));
+    require(replay_unit.launch_trace_event_id.valid());
+    for (const AnchorRow& anchor : ir.anchors.rows()) {
+      require(anchor.trace_event_id.valid());
+    }
 
     const ProtectedIntervalRow& interval =
         ir.protected_intervals.row(ProtectedIntervalId(0));

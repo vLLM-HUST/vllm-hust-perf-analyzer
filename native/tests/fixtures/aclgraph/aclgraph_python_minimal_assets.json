@@ -1,0 +1,321 @@
+{
+  "fixture_id": "aclgraph_python_minimal_assets",
+  "schema_version": "aclgraph-fixture-v1",
+  "description": "Golden asset emitted by the Python AclGraphAnalysis semantic fixture exporter.",
+  "assets": {
+    "capture_slots": [
+      {
+        "capture_slot_id": "cs1",
+        "capture_slot_idx": 1,
+        "capture_group_idx": 1,
+        "capture_group_size": 3,
+        "capture_slot_in_group": 1,
+        "slot_kind": "head",
+        "slot_symbol": "H",
+        "start_ns": 0,
+        "end_ns": 0,
+        "body_match_signature": "index|Embedding:1"
+      },
+      {
+        "capture_slot_id": "cs2",
+        "capture_slot_idx": 2,
+        "capture_group_idx": 1,
+        "capture_group_size": 3,
+        "capture_slot_in_group": 2,
+        "slot_kind": "layer",
+        "slot_symbol": "L",
+        "start_ns": 0,
+        "end_ns": 0,
+        "body_match_signature": "matmul|MatMul:2"
+      },
+      {
+        "capture_slot_id": "cs3",
+        "capture_slot_idx": 3,
+        "capture_group_idx": 1,
+        "capture_group_size": 3,
+        "capture_slot_in_group": 3,
+        "slot_kind": "tail",
+        "slot_symbol": "T",
+        "start_ns": 0,
+        "end_ns": 0,
+        "body_match_signature": "norm|RmsNorm:1"
+      }
+    ],
+    "capture_dictionary": [
+      {
+        "capture_dictionary_id": "dict:H",
+        "dictionary_idx": 1,
+        "slot_kind": "head",
+        "slot_symbol": "H",
+        "capture_slot_ids": ["cs1"],
+        "capture_slot_count": 1,
+        "unique_match_signature_count": 1,
+        "variation_summary": ""
+      },
+      {
+        "capture_dictionary_id": "dict:L",
+        "dictionary_idx": 2,
+        "slot_kind": "layer",
+        "slot_symbol": "L",
+        "capture_slot_ids": ["cs2"],
+        "capture_slot_count": 1,
+        "unique_match_signature_count": 1,
+        "variation_summary": ""
+      },
+      {
+        "capture_dictionary_id": "dict:T",
+        "dictionary_idx": 3,
+        "slot_kind": "tail",
+        "slot_symbol": "T",
+        "capture_slot_ids": ["cs3"],
+        "capture_slot_count": 1,
+        "unique_match_signature_count": 1,
+        "variation_summary": ""
+      }
+    ],
+    "replay_activities": [
+      {
+        "replay_activity_id": "act1",
+        "activity_idx": 1,
+        "start_ns": 1000,
+        "end_ns": 1600,
+        "stream_ids": [7],
+        "raw_child_task_count": 50
+      }
+    ],
+    "replay_unit_boundaries": [
+      {
+        "boundary_set_id": "b1",
+        "replay_activity_id": "act1",
+        "expected_unit_count": 2,
+        "effective_unit_count": 2,
+        "unit_source": "body:landmark",
+        "split_source": "body:landmark_midpoint",
+        "confidence": "medium",
+        "boundary_ns": []
+      }
+    ],
+    "replay_units": [
+      {
+        "replay_unit_id": "ru1",
+        "replay_activity_id": "act1",
+        "boundary_set_id": "b1",
+        "unit_idx_global": 1,
+        "unit_idx_in_activity": 1,
+        "unit_count_in_activity": 2,
+        "start_ns": 1000,
+        "end_ns": 1300
+      },
+      {
+        "replay_unit_id": "ru2",
+        "replay_activity_id": "act1",
+        "boundary_set_id": "b1",
+        "unit_idx_global": 2,
+        "unit_idx_in_activity": 2,
+        "unit_count_in_activity": 2,
+        "start_ns": 1300,
+        "end_ns": 1600
+      }
+    ],
+    "replay_tilings": [
+      {
+        "replay_tiling_id": "tile1",
+        "replay_unit_id": "ru1",
+        "policy": "capture_dictionary_stream_subslot_nearest_v2",
+        "subslot_count": 3,
+        "sequence": "H,L,T",
+        "matched_count": 3,
+        "unmatched_count": 0,
+        "coverage": "3/3",
+        "top_mismatches": ""
+      },
+      {
+        "replay_tiling_id": "tile2",
+        "replay_unit_id": "ru2",
+        "policy": "capture_dictionary_stream_subslot_nearest_v2",
+        "subslot_count": 3,
+        "sequence": "H,?,T",
+        "matched_count": 2,
+        "unmatched_count": 1,
+        "coverage": "2/3",
+        "top_mismatches": ""
+      }
+    ],
+    "replay_subslots": [
+      {
+        "subslot_id": "ss1_1",
+        "replay_tiling_id": "tile1",
+        "subslot_idx": 1,
+        "slot_kind": "head",
+        "slot_symbol": "H",
+        "matched": true,
+        "start_ns": 1000,
+        "end_ns": 1100,
+        "stream_id": 7,
+        "raw_child_task_count": 4,
+        "raw_top_ops": "Embedding:4",
+        "body_match_signature": "index|Embedding:1"
+      },
+      {
+        "subslot_id": "ss1_2",
+        "replay_tiling_id": "tile1",
+        "subslot_idx": 2,
+        "slot_kind": "layer",
+        "slot_symbol": "L",
+        "matched": true,
+        "start_ns": 1100,
+        "end_ns": 1200,
+        "stream_id": 7,
+        "raw_child_task_count": 20,
+        "raw_top_ops": "MatMul:16",
+        "body_match_signature": "matmul|MatMul:2"
+      },
+      {
+        "subslot_id": "ss1_3",
+        "replay_tiling_id": "tile1",
+        "subslot_idx": 3,
+        "slot_kind": "tail",
+        "slot_symbol": "T",
+        "matched": true,
+        "start_ns": 1200,
+        "end_ns": 1300,
+        "stream_id": 7,
+        "raw_child_task_count": 6,
+        "raw_top_ops": "RmsNorm:4",
+        "body_match_signature": "norm|RmsNorm:1"
+      },
+      {
+        "subslot_id": "ss2_1",
+        "replay_tiling_id": "tile2",
+        "subslot_idx": 1,
+        "slot_kind": "head",
+        "slot_symbol": "H",
+        "matched": true,
+        "start_ns": 1300,
+        "end_ns": 1400,
+        "stream_id": 7,
+        "raw_child_task_count": 5,
+        "raw_top_ops": "Embedding:5",
+        "body_match_signature": "index|Embedding:1"
+      },
+      {
+        "subslot_id": "ss2_2",
+        "replay_tiling_id": "tile2",
+        "subslot_idx": 2,
+        "slot_kind": "unknown",
+        "slot_symbol": "?",
+        "matched": false,
+        "start_ns": 1400,
+        "end_ns": 1500,
+        "stream_id": 7,
+        "raw_child_task_count": 10,
+        "raw_top_ops": "Unknown:10",
+        "body_match_signature": "unknown|Unknown:1"
+      },
+      {
+        "subslot_id": "ss2_3",
+        "replay_tiling_id": "tile2",
+        "subslot_idx": 3,
+        "slot_kind": "tail",
+        "slot_symbol": "T",
+        "matched": true,
+        "start_ns": 1500,
+        "end_ns": 1600,
+        "stream_id": 7,
+        "raw_child_task_count": 5,
+        "raw_top_ops": "RmsNorm:5",
+        "body_match_signature": "norm|RmsNorm:1"
+      }
+    ],
+    "hlt_anchor_seeds": [
+      {
+        "anchor_seed_id": "a1_1",
+        "replay_unit_id": "ru1",
+        "subslot_id": "ss1_1",
+        "launch_activity_id": "act1",
+        "symbol": "ACLH",
+        "slot_symbol": "H",
+        "semantic_role": "anchor",
+        "start_ns": 1000,
+        "end_ns": 1100,
+        "raw_child_task_count": 4,
+        "raw_top_ops": "Embedding:4",
+        "body_match_signature": "index|Embedding:1"
+      },
+      {
+        "anchor_seed_id": "a1_2",
+        "replay_unit_id": "ru1",
+        "subslot_id": "ss1_2",
+        "launch_activity_id": "act1",
+        "symbol": "ACLL",
+        "slot_symbol": "L",
+        "semantic_role": "anchor",
+        "start_ns": 1100,
+        "end_ns": 1200,
+        "raw_child_task_count": 20,
+        "raw_top_ops": "MatMul:16",
+        "body_match_signature": "matmul|MatMul:2"
+      },
+      {
+        "anchor_seed_id": "a1_3",
+        "replay_unit_id": "ru1",
+        "subslot_id": "ss1_3",
+        "launch_activity_id": "act1",
+        "symbol": "ACLT",
+        "slot_symbol": "T",
+        "semantic_role": "anchor",
+        "start_ns": 1200,
+        "end_ns": 1300,
+        "raw_child_task_count": 6,
+        "raw_top_ops": "RmsNorm:4",
+        "body_match_signature": "norm|RmsNorm:1"
+      },
+      {
+        "anchor_seed_id": "a2_1",
+        "replay_unit_id": "ru2",
+        "subslot_id": "ss2_1",
+        "launch_activity_id": "act1",
+        "symbol": "ACLH",
+        "slot_symbol": "H",
+        "semantic_role": "anchor",
+        "start_ns": 1300,
+        "end_ns": 1400,
+        "raw_child_task_count": 5,
+        "raw_top_ops": "Embedding:5",
+        "body_match_signature": "index|Embedding:1"
+      },
+      {
+        "anchor_seed_id": "a2_3",
+        "replay_unit_id": "ru2",
+        "subslot_id": "ss2_3",
+        "launch_activity_id": "act1",
+        "symbol": "ACLT",
+        "slot_symbol": "T",
+        "semantic_role": "anchor",
+        "start_ns": 1500,
+        "end_ns": 1600,
+        "raw_child_task_count": 5,
+        "raw_top_ops": "RmsNorm:5",
+        "body_match_signature": "norm|RmsNorm:1"
+      }
+    ]
+  },
+  "golden": {
+    "capture_slot_count": 3,
+    "capture_group_count": 1,
+    "capture_group_size": 3,
+    "capture_dictionary_count": 3,
+    "dictionary_sequence": "H L T",
+    "replay_activity_count": 1,
+    "replay_unit_count": 2,
+    "hlt_anchor_count": 5,
+    "flat_hlt_sequence": "ACLH ACLL ACLT ACLH ACLT",
+    "normal_flat_hlt_sequence": "ACLH ACLL ACLT ACLH ACLT",
+    "launch_anchor_count": 0,
+    "launch_boundary_used_as_anchor": false,
+    "unique_replay_unit_ids_in_anchors": 2,
+    "diagnostic_codes": {
+      "replay_tiling_partial_coverage": 1
+    }
+  }
+}

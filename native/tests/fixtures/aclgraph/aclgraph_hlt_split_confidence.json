@@ -1,0 +1,35 @@
+{
+  "fixture_id": "aclgraph_hlt_split_confidence",
+  "schema_version": "aclgraph-fixture-v1",
+  "description": "Matrix fixture for replay-unit split source and confidence.",
+  "assets": {
+    "capture_slots": [],
+    "capture_dictionary": [],
+    "replay_activities": [],
+    "replay_unit_boundaries": [
+      {"boundary_set_id": "single", "replay_activity_id": "act_single", "expected_unit_count": 1, "effective_unit_count": 1, "unit_source": "single", "split_source": "single", "confidence": "high", "boundary_ns": []},
+      {"boundary_set_id": "body_local", "replay_activity_id": "act_body_local", "expected_unit_count": 2, "effective_unit_count": 2, "unit_source": "body:landmark", "split_source": "body:landmark_midpoint", "confidence": "medium", "boundary_ns": [2000]},
+      {"boundary_set_id": "body_global", "replay_activity_id": "act_body_global", "expected_unit_count": 2, "effective_unit_count": 2, "unit_source": "body:global_landmark", "split_source": "body:global_landmark_midpoint", "confidence": "medium", "boundary_ns": [3000]},
+      {"boundary_set_id": "notify", "replay_activity_id": "act_notify", "expected_unit_count": 2, "effective_unit_count": 2, "unit_source": "control:NOTIFY_WAIT", "split_source": "control:NOTIFY_WAIT", "confidence": "medium", "boundary_ns": [4000]},
+      {"boundary_set_id": "model_execute", "replay_activity_id": "act_model", "expected_unit_count": 2, "effective_unit_count": 2, "unit_source": "control:MODEL_EXECUTE", "split_source": "control:MODEL_EXECUTE", "confidence": "medium", "boundary_ns": [5000]},
+      {"boundary_set_id": "unsplit", "replay_activity_id": "act_unsplit", "expected_unit_count": 2, "effective_unit_count": 1, "unit_source": "body:counter", "split_source": "unsplit", "confidence": "failed", "boundary_ns": []}
+    ],
+    "replay_units": [],
+    "replay_tilings": [],
+    "replay_subslots": [],
+    "hlt_anchor_seeds": []
+  },
+  "golden": {
+    "split_confidence": {
+      "single": "high",
+      "body:landmark_midpoint": "medium",
+      "body:global_landmark_midpoint": "medium",
+      "control:NOTIFY_WAIT": "medium",
+      "control:MODEL_EXECUTE": "medium",
+      "unsplit": "failed"
+    },
+    "diagnostic_codes": {
+      "replay_unit_unsplit": 1
+    }
+  }
+}

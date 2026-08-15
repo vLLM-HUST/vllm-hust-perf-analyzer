@@ -286,21 +286,9 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
   enable_testing()
 
   set(
-    TRACELOOM_NATIVE_EXTERNAL_FIXTURE_ROOT
-    "${CMAKE_CURRENT_SOURCE_DIR}/../../drafts/refactor/80_tests_fixtures/fixtures"
+    TRACELOOM_NATIVE_FIXTURE_ROOT
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures"
   )
-  if(
-    EXISTS "${TRACELOOM_NATIVE_EXTERNAL_FIXTURE_ROOT}/protected_sequence/f1_tiny_repeated_pair.json"
-    AND EXISTS "${TRACELOOM_NATIVE_EXTERNAL_FIXTURE_ROOT}/aclgraph/aclgraph_python_minimal_assets.json"
-  )
-    set(TRACELOOM_NATIVE_HAS_EXTERNAL_FIXTURES ON)
-  else()
-    set(TRACELOOM_NATIVE_HAS_EXTERNAL_FIXTURES OFF)
-    message(
-      STATUS
-      "External native fixture tests disabled; ${TRACELOOM_NATIVE_EXTERNAL_FIXTURE_ROOT} is not present"
-    )
-  endif()
 
   add_executable(traceloom_native_id_tests
     tests/core/id_tests.cpp
@@ -781,7 +769,7 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     NAME traceloom_native_analyze_fixture_grammar_debug_cli
     COMMAND traceloom-native-analyze-fixture
       --fixture
-      ${CMAKE_CURRENT_SOURCE_DIR}/../../drafts/refactor/80_tests_fixtures/fixtures/protected_sequence/f1_tiny_repeated_pair.json
+      ${TRACELOOM_NATIVE_FIXTURE_ROOT}/protected_sequence/f1_tiny_repeated_pair.json
       --threads 2
       --out ${CMAKE_CURRENT_BINARY_DIR}/fixture_cli_result.json
       --grammar-debug-out -
@@ -795,7 +783,7 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     NAME traceloom_native_analyze_fixture_stdout_conflict
     COMMAND traceloom-native-analyze-fixture
       --fixture
-      ${CMAKE_CURRENT_SOURCE_DIR}/../../drafts/refactor/80_tests_fixtures/fixtures/protected_sequence/f1_tiny_repeated_pair.json
+      ${TRACELOOM_NATIVE_FIXTURE_ROOT}/protected_sequence/f1_tiny_repeated_pair.json
       --out -
       --grammar-debug-out -
   )
@@ -809,7 +797,7 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     NAME traceloom_native_analyze_aclgraph_fixture_cli
     COMMAND traceloom-native-analyze-aclgraph-fixture
       --fixture
-      ${CMAKE_CURRENT_SOURCE_DIR}/../../drafts/refactor/80_tests_fixtures/fixtures/aclgraph/aclgraph_python_minimal_assets.json
+      ${TRACELOOM_NATIVE_FIXTURE_ROOT}/aclgraph/aclgraph_python_minimal_assets.json
       --threads 2
       --out -
   )
@@ -834,7 +822,7 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
   )
   target_compile_definitions(
     traceloom_native_aclgraph_fixture_reader_tests PRIVATE
-    TRACELOOM_WORKSPACE_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../.."
+    TRACELOOM_NATIVE_FIXTURE_ROOT="${TRACELOOM_NATIVE_FIXTURE_ROOT}"
   )
   target_link_libraries(
     traceloom_native_aclgraph_fixture_reader_tests PRIVATE
@@ -850,7 +838,7 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
   )
   target_compile_definitions(
     traceloom_native_aclgraph_fixture_adapter_tests PRIVATE
-    TRACELOOM_WORKSPACE_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../.."
+    TRACELOOM_NATIVE_FIXTURE_ROOT="${TRACELOOM_NATIVE_FIXTURE_ROOT}"
   )
   target_link_libraries(
     traceloom_native_aclgraph_fixture_adapter_tests PRIVATE
@@ -866,7 +854,7 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
   )
   target_compile_definitions(
     traceloom_native_protected_sequence_fixture_reader_tests PRIVATE
-    TRACELOOM_WORKSPACE_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../.."
+    TRACELOOM_NATIVE_FIXTURE_ROOT="${TRACELOOM_NATIVE_FIXTURE_ROOT}"
   )
   target_link_libraries(
     traceloom_native_protected_sequence_fixture_reader_tests PRIVATE
@@ -1075,7 +1063,8 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     )
     target_compile_definitions(
       traceloom_native_generated_sidecar_report_tests PRIVATE
-      TRACELOOM_WORKSPACE_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../.."
+      TRACELOOM_NATIVE_SOURCE_ROOT="${CMAKE_CURRENT_SOURCE_DIR}"
+      TRACELOOM_NATIVE_FIXTURE_ROOT="${TRACELOOM_NATIVE_FIXTURE_ROOT}"
     )
     target_link_libraries(
       traceloom_native_generated_sidecar_report_tests PRIVATE
@@ -1200,7 +1189,7 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
       NAME traceloom_native_analyze_fixture_compat_sidecar_cli
       COMMAND traceloom-native-analyze-fixture
         --fixture
-        ${CMAKE_CURRENT_SOURCE_DIR}/../../drafts/refactor/80_tests_fixtures/fixtures/protected_sequence/f1_tiny_repeated_pair.json
+        ${TRACELOOM_NATIVE_FIXTURE_ROOT}/protected_sequence/f1_tiny_repeated_pair.json
         --threads 2
         --out -
         --compat-sidecar-out ${CMAKE_CURRENT_BINARY_DIR}/fixture_cli_compat.db
@@ -1223,7 +1212,7 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
       NAME traceloom_native_analyze_aclgraph_fixture_compat_sidecar_cli
       COMMAND traceloom-native-analyze-aclgraph-fixture
         --fixture
-        ${CMAKE_CURRENT_SOURCE_DIR}/../../drafts/refactor/80_tests_fixtures/fixtures/aclgraph/aclgraph_python_minimal_assets.json
+        ${TRACELOOM_NATIVE_FIXTURE_ROOT}/aclgraph/aclgraph_python_minimal_assets.json
         --threads 2
         --out -
         --compat-sidecar-out ${CMAKE_CURRENT_BINARY_DIR}/aclgraph_fixture_cli_compat.db
@@ -1242,27 +1231,6 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
       PROPERTIES
         DEPENDS traceloom_native_analyze_aclgraph_fixture_compat_sidecar_cli
     )
-  endif()
-
-  if(NOT TRACELOOM_NATIVE_HAS_EXTERNAL_FIXTURES)
-    set(TRACELOOM_NATIVE_EXTERNAL_FIXTURE_TESTS
-      traceloom_native_analyze_fixture_grammar_debug_cli
-      traceloom_native_analyze_fixture_stdout_conflict
-      traceloom_native_analyze_aclgraph_fixture_cli
-      traceloom_native_aclgraph_fixture_reader_tests
-      traceloom_native_aclgraph_fixture_adapter_tests
-      traceloom_native_protected_sequence_fixture_reader_tests
-      traceloom_native_generated_sidecar_report_tests
-      traceloom_native_analyze_fixture_compat_sidecar_cli
-      traceloom_native_analyze_fixture_compat_sidecar_db
-      traceloom_native_analyze_aclgraph_fixture_compat_sidecar_cli
-      traceloom_native_analyze_aclgraph_fixture_compat_sidecar_db
-    )
-    foreach(test_name IN LISTS TRACELOOM_NATIVE_EXTERNAL_FIXTURE_TESTS)
-      if(TEST ${test_name})
-        set_tests_properties(${test_name} PROPERTIES DISABLED TRUE)
-      endif()
-    endforeach()
   endif()
 
   add_test(

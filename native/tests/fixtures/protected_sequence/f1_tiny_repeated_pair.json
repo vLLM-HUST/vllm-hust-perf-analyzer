@@ -1,0 +1,26 @@
+{
+  "fixture_id": "protected_sequence_f1_tiny_repeated_pair",
+  "schema_version": "protected-sequence-fixture-v1",
+  "description": "No protected intervals; repeated pair A,B is discoverable.",
+  "tokens": [
+    {"token_id": 1, "symbol": "A", "anchor_id": "a1", "start_ns": 100, "end_ns": 110},
+    {"token_id": 2, "symbol": "B", "anchor_id": "a2", "start_ns": 110, "end_ns": 120},
+    {"token_id": 3, "symbol": "A", "anchor_id": "a3", "start_ns": 120, "end_ns": 130},
+    {"token_id": 4, "symbol": "B", "anchor_id": "a4", "start_ns": 130, "end_ns": 140},
+    {"token_id": 5, "symbol": "C", "anchor_id": "a5", "start_ns": 140, "end_ns": 150}
+  ],
+  "protected_intervals": [],
+  "config": {
+    "target_tokens_per_partition": 3,
+    "max_halo_tokens": 2,
+    "candidate_min_len": 2,
+    "candidate_max_len": 3
+  },
+  "golden": {
+    "partition_count_threads_1": 1,
+    "partition_count_threads_n": 2,
+    "required_candidate_keys": ["A B"],
+    "forbidden_candidate_keys": [],
+    "diagnostic_codes": {}
+  }
+}

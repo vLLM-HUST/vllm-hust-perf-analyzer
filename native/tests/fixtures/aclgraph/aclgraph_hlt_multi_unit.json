@@ -1,0 +1,46 @@
+{
+  "fixture_id": "aclgraph_hlt_multi_unit",
+  "schema_version": "aclgraph-fixture-v1",
+  "description": "One replay activity contains two replay units; flat sequence sees six H/L/T anchors.",
+  "assets": {
+    "capture_slots": [],
+    "capture_dictionary": [
+      {"capture_dictionary_id": "dict:H", "slot_kind": "head", "slot_symbol": "H"},
+      {"capture_dictionary_id": "dict:L", "slot_kind": "layer", "slot_symbol": "L"},
+      {"capture_dictionary_id": "dict:T", "slot_kind": "tail", "slot_symbol": "T"}
+    ],
+    "replay_activities": [
+      {"replay_activity_id": "act1", "activity_idx": 1, "start_ns": 1000, "end_ns": 1600, "stream_ids": [7]}
+    ],
+    "replay_unit_boundaries": [
+      {"boundary_set_id": "b1", "replay_activity_id": "act1", "expected_unit_count": 2, "effective_unit_count": 2, "unit_source": "body:landmark", "split_source": "body:landmark_midpoint", "confidence": "medium", "boundary_ns": [1300]}
+    ],
+    "replay_units": [
+      {"replay_unit_id": "ru1", "replay_activity_id": "act1", "boundary_set_id": "b1", "unit_idx_global": 1, "unit_idx_in_activity": 1, "unit_count_in_activity": 2, "start_ns": 1000, "end_ns": 1300},
+      {"replay_unit_id": "ru2", "replay_activity_id": "act1", "boundary_set_id": "b1", "unit_idx_global": 2, "unit_idx_in_activity": 2, "unit_count_in_activity": 2, "start_ns": 1300, "end_ns": 1600}
+    ],
+    "replay_tilings": [
+      {"replay_tiling_id": "tile1", "replay_unit_id": "ru1", "sequence": "H,L,T", "matched_count": 3, "unmatched_count": 0, "coverage": "3/3"},
+      {"replay_tiling_id": "tile2", "replay_unit_id": "ru2", "sequence": "H,L,T", "matched_count": 3, "unmatched_count": 0, "coverage": "3/3"}
+    ],
+    "replay_subslots": [],
+    "hlt_anchor_seeds": [
+      {"anchor_seed_id": "a1", "replay_unit_id": "ru1", "symbol": "ACLH", "slot_symbol": "H", "start_ns": 1000, "end_ns": 1100},
+      {"anchor_seed_id": "a2", "replay_unit_id": "ru1", "symbol": "ACLL", "slot_symbol": "L", "start_ns": 1100, "end_ns": 1200},
+      {"anchor_seed_id": "a3", "replay_unit_id": "ru1", "symbol": "ACLT", "slot_symbol": "T", "start_ns": 1200, "end_ns": 1300},
+      {"anchor_seed_id": "a4", "replay_unit_id": "ru2", "symbol": "ACLH", "slot_symbol": "H", "start_ns": 1300, "end_ns": 1400},
+      {"anchor_seed_id": "a5", "replay_unit_id": "ru2", "symbol": "ACLL", "slot_symbol": "L", "start_ns": 1400, "end_ns": 1500},
+      {"anchor_seed_id": "a6", "replay_unit_id": "ru2", "symbol": "ACLT", "slot_symbol": "T", "start_ns": 1500, "end_ns": 1600}
+    ]
+  },
+  "golden": {
+    "replay_activity_count": 1,
+    "replay_unit_count": 2,
+    "boundary_effective_unit_count": 2,
+    "hlt_anchor_count": 6,
+    "flat_hlt_sequence": "ACLH ACLL ACLT ACLH ACLL ACLT",
+    "unique_launch_activity_ids_in_anchors": 1,
+    "unique_replay_unit_ids_in_anchors": 2,
+    "diagnostic_codes": {}
+  }
+}

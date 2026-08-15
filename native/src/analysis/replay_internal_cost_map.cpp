@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <map>
 #include <set>
+#include <stdexcept>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -85,9 +86,38 @@ std::uint64_t share_ppm(std::uint64_t numerator_ns,
   if (denominator_ns == 0) {
     return 0;
   }
-  return static_cast<std::uint64_t>(
-      (static_cast<unsigned __int128>(numerator_ns) * 1000000ULL) /
-      denominator_ns);
+  if (numerator_ns > denominator_ns) {
+    throw std::invalid_argument(
+        "scheduled-work share numerator exceeds its denominator");
+  }
+  if (numerator_ns == denominator_ns) {
+    return 1000000;
+  }
+
+  // Evaluate floor(numerator * 1,000,000 / denominator) with quotient and
+  // remainder doubling. This stays in standard uint64_t without overflowing
+  // the intermediate product or relying on a compiler-specific 128-bit type.
+  std::uint64_t quotient = 0;
+  std::uint64_t remainder = 0;
+  for (std::uint64_t bit = 1ULL << 19; bit != 0; bit >>= 1) {
+    quotient *= 2;
+    if (remainder >= denominator_ns - remainder) {
+      remainder -= denominator_ns - remainder;
+      ++quotient;
+    } else {
+      remainder += remainder;
+    }
+    if ((1000000ULL & bit) == 0) {
+      continue;
+    }
+    if (remainder >= denominator_ns - numerator_ns) {
+      remainder -= denominator_ns - numerator_ns;
+      ++quotient;
+    } else {
+      remainder += numerator_ns;
+    }
+  }
+  return quotient;
 }
 
 struct LaunchMemberRef {

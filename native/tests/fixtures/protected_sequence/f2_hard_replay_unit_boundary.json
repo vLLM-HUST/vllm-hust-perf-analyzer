@@ -1,0 +1,48 @@
+{
+  "fixture_id": "protected_sequence_f2_hard_replay_unit_boundary",
+  "schema_version": "protected-sequence-fixture-v1",
+  "description": "Two replay units; candidates cannot partially cross hard replay-unit boundaries.",
+  "tokens": [
+    {"token_id": 1, "symbol": "ACLH", "anchor_id": "h1", "start_ns": 100, "end_ns": 110},
+    {"token_id": 2, "symbol": "ACLL", "anchor_id": "l1", "start_ns": 110, "end_ns": 120},
+    {"token_id": 3, "symbol": "ACLT", "anchor_id": "t1", "start_ns": 120, "end_ns": 130},
+    {"token_id": 4, "symbol": "ACLH", "anchor_id": "h2", "start_ns": 130, "end_ns": 140},
+    {"token_id": 5, "symbol": "ACLL", "anchor_id": "l2", "start_ns": 140, "end_ns": 150},
+    {"token_id": 6, "symbol": "ACLT", "anchor_id": "t2", "start_ns": 150, "end_ns": 160}
+  ],
+  "protected_intervals": [
+    {
+      "interval_id": "ru1",
+      "kind": "replay_unit",
+      "first_token_idx": 0,
+      "last_token_idx": 2,
+      "boundary_type": "hard",
+      "source_asset_id": "replay_unit:1",
+      "evidence_strength": 80,
+      "allow_enclosing": false
+    },
+    {
+      "interval_id": "ru2",
+      "kind": "replay_unit",
+      "first_token_idx": 3,
+      "last_token_idx": 5,
+      "boundary_type": "hard",
+      "source_asset_id": "replay_unit:2",
+      "evidence_strength": 80,
+      "allow_enclosing": false
+    }
+  ],
+  "config": {
+    "target_tokens_per_partition": 3,
+    "max_halo_tokens": 3,
+    "candidate_min_len": 2,
+    "candidate_max_len": 4
+  },
+  "golden": {
+    "required_candidate_keys": ["ACLH ACLL", "ACLL ACLT", "ACLH ACLL ACLT"],
+    "forbidden_candidate_keys": ["ACLT ACLH", "ACLT ACLH ACLL"],
+    "diagnostic_codes": {
+      "CandidateCrossesHardBoundary": 1
+    }
+  }
+}

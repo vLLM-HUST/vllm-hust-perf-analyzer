@@ -26,12 +26,12 @@ std::string temp_db_path() {
   return path.string();
 }
 
-std::filesystem::path workspace_root() {
-  return std::filesystem::path(TRACELOOM_WORKSPACE_ROOT);
+std::filesystem::path native_source_root() {
+  return std::filesystem::path(TRACELOOM_NATIVE_SOURCE_ROOT);
 }
 
 std::filesystem::path report_sql_path(const std::string& filename) {
-  return workspace_root() / "traceloom" / "docs" / "report-sql" / filename;
+  return native_source_root() / ".." / "docs" / "report-sql" / filename;
 }
 
 std::string read_file(const std::filesystem::path& path) {
@@ -180,8 +180,8 @@ void require_anchor_cost_rows_link_to_anchors(const std::string& db_path) {
 
 void materialize_aclgraph_fixture_sidecar(const std::string& db_path) {
   const std::filesystem::path fixture_path =
-      workspace_root() / "drafts" / "refactor" / "80_tests_fixtures" /
-      "fixtures" / "aclgraph" / "aclgraph_python_minimal_assets.json";
+      std::filesystem::path(TRACELOOM_NATIVE_FIXTURE_ROOT) / "aclgraph" /
+      "aclgraph_python_minimal_assets.json";
   const traceloom::AclGraphSemanticFixture fixture =
       traceloom::load_aclgraph_semantic_fixture(fixture_path.string());
   const traceloom::NativeIr ir = traceloom::AclGraphFixtureAdapter(fixture).load();

@@ -1,0 +1,42 @@
+{
+  "fixture_id": "aclgraph_hlt_partial_coverage",
+  "schema_version": "aclgraph-fixture-v1",
+  "description": "One replay subslot is unmatched; normal mode emits diagnostics instead of inventing a primary unknown anchor.",
+  "assets": {
+    "capture_slots": [],
+    "capture_dictionary": [
+      {"capture_dictionary_id": "dict:H", "slot_kind": "head", "slot_symbol": "H"},
+      {"capture_dictionary_id": "dict:T", "slot_kind": "tail", "slot_symbol": "T"}
+    ],
+    "replay_activities": [
+      {"replay_activity_id": "act1", "activity_idx": 1, "start_ns": 1000, "end_ns": 1300, "stream_ids": [7]}
+    ],
+    "replay_unit_boundaries": [
+      {"boundary_set_id": "b1", "replay_activity_id": "act1", "expected_unit_count": 1, "effective_unit_count": 1, "unit_source": "single", "split_source": "single", "confidence": "high", "boundary_ns": []}
+    ],
+    "replay_units": [
+      {"replay_unit_id": "ru1", "replay_activity_id": "act1", "boundary_set_id": "b1", "unit_idx_global": 1, "start_ns": 1000, "end_ns": 1300}
+    ],
+    "replay_tilings": [
+      {"replay_tiling_id": "tile1", "replay_unit_id": "ru1", "sequence": "H,?,T", "matched_count": 2, "unmatched_count": 1, "coverage": "2/3", "top_mismatches": "unknown:1"}
+    ],
+    "replay_subslots": [
+      {"subslot_id": "ss1", "replay_tiling_id": "tile1", "subslot_idx": 1, "slot_kind": "head", "slot_symbol": "H", "matched": true, "start_ns": 1000, "end_ns": 1100},
+      {"subslot_id": "ss2", "replay_tiling_id": "tile1", "subslot_idx": 2, "slot_kind": "unknown", "slot_symbol": "?", "matched": false, "start_ns": 1100, "end_ns": 1200},
+      {"subslot_id": "ss3", "replay_tiling_id": "tile1", "subslot_idx": 3, "slot_kind": "tail", "slot_symbol": "T", "matched": true, "start_ns": 1200, "end_ns": 1300}
+    ],
+    "hlt_anchor_seeds": [
+      {"anchor_seed_id": "a1", "replay_unit_id": "ru1", "subslot_id": "ss1", "symbol": "ACLH", "slot_symbol": "H", "start_ns": 1000, "end_ns": 1100},
+      {"anchor_seed_id": "a3", "replay_unit_id": "ru1", "subslot_id": "ss3", "symbol": "ACLT", "slot_symbol": "T", "start_ns": 1200, "end_ns": 1300}
+    ]
+  },
+  "golden": {
+    "replay_tiling_subslot_count": 3,
+    "replay_tiling_matched_count": 2,
+    "replay_tiling_unmatched_count": 1,
+    "normal_flat_hlt_sequence": "ACLH ACLT",
+    "diagnostic_codes": {
+      "replay_tiling_partial_coverage": 1
+    }
+  }
+}

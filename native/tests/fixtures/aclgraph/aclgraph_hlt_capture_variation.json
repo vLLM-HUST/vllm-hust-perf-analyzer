@@ -1,0 +1,35 @@
+{
+  "fixture_id": "aclgraph_hlt_capture_variation",
+  "schema_version": "aclgraph-fixture-v1",
+  "description": "Layer capture slots have multiple match signatures; dictionary keeps variation diagnostics.",
+  "assets": {
+    "capture_slots": [
+      {"capture_slot_id": "g1_h", "capture_slot_idx": 1, "capture_group_idx": 1, "capture_group_size": 3, "capture_slot_in_group": 1, "slot_kind": "head", "slot_symbol": "H", "body_match_signature": "index|Index:1"},
+      {"capture_slot_id": "g1_l", "capture_slot_idx": 2, "capture_group_idx": 1, "capture_group_size": 3, "capture_slot_in_group": 2, "slot_kind": "layer", "slot_symbol": "L", "body_match_signature": "attention|Attention:1 matmul|MatMul:2"},
+      {"capture_slot_id": "g1_t", "capture_slot_idx": 3, "capture_group_idx": 1, "capture_group_size": 3, "capture_slot_in_group": 3, "slot_kind": "tail", "slot_symbol": "T", "body_match_signature": "matmul|MatMul:2 norm|RmsNorm:1"},
+      {"capture_slot_id": "g2_h", "capture_slot_idx": 4, "capture_group_idx": 2, "capture_group_size": 3, "capture_slot_in_group": 1, "slot_kind": "head", "slot_symbol": "H", "body_match_signature": "index|Index:1"},
+      {"capture_slot_id": "g2_l", "capture_slot_idx": 5, "capture_group_idx": 2, "capture_group_size": 3, "capture_slot_in_group": 2, "slot_kind": "layer", "slot_symbol": "L", "body_match_signature": "attention|Attention:1 matmul|MatMul:3"},
+      {"capture_slot_id": "g2_t", "capture_slot_idx": 6, "capture_group_idx": 2, "capture_group_size": 3, "capture_slot_in_group": 3, "slot_kind": "tail", "slot_symbol": "T", "body_match_signature": "matmul|MatMul:2 norm|RmsNorm:1"}
+    ],
+    "capture_dictionary": [
+      {"capture_dictionary_id": "dict:H", "slot_kind": "head", "slot_symbol": "H", "capture_slot_ids": ["g1_h", "g2_h"], "capture_slot_count": 2, "unique_match_signature_count": 1},
+      {"capture_dictionary_id": "dict:L", "slot_kind": "layer", "slot_symbol": "L", "capture_slot_ids": ["g1_l", "g2_l"], "capture_slot_count": 2, "unique_match_signature_count": 2, "variation_summary": "attention|Attention:1 matmul|MatMul:2=1;attention|Attention:1 matmul|MatMul:3=1"},
+      {"capture_dictionary_id": "dict:T", "slot_kind": "tail", "slot_symbol": "T", "capture_slot_ids": ["g1_t", "g2_t"], "capture_slot_count": 2, "unique_match_signature_count": 1}
+    ],
+    "replay_activities": [],
+    "replay_unit_boundaries": [],
+    "replay_units": [],
+    "replay_tilings": [],
+    "replay_subslots": [],
+    "hlt_anchor_seeds": []
+  },
+  "golden": {
+    "capture_group_count": 2,
+    "capture_group_size": 3,
+    "capture_dictionary_count": 3,
+    "layer_unique_match_signature_count": 2,
+    "diagnostic_codes": {
+      "capture_dictionary_variation": 1
+    }
+  }
+}

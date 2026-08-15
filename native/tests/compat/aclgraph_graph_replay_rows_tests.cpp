@@ -91,19 +91,23 @@ int main() {
   require(evidence_rows.graph_envelopes.size() == 2);
 
   require(rows.anchors[0].anchor_id == "anchor-0");
-  require(rows.anchors[0].event_id == "aclgraph-subslot-subslot-b");
-  require(rows.anchors[0].step_idx == 1);
+  require(rows.anchors[0].event_id == "event-2");
+  require(rows.anchors[0].step_idx == 2);
   require(rows.anchors[1].anchor_id == "anchor-1");
-  require(rows.anchors[1].event_id == "aclgraph-subslot-subslot-a");
-  require(rows.anchors[1].step_idx == 2);
+  require(rows.anchors[1].event_id == "event-1");
+  require(rows.anchors[1].step_idx == 1);
 
   require(rows.graph_replays[0].graph_provider == "aclgraph");
   require(rows.graph_replays[0].graph_kind == "aclgraph_replay");
   require(rows.graph_replays[0].graph_event_idx == 1);
-  require(rows.graph_replays[0].event_id == "aclgraph-replay-unit-unit-1");
+  require(rows.graph_replays[0].event_id == "event-0");
   require(rows.graph_replays[0].graph_exec_id == "unit-1");
   require(rows.graph_replays[0].stream_id == 7);
   require(rows.graph_replays[0].enclosed_event_count == 2);
+  require(rows.graph_replays[0].raw_json ==
+          "{\"source\":\"aclgraph_semantic_fixture\","
+          "\"unit_idx_global\":0,\"unit_idx_in_activity\":0,"
+          "\"unit_count_in_activity\":0,\"subslot_count\":2}");
   require(rows.graph_replays[0].enclosed_event_us == 3.0);
   require(rows.graph_replays[0].enclosed_kernel_count == 3);
 
@@ -111,14 +115,17 @@ int main() {
   require(rows.events[0].source_table == "ACLGRAPH_REPLAY_UNIT");
   require(rows.events[0].semantic_role == "anchor");
 
-  require(rows.events[1].event_id == "aclgraph-subslot-subslot-b");
-  require(rows.events[1].step_idx == 1);
+  require(rows.events[1].event_id == "event-2");
+  require(rows.events[1].step_idx == 2);
   require(rows.events[1].symbol == "H");
-  require(rows.events[2].event_id == "aclgraph-subslot-subslot-a");
-  require(rows.events[2].step_idx == 2);
+  require(rows.events[2].event_id == "event-1");
+  require(rows.events[2].step_idx == 1);
   require(rows.events[2].symbol == "T");
 
   require(rows.graph_envelopes[0].child_event_id == rows.events[1].event_id);
+  require(rows.graph_envelopes[0].raw_json ==
+          "{\"source\":\"aclgraph_semantic_fixture\",\"subslot_idx\":0,"
+          "\"matched\":false,\"raw_child_task_count\":1}");
   require(rows.graph_envelopes[0].stream_relation == "same_stream");
   require(rows.graph_envelopes[1].child_event_id == rows.events[2].event_id);
   require(rows.graph_envelopes[1].stream_relation == "cross_stream");

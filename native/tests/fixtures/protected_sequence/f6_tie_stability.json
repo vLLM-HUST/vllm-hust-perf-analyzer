@@ -1,0 +1,27 @@
+{
+  "fixture_id": "protected_sequence_f6_tie_stability",
+  "schema_version": "protected-sequence-fixture-v1",
+  "description": "Equal-gain candidates must have deterministic ordering across thread counts.",
+  "tokens": [
+    {"token_id": 1, "symbol": "A", "anchor_id": "a1", "start_ns": 100, "end_ns": 110},
+    {"token_id": 2, "symbol": "B", "anchor_id": "a2", "start_ns": 110, "end_ns": 120},
+    {"token_id": 3, "symbol": "C", "anchor_id": "a3", "start_ns": 120, "end_ns": 130},
+    {"token_id": 4, "symbol": "D", "anchor_id": "a4", "start_ns": 130, "end_ns": 140},
+    {"token_id": 5, "symbol": "A", "anchor_id": "a5", "start_ns": 140, "end_ns": 150},
+    {"token_id": 6, "symbol": "B", "anchor_id": "a6", "start_ns": 150, "end_ns": 160},
+    {"token_id": 7, "symbol": "C", "anchor_id": "a7", "start_ns": 160, "end_ns": 170},
+    {"token_id": 8, "symbol": "D", "anchor_id": "a8", "start_ns": 170, "end_ns": 180}
+  ],
+  "protected_intervals": [],
+  "config": {
+    "target_tokens_per_partition": 4,
+    "max_halo_tokens": 3,
+    "candidate_min_len": 2,
+    "candidate_max_len": 3
+  },
+  "golden": {
+    "candidate_order_prefix": ["A B C", "B C D", "A B", "B C", "C D"],
+    "threads_equivalent": [1, 2, 8],
+    "diagnostic_codes": {}
+  }
+}

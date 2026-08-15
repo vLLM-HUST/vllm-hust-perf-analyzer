@@ -1,0 +1,31 @@
+{
+  "fixture_id": "protected_sequence_f3_halo_duplicate_ownership",
+  "schema_version": "protected-sequence-fixture-v1",
+  "description": "Occurrences visible in halo must be emitted only by their owner partition.",
+  "tokens": [
+    {"token_id": 1, "symbol": "A", "anchor_id": "a1", "start_ns": 100, "end_ns": 110},
+    {"token_id": 2, "symbol": "B", "anchor_id": "a2", "start_ns": 110, "end_ns": 120},
+    {"token_id": 3, "symbol": "C", "anchor_id": "a3", "start_ns": 120, "end_ns": 130},
+    {"token_id": 4, "symbol": "A", "anchor_id": "a4", "start_ns": 130, "end_ns": 140},
+    {"token_id": 5, "symbol": "B", "anchor_id": "a5", "start_ns": 140, "end_ns": 150},
+    {"token_id": 6, "symbol": "C", "anchor_id": "a6", "start_ns": 150, "end_ns": 160},
+    {"token_id": 7, "symbol": "A", "anchor_id": "a7", "start_ns": 160, "end_ns": 170},
+    {"token_id": 8, "symbol": "B", "anchor_id": "a8", "start_ns": 170, "end_ns": 180},
+    {"token_id": 9, "symbol": "C", "anchor_id": "a9", "start_ns": 180, "end_ns": 190}
+  ],
+  "protected_intervals": [],
+  "config": {
+    "target_tokens_per_partition": 4,
+    "max_halo_tokens": 3,
+    "candidate_min_len": 3,
+    "candidate_max_len": 3
+  },
+  "golden": {
+    "required_candidate_keys": ["A B C"],
+    "candidate_occurrences": {
+      "A B C": [[0, 3], [3, 6], [6, 9]]
+    },
+    "no_duplicate_occurrences_after_reduce": true,
+    "diagnostic_codes": {}
+  }
+}

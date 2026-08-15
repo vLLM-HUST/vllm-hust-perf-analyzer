@@ -1,0 +1,53 @@
+{
+  "fixture_id": "aclgraph_hlt_single_unit",
+  "schema_version": "aclgraph-fixture-v1",
+  "description": "One replay unit expands to ACLH ACLL ACLL ACLT.",
+  "assets": {
+    "capture_slots": [
+      {"capture_slot_id": "cs1", "capture_slot_idx": 1, "capture_group_idx": 1, "capture_group_size": 4, "capture_slot_in_group": 1, "slot_kind": "head", "slot_symbol": "H", "start_ns": 100, "end_ns": 120},
+      {"capture_slot_id": "cs2", "capture_slot_idx": 2, "capture_group_idx": 1, "capture_group_size": 4, "capture_slot_in_group": 2, "slot_kind": "layer", "slot_symbol": "L", "start_ns": 120, "end_ns": 140},
+      {"capture_slot_id": "cs3", "capture_slot_idx": 3, "capture_group_idx": 1, "capture_group_size": 4, "capture_slot_in_group": 3, "slot_kind": "layer", "slot_symbol": "L", "start_ns": 140, "end_ns": 160},
+      {"capture_slot_id": "cs4", "capture_slot_idx": 4, "capture_group_idx": 1, "capture_group_size": 4, "capture_slot_in_group": 4, "slot_kind": "tail", "slot_symbol": "T", "start_ns": 160, "end_ns": 180}
+    ],
+    "capture_dictionary": [
+      {"capture_dictionary_id": "dict:H", "dictionary_idx": 1, "slot_kind": "head", "slot_symbol": "H", "capture_slot_ids": ["cs1"], "capture_slot_count": 1, "unique_match_signature_count": 1},
+      {"capture_dictionary_id": "dict:L", "dictionary_idx": 2, "slot_kind": "layer", "slot_symbol": "L", "capture_slot_ids": ["cs2", "cs3"], "capture_slot_count": 2, "unique_match_signature_count": 1},
+      {"capture_dictionary_id": "dict:T", "dictionary_idx": 3, "slot_kind": "tail", "slot_symbol": "T", "capture_slot_ids": ["cs4"], "capture_slot_count": 1, "unique_match_signature_count": 1}
+    ],
+    "replay_activities": [
+      {"replay_activity_id": "act1", "activity_idx": 1, "start_ns": 1000, "end_ns": 1400, "stream_ids": [7], "raw_child_task_count": 40}
+    ],
+    "replay_unit_boundaries": [
+      {"boundary_set_id": "b1", "replay_activity_id": "act1", "expected_unit_count": 1, "effective_unit_count": 1, "unit_source": "single", "split_source": "single", "confidence": "high", "boundary_ns": []}
+    ],
+    "replay_units": [
+      {"replay_unit_id": "ru1", "replay_activity_id": "act1", "boundary_set_id": "b1", "unit_idx_global": 1, "unit_idx_in_activity": 1, "unit_count_in_activity": 1, "start_ns": 1000, "end_ns": 1400}
+    ],
+    "replay_tilings": [
+      {"replay_tiling_id": "tile1", "replay_unit_id": "ru1", "policy": "capture_dictionary_stream_subslot_nearest_v2", "subslot_count": 4, "sequence": "H,Lx2,T", "matched_count": 4, "unmatched_count": 0, "coverage": "4/4"}
+    ],
+    "replay_subslots": [
+      {"subslot_id": "ss1", "replay_tiling_id": "tile1", "subslot_idx": 1, "slot_kind": "head", "slot_symbol": "H", "matched": true, "start_ns": 1000, "end_ns": 1100, "stream_id": 7},
+      {"subslot_id": "ss2", "replay_tiling_id": "tile1", "subslot_idx": 2, "slot_kind": "layer", "slot_symbol": "L", "matched": true, "start_ns": 1100, "end_ns": 1200, "stream_id": 7},
+      {"subslot_id": "ss3", "replay_tiling_id": "tile1", "subslot_idx": 3, "slot_kind": "layer", "slot_symbol": "L", "matched": true, "start_ns": 1200, "end_ns": 1300, "stream_id": 7},
+      {"subslot_id": "ss4", "replay_tiling_id": "tile1", "subslot_idx": 4, "slot_kind": "tail", "slot_symbol": "T", "matched": true, "start_ns": 1300, "end_ns": 1400, "stream_id": 7}
+    ],
+    "hlt_anchor_seeds": [
+      {"anchor_seed_id": "a1", "replay_unit_id": "ru1", "subslot_id": "ss1", "symbol": "ACLH", "slot_symbol": "H", "semantic_role": "anchor", "start_ns": 1000, "end_ns": 1100},
+      {"anchor_seed_id": "a2", "replay_unit_id": "ru1", "subslot_id": "ss2", "symbol": "ACLL", "slot_symbol": "L", "semantic_role": "anchor", "start_ns": 1100, "end_ns": 1200},
+      {"anchor_seed_id": "a3", "replay_unit_id": "ru1", "subslot_id": "ss3", "symbol": "ACLL", "slot_symbol": "L", "semantic_role": "anchor", "start_ns": 1200, "end_ns": 1300},
+      {"anchor_seed_id": "a4", "replay_unit_id": "ru1", "subslot_id": "ss4", "symbol": "ACLT", "slot_symbol": "T", "semantic_role": "anchor", "start_ns": 1300, "end_ns": 1400}
+    ]
+  },
+  "golden": {
+    "capture_slot_count": 4,
+    "capture_group_size": 4,
+    "dictionary_sequence": "H L T",
+    "replay_activity_count": 1,
+    "replay_unit_count": 1,
+    "hlt_anchor_count": 4,
+    "flat_hlt_sequence": "ACLH ACLL ACLL ACLT",
+    "launch_anchor_count": 0,
+    "diagnostic_codes": {}
+  }
+}

@@ -8,8 +8,7 @@
 namespace {
 
 std::string fixture_path(const std::string& name) {
-  return std::string(TRACELOOM_WORKSPACE_ROOT) +
-         "/drafts/refactor/80_tests_fixtures/fixtures/aclgraph/" + name +
+  return std::string(TRACELOOM_NATIVE_FIXTURE_ROOT) + "/aclgraph/" + name +
          ".json";
 }
 

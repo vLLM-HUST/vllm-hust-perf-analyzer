@@ -10,9 +10,8 @@
 namespace {
 
 std::string fixture_path(const std::string& name) {
-  return std::string(TRACELOOM_WORKSPACE_ROOT) +
-         "/drafts/refactor/80_tests_fixtures/fixtures/protected_sequence/" +
-         name + ".json";
+  return std::string(TRACELOOM_NATIVE_FIXTURE_ROOT) +
+         "/protected_sequence/" + name + ".json";
 }
 
 traceloom::NativePipelineResult run_fixture(

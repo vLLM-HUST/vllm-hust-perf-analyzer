@@ -11,21 +11,13 @@
 #include "traceloom/compat/anchor_cost_breakdown_rows.h"
 #include "traceloom/compat/anchor_sequence_rows.h"
 #include "traceloom/compat/sidecar_writer.h"
+#include "traceloom/compat/timeline_rows.h"
 
 namespace traceloom::compat {
 namespace {
 
 double ns_to_us(std::int64_t ns) {
   return static_cast<double>(ns) / 1000.0;
-}
-
-std::string graph_event_id_for_unit(const AclGraphReplayUnitFixtureRow& unit) {
-  return "aclgraph-replay-unit-" + unit.replay_unit_id;
-}
-
-std::string child_event_id_for_subslot(
-    const AclGraphReplaySubslotFixtureRow& subslot) {
-  return "aclgraph-subslot-" + subslot.subslot_id;
 }
 
 std::unordered_map<std::string, const AclGraphReplayActivityFixtureRow*>
@@ -155,10 +147,56 @@ GraphReplaySqlRows build_aclgraph_fixture_graph_replay_sql_rows(
   GraphReplaySqlRows rows;
   rows.anchors = build_anchor_sequence_sql_rows(ir, db_idx);
 
-  std::uint32_t event_step_idx = 0;
   std::uint32_t envelope_idx = 1;
   std::unordered_map<std::string, SyntheticEventRef> subslot_event_refs;
-  for (const AclGraphReplayUnitFixtureRow& unit : fixture.replay_units) {
+  std::unordered_map<std::uint64_t, TraceEventId> subslot_events_by_source_row;
+  for (const TraceEventRow& event : ir.trace_events.rows()) {
+    if (!event.source_ref_id.valid() ||
+        event.source_ref_id.value() >= ir.source_refs.size()) {
+      throw std::invalid_argument(
+          "ACLGraph fixture event source reference is out of range");
+    }
+    if (ir.source_refs.row(event.source_ref_id).table_name ==
+        "ACLGRAPH_REPLAY_SUBSLOT") {
+      if (!subslot_events_by_source_row
+               .emplace(event.source_row_id, event.id)
+               .second) {
+        throw std::invalid_argument(
+            "ACLGraph fixture has duplicate replay-subslot source rows");
+      }
+    }
+  }
+  for (std::size_t index = 0; index < fixture.replay_subslots.size();
+       ++index) {
+    const auto event_found = subslot_events_by_source_row.find(index);
+    if (event_found == subslot_events_by_source_row.end()) {
+      throw std::invalid_argument(
+          "ACLGraph replay subslot has no NativeIr trace event");
+    }
+    const auto inserted = subslot_event_refs.emplace(
+        fixture.replay_subslots[index].subslot_id,
+        SyntheticEventRef{trace_event_compat_id(event_found->second),
+                          event_found->second.value()});
+    if (!inserted.second) {
+      throw std::invalid_argument(
+          "ACLGraph replay subslots contain a duplicate id");
+    }
+  }
+  if (fixture.replay_units.size() != ir.replay_units.size()) {
+    throw std::invalid_argument(
+        "ACLGraph replay units must match NativeIr replay units");
+  }
+  for (std::size_t unit_index = 0;
+       unit_index < fixture.replay_units.size(); ++unit_index) {
+    const AclGraphReplayUnitFixtureRow& unit =
+        fixture.replay_units[unit_index];
+    const ReplayUnitRow& native_unit =
+        ir.replay_units.row(ReplayUnitId(unit_index));
+    if (!native_unit.launch_trace_event_id.valid() ||
+        native_unit.launch_trace_event_id.value() >= ir.trace_events.size()) {
+      throw std::invalid_argument(
+          "ACLGraph fixture replay launch event is out of range");
+    }
     const auto tiling_found = tiling_index.find(unit.replay_unit_id);
     if (tiling_found == tiling_index.end()) {
       throw std::invalid_argument(
@@ -171,10 +209,12 @@ GraphReplaySqlRows build_aclgraph_fixture_graph_replay_sql_rows(
         subslots_found == subslot_index.end() ? empty_subslots
                                               : subslots_found->second;
 
-    const std::uint32_t graph_step_idx = event_step_idx++;
+    const std::uint32_t graph_step_idx =
+        native_unit.launch_trace_event_id.value();
     const std::int64_t graph_stream_id =
         choose_graph_stream_id(unit, activity_index, subslots);
-    const std::string graph_event_id = graph_event_id_for_unit(unit);
+    const std::string graph_event_id =
+        trace_event_compat_id(native_unit.launch_trace_event_id);
 
     EventSqlRow graph_event;
     graph_event.event_id = graph_event_id;
@@ -217,14 +257,25 @@ GraphReplaySqlRows build_aclgraph_fixture_graph_replay_sql_rows(
     replay.enclosed_event_us = sum_child_us(subslots);
     replay.enclosed_kernel_count = choose_enclosed_kernel_count(subslots);
     replay.enclosed_kernel_us = replay.enclosed_event_us;
+    replay.raw_json =
+        "{\"source\":\"aclgraph_semantic_fixture\","
+        "\"unit_idx_global\":" +
+        std::to_string(unit.unit_idx_global) +
+        ",\"unit_idx_in_activity\":" +
+        std::to_string(unit.unit_idx_in_activity) +
+        ",\"unit_count_in_activity\":" +
+        std::to_string(unit.unit_count_in_activity) +
+        ",\"subslot_count\":" + std::to_string(subslots.size()) + "}";
     rows.graph_replays.push_back(replay);
 
     for (const AclGraphReplaySubslotFixtureRow* subslot : subslots) {
-      const std::uint32_t child_step_idx = event_step_idx++;
-      const std::string child_event_id = child_event_id_for_subslot(*subslot);
-      subslot_event_refs.emplace(subslot->subslot_id,
-                                 SyntheticEventRef{child_event_id,
-                                                   child_step_idx});
+      const auto child_found = subslot_event_refs.find(subslot->subslot_id);
+      if (child_found == subslot_event_refs.end()) {
+        throw std::invalid_argument(
+            "ACLGraph replay subslot has no NativeIr anchor event");
+      }
+      const std::uint32_t child_step_idx = child_found->second.step_idx;
+      const std::string& child_event_id = child_found->second.event_id;
 
       EventSqlRow child_event;
       child_event.event_id = child_event_id;
@@ -274,6 +325,13 @@ GraphReplaySqlRows build_aclgraph_fixture_graph_replay_sql_rows(
       envelope.start_offset_us = ns_to_us(subslot->start_ns - unit.start_ns);
       envelope.end_offset_us = ns_to_us(unit.end_ns - subslot->end_ns);
       envelope.child_dur_us = ns_to_us(subslot->end_ns - subslot->start_ns);
+      envelope.raw_json =
+          "{\"source\":\"aclgraph_semantic_fixture\","
+          "\"subslot_idx\":" +
+          std::to_string(subslot->subslot_idx) +
+          ",\"matched\":" + (subslot->matched ? "true" : "false") +
+          ",\"raw_child_task_count\":" +
+          std::to_string(subslot->raw_child_task_count) + "}";
       rows.graph_envelopes.push_back(std::move(envelope));
     }
   }

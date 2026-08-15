@@ -102,6 +102,12 @@ NativeIr AclGraphFixtureAdapter::load() const {
   NativeIr ir;
   const SourceRefId source_ref = ir.source_refs.append(
       "aclgraph_semantic_fixture", fixture_.fixture_id, "aclgraph_fixture", 0);
+  const SourceRefId graph_replay_source_ref = ir.source_refs.append(
+      "aclgraph_semantic_fixture", fixture_.fixture_id,
+      "ACLGRAPH_REPLAY_UNIT", 0);
+  const SourceRefId graph_subslot_source_ref = ir.source_refs.append(
+      "aclgraph_semantic_fixture", fixture_.fixture_id,
+      "ACLGRAPH_REPLAY_SUBSLOT", 0);
 
   const GraphTemplateId graph_template = ir.graph_templates.append(
       source_ref, 0,
@@ -115,15 +121,43 @@ NativeIr AclGraphFixtureAdapter::load() const {
         TraceEventId::invalid(), TraceEventId::invalid());
   }
 
+  const SymbolId replay_symbol = ir.symbols.intern("ACLGraphReplay");
+  std::vector<TraceEventId> replay_launch_events;
+  replay_launch_events.reserve(fixture_.replay_units.size());
+  for (std::size_t index = 0; index < fixture_.replay_units.size(); ++index) {
+    const AclGraphReplayUnitFixtureRow& unit = fixture_.replay_units[index];
+    replay_launch_events.push_back(ir.trace_events.append(
+        graph_replay_source_ref, index, 0, 0, unit.start_ns, unit.end_ns,
+        replay_symbol));
+  }
+
+  std::map<std::string, TraceEventId> event_by_subslot;
+  for (std::size_t index = 0; index < fixture_.replay_subslots.size();
+       ++index) {
+    const AclGraphReplaySubslotFixtureRow& subslot =
+        fixture_.replay_subslots[index];
+    const TraceEventId event_id = ir.trace_events.append(
+        graph_subslot_source_ref, index, 0, subslot.stream_id,
+        subslot.start_ns, subslot.end_ns,
+        ir.symbols.intern(subslot.slot_symbol));
+    if (!event_by_subslot.emplace(subslot.subslot_id, event_id).second) {
+      throw std::invalid_argument(
+          "ACLGraph replay subslots contain a duplicate id");
+    }
+  }
+
   std::map<std::string, ReplayUnitId> replay_unit_ids;
-  for (const AclGraphReplayUnitFixtureRow& unit : fixture_.replay_units) {
+  for (std::size_t index = 0; index < fixture_.replay_units.size(); ++index) {
+    const AclGraphReplayUnitFixtureRow& unit = fixture_.replay_units[index];
     const ReplayUnitId replay_unit_id = ir.replay_units.append(
-        graph_template, source_ref, AnchorId::invalid(), AnchorId::invalid(),
-        TraceEventId::invalid());
+        graph_template, graph_replay_source_ref, AnchorId::invalid(),
+        AnchorId::invalid(), replay_launch_events[index]);
     replay_unit_ids.emplace(unit.replay_unit_id, replay_unit_id);
   }
 
   std::map<std::string, AnchorSpan> replay_unit_spans;
+  std::uint64_t next_synthetic_subslot_source_row =
+      fixture_.replay_subslots.size();
   for (std::size_t index = 0; index < fixture_.hlt_anchor_seeds.size();
        ++index) {
     const AclGraphHltAnchorSeedFixtureRow& seed =
@@ -133,12 +167,36 @@ NativeIr AclGraphFixtureAdapter::load() const {
       throw std::invalid_argument(
           "HLT anchor seed references unknown replay unit");
     }
+    TraceEventId anchor_event_id;
+    if (seed.subslot_id.empty()) {
+      // Some historical fixtures predate explicit replay-subslot rows.  Each
+      // seed still describes a distinct observed interval, so preserve that
+      // one-to-one evidence identity instead of coalescing empty subslot IDs.
+      anchor_event_id = ir.trace_events.append(
+          graph_subslot_source_ref, next_synthetic_subslot_source_row++, 0, 0,
+          seed.start_ns, seed.end_ns, ir.symbols.intern(seed.symbol));
+    } else {
+      auto event_found = event_by_subslot.find(seed.subslot_id);
+      if (event_found == event_by_subslot.end()) {
+        const TraceEventId event_id = ir.trace_events.append(
+            graph_subslot_source_ref, next_synthetic_subslot_source_row++, 0,
+            0, seed.start_ns, seed.end_ns,
+            ir.symbols.intern(seed.symbol));
+        event_found =
+            event_by_subslot.emplace(seed.subslot_id, event_id).first;
+      }
+      anchor_event_id = event_found->second;
+    }
 
     const SymbolId symbol_id = ir.symbols.intern(seed.symbol);
+    const TraceEventRow& anchor_event =
+        ir.trace_events.row(anchor_event_id);
     const AnchorId anchor_id = ir.anchors.append(
-        source_ref, TraceEventId::invalid(), replay_unit_found->second,
-        aclgraph_anchor_kind_for_slot_symbol(seed.slot_symbol), symbol_id, 0, 0,
-        seed.start_ns, seed.end_ns);
+        graph_subslot_source_ref, anchor_event_id,
+        replay_unit_found->second,
+        aclgraph_anchor_kind_for_slot_symbol(seed.slot_symbol), symbol_id, 0,
+        static_cast<std::uint32_t>(anchor_event.stream_id), seed.start_ns,
+        seed.end_ns);
     const TokenId token_id = ir.tokens.append(
         anchor_id, symbol_id, 0, static_cast<std::uint32_t>(index),
         seed.start_ns, seed.end_ns);
