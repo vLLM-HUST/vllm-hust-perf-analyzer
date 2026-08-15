@@ -815,39 +815,42 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/boundary/reject_removed_native_json_option.cmake
     )
 
-    add_executable(traceloom_native_ascend_sqlite_adapter_tests
-      tests/adapters/ascend_sqlite_adapter_tests.cpp
-      tests/support/sqlite_fixture.cpp
-    )
-    target_compile_definitions(
-      traceloom_native_ascend_sqlite_adapter_tests PRIVATE
-      TRACELOOM_NATIVE_FIXTURE_ROOT="${TRACELOOM_NATIVE_FIXTURE_ROOT}"
-    )
-    target_include_directories(
-      traceloom_native_ascend_sqlite_adapter_tests PRIVATE
-      ${CMAKE_CURRENT_SOURCE_DIR}/tests
-    )
-    target_link_libraries(
-      traceloom_native_ascend_sqlite_adapter_tests PRIVATE
-      traceloom_native_adapters
-    )
-    if(TARGET SQLite::SQLite3)
-      target_link_libraries(
-        traceloom_native_ascend_sqlite_adapter_tests PRIVATE SQLite::SQLite3
+    function(traceloom_add_ascend_sqlite_test target source)
+      add_executable(${target}
+        ${source}
+        tests/support/ascend_sqlite_fixture.cpp
+        tests/support/sqlite_fixture.cpp
       )
-    else()
+      target_compile_definitions(
+        ${target} PRIVATE
+        TRACELOOM_NATIVE_FIXTURE_ROOT="${TRACELOOM_NATIVE_FIXTURE_ROOT}"
+      )
       target_include_directories(
-        traceloom_native_ascend_sqlite_adapter_tests
-        PRIVATE ${SQLite3_INCLUDE_DIRS}
+        ${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests
       )
       target_link_libraries(
-        traceloom_native_ascend_sqlite_adapter_tests
-        PRIVATE ${SQLite3_LIBRARIES}
+        ${target} PRIVATE traceloom_native_adapters
       )
-    endif()
-    add_test(
-      NAME traceloom_native_ascend_sqlite_adapter_tests
-      COMMAND traceloom_native_ascend_sqlite_adapter_tests
+      if(TARGET SQLite::SQLite3)
+        target_link_libraries(${target} PRIVATE SQLite::SQLite3)
+      else()
+        target_include_directories(${target} PRIVATE ${SQLite3_INCLUDE_DIRS})
+        target_link_libraries(${target} PRIVATE ${SQLite3_LIBRARIES})
+      endif()
+      add_test(NAME ${target} COMMAND ${target})
+    endfunction()
+
+    traceloom_add_ascend_sqlite_test(
+      traceloom_native_ascend_sqlite_adapter_tests
+      tests/adapters/ascend_sqlite_adapter_tests.cpp
+    )
+    traceloom_add_ascend_sqlite_test(
+      traceloom_native_ascend_sqlite_graph_tests
+      tests/adapters/ascend_sqlite_graph_tests.cpp
+    )
+    traceloom_add_ascend_sqlite_test(
+      traceloom_native_ascend_sqlite_replay_composition_tests
+      tests/adapters/ascend_sqlite_replay_composition_tests.cpp
     )
 
     add_executable(traceloom_native_ascend_sqlite_determinism_tests
