@@ -217,15 +217,15 @@ void require_augmented_database(const std::string& path) {
   traceloom::testing::require(run_scalar_int(
                                   path,
                                   "SELECT COUNT(*) FROM "
-                                  "traceloom_projection_recipe") == 22);
+                                  "traceloom_projection_recipe") == 27);
   traceloom::testing::require(run_scalar_int(
                                   path,
                                   "SELECT COUNT(*) FROM "
-                                  "traceloom_projection_parameter") == 30);
+                                  "traceloom_projection_parameter") == 34);
   traceloom::testing::require(run_scalar_int(
                                   path,
                                   "SELECT COUNT(*) FROM "
-                                  "traceloom_projection_coordinate") == 80);
+                                  "traceloom_projection_coordinate") == 93);
   const int replay_unit_count = run_scalar_int(
       path, "SELECT COUNT(*) FROM traceloom_replay_cost_unit");
   if (replay_unit_count == 0) {
@@ -235,6 +235,18 @@ void require_augmented_database(const std::string& path) {
                                     "traceloom_replay_cost_issue WHERE code = "
                                     "'no_replay_units' AND replay_unit_id = -1 "
                                     "AND launch_id IS NULL") == 1);
+    traceloom::testing::require(run_scalar_int(
+                                    path,
+                                    "SELECT COUNT(*) FROM "
+                                    "traceloom_replay_body_pattern_run WHERE "
+                                    "support_status = 'unsupported' AND "
+                                    "reason_codes = 'no_replay_units'") == 1);
+    traceloom::testing::require(run_scalar_int(
+                                    path,
+                                    "SELECT COUNT(*) FROM "
+                                    "traceloom_replay_body_pattern_issue "
+                                    "WHERE code = 'no_replay_units' AND "
+                                    "domain_id IS NULL") == 1);
   }
   traceloom::testing::require(run_scalar_int(
                                   path,

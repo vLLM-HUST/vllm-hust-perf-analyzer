@@ -217,6 +217,13 @@ their exact contributors, and `traceloom_replay_cost_issue` preserves typed
 negative results. `traceloom_v_node_replay_cost_member` composes these rows
 with concrete Loop Tree occurrences and raw-source locators.
 
+For a supported exact body, TraceLoom also applies the ordinary recursive
+grammar engine to each complete per-stream Position sequence. The resulting
+[recursive replay-body patterns](replay-body-patterns.md) make a full graph
+body structurally compressible and queryable rather than treating it as one
+opaque cost interval. This second analysis consumes the cost map's exact
+alignment contract; it does not relax or re-derive replay membership.
+
 ## Boundaries
 
 The map does not:

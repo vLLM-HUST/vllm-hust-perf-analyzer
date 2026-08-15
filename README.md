@@ -51,6 +51,8 @@ Key capabilities:
 - native semantic reconstruction for compute, HCCL, synchronization, and
   ACLGraph activity;
 - repeated decode/layer structure discovery over semantic anchors;
+- recursive grammar recovery inside supported exact replay bodies, with
+  occurrence costs and raw-source drill-down;
 - overlap-safe wall-clock accounting across concurrent streams;
 - repeat-node averages normalized per loop-body iteration;
 - first-class analytical projection recipes that compose structural scope,
@@ -403,6 +405,12 @@ sqlite3 /tmp/run.traceloom.db < docs/report-sql/node-replay-cost-members.sql
 Use `source_table` and `source_row_id` to audit a selected member directly in
 the copied vendor table. `traceloom_metadata` records the original path,
 byte-size, and SHA-256 as provenance; they are not runtime dependencies.
+
+Exact replay bodies are not left as opaque intervals. When membership and
+per-stream order are complete, TraceLoom reuses its recursive grammar engine
+over the aligned replay Positions and publishes nested patterns, realized
+occurrences, cost distributions, and source locators. See
+[Recursive Replay-Body Patterns](docs/replay-body-patterns.md).
 
 For split layouts, inspect `traceloom_raw_source_database` and
 `traceloom_raw_table` to resolve each original `(source_path, source_table)` to

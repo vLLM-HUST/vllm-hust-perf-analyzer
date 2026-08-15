@@ -244,8 +244,16 @@ WHERE g.coverage_kind = 'self';
 
 void replace_replay_cost_rows(const std::string &sqlite_path,
                               const NativeIr &ir, std::uint32_t db_idx) {
+  replace_replay_cost_rows(sqlite_path, ir,
+                           build_replay_internal_cost_map(ir), db_idx);
+}
+
+void replace_replay_cost_rows(
+    const std::string& sqlite_path,
+    const NativeIr& ir,
+    const ReplayInternalCostMapResult& result,
+    std::uint32_t db_idx) {
 #if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
-  const ReplayInternalCostMapResult result = build_replay_internal_cost_map(ir);
   Db db(sqlite_path);
   db.exec("BEGIN IMMEDIATE");
   try {

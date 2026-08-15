@@ -360,13 +360,13 @@ void run_packaging_materializer_tests() {
               "SELECT COUNT(*) FROM traceloom_projection_recipe WHERE "
               "scope_kind != '' AND population_mode != '' AND "
               "resolution != '' AND observation_domain != '' AND "
-              "measure_lens != ''") == 22);
+              "measure_lens != ''") == 27);
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_projection_parameter WHERE "
               "parameter_name != '' AND sqlite_type IN ('TEXT', 'INTEGER') "
               "AND coordinate_kind != '' AND selection_relation != '' AND "
-              "selection_column != ''") == 30);
+              "selection_column != ''") == 34);
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_projection_parameter p LEFT "
@@ -375,7 +375,7 @@ void run_packaging_materializer_tests() {
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_projection_coordinate") ==
-          80);
+          93);
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_projection_coordinate WHERE "
@@ -462,6 +462,28 @@ void run_packaging_materializer_tests() {
               "WHERE source_projection = 'replay_structural_placements' "
               "AND target_projection = 'scope_host_context' AND "
               "source_column IN ('node_id', 'occurrence_idx')") == 2);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
+              "WHERE source_projection = 'replay_body_domains' AND "
+              "target_projection = 'replay_body_patterns' AND "
+              "source_column = 'domain_id' AND target_parameter = "
+              "'domain_id'") == 1);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
+              "WHERE source_projection = 'replay_body_patterns' AND "
+              "target_projection = 'replay_body_pattern_occurrences' AND "
+              "source_column = 'pattern_id' AND target_parameter = "
+              "'pattern_id'") == 1);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
+              "WHERE source_projection = 'replay_body_pattern_occurrences' "
+              "AND target_projection IN ('replay_body_pattern_positions', "
+              "'replay_body_pattern_members') AND source_column = "
+              "'occurrence_id' AND target_parameter = 'occurrence_id'") ==
+          2);
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
