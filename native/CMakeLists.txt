@@ -184,6 +184,12 @@ if(TRACELOOM_NATIVE_ENABLE_ASCEND_SQLITE)
     target_sources(traceloom_native_adapters
       PRIVATE
         src/adapters/ascend_sqlite_adapter.cpp
+        src/adapters/ascend_sqlite_evidence.cpp
+        src/adapters/ascend_sqlite_foundation.cpp
+        src/adapters/ascend_sqlite_graph.cpp
+        src/adapters/ascend_sqlite_replay.cpp
+        src/adapters/ascend_sqlite_split.cpp
+        src/adapters/ascend_sqlite_tasks.cpp
         src/adapters/cuda_nsys_sqlite_adapter.cpp
         src/adapters/hygon_sqlite_adapter.cpp
     )
@@ -890,6 +896,33 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     add_test(
       NAME traceloom_native_ascend_sqlite_adapter_tests
       COMMAND traceloom_native_ascend_sqlite_adapter_tests
+    )
+
+    add_executable(traceloom_native_ascend_sqlite_determinism_tests
+      tests/adapters/ascend_sqlite_determinism_tests.cpp
+    )
+    target_link_libraries(
+      traceloom_native_ascend_sqlite_determinism_tests PRIVATE
+      traceloom_native_adapters
+    )
+    if(TARGET SQLite::SQLite3)
+      target_link_libraries(
+        traceloom_native_ascend_sqlite_determinism_tests PRIVATE
+        SQLite::SQLite3
+      )
+    else()
+      target_include_directories(
+        traceloom_native_ascend_sqlite_determinism_tests
+        PRIVATE ${SQLite3_INCLUDE_DIRS}
+      )
+      target_link_libraries(
+        traceloom_native_ascend_sqlite_determinism_tests PRIVATE
+        ${SQLite3_LIBRARIES}
+      )
+    endif()
+    add_test(
+      NAME traceloom_native_ascend_sqlite_determinism_tests
+      COMMAND traceloom_native_ascend_sqlite_determinism_tests
     )
 
     add_executable(traceloom_native_hygon_sqlite_adapter_tests
