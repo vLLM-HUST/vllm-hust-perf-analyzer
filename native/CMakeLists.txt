@@ -967,6 +967,8 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
 
     add_executable(traceloom_native_sidecar_writer_tests
       tests/compat/sidecar_writer_tests.cpp
+      tests/compat/sidecar_writer_graph_projection_tests.cpp
+      tests/compat/sidecar_writer_test_support.cpp
     )
     target_compile_definitions(
       traceloom_native_sidecar_writer_tests PRIVATE
