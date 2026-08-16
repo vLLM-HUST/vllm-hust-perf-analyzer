@@ -16,6 +16,7 @@ and inquiry, not individual assets, lifecycle state, or chronology.
 
 - **Expose or consume replay Position realizations:** use when a projection,
   report, or experiment must place exact replay-body operators, collectives,
-  and support events in one Position realization without weakening atomic
-  replay protection or inventing cross-stream dependency. Read
+  provider communication anchors, and support events on one highlighted or
+  flattened timeline without weakening atomic replay protection, inventing
+  event ownership, or inventing cross-stream dependency. Read
   [`scenarios/query-replay-position-realizations/GUIDE.md`](scenarios/query-replay-position-realizations/GUIDE.md).

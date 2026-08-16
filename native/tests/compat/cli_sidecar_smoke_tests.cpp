@@ -217,7 +217,7 @@ void require_augmented_database(const std::string& path) {
   traceloom::testing::require(run_scalar_int(
                                   path,
                                   "SELECT COUNT(*) FROM "
-                                  "traceloom_projection_recipe") == 27);
+                                  "traceloom_projection_recipe") == 29);
   traceloom::testing::require(run_scalar_int(
                                   path,
                                   "SELECT COUNT(*) FROM "
@@ -225,7 +225,15 @@ void require_augmented_database(const std::string& path) {
   traceloom::testing::require(run_scalar_int(
                                   path,
                                   "SELECT COUNT(*) FROM "
-                                  "traceloom_projection_coordinate") == 93);
+                                  "traceloom_projection_coordinate") == 107);
+  traceloom::testing::require(run_scalar_int(
+                                  path,
+                                  "SELECT COUNT(*) FROM sqlite_master WHERE "
+                                  "type = 'view' AND name IN ("
+                                  "'traceloom_v_annotated_anchor_timeline',"
+                                  "'traceloom_v_flattened_execution_timeline',"
+                                  "'traceloom_v_replay_region_annotation_"
+                                  "status')") == 3);
   const int replay_unit_count = run_scalar_int(
       path, "SELECT COUNT(*) FROM traceloom_replay_cost_unit");
   if (replay_unit_count == 0) {

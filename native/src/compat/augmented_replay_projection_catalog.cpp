@@ -32,6 +32,30 @@ void materialize_replay_projection_catalog(sqlite3* db) {
   insert_values(
       db, "traceloom_analysis_surface",
       {
+          {"replay_region_annotation_status",
+           "traceloom_v_replay_region_annotation_status",
+           "one device-level replay-region annotation support result",
+           "fail closed before highlighting exact replay regions on the "
+           "main anchor timeline",
+           "SELECT * FROM traceloom_v_replay_region_annotation_status "
+           "ORDER BY db_idx, device_id;"},
+          {"annotated_anchor_timeline",
+           "traceloom_v_annotated_anchor_timeline",
+           "one mainline anchor with nullable replay-region and Position "
+           "coordinates",
+           "read compute, communication, and replay Position anchors on one "
+           "plane while treating replay as a background region annotation, "
+           "not event ownership",
+           "SELECT * FROM traceloom_v_annotated_anchor_timeline ORDER BY "
+           "db_idx, device_id, anchor_idx;"},
+          {"flattened_execution_timeline",
+           "traceloom_v_flattened_execution_timeline",
+           "one retained mainline anchor or exact expanded Position member",
+           "plot ordinary anchors, communication operations, and exact "
+           "replay-body operators on one observed timestamp plane without "
+           "double-rendering expanded Position spans",
+           "SELECT * FROM traceloom_v_flattened_execution_timeline ORDER BY "
+           "db_idx, device_id, timeline_order;"},
           {"exact_graph_member", "traceloom_v_node_graph_body_member",
            "one exact graph body member in one tree occurrence",
            "drill through replay structure to exact member cost and "
@@ -75,6 +99,34 @@ void materialize_replay_projection_catalog(sqlite3* db) {
   insert_values(
       db, "traceloom_projection_recipe",
       {
+          {"annotated_anchor_timeline", "35", "device_sequence",
+           "all_mainline_anchors", "replay_region_highlight", "device",
+           "anchor_span_identity_and_provenance", "(none)",
+           "retain the canonical anchor sequence and add only fail-closed "
+           "Pattern-Occurrence-Position coordinates plus replay background "
+           "regions",
+           "SELECT db_idx,device_id,anchor_idx,anchor_id,event_id,symbol,role,"
+           "source_table,start_ns,end_ns,replay_annotation_support_state,"
+           "replay_region_state,protected_interval_id,replay_occurrence_id,"
+           "replay_pattern_id,replay_position_id,replay_position_order,"
+           "replay_annotation_semantics,observation_semantics FROM "
+           "traceloom_v_annotated_anchor_timeline ORDER BY db_idx,device_id,"
+           "anchor_idx;"},
+          {"flattened_execution_timeline", "36", "device_sequence",
+           "exact_position_expansion", "observed_timestamp_plane", "device",
+           "event_spans_with_non_additive_nested_duration", "(none)",
+           "replace supported graph Position spans with their exact body "
+           "members while retaining every other mainline anchor at its real "
+           "timestamp",
+           "SELECT db_idx,device_id,timeline_order,timeline_item_id,item_kind,"
+           "mainline_anchor_idx,mainline_anchor_id,position_anchor_id,event_id,"
+           "symbol,source_table,start_ns,end_ns,replay_region_state,"
+           "replay_occurrence_id,replay_pattern_id,replay_position_id,"
+           "replay_position_order,flattening_action,flattening_semantics,"
+           "replay_annotation_semantics,observation_semantics,"
+           "duration_aggregation_semantics FROM "
+           "traceloom_v_flattened_execution_timeline ORDER BY db_idx,"
+           "device_id,timeline_order;"},
           {"scope_exact_replay_members", "40", "structural_node",
            "one_or_all_occurrences", "observed_member_plane", "device",
            "scheduled_member_cost_role_and_provenance",
@@ -201,6 +253,35 @@ void materialize_replay_projection_catalog(sqlite3* db) {
   insert_values(
       db, "traceloom_projection_coordinate",
       {
+          {"annotated_anchor_timeline", "10", "db_idx", "database_index",
+           "source database coordinate"},
+          {"annotated_anchor_timeline", "20", "device_id", "device_id",
+           "device coordinate"},
+          {"annotated_anchor_timeline", "30", "anchor_idx",
+           "mainline_anchor_index", "canonical anchor-sequence coordinate"},
+          {"annotated_anchor_timeline", "40", "event_id",
+           "normalized_event_id", "normalized anchor event for audit"},
+          {"annotated_anchor_timeline", "50", "replay_occurrence_id",
+           "replay_occurrence_id", "nullable highlighted replay occurrence"},
+          {"annotated_anchor_timeline", "60", "replay_pattern_id",
+           "graph_template_id", "nullable replay Pattern coordinate"},
+          {"annotated_anchor_timeline", "70", "replay_position_id",
+           "graph_launch_id", "nullable replay Position coordinate"},
+          {"flattened_execution_timeline", "10", "db_idx",
+           "database_index", "source database coordinate"},
+          {"flattened_execution_timeline", "20", "device_id", "device_id",
+           "device coordinate"},
+          {"flattened_execution_timeline", "30", "timeline_order",
+           "observed_timeline_order",
+           "stable timestamp order without dependency semantics"},
+          {"flattened_execution_timeline", "40", "event_id",
+           "normalized_event_id", "normalized timeline event for audit"},
+          {"flattened_execution_timeline", "50", "replay_occurrence_id",
+           "replay_occurrence_id", "nullable highlighted replay occurrence"},
+          {"flattened_execution_timeline", "60", "replay_pattern_id",
+           "graph_template_id", "nullable replay Pattern coordinate"},
+          {"flattened_execution_timeline", "70", "replay_position_id",
+           "graph_launch_id", "nullable replay Position coordinate"},
           {"scope_exact_replay_members", "10", "node_id",
            "structural_node_id", "selected structural scope"},
           {"scope_exact_replay_members", "20", "occurrence_idx",
