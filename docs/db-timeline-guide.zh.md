@@ -117,8 +117,13 @@ replay_cost_units
 
 `replay_cost_units` 先显式返回每个 exact ReplayUnit 的 support 状态；支持的 unit
 再展开为有序 launch slots，以及 task sum、busy union、envelope 和类别成本。
-选中一个 `launch_id` 后，`replay_cost_members` 返回精确成员、顺序、时长、
-scheduled-work share 与 `event_id`。`scope_exact_replay_members` 也会返回同一组
+选中一个 `launch_id` 后，`replay_cost_members` 从
+`traceloom_v_replay_position_realization_member` 返回同一个 Position 平面上的精确
+成员、时长、scheduled-work share 与 `event_id`。其中 `observed_order` 按时间戳把
+不同 stream 的算子、collective 与辅助事件交错显示，同时保留
+`lane_ordinal/task_ordinal`；它只是观测坐标，不代表依赖或因果。`policy_role` 保留
+内部成员原本的 anchor/auxiliary 身份，`final_role` 则保留外层 replay 作为
+`protected_boundary` 的扁平 grammar 契约。`scope_exact_replay_members` 也会返回同一组
 `cost_unit_id`、`launch_id` 和 `slot_order` 坐标，因此可以从一个树结构 occurrence
 自然分叉到 replay cost 或 host context，而不用重新猜 replay 边界。
 反过来，如果分析者先从成本总体选中了一个 `replay_unit_id`，

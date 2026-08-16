@@ -1,0 +1,4 @@
+interface:
+  display_name: "Repo Knowledge"
+  short_description: "Navigate local scenarios for repo work and knowledge"
+  default_prompt: "Use $repo-knowledge before this repository task or inquiry and follow the matching local scenario."

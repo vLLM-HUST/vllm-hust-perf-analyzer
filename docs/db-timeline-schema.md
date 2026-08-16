@@ -509,9 +509,10 @@ launch occurrence:
 - `match_policy`, `association_policy`: direct-correlation evidence semantics.
 - `start_ns`, `end_ns`, `dur_us`, `evidence_level` (`exact_direct`).
 
-`traceloom_graph_body_member` is the ordered member relation, one row per
+`traceloom_graph_body_member` is the lane-ordered member relation, one row per
 exact body member with lane/task order, kind, event/task/source provenance,
-timing, correlation, and raw graph-node identity:
+timing, correlation, and raw graph-node identity. Its lane/task coordinates do
+not claim a single cross-stream execution order:
 
 - `member_id`, `launch_id`: stable keys linking to the launch relation.
 - `lane_ordinal`, `task_ordinal`, `kind` (`compute`/`communication`/
@@ -562,6 +563,23 @@ view is part of the centralized report-view drop/recreate lifecycle
 (`materialize_report_compatibility_views`), so definitions cannot go stale.
 Indexes cover `graph_event_id`, `anchor_id`, `launch_id`, `event_id`, and
 `graph_node_id`.
+
+### `traceloom_v_replay_position_realization_member`
+
+Canonical **launch-scoped Position plane** over exact replay-cost members. It
+contains one row per member without joining tree ancestors, assigns all streams
+an observed `(start_ns, end_ns)` order with deterministic tie-breakers, and
+retains the original `lane_ordinal`/`task_ordinal`. It also exposes exact graph-body
+membership, interval containment, raw-source locators, and the evidence-role
+pair `policy_role`/`final_role`. Consequently, protecting a replay composite as
+an atomic flat boundary does not erase the nested anchor identities of its
+operators or collectives.
+
+`observed_order`, `observed_relation_to_previous`, and
+`observation_semantics='timestamp_order_not_dependency'` describe observable
+interval geometry only. They do not introduce a cross-stream grammar order,
+dependency, or causal edge. Use the per-stream replay-body pattern relations
+for recursive grammar and this view for a realized operator/collective plane.
 
 Canonical queries in `docs/report-sql/node-graph-body-members.sql` and
 `docs/report-sql/event-graph-node-occurrences.sql` demonstrate the forward

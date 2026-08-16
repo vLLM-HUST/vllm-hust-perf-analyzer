@@ -139,7 +139,13 @@ table family. `replay_cost_units` discovers supported and unsupported exact
 ReplayUnit occurrences; `replay_cost_launches` expands one returned
 `cost_unit_id` to all ordered slots or one `slot_order`; and
 `replay_cost_members` expands a returned `launch_id` to exact member costs and
-normalized `event_id` values. An event then continues to `event_audit`.
+normalized `event_id` values on
+`traceloom_v_replay_position_realization_member`. That Position-realization
+plane interleaves streams by observed timestamps while retaining
+`lane_ordinal`/`task_ordinal`, exact membership, source lineage, and both the
+nested `policy_role` and protected outer `final_role`. `observed_order` is a
+display coordinate, not a dependency or causality claim. An event then
+continues to `event_audit`.
 `replay_structural_placements` maps a returned `replay_unit_id` back to every
 recovered graph-unit `node_id`/`occurrence_idx` that realizes it. Ancestor,
 template, and member scopes are not placements. The recipe deliberately
@@ -154,7 +160,7 @@ the replay boundary.
 ```text
 ReplayUnit occurrence / cost_unit_id
   -> ordered launch slots             task_sum / busy_union / envelope
-  -> one launch_id                    exact member cost and provenance
+  -> one launch_id                    observed operator/collective member plane
   -> one event_id                     embedded profiler-row audit
   -> replay_unit_id placements        structural occurrence / host context
 ```
@@ -176,10 +182,13 @@ replay_body_domains
   -> event_audit                          embedded source rows
 ```
 
-The route is per stream and never invents cross-stream ordering. A full-body
-decode replay can therefore be folded into repeated nested structure, compared
-across occurrences, and audited back to embedded raw evidence without leaving
-the coordinate contract. See
+The grammar route is per stream and never invents cross-stream structural
+order. It is complementary to the Position-realization plane above: the latter
+publishes observed interval geometry across streams but does not feed that time
+order back into grammar or infer dependencies. A full-body decode replay can
+therefore be folded into repeated nested structure, compared across
+occurrences, and audited back to embedded raw evidence without leaving the
+coordinate contract. See
 [Recursive Replay-Body Patterns](replay-body-patterns.md).
 
 Exact replay evidence offers another horizontal coordinate system over the

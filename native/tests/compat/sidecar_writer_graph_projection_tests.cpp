@@ -601,6 +601,7 @@ void run_graph_projection_tests(
               "idx_traceloom_replay_cost_contributor",
               "idx_traceloom_replay_cost_member_event",
               "idx_traceloom_replay_cost_member_launch",
+              "idx_traceloom_replay_cost_member_observed",
               "idx_traceloom_runtime_call_correlation",
               "idx_traceloom_runtime_call_id",
               "idx_traceloom_runtime_call_time",

@@ -150,6 +150,10 @@ void materialize_structural_compatibility_indexes(SqliteDb& db) {
       "ON traceloom_replay_cost_member(launch_id, db_idx, device_id, "
       "lane_ordinal, task_ordinal)");
   db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_replay_cost_member_observed "
+      "ON traceloom_replay_cost_member(launch_id, db_idx, device_id, "
+      "start_ns, end_ns, lane_ordinal, task_ordinal, member_id)");
+  db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_replay_cost_aggregate_hotspot "
       "ON traceloom_replay_cost_aggregate(db_idx, device_id, "
       "duration_median_ns DESC)");

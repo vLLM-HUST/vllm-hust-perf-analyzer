@@ -39,6 +39,8 @@ void drop_structural_compatibility_views(SqliteDb& db) {
   db.exec("DROP VIEW IF EXISTS traceloom_tree_node_anchor");
   db.exec("DROP VIEW IF EXISTS traceloom_v_cuda_graph_envelope");
   db.exec("DROP VIEW IF EXISTS traceloom_v_cuda_graph_replay");
+  db.exec(
+      "DROP VIEW IF EXISTS traceloom_v_replay_position_realization_member");
   db.exec("DROP VIEW IF EXISTS traceloom_v_node_replay_cost_member");
   db.exec("DROP VIEW IF EXISTS traceloom_v_node_graph_body_member");
 }

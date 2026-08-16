@@ -1,0 +1,21 @@
+# Scenario Catalog
+
+Use this file only to enter the right working scenario. Each entry gives one
+future-facing task or knowledge need and one local guide; it routes both action
+and inquiry, not individual assets, lifecycle state, or chronology.
+
+## Tree maintenance
+
+- **Grow or reshape repository knowledge:** use when real work has earned
+  reusable repository-specific understanding, an expensive bounded
+  observation, or capability, or when this tree itself needs structural
+  change. Read
+  [`scenarios/grow-repo-knowledge/GUIDE.md`](scenarios/grow-repo-knowledge/GUIDE.md).
+
+## Repository scenarios
+
+- **Expose or consume replay Position realizations:** use when a projection,
+  report, or experiment must place exact replay-body operators, collectives,
+  and support events in one Position realization without weakening atomic
+  replay protection or inventing cross-stream dependency. Read
+  [`scenarios/query-replay-position-realizations/GUIDE.md`](scenarios/query-replay-position-realizations/GUIDE.md).

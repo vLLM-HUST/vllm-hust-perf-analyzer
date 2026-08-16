@@ -423,6 +423,26 @@ void run_packaging_materializer_tests() {
               "'replay_structural_placements')") == 4);
   require(run_scalar_int(
               augmented_path,
+              "SELECT COUNT(*) FROM traceloom_analysis_surface WHERE "
+              "surface_name = 'replay_position_realization_member' AND "
+              "relation_name = "
+              "'traceloom_v_replay_position_realization_member'") == 1);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_projection_recipe WHERE "
+              "projection_name IN ('scope_exact_replay_members', "
+              "'replay_cost_members') AND resolution = "
+              "'observed_member_plane' AND example_sql LIKE "
+              "'%ORDER BY%observed_order%' AND example_sql NOT LIKE "
+              "'%ORDER BY lane_ordinal%'") == 2);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_projection_recipe WHERE "
+              "projection_name = 'scope_exact_replay_members' AND "
+              "example_sql LIKE "
+              "'%position.launch_id = member.node_launch_id%'") == 1);
+  require(run_scalar_int(
+              augmented_path,
               "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
               "WHERE source_projection = 'scope_exact_replay_members' AND "
               "target_projection = 'replay_cost_launches' AND "

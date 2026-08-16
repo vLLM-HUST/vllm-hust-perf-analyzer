@@ -406,6 +406,13 @@ Use `source_table` and `source_row_id` to audit a selected member directly in
 the copied vendor table. `traceloom_metadata` records the original path,
 byte-size, and SHA-256 as provenance; they are not runtime dependencies.
 
+For one exact graph/replay launch,
+`traceloom_v_replay_position_realization_member` places operators,
+collectives, and support events on one observed timestamp plane while retaining
+their lane-local coordinates and source lineage. `policy_role` keeps each
+nested member's anchor/auxiliary identity; `final_role` keeps the outer atomic
+protection decision. The published `observed_order` is not a dependency claim.
+
 Exact replay bodies are not left as opaque intervals. When membership and
 per-stream order are complete, TraceLoom reuses its recursive grammar engine
 over the aligned replay Positions and publishes nested patterns, realized
