@@ -216,7 +216,8 @@ std::vector<EvidenceRoleDecisionRow> build_decisions(
     const NativeIr& ir,
     const FlatAnchorBuildConfig& config,
     std::uint32_t db_idx,
-    bool materialize_aux_attribution) {
+    bool materialize_aux_attribution,
+    const AuxAttributionSqlRows* prebuilt_aux_attribution) {
   using ClassificationCacheKey =
       std::tuple<SourceRefId, SymbolId, SymbolId, SymbolId, SymbolId, SymbolId>;
   struct CachedClassification {
@@ -352,10 +353,14 @@ std::vector<EvidenceRoleDecisionRow> build_decisions(
   std::unordered_map<TraceEventId::value_type,
                      std::vector<const AuxLinkSqlRow*>>
       aux_by_event;
-  AuxAttributionSqlRows aux_rows;
+  AuxAttributionSqlRows owned_aux_rows;
   if (materialize_aux_attribution) {
-    aux_rows = build_aux_attribution_sql_rows(ir, config, db_idx);
-    for (const AuxLinkSqlRow& link : aux_rows.aux_links) {
+    const AuxAttributionSqlRows* aux_rows = prebuilt_aux_attribution;
+    if (aux_rows == nullptr) {
+      owned_aux_rows = build_aux_attribution_sql_rows(ir, config, db_idx);
+      aux_rows = &owned_aux_rows;
+    }
+    for (const AuxLinkSqlRow& link : aux_rows->aux_links) {
       const std::string prefix = "event-";
       if (link.aux_event_id.rfind(prefix, 0) != 0) {
         throw std::invalid_argument(
@@ -749,10 +754,12 @@ std::vector<ProtectedIntervalSqlRow> build_protected_intervals(
 
 EvidenceRoleSqlRows build_evidence_role_sql_rows(
     const NativeIr& ir, const FlatAnchorBuildConfig& config,
-    std::uint32_t db_idx, bool materialize_aux_attribution) {
+    std::uint32_t db_idx, bool materialize_aux_attribution,
+    const AuxAttributionSqlRows* prebuilt_aux_attribution) {
   EvidenceRoleSqlRows rows;
   rows.decisions =
-      build_decisions(ir, config, db_idx, materialize_aux_attribution);
+      build_decisions(ir, config, db_idx, materialize_aux_attribution,
+                      prebuilt_aux_attribution);
   rows.protected_intervals = build_protected_intervals(ir, db_idx);
   rows.replay_unit_anchors.reserve(ir.anchors.size());
   for (const AnchorRow& anchor : ir.anchors.rows()) {

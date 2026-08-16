@@ -41,6 +41,8 @@ profiler SQLite
   `TASK` 不可用时自动切换 split fallback；
 - 原生重建计算、HCCL、同步和 ACLGraph 执行语义；
 - 在 semantic anchor 序列上发现重复的 decode/layer 结构；
+- 对证据完整的精确 replay body 复用递归 grammar，发布可折叠的内部结构、
+  occurrence 成本统计与原始证据下钻；
 - 对并发 stream 使用不重复计算的 wall-clock 统计；
 - Repeat 节点的平均值按循环体迭代次数归一化；
 - 一等的分析投影 recipe：自由组合结构 scope、occurrence population、层级深度、
@@ -333,6 +335,7 @@ ctest --preset dev-tests
 - [输入布局](docs/input-profiles.md)
 - [输出约定](docs/output-schema.md)
 - [原生架构](docs/architecture.md)
+- [递归 Replay-Body Pattern](docs/replay-body-patterns.md)
 - [Queryable DB timeline 阅读指南](docs/db-timeline-guide.zh.md)
 
 ## License

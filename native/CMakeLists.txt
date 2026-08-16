@@ -25,6 +25,7 @@ add_library(traceloom_native_core
   src/analysis/structural_occurrence_validation.cpp
   src/analysis/structural_symbol_normalization.cpp
   src/analysis/native_pipeline.cpp
+  src/analysis/replay_body_pattern.cpp
   src/analysis/replay_internal_cost_map.cpp
   src/core/diagnostics.cpp
   src/core/sha256.cpp
@@ -121,6 +122,7 @@ add_library(traceloom_native_materialize
   src/compat/anchor_cost_breakdown_rows.cpp
   src/compat/augmented_catalog_materializer.cpp
   src/compat/augmented_projection_catalog.cpp
+  src/compat/augmented_replay_body_projection_catalog.cpp
   src/compat/aux_attribution_rows.cpp
   src/compat/collective_tag_rows.cpp
   src/compat/exact_graph_sql_rows.cpp
@@ -129,6 +131,7 @@ add_library(traceloom_native_materialize
   src/compat/native_sidecar_packaging.cpp
   src/compat/structural_projection_rows.cpp
   src/compat/structural_projection_tokens.cpp
+  src/compat/replay_body_pattern_rows.cpp
   src/compat/replay_cost_sql_rows.cpp
   src/compat/evidence_role_decision_rows.cpp
   src/compat/evidence_role_sql_rows.cpp
@@ -140,6 +143,7 @@ add_library(traceloom_native_materialize
   src/compat/schema.cpp
   src/compat/schema_structural_tables.cpp
   src/compat/schema_replay_tables.cpp
+  src/compat/schema_replay_body_pattern_tables.cpp
   src/compat/sidecar_sqlite_utils.cpp
   src/compat/sidecar_collective_bindings.cpp
   src/compat/sidecar_collective_writer.cpp
@@ -489,6 +493,17 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
   add_test(
     NAME traceloom_native_replay_internal_cost_map_tests
     COMMAND traceloom_native_replay_internal_cost_map_tests
+  )
+
+  add_executable(traceloom_native_replay_body_pattern_tests
+    tests/analysis/replay_body_pattern_tests.cpp
+  )
+  target_link_libraries(
+    traceloom_native_replay_body_pattern_tests PRIVATE traceloom_native_core
+  )
+  add_test(
+    NAME traceloom_native_replay_body_pattern_tests
+    COMMAND traceloom_native_replay_body_pattern_tests
   )
 
   add_executable(traceloom_native_sha256_tests

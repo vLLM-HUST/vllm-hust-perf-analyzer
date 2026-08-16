@@ -3,17 +3,20 @@
 #include <chrono>
 #include <iostream>
 #include <stdexcept>
+#include <utility>
 
 #include "evidence_role_sql_internal.h"
 
 namespace traceloom::compat {
+namespace {
 
-void replace_evidence_role_sql_rows(
+void replace_evidence_role_sql_rows_impl(
     const std::string& sqlite_path,
     const NativeIr& ir,
     FlatAnchorBuildConfig config,
     std::uint32_t db_idx,
     bool materialize_aux_attribution,
+    const AuxAttributionSqlRows* prebuilt_aux_attribution,
     bool timing_diagnostics) {
 #if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
   if (config.classification_rules.rules().empty()) {
@@ -25,7 +28,8 @@ void replace_evidence_role_sql_rows(
   }
   const auto build_start = std::chrono::steady_clock::now();
   const detail::EvidenceRoleSqlRows rows = detail::build_evidence_role_sql_rows(
-      ir, config, db_idx, materialize_aux_attribution);
+      ir, config, db_idx, materialize_aux_attribution,
+      prebuilt_aux_attribution);
   const auto write_start = std::chrono::steady_clock::now();
   if (timing_diagnostics) {
     std::cerr << "timing evidence_role_build_rows_ms="
@@ -49,9 +53,36 @@ void replace_evidence_role_sql_rows(
   (void)config;
   (void)db_idx;
   (void)materialize_aux_attribution;
+  (void)prebuilt_aux_attribution;
   (void)timing_diagnostics;
   throw std::runtime_error("evidence-role SQL requires SQLite support");
 #endif
+}
+
+}  // namespace
+
+void replace_evidence_role_sql_rows(
+    const std::string& sqlite_path,
+    const NativeIr& ir,
+    FlatAnchorBuildConfig config,
+    std::uint32_t db_idx,
+    bool materialize_aux_attribution,
+    bool timing_diagnostics) {
+  replace_evidence_role_sql_rows_impl(
+      sqlite_path, ir, std::move(config), db_idx,
+      materialize_aux_attribution, nullptr, timing_diagnostics);
+}
+
+void replace_evidence_role_sql_rows(
+    const std::string& sqlite_path,
+    const NativeIr& ir,
+    FlatAnchorBuildConfig config,
+    std::uint32_t db_idx,
+    const AuxAttributionSqlRows& aux_attribution,
+    bool timing_diagnostics) {
+  replace_evidence_role_sql_rows_impl(
+      sqlite_path, ir, std::move(config), db_idx, true, &aux_attribution,
+      timing_diagnostics);
 }
 
 }  // namespace traceloom::compat

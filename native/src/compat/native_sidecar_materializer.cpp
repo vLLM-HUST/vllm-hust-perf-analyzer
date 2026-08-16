@@ -22,6 +22,7 @@
 #include "traceloom/compat/event_reconciliation_rows.h"
 #include "traceloom/compat/exact_graph_sql_rows.h"
 #include "traceloom/compat/native_graph_replay_rows.h"
+#include "traceloom/compat/replay_body_pattern_rows.h"
 #include "traceloom/compat/replay_cost_sql_rows.h"
 #include "traceloom/compat/runtime_device_rows.h"
 #include "traceloom/compat/sidecar_writer.h"
@@ -498,7 +499,18 @@ void write_basic_native_compatibility_sidecar(
   replace_exact_graph_rows(
       sqlite_path,
       build_exact_graph_sql_rows(ir, options.source_kind, options.db_idx));
-  replace_replay_cost_rows(sqlite_path, ir, options.db_idx);
+  const ReplayInternalCostMapResult replay_cost =
+      build_replay_internal_cost_map(ir);
+  replace_replay_cost_rows(sqlite_path, ir, replay_cost, options.db_idx);
+  ReplayBodyPatternConfig replay_body_pattern_config;
+  replay_body_pattern_config.worker_count = options.grammar_worker_count;
+  replay_body_pattern_config.target_nodes_per_chunk =
+      options.grammar_target_nodes_per_chunk;
+  replay_body_pattern_config.full_discovery_cap =
+      options.grammar_full_discovery_cap;
+  replace_replay_body_pattern_rows(sqlite_path, ir, replay_cost,
+                                   options.db_idx,
+                                   replay_body_pattern_config);
   emit_timing(options, "sidecar_graph_rows_write_ms", graph_rows_watch);
 
   const Stopwatch anchor_rows_watch;
@@ -619,10 +631,15 @@ void write_basic_native_compatibility_sidecar(
               semantic_rows_watch);
 
   const Stopwatch evidence_role_watch;
-  replace_evidence_role_sql_rows(sqlite_path, ir, evidence_role_config,
-                                 options.db_idx,
-                                 options.materialize_aux_attribution,
-                                 options.timing_diagnostics);
+  if (options.materialize_aux_attribution) {
+    replace_evidence_role_sql_rows(sqlite_path, ir, evidence_role_config,
+                                   options.db_idx, aux_rows,
+                                   options.timing_diagnostics);
+  } else {
+    replace_evidence_role_sql_rows(sqlite_path, ir, evidence_role_config,
+                                   options.db_idx, false,
+                                   options.timing_diagnostics);
+  }
   emit_timing(options, "sidecar_evidence_role_ms", evidence_role_watch);
 }
 
