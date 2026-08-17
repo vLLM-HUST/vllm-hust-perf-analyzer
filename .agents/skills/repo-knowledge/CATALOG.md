@@ -14,6 +14,9 @@ and inquiry, not individual assets, lifecycle state, or chronology.
 
 ## Repository scenarios
 
+- **Run a canonical real-profile analysis:** use when freezing an Ascend analyzer baseline, distinguishing full `PROF_*` evidence from an isolated DB, or preventing host-activity expansion from becoming an unbounded derived artifact. Read
+  [`scenarios/run-canonical-profile-analysis/GUIDE.md`](scenarios/run-canonical-profile-analysis/GUIDE.md).
+
 - **Expose or consume replay Position realizations:** use when a projection,
   report, or experiment must place exact replay-body operators, collectives,
   provider communication anchors, and support events on one highlighted or

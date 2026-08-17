@@ -459,8 +459,10 @@ void write_basic_native_compatibility_sidecar(
 
   {
     const Stopwatch runtime_rows_watch;
+    RuntimeDeviceProjectionOptions runtime_options;
+    runtime_options.max_host_activity_rows = options.max_host_activity_rows;
     RuntimeDeviceSqlRows runtime_rows =
-        build_runtime_device_sql_rows(ir, options.db_idx);
+        build_runtime_device_sql_rows(ir, options.db_idx, runtime_options);
     if (options.timing_diagnostics) {
       std::cerr << "timing runtime_device_rows_ms="
                 << runtime_rows_watch.elapsed_ms() << "\n";
@@ -477,6 +479,14 @@ void write_basic_native_compatibility_sidecar(
                         std::to_string(runtime_rows.host_activities.size())});
     metadata.push_back({"anchor_host_api_summary_count",
                         std::to_string(runtime_rows.host_api_summaries.size())});
+    metadata.push_back({"anchor_host_activity_materialization_state",
+                        runtime_rows.host_activity_materialization_state});
+    metadata.push_back({"anchor_host_activity_candidate_upper_bound",
+                        std::to_string(
+                            runtime_rows.host_activity_candidate_upper_bound)});
+    metadata.push_back({"anchor_host_activity_materialization_limit",
+                        std::to_string(
+                            runtime_rows.host_activity_materialization_limit)});
     const Stopwatch runtime_write_watch;
     replace_metadata_rows(sqlite_path, metadata);
     replace_runtime_device_rows(sqlite_path, runtime_rows);

@@ -163,6 +163,9 @@ struct RuntimeDeviceSqlRows {
   std::vector<AnchorHostIntervalSqlRow> host_intervals;
   std::vector<AnchorHostActivitySqlRow> host_activities;
   std::vector<AnchorHostApiSummarySqlRow> host_api_summaries;
+  std::string host_activity_materialization_state = "complete";
+  std::uint64_t host_activity_candidate_upper_bound = 0;
+  std::uint64_t host_activity_materialization_limit = 0;
 };
 
 struct AnchorSqlRow {

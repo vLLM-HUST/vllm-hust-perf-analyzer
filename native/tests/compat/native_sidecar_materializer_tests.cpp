@@ -113,7 +113,7 @@ int main() {
   compat::write_basic_native_compatibility_sidecar(db_path, ir, options);
 
   require(run_scalar_int(db_path,
-                         "SELECT COUNT(*) FROM traceloom_metadata") == 41);
+                         "SELECT COUNT(*) FROM traceloom_metadata") == 44);
   require(run_scalar_text(db_path,
                           "SELECT value FROM traceloom_metadata WHERE key = "
                           "'input_evidence_contract'") ==
@@ -128,6 +128,18 @@ int main() {
                           "SELECT value FROM traceloom_metadata WHERE key = "
                           "'input_missing_components'") ==
           "host/sqlite/runtime.db");
+  require(run_scalar_text(
+              db_path,
+              "SELECT value FROM traceloom_metadata WHERE key = "
+              "'anchor_host_activity_materialization_state'") == "complete");
+  require(run_scalar_text(
+              db_path,
+              "SELECT value FROM traceloom_metadata WHERE key = "
+              "'anchor_host_activity_candidate_upper_bound'") == "0");
+  require(run_scalar_text(
+              db_path,
+              "SELECT value FROM traceloom_metadata WHERE key = "
+              "'anchor_host_activity_materialization_limit'") == "1000000");
   require(run_scalar_text(db_path,
                           "SELECT value FROM traceloom_metadata WHERE key = "
                           "'evidence_role_policy_id'") ==

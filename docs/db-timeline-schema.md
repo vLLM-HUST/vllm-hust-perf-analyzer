@@ -285,12 +285,28 @@ consumer to reconstruct them from wide joins:
 - `traceloom_anchor_host_activity`: profiler-observed runtime calls overlapping
   a supported interval, in observed start order.
 
-The last relation can be large because one asynchronous host interval may
-contain many runtime calls. This is intentional: TraceLoom pays the interval
-join once while producing the read-mostly augmented DB, persists indexes and
-planner statistics, and makes repeated agent queries ordinary relational
-lookups. The compact input profile remains the transport/source artifact; the
-augmented DB is the analysis-optimized product.
+The last relation can be much larger than either input population: endpoint
+order may make many anchor intervals span large portions of a process or
+thread runtime timeline. TraceLoom computes a conservative candidate-row upper
+bound before expanding any interval. If that bound exceeds the declared
+`anchor_host_activity_materialization_limit`, it withholds the entire activity
+and API-summary projection rather than publish a partial or practically
+unbounded relation. The metadata state becomes
+`withheld_candidate_upper_bound_exceeds_limit`, and otherwise-supported
+intervals become
+`supported_ordered_activity_withheld_size_limit`. The runtime calls, anchor
+endpoints, and typed intervals remain queryable; an empty activity table in
+this state must not be interpreted as observing no host calls.
+
+Query these `traceloom_metadata` keys before consuming host activity:
+
+- `anchor_host_activity_materialization_state`;
+- `anchor_host_activity_candidate_upper_bound`;
+- `anchor_host_activity_materialization_limit`.
+
+This fail-closed bound applies to global materialization. A future bounded
+interval-local query path may expose selected calls without claiming that a
+full Cartesian-like projection is an acceptable artifact.
 
 ### Host runtime behavior between device anchors
 
@@ -303,7 +319,8 @@ otherwise reports the shared provider clock domain. Unsupported cases remain typ
 `missing_endpoint`, `ambiguous_endpoint`, `incompatible_host_domain`, or
 `nonmonotonic_host_order`.
 
-`traceloom_anchor_host_activity` stores the narrow interval/call links;
+When the metadata state is `complete`, `traceloom_anchor_host_activity` stores
+the narrow interval/call links;
 `traceloom_v_anchor_host_activity` joins their readable fields and returns
 every **profiler-observed runtime call** overlapping a supported interval. This lets
 a query ask whether the same device structure is accompanied by a launch
