@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -257,6 +258,48 @@ int main() {
   require(!ascend_sqlite_has_usable_task_table(incompatible_monolithic),
           "incompatible TASK schema should not suppress split fallback");
 
+  const AscendProfileEvidenceState db_only_evidence =
+      classify_ascend_profile_evidence(db_path);
+  require(db_only_evidence.contract_version == "ascend_full_profile_v1" &&
+              db_only_evidence.input_scope == "monolithic_db_only" &&
+              db_only_evidence.evidence_state == "evidence_incomplete" &&
+              db_only_evidence.missing_components ==
+                  "host/sqlite/runtime.db,host/sqlite/stream_info.db,"
+                  "device_*/sqlite/ascend_task.db",
+          "isolated monolithic DB evidence classification mismatch");
+
+  const std::filesystem::path evidence_dir =
+      temp_ascend_profile_dir("_evidence_contract");
+  std::filesystem::create_directories(evidence_dir / "host" / "sqlite");
+  std::ofstream(evidence_dir / "host" / "sqlite" / "runtime.db").put('\0');
+  const AscendProfileEvidenceState partial_evidence =
+      classify_ascend_profile_evidence(
+          (evidence_dir / "host" / "sqlite" / "runtime.db").string());
+  require(partial_evidence.input_scope == "partial_profile_directory" &&
+              partial_evidence.evidence_state == "evidence_incomplete" &&
+              partial_evidence.missing_components ==
+                  "host/sqlite/stream_info.db,"
+                  "device_*/sqlite/ascend_task.db",
+          "partial profile evidence classification mismatch");
+  std::ofstream(evidence_dir / "host" / "sqlite" / "stream_info.db")
+      .put('\0');
+  std::filesystem::create_directories(evidence_dir / "device_3" / "sqlite");
+  std::ofstream(evidence_dir / "device_3" / "sqlite" / "ascend_task.db")
+      .put('\0');
+  std::ofstream(evidence_dir / "msprof_fixture.db").put('\0');
+  for (const std::string& complete_source : {
+           evidence_dir.string(),
+           (evidence_dir / "msprof_fixture.db").string(),
+       }) {
+    const AscendProfileEvidenceState complete_evidence =
+        classify_ascend_profile_evidence(complete_source);
+    require(complete_evidence.input_scope == "full_profile_directory" &&
+                complete_evidence.evidence_state ==
+                    "profile_directory_complete" &&
+                complete_evidence.missing_components.empty(),
+            "complete profile evidence classification mismatch");
+  }
+
   AscendSQLiteAdapter golden_adapter(golden_path, "golden_monolithic");
   AscendSQLiteAdapter split_adapter(split_dir.string(), "golden_split");
   NativeIr golden_ir = golden_adapter.load();
@@ -366,5 +409,6 @@ int main() {
   std::remove(golden_path.c_str());
   std::filesystem::remove_all(split_dir);
   std::filesystem::remove_all(incomplete_dir);
+  std::filesystem::remove_all(evidence_dir);
   return 0;
 }

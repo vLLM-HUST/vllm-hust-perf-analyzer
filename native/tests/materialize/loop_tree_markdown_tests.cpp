@@ -25,6 +25,10 @@ int main() {
   LoopTreeMarkdownOptions options;
   options.source_kind = "ascend_sqlite_hot_path";
   options.source_path = "profile.db";
+  options.input_evidence_contract = "ascend_full_profile_v1";
+  options.input_scope = "monolithic_db_only";
+  options.input_evidence_state = "evidence_incomplete";
+  options.input_missing_components = "host/sqlite/runtime.db";
   options.has_device_id = true;
   options.device_id = 0;
   options.replay_composition_region_count = 3;
@@ -46,6 +50,14 @@ int main() {
           std::string::npos);
   require(markdown.find("| `unrecognized_missing_body_capability` | 2 |") !=
           std::string::npos);
+  require(markdown.find("- input_evidence_contract: "
+                        "`ascend_full_profile_v1`") != std::string::npos);
+  require(markdown.find("- input_scope: `monolithic_db_only`") !=
+          std::string::npos);
+  require(markdown.find("- input_evidence_state: `evidence_incomplete`") !=
+          std::string::npos);
+  require(markdown.find("- input_missing_components: "
+                        "`host/sqlite/runtime.db`") != std::string::npos);
 
   LoopTreeMarkdownOptions empty_options;
   empty_options.source_path = "profile.db";

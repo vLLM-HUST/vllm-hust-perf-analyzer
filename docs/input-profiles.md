@@ -14,6 +14,15 @@ monolithic or split SQLite output:
 <raw_dir>/PROF_*/device_*/sqlite/*.db
 ```
 
+A monolithic DB can support bounded compute/event analysis, but a DB copied
+away from its neighboring `PROF_*` evidence is not a complete cross-layer
+input. TraceLoom records `input_evidence_state=evidence_incomplete` and
+`input_scope=monolithic_db_only` when the profile lacks the full-profile-v1
+side evidence (`host/sqlite/runtime.db`, `host/sqlite/stream_info.db`, or a
+`device_*/sqlite/ascend_task.db`). Query these values in `traceloom_metadata`;
+the optional Loop Tree header prints the same contract. Never compare a
+DB-only report with a full-profile report as if they were equivalent runs.
+
 For each `PROF_*` directory, the native analyzer prefers a monolithic DB with a
 nonempty `TASK` table. If it is absent or unusable, TraceLoom reports a warning
 and normalizes the split `AscendTask`, `TaskInfo`, `HostTask`, `ApiData`, and

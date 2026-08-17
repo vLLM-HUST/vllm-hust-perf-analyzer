@@ -291,6 +291,12 @@ void write_loop_tree_markdown(std::ostream& out,
   out << "- report_view: `native_report_tree`\n";
   out << "- renderer: `native_loop_tree_markdown_v0`\n";
   out << "- source_kind: `" << options.source_kind << "`\n";
+  out << "- input_evidence_contract: `" << options.input_evidence_contract
+      << "`\n";
+  out << "- input_scope: `" << options.input_scope << "`\n";
+  out << "- input_evidence_state: `" << options.input_evidence_state << "`\n";
+  out << "- input_missing_components: `" << options.input_missing_components
+      << "`\n";
   out << "- trace_event_count: `" << options.trace_event_count << "`\n";
   out << "- anchor_count: `" << options.anchor_count << "`\n";
 
