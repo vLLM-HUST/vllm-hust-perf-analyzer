@@ -360,7 +360,7 @@ void run_packaging_materializer_tests() {
               "SELECT COUNT(*) FROM traceloom_projection_recipe WHERE "
               "scope_kind != '' AND population_mode != '' AND "
               "resolution != '' AND observation_domain != '' AND "
-              "measure_lens != ''") == 27);
+              "measure_lens != ''") == 29);
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_projection_parameter WHERE "
@@ -375,7 +375,7 @@ void run_packaging_materializer_tests() {
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_projection_coordinate") ==
-          93);
+          107);
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_projection_coordinate WHERE "
@@ -421,6 +421,26 @@ void run_packaging_materializer_tests() {
               "projection_name IN ('replay_cost_units', "
               "'replay_cost_launches', 'replay_cost_members', "
               "'replay_structural_placements')") == 4);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_analysis_surface WHERE "
+              "surface_name = 'replay_position_realization_member' AND "
+              "relation_name = "
+              "'traceloom_v_replay_position_realization_member'") == 1);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_projection_recipe WHERE "
+              "projection_name IN ('scope_exact_replay_members', "
+              "'replay_cost_members') AND resolution = "
+              "'observed_member_plane' AND example_sql LIKE "
+              "'%ORDER BY%observed_order%' AND example_sql NOT LIKE "
+              "'%ORDER BY lane_ordinal%'") == 2);
+  require(run_scalar_int(
+              augmented_path,
+              "SELECT COUNT(*) FROM traceloom_projection_recipe WHERE "
+              "projection_name = 'scope_exact_replay_members' AND "
+              "example_sql LIKE "
+              "'%position.launch_id = member.node_launch_id%'") == 1);
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
@@ -571,6 +591,7 @@ void run_packaging_materializer_tests() {
               "surface_name = 'anchor_symbol_lineage' AND relation_name = "
               "'traceloom_v_anchor_symbol_lineage'") == 1);
   require_analysis_surface_queries_prepare(augmented_path);
+  run_host_window_query_tests(augmented_path);
   require(run_scalar_text(augmented_path,
                           "SELECT embedded_table_name FROM "
                           "traceloom_raw_table WHERE source_table = "

@@ -416,6 +416,11 @@ void run_graph_materializer_tests() {
   cuda_graph_options.db_idx = 5;
   cuda_graph_options.source_kind = "cuda_nsys_sqlite";
   cuda_graph_options.source_path = "cuda-exact-graph";
+  cuda_graph_options.evidence_role_config
+      .skip_tasks_covered_by_communication_ops = true;
+  cuda_graph_options.evidence_role_config.skip_events_covered_by_replay_units =
+      true;
+  cuda_graph_options.evidence_role_config.filter_auxiliary_task_anchors = true;
   compat::write_basic_native_compatibility_sidecar(
       exact_cuda_graph_db_path, build_exact_cuda_graph_replay_ir(),
       cuda_graph_options);
@@ -621,6 +626,50 @@ void run_graph_materializer_tests() {
               "LEFT JOIN traceloom_event_source s "
               "ON s.event_id = m.event_id "
               "WHERE s.event_id IS NULL") == 0);
+  // Atomic graph protection stays visible as final_role without erasing each
+  // member's nested policy role.  This view is launch-scoped, so tree
+  // ancestors cannot duplicate the Position realization rows.
+  require(run_scalar_int(
+              exact_cuda_graph_db_path,
+              "SELECT COUNT(*) FROM "
+              "traceloom_v_replay_position_realization_member") == 3);
+  require(run_scalar_int(
+              exact_cuda_graph_db_path,
+              "SELECT COUNT(*) FROM "
+              "traceloom_v_replay_position_realization_member WHERE "
+              "position_anchor_id = 'anchor-0' AND policy_role IS NOT NULL "
+              "AND final_role = 'protected_boundary' AND "
+              "effective_structural_participation = 'atomic_boundary' AND "
+              "membership_relation = 'exact_graph_body_member' AND "
+              "interval_relation = 'contained' AND "
+              "observation_semantics = 'timestamp_order_not_dependency' "
+              "AND evidence_level = 'exact_direct'") == 3);
+  require(run_scalar_int(
+              exact_cuda_graph_db_path,
+              "SELECT COUNT(*) FROM "
+              "traceloom_v_replay_position_realization_member position "
+              "JOIN traceloom_evidence_role_decision role ON "
+              "role.decision_id = position.role_decision_id WHERE "
+              "position.policy_role IS role.policy_role AND "
+              "position.final_role = role.final_role") == 3);
+  // Force a lane-major order that differs from timestamp order.  The formal
+  // plane must remain graph_a_gemm(0), graph_a_gemm(1), memcpy rather than
+  // grouping the two lane-0 members ahead of the lane-1 member.
+  run_sql(exact_cuda_graph_db_path,
+          "UPDATE traceloom_replay_cost_member SET lane_ordinal = 1, "
+          "task_ordinal = 0 WHERE member_id = 'graph-body-member-1'; "
+          "UPDATE traceloom_replay_cost_member SET lane_ordinal = 0, "
+          "task_ordinal = 1 WHERE member_id = 'graph-body-member-2';");
+  require(run_scalar_int(
+              exact_cuda_graph_db_path,
+              "SELECT observed_order FROM "
+              "traceloom_v_replay_position_realization_member WHERE "
+              "member_id = 'graph-body-member-1'") == 1);
+  require(run_scalar_int(
+              exact_cuda_graph_db_path,
+              "SELECT observed_order FROM "
+              "traceloom_v_replay_position_realization_member WHERE "
+              "member_id = 'graph-body-member-2'") == 2);
   std::remove(exact_cuda_graph_db_path.c_str());
 
   const std::string multi_slot_db_path = temp_db_path();

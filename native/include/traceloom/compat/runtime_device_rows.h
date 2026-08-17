@@ -1,7 +1,5 @@
 #pragma once
 
-#include <cstdint>
-
 #include "traceloom/compat/sidecar_writer.h"
 #include "traceloom/ir/native_ir.h"
 

@@ -13,10 +13,10 @@ void materialize_structure_bubble_views(SqliteDb& db) {
   // adjacent anchors' supported runtime endpoints, never by host/device
   // timestamp overlap. These surfaces expose observations and distributions
   // only; they do not assign a bubble cause.
-  // Materialize the compact occurrence and distribution surfaces once. The
-  // host-activity relation can contain millions of links; leaving this as a
-  // stack of aggregate views makes an otherwise simple agent query rescan the
-  // full relation. Detailed calls remain a selective drill-down view.
+  // Materialize only the compact device-side bubble population. Runtime-call
+  // activity and API-family distributions remain query-time views over a
+  // selected bubble or structural position; the interval/call pairs are never
+  // stored globally.
   db.exec(
       "CREATE TABLE traceloom_structure_bubble_occurrence AS "
       "SELECT "
@@ -55,6 +55,7 @@ void materialize_structure_bubble_views(SqliteDb& db) {
       "bubble_fraction_of_transition, "
       "host.interval_id AS host_interval_id, host.provider, "
       "host.clock_domain AS host_clock_domain, host.scope_policy, "
+      "host.process_id, host.thread_id, "
       "host.support_state AS host_observation_status, "
       "host.host_start_ns, host.host_end_ns, "
       "ROUND(CASE WHEN host.support_state = 'supported_ordered' THEN "
@@ -135,6 +136,10 @@ void materialize_structure_bubble_views(SqliteDb& db) {
       "traceloom_structure_bubble_position(total_bubble_us DESC, "
       "bubble_occurrence_count DESC)");
   db.exec(
+      "CREATE INDEX idx_traceloom_structure_bubble_position_id ON "
+      "traceloom_structure_bubble_position(structural_position_id, db_idx, "
+      "device_id, view_name)");
+  db.exec(
       "CREATE VIEW traceloom_v_structure_bubble_position AS SELECT * FROM "
       "traceloom_structure_bubble_position");
 
@@ -149,64 +154,31 @@ void materialize_structure_bubble_views(SqliteDb& db) {
       "bubble.host_end_ns THEN 'contained' ELSE 'boundary_overlap' END AS "
       "interval_relation, call.process_id, call.thread_id, call.source_table "
       "AS runtime_source_table, call.source_key AS runtime_source_key, "
-      "activity.observed_order, "
-      "CASE WHEN LOWER(COALESCE(call.api_name, '')) GLOB 'acl*' OR "
-      "LOWER(COALESCE(call.api_name, '')) GLOB 'cuda*' OR "
-      "LOWER(COALESCE(call.api_name, '')) GLOB 'hip*' THEN 'public' "
-      "ELSE 'provider_internal_or_unknown' END AS api_layer, "
-      "CASE "
-      "WHEN LOWER(COALESCE(call.api_name, '')) LIKE '%wait%' THEN 'wait' "
-      "WHEN LOWER(COALESCE(call.api_name, '')) LIKE '%synchronize%' "
-      "THEN 'synchronize' "
-      "WHEN LOWER(COALESCE(call.api_name, '')) LIKE '%query%' THEN "
-      "'query' "
-      "WHEN LOWER(COALESCE(call.api_name, '')) LIKE '%eventrecord%' OR "
-      "LOWER(COALESCE(call.api_name, '')) LIKE '%recordevent%' THEN "
-      "'event_record' "
-      "WHEN (LOWER(COALESCE(call.api_name, '')) LIKE '%eventcreate%' OR "
-      "LOWER(COALESCE(call.api_name, '')) LIKE '%createevent%' OR "
-      "LOWER(COALESCE(call.api_name, '')) LIKE '%eventdestroy%' OR "
-      "LOWER(COALESCE(call.api_name, '')) LIKE '%destroyevent%') THEN "
-      "'event_lifecycle' "
-      "WHEN LOWER(COALESCE(call.api_name, '')) LIKE '%graphlaunch%' OR "
-      "LOWER(COALESCE(call.api_name, '')) LIKE "
-      "'%aclmdlriexecuteasync%' THEN 'graph_launch' "
-      "WHEN LOWER(COALESCE(call.api_name, '')) LIKE '%launch%' THEN "
-      "'launch' "
-      "WHEN LOWER(COALESCE(call.api_name, '')) LIKE '%memcpy%' OR "
-      "LOWER(COALESCE(call.api_name, '')) LIKE '%memset%' OR "
-      "LOWER(COALESCE(call.api_name, '')) LIKE '%inplacecopy%' THEN "
-      "'memory' "
-      "WHEN LOWER(COALESCE(call.api_name, '')) LIKE '%capture%' OR "
-      "LOWER(COALESCE(call.api_name, '')) LIKE '%graph%' THEN "
-      "'graph_control' ELSE 'other' END AS api_family "
-      "FROM traceloom_structure_bubble_occurrence bubble "
-      "JOIN traceloom_anchor_host_activity activity ON "
-      "activity.interval_id = bubble.host_interval_id JOIN "
-      "traceloom_runtime_call call ON call.runtime_call_id = "
-      "activity.runtime_call_id "
-      "WHERE bubble.host_observation_status = 'supported_ordered'");
+      "ROW_NUMBER() OVER (PARTITION BY bubble.bubble_id ORDER BY "
+      "call.start_ns, call.end_ns, call.runtime_call_id) - 1 AS "
+      "observed_order, call.api_layer, call.api_family "
+      "FROM traceloom_structure_bubble_occurrence bubble JOIN "
+      "traceloom_v_runtime_call_family call ON "
+      "bubble.host_observation_status = "
+      "'supported_ordered' AND call.db_idx = bubble.db_idx AND "
+      "call.provider = bubble.provider AND call.clock_domain = "
+      "bubble.host_clock_domain AND call.start_ns < bubble.host_end_ns AND "
+      "call.end_ns > bubble.host_start_ns AND (bubble.scope_policy <> "
+      "'same_process' OR call.process_id = bubble.process_id) AND "
+      "(bubble.scope_policy <> 'same_thread' OR (call.process_id = "
+      "bubble.process_id AND call.thread_id = bubble.thread_id))");
 
   db.exec(
-      "CREATE TABLE traceloom_structure_bubble_api_occurrence AS "
-      "SELECT bubble.bubble_id, summary.api_family, summary.call_count, "
-      "summary.distinct_api_name_count, "
-      "ROUND(summary.scheduled_call_us, 3) AS scheduled_call_us, "
-      "ROUND(summary.scheduled_overlap_us, 3) AS scheduled_overlap_us "
-      "FROM traceloom_structure_bubble_occurrence bubble "
-      "JOIN traceloom_anchor_host_api_summary summary ON "
-      "summary.interval_id = bubble.host_interval_id "
-      "WHERE bubble.host_observation_status = 'supported_ordered'");
+      "CREATE VIEW traceloom_v_structure_bubble_api_occurrence AS "
+      "SELECT bubble_id, api_family, COUNT(*) AS call_count, "
+      "COUNT(DISTINCT api_name) AS distinct_api_name_count, "
+      "ROUND(SUM(runtime_dur_us), 3) AS scheduled_call_us, "
+      "ROUND(SUM(observed_overlap_us), 3) AS scheduled_overlap_us FROM "
+      "traceloom_v_structure_bubble_runtime_call WHERE api_layer = 'public' "
+      "GROUP BY bubble_id, api_family");
 
   db.exec(
-      "CREATE UNIQUE INDEX idx_traceloom_structure_bubble_api_occurrence ON "
-      "traceloom_structure_bubble_api_occurrence(bubble_id, api_family)");
-  db.exec(
-      "CREATE VIEW traceloom_v_structure_bubble_api_occurrence AS SELECT * "
-      "FROM traceloom_structure_bubble_api_occurrence");
-
-  db.exec(
-      "CREATE TABLE traceloom_structure_bubble_api_stats AS "
+      "CREATE VIEW traceloom_v_structure_bubble_api_stats AS "
       "WITH bubble_population AS ("
       "SELECT db_idx, device_id, view_name, structural_position_id, "
       "right_node_id, "
@@ -230,7 +202,7 @@ void materialize_structure_bubble_views(SqliteDb& db) {
       "ROUND(SUM(api.scheduled_call_us), 3) AS total_scheduled_call_us, "
       "ROUND(SUM(api.scheduled_overlap_us), 3) AS "
       "total_scheduled_overlap_us "
-      "FROM traceloom_structure_bubble_api_occurrence api "
+      "FROM traceloom_v_structure_bubble_api_occurrence api "
       "JOIN traceloom_structure_bubble_occurrence bubble ON "
       "bubble.bubble_id = api.bubble_id "
       "GROUP BY bubble.db_idx, bubble.device_id, bubble.view_name, "
@@ -264,18 +236,6 @@ void materialize_structure_bubble_views(SqliteDb& db) {
       "AND api.view_name = bubbles.view_name AND "
       "api.structural_position_id = bubbles.structural_position_id");
 
-  db.exec(
-      "CREATE UNIQUE INDEX idx_traceloom_structure_bubble_api_stats ON "
-      "traceloom_structure_bubble_api_stats(db_idx, device_id, view_name, "
-      "structural_position_id, api_family)");
-  db.exec(
-      "CREATE INDEX idx_traceloom_structure_bubble_api_hotspot ON "
-      "traceloom_structure_bubble_api_stats(total_bubble_us DESC, "
-      "bubble_occurrence_count DESC)");
-  db.exec(
-      "CREATE VIEW traceloom_v_structure_bubble_api_stats AS SELECT * FROM "
-      "traceloom_structure_bubble_api_stats");
-
   // A left projection prevents unsupported-only positions from disappearing
   // when an analyst changes from the device bubble population to host API
   // context.  NULL api_family means that the position is retained but no
@@ -296,7 +256,7 @@ void materialize_structure_bubble_views(SqliteDb& db) {
       "observation; inspect typed host support counts') AS "
       "interpretation_note "
       "FROM traceloom_structure_bubble_position position "
-      "LEFT JOIN traceloom_structure_bubble_api_stats stats ON "
+      "LEFT JOIN traceloom_v_structure_bubble_api_stats stats ON "
       "stats.db_idx = position.db_idx AND stats.device_id = "
       "position.device_id AND stats.view_name = position.view_name AND "
       "stats.structural_position_id = position.structural_position_id");

@@ -1,19 +1,16 @@
 #include "traceloom/compat/runtime_device_rows.h"
 
 #include <algorithm>
-#include <limits>
 #include <map>
 #include <set>
 #include <stdexcept>
 #include <string>
-#include <tuple>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
 #include "traceloom/compat/anchor_sequence_rows.h"
 #include "traceloom/compat/timeline_rows.h"
-#include "runtime_api_family.h"
 #include "source_locator_json.h"
 
 namespace traceloom::compat {
@@ -133,55 +130,6 @@ bool runtime_interval_contains_work(const RuntimeCallRow& call,
 }
 
 using CorrelationKey = std::pair<RuntimeCallProvider, std::int64_t>;
-
-using ActivityGroupKey =
-    std::tuple<std::string, std::string, std::string, std::string>;
-
-struct ActivityGroup {
-  std::vector<const RuntimeCallSqlRow*> calls;
-  std::vector<std::int64_t> starts;
-  std::vector<std::int64_t> prefix_max_ends;
-};
-
-ActivityGroupKey activity_group_key(const RuntimeCallSqlRow& call,
-                                    const std::string& scope_policy) {
-  if (scope_policy == "same_thread") {
-    return {call.provider, call.clock_domain, call.process_id, call.thread_id};
-  }
-  if (scope_policy == "same_process") {
-    return {call.provider, call.clock_domain, call.process_id, {}};
-  }
-  return {call.provider, call.clock_domain, {}, {}};
-}
-
-ActivityGroupKey activity_group_key(const AnchorHostIntervalSqlRow& interval) {
-  if (interval.scope_policy == "same_thread") {
-    return {interval.provider, interval.clock_domain, interval.process_id,
-            interval.thread_id};
-  }
-  if (interval.scope_policy == "same_process") {
-    return {interval.provider, interval.clock_domain, interval.process_id, {}};
-  }
-  return {interval.provider, interval.clock_domain, {}, {}};
-}
-
-void finalize_activity_group(ActivityGroup& group) {
-  std::sort(group.calls.begin(), group.calls.end(),
-            [](const RuntimeCallSqlRow* lhs, const RuntimeCallSqlRow* rhs) {
-              return std::tie(lhs->start_ns, lhs->end_ns,
-                              lhs->runtime_call_id) <
-                     std::tie(rhs->start_ns, rhs->end_ns,
-                              rhs->runtime_call_id);
-            });
-  group.starts.reserve(group.calls.size());
-  group.prefix_max_ends.reserve(group.calls.size());
-  std::int64_t max_end = std::numeric_limits<std::int64_t>::min();
-  for (const RuntimeCallSqlRow* call : group.calls) {
-    group.starts.push_back(call->start_ns);
-    max_end = std::max(max_end, call->end_ns);
-    group.prefix_max_ends.push_back(max_end);
-  }
-}
 
 std::string cardinality(std::size_t runtime_count,
                         std::size_t device_count) {
@@ -695,81 +643,6 @@ RuntimeDeviceSqlRows build_runtime_device_sql_rows(const NativeIr& ir,
         interval.support_state = "supported_ordered";
       }
       rows.host_intervals.push_back(std::move(interval));
-    }
-  }
-
-  std::map<ActivityGroupKey, ActivityGroup> activity_groups;
-  for (const RuntimeCallSqlRow& call : rows.runtime_calls) {
-    activity_groups[activity_group_key(call, "provider_clock_domain")]
-        .calls.push_back(&call);
-    if (!call.process_id.empty()) {
-      activity_groups[activity_group_key(call, "same_process")]
-          .calls.push_back(&call);
-    }
-    if (!call.thread_id.empty()) {
-      activity_groups[{call.provider, call.clock_domain, {}, call.thread_id}]
-          .calls.push_back(&call);
-      if (!call.process_id.empty()) {
-        activity_groups[activity_group_key(call, "same_thread")]
-            .calls.push_back(&call);
-      }
-    }
-  }
-  for (auto& entry : activity_groups) finalize_activity_group(entry.second);
-
-  for (const AnchorHostIntervalSqlRow& interval : rows.host_intervals) {
-    if (interval.support_state != "supported_ordered") continue;
-    const std::int64_t host_start = std::stoll(interval.host_start_ns);
-    const std::int64_t host_end = std::stoll(interval.host_end_ns);
-    const auto group_found = activity_groups.find(activity_group_key(interval));
-    if (group_found == activity_groups.end()) continue;
-    const ActivityGroup& group = group_found->second;
-    const auto hi_it =
-        std::lower_bound(group.starts.begin(), group.starts.end(), host_end);
-    const std::size_t hi =
-        static_cast<std::size_t>(hi_it - group.starts.begin());
-    const auto lo_it = std::upper_bound(group.prefix_max_ends.begin(),
-                                        group.prefix_max_ends.begin() + hi,
-                                        host_start);
-    const std::size_t lo =
-        static_cast<std::size_t>(lo_it - group.prefix_max_ends.begin());
-    std::uint32_t observed_order = 0;
-    struct ApiSummary {
-      std::uint64_t call_count = 0;
-      std::set<std::string> api_names;
-      double scheduled_call_us = 0.0;
-      double scheduled_overlap_us = 0.0;
-    };
-    std::map<std::string, ApiSummary> summaries;
-    for (std::size_t index = lo; index < hi; ++index) {
-      const RuntimeCallSqlRow& call = *group.calls[index];
-      if (call.end_ns <= host_start) continue;
-      const std::int64_t overlap_ns =
-          std::min(call.end_ns, host_end) - std::max(call.start_ns, host_start);
-      rows.host_activities.push_back(AnchorHostActivitySqlRow{
-          interval.interval_id,
-          call.runtime_call_id,
-          observed_order++,
-      });
-      const std::string api_family =
-          detail::public_runtime_api_family(call.api_name);
-      if (!api_family.empty()) {
-        ApiSummary& summary = summaries[api_family];
-        ++summary.call_count;
-        summary.api_names.insert(call.api_name);
-        summary.scheduled_call_us += call.dur_us;
-        summary.scheduled_overlap_us += ns_to_us(overlap_ns);
-      }
-    }
-    for (const auto& [api_family, summary] : summaries) {
-      rows.host_api_summaries.push_back(AnchorHostApiSummarySqlRow{
-          interval.interval_id,
-          api_family,
-          summary.call_count,
-          summary.api_names.size(),
-          summary.scheduled_call_us,
-          summary.scheduled_overlap_us,
-      });
     }
   }
 

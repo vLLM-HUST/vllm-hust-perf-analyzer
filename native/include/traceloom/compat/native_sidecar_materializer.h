@@ -16,6 +16,10 @@ struct NativeCompatibilitySidecarOptions {
   std::uint32_t db_idx = 0;
   std::string source_kind = "native_ir";
   std::string source_path;
+  std::string input_evidence_contract = "not_evaluated";
+  std::string input_scope = "not_evaluated";
+  std::string input_evidence_state = "not_evaluated";
+  std::string input_missing_components;
   bool materialize_structural_views = true;
   bool materialize_collective_tags = true;
   bool materialize_aux_attribution = true;

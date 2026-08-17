@@ -30,7 +30,8 @@ void materialize_structural_compatibility_indexes(SqliteDb& db) {
       "ON traceloom_event_source(source_table, source_key)");
   db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_runtime_call_time "
-      "ON traceloom_runtime_call(provider, clock_domain, start_ns, end_ns)");
+      "ON traceloom_runtime_call(db_idx, provider, clock_domain, start_ns, "
+      "end_ns)");
   db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_runtime_call_correlation "
       "ON traceloom_runtime_call(provider, correlation_id)");
@@ -149,6 +150,10 @@ void materialize_structural_compatibility_indexes(SqliteDb& db) {
       "CREATE INDEX IF NOT EXISTS idx_traceloom_replay_cost_member_launch "
       "ON traceloom_replay_cost_member(launch_id, db_idx, device_id, "
       "lane_ordinal, task_ordinal)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_replay_cost_member_observed "
+      "ON traceloom_replay_cost_member(launch_id, db_idx, device_id, "
+      "start_ns, end_ns, lane_ordinal, task_ordinal, member_id)");
   db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_replay_cost_aggregate_hotspot "
       "ON traceloom_replay_cost_aggregate(db_idx, device_id, "

@@ -68,6 +68,17 @@ The database carries two audit surfaces for graph-heavy comparisons:
   occurrence counts are evidence, not a schema error; consumers compare
   distributions rather than pairing occurrences by index.
 
+`traceloom_v_replay_position_realization_member` is the nested structural
+plane inside one protected graph/replay Position. It preserves exact graph-body
+membership and raw source locators, orders members by observed timestamps with
+deterministic tie-breakers, and retains lane-local coordinates. The view also
+publishes `policy_role` beside `final_role`: atomic protection may change the
+flat role to `protected_boundary`, but it does not erase an internal operator
+or collective's policy-level anchor identity. `observed_order` and
+`observed_relation_to_previous` describe interval geometry only; they do not
+assert a dependency or causal edge. Recursive replay-body grammar remains
+per-stream and does not consume this cross-stream display order.
+
 The queryable database timeline exposes `traceloom_operator_audit`, a factual
 inventory of every concrete observed operator identity and task type. It
 reports occurrence count, total duration, graph-body membership, and anchor

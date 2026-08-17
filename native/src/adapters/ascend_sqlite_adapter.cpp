@@ -133,6 +133,72 @@ bool looks_like_ascend_split_sqlite_profile(const std::string& profile_dir) {
   return false;
 }
 
+AscendProfileEvidenceState classify_ascend_profile_evidence(
+    const std::string& source_path) {
+  namespace fs = std::filesystem;
+  std::error_code ec;
+  const fs::path source(source_path);
+  const bool source_is_directory = fs::is_directory(source, ec);
+  fs::path profile_root = source_is_directory ? source : source.parent_path();
+  bool source_has_profile_container = source_is_directory;
+  if (!source_is_directory) {
+    for (fs::path candidate = source.parent_path(); !candidate.empty();
+         candidate = candidate.parent_path()) {
+      const bool is_host_side_database =
+          source.parent_path() == candidate / "host" / "sqlite";
+      const bool is_monolithic_at_profile_root =
+          source.parent_path() == candidate &&
+          fs::is_directory(candidate / "host" / "sqlite", ec);
+      if (is_host_side_database || is_monolithic_at_profile_root) {
+        profile_root = candidate;
+        source_has_profile_container = true;
+        break;
+      }
+      if (candidate == candidate.root_path()) break;
+    }
+  }
+  std::vector<std::string> missing;
+  for (const fs::path& relative : {
+           fs::path("host/sqlite/runtime.db"),
+           fs::path("host/sqlite/stream_info.db"),
+       }) {
+    if (!fs::is_regular_file(profile_root / relative, ec)) {
+      missing.push_back(relative.generic_string());
+    }
+  }
+  bool has_device_task_db = false;
+  for (fs::directory_iterator iterator(
+           profile_root, fs::directory_options::skip_permission_denied, ec),
+       end;
+       !ec && iterator != end; iterator.increment(ec)) {
+    const fs::path device_dir = iterator->path();
+    if (iterator->is_directory(ec) &&
+        device_dir.filename().string().rfind("device_", 0) == 0 &&
+        fs::is_regular_file(device_dir / "sqlite" / "ascend_task.db", ec)) {
+      has_device_task_db = true;
+      break;
+    }
+  }
+  if (!has_device_task_db) {
+    missing.push_back("device_*/sqlite/ascend_task.db");
+  }
+
+  AscendProfileEvidenceState result;
+  result.contract_version = "ascend_full_profile_v1";
+  result.input_scope = missing.empty()
+                           ? "full_profile_directory"
+                           : (source_has_profile_container
+                                  ? "partial_profile_directory"
+                                  : "monolithic_db_only");
+  result.evidence_state = missing.empty() ? "profile_directory_complete"
+                                          : "evidence_incomplete";
+  for (std::size_t index = 0; index < missing.size(); ++index) {
+    if (index != 0) result.missing_components += ",";
+    result.missing_components += missing[index];
+  }
+  return result;
+}
+
 std::vector<AscendSplitSQLiteTableInfo>
 inventory_ascend_split_sqlite_profile(const std::string& profile_dir) {
   return inventory_split_profile_impl(profile_dir);

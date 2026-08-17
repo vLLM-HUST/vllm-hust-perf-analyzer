@@ -592,6 +592,14 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
     traceloom::compat::NativeCompatibilitySidecarOptions sidecar_options;
     sidecar_options.source_kind = source_kind;
     sidecar_options.source_path = source_db;
+    if (!is_cuda && !is_hygon) {
+      const traceloom::AscendProfileEvidenceState evidence =
+          traceloom::classify_ascend_profile_evidence(source_db);
+      sidecar_options.input_evidence_contract = evidence.contract_version;
+      sidecar_options.input_scope = evidence.input_scope;
+      sidecar_options.input_evidence_state = evidence.evidence_state;
+      sidecar_options.input_missing_components = evidence.missing_components;
+    }
     sidecar_options.grammar_worker_count = cli.threads;
     sidecar_options.grammar_target_nodes_per_chunk =
         kGrammarTargetNodesPerChunk;
@@ -690,6 +698,13 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
               : cli.loop_tree_db_label;
       markdown_options.source_kind = source_kind;
       markdown_options.source_path = source_db;
+      markdown_options.input_evidence_contract =
+          sidecar_options.input_evidence_contract;
+      markdown_options.input_scope = sidecar_options.input_scope;
+      markdown_options.input_evidence_state =
+          sidecar_options.input_evidence_state;
+      markdown_options.input_missing_components =
+          sidecar_options.input_missing_components;
       markdown_options.db_idx = sidecar_options.db_idx;
       markdown_options.has_device_id = true;
       markdown_options.device_id = render_device_id;

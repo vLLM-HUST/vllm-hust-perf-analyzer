@@ -386,6 +386,10 @@ void write_basic_native_compatibility_sidecar(
       {"native_compatibility_materializer", "basic_native_ir_v1"},
       {"source_kind", options.source_kind},
       {"source_path", options.source_path},
+      {"input_evidence_contract", options.input_evidence_contract},
+      {"input_scope", options.input_scope},
+      {"input_evidence_state", options.input_evidence_state},
+      {"input_missing_components", options.input_missing_components},
       {"artifact_kind", options.artifact_kind},
       {"source_embedded", options.source_embedded ? "true" : "false"},
       {"source_sha256", options.source_sha256},
@@ -469,10 +473,12 @@ void write_basic_native_compatibility_sidecar(
                         std::to_string(runtime_rows.anchor_relations.size())});
     metadata.push_back({"anchor_host_interval_count",
                         std::to_string(runtime_rows.host_intervals.size())});
-    metadata.push_back({"anchor_host_activity_count",
-                        std::to_string(runtime_rows.host_activities.size())});
-    metadata.push_back({"anchor_host_api_summary_count",
-                        std::to_string(runtime_rows.host_api_summaries.size())});
+    metadata.push_back({"anchor_host_activity_count", "0"});
+    metadata.push_back({"anchor_host_api_summary_count", "0"});
+    metadata.push_back(
+        {"anchor_host_activity_materialization_state", "query_time_only"});
+    metadata.push_back({"anchor_host_activity_candidate_upper_bound", "0"});
+    metadata.push_back({"anchor_host_activity_materialization_limit", "0"});
     const Stopwatch runtime_write_watch;
     replace_metadata_rows(sqlite_path, metadata);
     replace_runtime_device_rows(sqlite_path, runtime_rows);

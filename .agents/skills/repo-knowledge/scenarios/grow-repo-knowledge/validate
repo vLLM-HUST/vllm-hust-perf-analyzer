@@ -1,0 +1,93 @@
+#!/usr/bin/env python3
+"""Validate the stable structure of a repo-knowledge tree."""
+
+from __future__ import annotations
+
+from pathlib import Path
+import re
+import sys
+from urllib.parse import unquote
+
+
+LINK = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
+
+
+def main() -> int:
+    skill_root = Path(__file__).resolve().parents[2]
+    errors: list[str] = []
+
+    for relative in ("SKILL.md", "CATALOG.md", "agents/openai.yaml"):
+        path = skill_root / relative
+        if not path.is_file() or path.is_symlink():
+            errors.append(f"required regular file is missing: {relative}")
+
+    entries = sorted(
+        path.relative_to(skill_root).as_posix()
+        for path in skill_root.rglob("SKILL.md")
+        if path.is_file()
+    )
+    if entries != ["SKILL.md"]:
+        errors.append(
+            "the tree must expose exactly one SKILL.md at its root; found: "
+            + (", ".join(entries) or "none")
+        )
+
+    for staged in skill_root.parent.glob(".repo-knowledge-stage-*"):
+        if staged.resolve() != skill_root:
+            errors.append(f"staging residue remains beside the tree: {staged.name}")
+
+    scenarios_root = skill_root / "scenarios"
+    guides: list[Path] = []
+    if not scenarios_root.is_dir() or scenarios_root.is_symlink():
+        errors.append("required regular directory is missing: scenarios")
+    else:
+        for scenario in sorted(scenarios_root.iterdir()):
+            if scenario.is_symlink() or not scenario.is_dir():
+                errors.append(
+                    f"scenario entries must be regular directories: {scenario.name}"
+                )
+                continue
+            guide = scenario / "GUIDE.md"
+            if not guide.is_file() or guide.is_symlink():
+                errors.append(f"scenario has no regular GUIDE.md: {scenario.name}")
+            else:
+                guides.append(guide)
+
+    catalog = skill_root / "CATALOG.md"
+    catalog_targets: set[str] = set()
+    if catalog.is_file():
+        for raw_target in LINK.findall(catalog.read_text(encoding="utf-8")):
+            if "://" in raw_target or raw_target.startswith(("mailto:", "#")):
+                continue
+            path_part = unquote(raw_target.split("#", 1)[0])
+            if not path_part:
+                continue
+            if Path(path_part).is_absolute():
+                errors.append(f"catalog link must stay inside the tree: {raw_target}")
+                continue
+            target = (skill_root / path_part).resolve()
+            try:
+                relative = target.relative_to(skill_root).as_posix()
+            except ValueError:
+                errors.append(f"catalog link escapes the tree: {raw_target}")
+                continue
+            if not target.exists():
+                errors.append(f"catalog link is broken: {raw_target}")
+            catalog_targets.add(relative)
+
+    for guide in guides:
+        relative = guide.relative_to(skill_root).as_posix()
+        if relative not in catalog_targets:
+            errors.append(f"scenario guide is absent from CATALOG.md: {relative}")
+
+    if errors:
+        for error in errors:
+            print(f"repo-knowledge: {error}", file=sys.stderr)
+        return 1
+
+    print(f"repo-knowledge structure valid: {skill_root}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

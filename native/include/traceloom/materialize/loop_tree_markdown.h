@@ -18,6 +18,10 @@ struct LoopTreeMarkdownOptions {
   std::string db_label;
   std::string source_kind = "native_ir";
   std::string source_path;
+  std::string input_evidence_contract = "not_evaluated";
+  std::string input_scope = "not_evaluated";
+  std::string input_evidence_state = "not_evaluated";
+  std::string input_missing_components;
   std::uint32_t db_idx = 0;
   bool has_device_id = false;
   std::uint32_t device_id = 0;

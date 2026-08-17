@@ -219,6 +219,10 @@ CREATE INDEX IF NOT EXISTS idx_traceloom_replay_cost_member_event
   ON traceloom_replay_cost_member(event_id, db_idx, device_id);
 CREATE INDEX IF NOT EXISTS idx_traceloom_replay_cost_member_launch
   ON traceloom_replay_cost_member(launch_id, db_idx, device_id, lane_ordinal, task_ordinal);
+CREATE INDEX IF NOT EXISTS idx_traceloom_replay_cost_member_observed
+  ON traceloom_replay_cost_member(
+    launch_id, db_idx, device_id, start_ns, end_ns,
+    lane_ordinal, task_ordinal, member_id);
 CREATE INDEX IF NOT EXISTS idx_traceloom_replay_cost_aggregate_hotspot
   ON traceloom_replay_cost_aggregate(db_idx, device_id, duration_median_ns DESC);
 CREATE INDEX IF NOT EXISTS idx_traceloom_replay_cost_contributor

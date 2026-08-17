@@ -223,38 +223,6 @@ void insert_anchor_host_interval_row(
   sqlite3_clear_bindings(stmt.get());
 }
 
-void insert_anchor_host_activity_row(
-    SqliteStmt& stmt, const AnchorHostActivitySqlRow& row) {
-  bind_borrowed_text(stmt, 1, row.interval_id);
-  bind_borrowed_text(stmt, 2, row.runtime_call_id);
-  bind_int64(stmt, 3, row.observed_order);
-  const int rc = sqlite3_step(stmt.get());
-  if (rc != SQLITE_DONE) {
-    throw std::runtime_error("failed to insert anchor host activity row: " +
-                             std::string(sqlite3_errmsg(stmt.db())));
-  }
-  sqlite3_reset(stmt.get());
-  sqlite3_clear_bindings(stmt.get());
-}
-
-void insert_anchor_host_api_summary_row(
-    SqliteStmt& stmt, const AnchorHostApiSummarySqlRow& row) {
-  bind_borrowed_text(stmt, 1, row.interval_id);
-  bind_borrowed_text(stmt, 2, row.api_family);
-  bind_int64(stmt, 3, static_cast<std::int64_t>(row.call_count));
-  bind_int64(stmt, 4,
-             static_cast<std::int64_t>(row.distinct_api_name_count));
-  bind_double(stmt, 5, row.scheduled_call_us);
-  bind_double(stmt, 6, row.scheduled_overlap_us);
-  const int rc = sqlite3_step(stmt.get());
-  if (rc != SQLITE_DONE) {
-    throw std::runtime_error("failed to insert anchor host API summary row: " +
-                             std::string(sqlite3_errmsg(stmt.db())));
-  }
-  sqlite3_reset(stmt.get());
-  sqlite3_clear_bindings(stmt.get());
-}
-
 void insert_anchor_row(SqliteStmt& stmt, const AnchorSqlRow& row) {
   bind_borrowed_text(stmt, 1, row.anchor_id);
   bind_int64(stmt, 2, row.db_idx);

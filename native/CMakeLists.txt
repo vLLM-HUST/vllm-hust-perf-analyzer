@@ -122,6 +122,7 @@ add_library(traceloom_native_materialize
   src/compat/anchor_cost_breakdown_rows.cpp
   src/compat/augmented_catalog_materializer.cpp
   src/compat/augmented_projection_catalog.cpp
+  src/compat/augmented_replay_projection_catalog.cpp
   src/compat/augmented_replay_body_projection_catalog.cpp
   src/compat/aux_attribution_rows.cpp
   src/compat/collective_tag_rows.cpp
@@ -133,11 +134,11 @@ add_library(traceloom_native_materialize
   src/compat/structural_projection_tokens.cpp
   src/compat/replay_body_pattern_rows.cpp
   src/compat/replay_cost_sql_rows.cpp
+  src/compat/replay_position_views.cpp
   src/compat/evidence_role_decision_rows.cpp
   src/compat/evidence_role_sql_rows.cpp
   src/compat/evidence_role_sql_writer.cpp
   src/compat/event_reconciliation_rows.cpp
-  src/compat/runtime_api_family.cpp
   src/compat/runtime_device_rows.cpp
   src/compat/source_locator_json.cpp
   src/compat/schema.cpp
@@ -1019,6 +1020,7 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     add_executable(traceloom_native_sidecar_materializer_tests
       tests/compat/native_sidecar_materializer_tests.cpp
       tests/compat/native_sidecar_materializer_graph_tests.cpp
+      tests/compat/native_sidecar_materializer_host_window_tests.cpp
       tests/compat/native_sidecar_materializer_packaging_tests.cpp
       tests/compat/native_sidecar_materializer_test_support.cpp
     )

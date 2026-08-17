@@ -217,6 +217,14 @@ their exact contributors, and `traceloom_replay_cost_issue` preserves typed
 negative results. `traceloom_v_node_replay_cost_member` composes these rows
 with concrete Loop Tree occurrences and raw-source locators.
 
+`traceloom_v_replay_position_realization_member` is the complementary
+launch-scoped plane. It preserves the per-stream coordinates above but assigns
+a deterministic `observed_order` from absolute member timestamps, so operators,
+collectives, and support events can be read together. The view also joins the
+evidence-role decision: `policy_role` is the nested member identity, while
+`final_role` retains the outer protected-composite decision. This observed
+order is not fed into grammar and does not assert dependencies or causality.
+
 For a supported exact body, TraceLoom also applies the ordinary recursive
 grammar engine to each complete per-stream Position sequence. The resulting
 [recursive replay-body patterns](replay-body-patterns.md) make a full graph
@@ -231,6 +239,7 @@ The map does not:
 - flatten multi-launch ReplayUnits or assume ReplayUnit/body-template 1:1;
 - infer workload semantics or provider-specific meaning;
 - invent wall-clock attribution beyond the overlap-safe lenses above;
+- treat observed cross-stream timestamp order as dependency order;
 - treat kind sums as an additive wall-clock decomposition;
 - compare across profiles or rank devices (see
   `graph_body_performance_comparison` for cross-profile comparison);

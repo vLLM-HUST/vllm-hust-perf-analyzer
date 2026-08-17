@@ -155,11 +155,6 @@ int main() {
   require(rows.host_intervals.size() == 1);
   require(rows.host_intervals[0].support_state == "supported_ordered");
   require(rows.host_intervals[0].scope_policy == "same_thread");
-  require(rows.host_activities.size() == 1);
-  require(rows.host_api_summaries.size() == 1);
-  require(rows.host_api_summaries[0].api_family == "query");
-  require(rows.host_api_summaries[0].call_count == 1);
-  require(rows.host_api_summaries[0].distinct_api_name_count == 1);
   for (const compat::RuntimeCallSqlRow& row : rows.runtime_calls) {
     require(row.db_idx == 3);
   }

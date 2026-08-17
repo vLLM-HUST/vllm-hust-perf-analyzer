@@ -1,5 +1,7 @@
 #include "evidence_role_sql_internal.h"
 
+#include "replay_position_views.h"
+
 #if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
 
 #include <chrono>
@@ -623,6 +625,7 @@ void write_evidence_role_sql_rows(
     insert_protected_intervals(db, rows.protected_intervals);
     emit_phase("compact_relation_write");
     create_indexes_and_views(db);
+    materialize_replay_position_views(db.get());
     emit_phase("indexes_views");
     db.exec("COMMIT");
     emit_phase("commit");

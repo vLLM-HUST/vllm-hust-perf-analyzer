@@ -106,10 +106,41 @@ int main() {
   options.db_idx = 2;
   options.source_kind = "fixture";
   options.source_path = "memory";
+  options.input_evidence_contract = "ascend_full_profile_v1";
+  options.input_scope = "monolithic_db_only";
+  options.input_evidence_state = "evidence_incomplete";
+  options.input_missing_components = "host/sqlite/runtime.db";
   compat::write_basic_native_compatibility_sidecar(db_path, ir, options);
 
   require(run_scalar_int(db_path,
-                         "SELECT COUNT(*) FROM traceloom_metadata") == 37);
+                         "SELECT COUNT(*) FROM traceloom_metadata") == 44);
+  require(run_scalar_text(db_path,
+                          "SELECT value FROM traceloom_metadata WHERE key = "
+                          "'input_evidence_contract'") ==
+          "ascend_full_profile_v1");
+  require(run_scalar_text(db_path,
+                          "SELECT value FROM traceloom_metadata WHERE key = "
+                          "'input_scope'") == "monolithic_db_only");
+  require(run_scalar_text(db_path,
+                          "SELECT value FROM traceloom_metadata WHERE key = "
+                          "'input_evidence_state'") == "evidence_incomplete");
+  require(run_scalar_text(db_path,
+                          "SELECT value FROM traceloom_metadata WHERE key = "
+                          "'input_missing_components'") ==
+          "host/sqlite/runtime.db");
+  require(run_scalar_text(
+              db_path,
+              "SELECT value FROM traceloom_metadata WHERE key = "
+              "'anchor_host_activity_materialization_state'") ==
+          "query_time_only");
+  require(run_scalar_text(
+              db_path,
+              "SELECT value FROM traceloom_metadata WHERE key = "
+              "'anchor_host_activity_candidate_upper_bound'") == "0");
+  require(run_scalar_text(
+              db_path,
+              "SELECT value FROM traceloom_metadata WHERE key = "
+              "'anchor_host_activity_materialization_limit'") == "0");
   require(run_scalar_text(db_path,
                           "SELECT value FROM traceloom_metadata WHERE key = "
                           "'evidence_role_policy_id'") ==

@@ -248,23 +248,6 @@ void replace_runtime_device_rows(const std::string& sqlite_path,
       insert_anchor_host_interval_row(interval_stmt, row);
     }
 
-    SqliteStmt activity_stmt(
-        db.get(),
-        "INSERT INTO traceloom_anchor_host_activity ("
-        "interval_id, runtime_call_id, observed_order) VALUES (?, ?, ?)");
-    for (const AnchorHostActivitySqlRow& row : rows.host_activities) {
-      insert_anchor_host_activity_row(activity_stmt, row);
-    }
-
-    SqliteStmt summary_stmt(
-        db.get(),
-        "INSERT INTO traceloom_anchor_host_api_summary ("
-        "interval_id, api_family, call_count, distinct_api_name_count, "
-        "scheduled_call_us, scheduled_overlap_us) VALUES (?, ?, ?, ?, ?, ?)");
-    for (const AnchorHostApiSummarySqlRow& row : rows.host_api_summaries) {
-      insert_anchor_host_api_summary_row(summary_stmt, row);
-    }
-
     db.exec("COMMIT");
   } catch (...) {
     try {

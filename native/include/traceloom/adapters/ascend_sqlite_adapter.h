@@ -18,8 +18,17 @@ struct AscendSplitSQLiteTableInfo {
   std::uint64_t row_count = 0;
 };
 
+struct AscendProfileEvidenceState {
+  std::string contract_version;
+  std::string input_scope;
+  std::string evidence_state;
+  std::string missing_components;
+};
+
 bool ascend_sqlite_has_usable_task_table(const std::string& db_path);
 bool looks_like_ascend_split_sqlite_profile(const std::string& profile_dir);
+AscendProfileEvidenceState classify_ascend_profile_evidence(
+    const std::string& source_path);
 std::vector<AscendSplitSQLiteTableInfo>
 inventory_ascend_split_sqlite_profile(const std::string& profile_dir);
 
