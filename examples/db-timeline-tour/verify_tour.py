@@ -242,15 +242,15 @@ def verify(database: Path) -> None:
         bubble = db.execute(
             "SELECT b.* FROM traceloom_v_structure_bubble_occurrence b "
             "WHERE b.host_observation_status='supported_ordered' "
-            "AND EXISTS (SELECT 1 FROM traceloom_anchor_host_activity h "
+            "AND EXISTS (SELECT 1 FROM traceloom_v_anchor_host_activity h "
             "WHERE h.interval_id=b.host_interval_id) "
             "ORDER BY b.bubble_us DESC, b.bubble_id LIMIT 1"
         ).fetchone()
         require(bubble is not None, "no bubble occurrence with literal host calls")
         runtime_locator = db.execute(
-            "SELECT l.* FROM traceloom_anchor_host_activity h "
+            "SELECT l.* FROM traceloom_v_anchor_host_activity h "
             "JOIN traceloom_v_runtime_call_source_locator l "
-            "ON l.runtime_call_id=h.runtime_call_id "
+            "ON l.runtime_call_id=h.observed_runtime_call_id "
             "WHERE h.interval_id=? ORDER BY h.observed_order LIMIT 1",
             (bubble["host_interval_id"],),
         ).fetchone()

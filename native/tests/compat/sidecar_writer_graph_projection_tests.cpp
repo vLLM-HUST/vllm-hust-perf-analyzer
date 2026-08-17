@@ -511,8 +511,6 @@ void run_graph_projection_tests(
 
   traceloom::compat::materialize_structural_compatibility_views(db_path);
   std::vector<std::string> analyzed_tables = expected_tables;
-  analyzed_tables.push_back("traceloom_structure_bubble_api_occurrence");
-  analyzed_tables.push_back("traceloom_structure_bubble_api_stats");
   analyzed_tables.push_back("traceloom_structure_bubble_occurrence");
   analyzed_tables.push_back("traceloom_structure_bubble_position");
   analyzed_tables.push_back("sqlite_stat1");
@@ -539,6 +537,7 @@ void run_graph_projection_tests(
               "traceloom_v_node_host_interval",
               "traceloom_v_node_replay_cost_member",
               "traceloom_v_node_runtime_call",
+              "traceloom_v_runtime_call_family",
               "traceloom_v_runtime_device",
               "traceloom_v_semantic_tree_node",
               "traceloom_v_semantic_tree_readable",
@@ -611,13 +610,11 @@ void run_graph_projection_tests(
               "idx_traceloom_semantic_edge_tree",
               "idx_traceloom_semantic_node_parent",
               "idx_traceloom_semantic_node_tree_order",
-              "idx_traceloom_structure_bubble_api_hotspot",
-              "idx_traceloom_structure_bubble_api_occurrence",
-              "idx_traceloom_structure_bubble_api_stats",
               "idx_traceloom_structure_bubble_host_interval",
               "idx_traceloom_structure_bubble_id",
               "idx_traceloom_structure_bubble_position",
               "idx_traceloom_structure_bubble_position_hotspot",
+              "idx_traceloom_structure_bubble_position_id",
               "idx_traceloom_structure_bubble_transition",
               "idx_traceloom_symbol_normalization_rule",
               "idx_traceloom_symbol_normalization_source",

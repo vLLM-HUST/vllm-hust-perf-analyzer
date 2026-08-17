@@ -11,7 +11,6 @@
 
 #include "traceloom/compat/anchor_sequence_rows.h"
 #include "traceloom/compat/timeline_rows.h"
-#include "runtime_api_family.h"
 #include "source_locator_json.h"
 
 namespace traceloom::compat {
@@ -189,9 +188,7 @@ const char* graph_match_policy_name(GraphLaunchMatchPolicy policy) {
 }  // namespace
 
 RuntimeDeviceSqlRows build_runtime_device_sql_rows(const NativeIr& ir,
-                                                   std::uint32_t db_idx,
-                                                   const RuntimeDeviceProjectionOptions&
-                                                       options) {
+                                                   std::uint32_t db_idx) {
   RuntimeDeviceSqlRows rows;
   rows.runtime_calls.reserve(ir.runtime_calls.size());
 
@@ -648,9 +645,6 @@ RuntimeDeviceSqlRows build_runtime_device_sql_rows(const NativeIr& ir,
       rows.host_intervals.push_back(std::move(interval));
     }
   }
-
-  detail::materialize_host_activity_rows(rows,
-                                         options.max_host_activity_rows);
 
   return rows;
 }

@@ -300,12 +300,12 @@ ORDER BY occurrence_idx, anchor_order, scheduled_overlap_us DESC;
 CPU 没有工作。`support_state`、`cardinality` 和原始 row locator 应与结果一起读，
 不要把缺失或多义关系误解为“没有 host call”。
 
-这条查询路径不是每次临时做区间连接。augDB 会一次性物化
-`traceloom_anchor_runtime_relation`、`traceloom_anchor_host_interval` 和
-`traceloom_anchor_host_activity` 三层窄关系，并持久化索引与 planner statistics。
-对于 runtime calls 很密集的大 profile，这会让分析数据库明显大于原始运输包；
-取舍是有意的：TraceLoom 生成一次，然后人和 agents 反复做普通关系查询，而不再
-各自重建昂贵且容易漂移的 host/device 关系。
+这条查询路径只物化 anchor/runtime endpoint 关系与 typed host interval，**不会**
+物化全局 `host interval × runtime call` 关系。`traceloom_runtime_call` 上的复合时间
+索引和 TraceLoom 提供的 activity view / projection recipe 会在选定 interval、node
+或 occurrence 后按需完成区间连接。这样既保留关系查询能力，也避免密集 runtime
+profile 把一个多对多投影膨胀成巨型持久化产物。空的兼容 activity/summary 表不代表
+“没有 host call”；应查询带 selector 的 view 或 `host_window_calls` recipe。
 
 ### 纵向：固定结构，比较同构 occurrence
 

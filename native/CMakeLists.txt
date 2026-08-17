@@ -139,7 +139,6 @@ add_library(traceloom_native_materialize
   src/compat/evidence_role_sql_rows.cpp
   src/compat/evidence_role_sql_writer.cpp
   src/compat/event_reconciliation_rows.cpp
-  src/compat/runtime_api_family.cpp
   src/compat/runtime_device_rows.cpp
   src/compat/source_locator_json.cpp
   src/compat/schema.cpp
@@ -1021,6 +1020,7 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     add_executable(traceloom_native_sidecar_materializer_tests
       tests/compat/native_sidecar_materializer_tests.cpp
       tests/compat/native_sidecar_materializer_graph_tests.cpp
+      tests/compat/native_sidecar_materializer_host_window_tests.cpp
       tests/compat/native_sidecar_materializer_packaging_tests.cpp
       tests/compat/native_sidecar_materializer_test_support.cpp
     )

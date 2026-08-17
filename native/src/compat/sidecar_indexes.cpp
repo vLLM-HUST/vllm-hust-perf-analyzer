@@ -30,7 +30,8 @@ void materialize_structural_compatibility_indexes(SqliteDb& db) {
       "ON traceloom_event_source(source_table, source_key)");
   db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_runtime_call_time "
-      "ON traceloom_runtime_call(provider, clock_domain, start_ns, end_ns)");
+      "ON traceloom_runtime_call(db_idx, provider, clock_domain, start_ns, "
+      "end_ns)");
   db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_runtime_call_correlation "
       "ON traceloom_runtime_call(provider, correlation_id)");

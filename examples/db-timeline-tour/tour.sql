@@ -237,21 +237,18 @@ SELECT
   i.anchor_order,
   i.interval_id,
   i.support_state,
-  c.api_name,
-  count(a.runtime_call_id) AS observed_calls,
-  coalesce(round(sum((min(c.end_ns, i.host_end_ns) -
-                      max(c.start_ns, i.host_start_ns)) / 1000.0), 3), 0.0)
-    AS scheduled_overlap_us
+  a.api_name,
+  count(a.observed_runtime_call_id) AS observed_calls,
+  coalesce(round(sum(a.observed_overlap_us), 3), 0.0) AS scheduled_overlap_us
 FROM traceloom_v_node_host_interval i
 JOIN traceloom_tour_scope s USING (node_id)
-LEFT JOIN traceloom_anchor_host_activity a USING (interval_id)
-LEFT JOIN traceloom_runtime_call c USING (runtime_call_id)
+LEFT JOIN traceloom_v_anchor_host_activity a USING (interval_id)
 WHERE i.occurrence_idx = (
   SELECT occurrence_idx FROM traceloom_tour_outlier
 )
 GROUP BY i.coverage_kind, i.anchor_order, i.interval_id, i.support_state,
-         c.api_name
-ORDER BY scheduled_overlap_us DESC, i.anchor_order, c.api_name
+         a.api_name
+ORDER BY scheduled_overlap_us DESC, i.anchor_order, a.api_name
 LIMIT 10;
 
 .print ''
@@ -287,7 +284,7 @@ FROM traceloom_v_structure_bubble_position p
 WHERE EXISTS (
   SELECT 1
   FROM traceloom_v_structure_bubble_occurrence b
-  JOIN traceloom_anchor_host_activity h
+  JOIN traceloom_v_anchor_host_activity h
     ON h.interval_id = b.host_interval_id
   WHERE b.structural_position_id = p.structural_position_id
 )
@@ -315,7 +312,7 @@ FROM traceloom_v_structure_bubble_occurrence b
 JOIN traceloom_tour_bubble_scope s USING (structural_position_id)
 WHERE b.host_observation_status = 'supported_ordered'
   AND EXISTS (
-    SELECT 1 FROM traceloom_anchor_host_activity h
+    SELECT 1 FROM traceloom_v_anchor_host_activity h
     WHERE h.interval_id = b.host_interval_id
   )
 ORDER BY b.bubble_us DESC, b.right_occurrence_idx
@@ -328,16 +325,12 @@ SELECT * FROM traceloom_tour_bubble_occurrence;
 SELECT
   i.interval_id,
   i.support_state,
-  c.runtime_call_id,
-  c.api_name,
-  CASE WHEN c.runtime_call_id IS NULL THEN NULL
-       WHEN c.start_ns >= i.host_start_ns AND c.end_ns <= i.host_end_ns
-       THEN 'contained' ELSE 'boundary_overlap' END AS interval_relation,
-  round((min(c.end_ns, i.host_end_ns) -
-         max(c.start_ns, i.host_start_ns)) / 1000.0, 3) AS overlap_us
+  a.observed_runtime_call_id AS runtime_call_id,
+  a.api_name,
+  a.interval_relation,
+  a.observed_overlap_us AS overlap_us
 FROM traceloom_v_anchor_host_interval i
-LEFT JOIN traceloom_anchor_host_activity a USING (interval_id)
-LEFT JOIN traceloom_runtime_call c USING (runtime_call_id)
+LEFT JOIN traceloom_v_anchor_host_activity a USING (interval_id)
 WHERE i.interval_id = (
   SELECT host_interval_id FROM traceloom_tour_bubble_occurrence
 )
@@ -347,8 +340,8 @@ LIMIT 10;
 .print ''
 .print '12 / Audit: continue from runtime_call_id to embedded host evidence'
 WITH selected_call AS (
-  SELECT a.runtime_call_id
-  FROM traceloom_anchor_host_activity a
+  SELECT a.observed_runtime_call_id AS runtime_call_id
+  FROM traceloom_v_anchor_host_activity a
   WHERE a.interval_id = (
     SELECT host_interval_id FROM traceloom_tour_bubble_occurrence
   )

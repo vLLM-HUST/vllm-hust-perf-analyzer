@@ -27,6 +27,7 @@ void drop_structural_compatibility_views(SqliteDb& db) {
   db.exec("DROP VIEW IF EXISTS traceloom_v_aux_runtime_call");
   db.exec("DROP VIEW IF EXISTS traceloom_v_anchor_runtime_call");
   db.exec("DROP VIEW IF EXISTS traceloom_v_sync_runtime_call");
+  db.exec("DROP VIEW IF EXISTS traceloom_v_runtime_call_family");
   db.exec("DROP VIEW IF EXISTS traceloom_v_runtime_device");
   db.exec("DROP VIEW IF EXISTS traceloom_v_semantic_tree_readable");
   db.exec("DROP VIEW IF EXISTS traceloom_v_semantic_tree_node");
@@ -72,6 +73,33 @@ void materialize_runtime_device_views(SqliteDb& db) {
       "'CUPTI_ACTIVITY_KIND_SYNCHRONIZATION') OR "
       "(provider = 'ascend' AND device_source_table IN ('TASK', "
       "'AscendTask') AND device_symbol IN ('EVENT_RECORD', 'EVENT_WAIT'))");
+
+  db.exec(
+      "CREATE VIEW IF NOT EXISTS traceloom_v_runtime_call_family AS SELECT "
+      "call.*, CASE WHEN LOWER(COALESCE(api_name, '')) GLOB 'acl*' OR "
+      "LOWER(COALESCE(api_name, '')) GLOB 'cuda*' OR "
+      "LOWER(COALESCE(api_name, '')) GLOB 'hip*' THEN 'public' ELSE "
+      "'provider_internal_or_unknown' END AS api_layer, CASE WHEN "
+      "LOWER(COALESCE(api_name, '')) LIKE '%wait%' THEN 'wait' WHEN "
+      "LOWER(COALESCE(api_name, '')) LIKE '%synchronize%' THEN "
+      "'synchronize' WHEN LOWER(COALESCE(api_name, '')) LIKE '%query%' "
+      "THEN 'query' WHEN LOWER(COALESCE(api_name, '')) LIKE "
+      "'%eventrecord%' OR LOWER(COALESCE(api_name, '')) LIKE "
+      "'%recordevent%' THEN 'event_record' WHEN "
+      "LOWER(COALESCE(api_name, '')) LIKE '%eventcreate%' OR "
+      "LOWER(COALESCE(api_name, '')) LIKE '%createevent%' OR "
+      "LOWER(COALESCE(api_name, '')) LIKE '%eventdestroy%' OR "
+      "LOWER(COALESCE(api_name, '')) LIKE '%destroyevent%' THEN "
+      "'event_lifecycle' WHEN LOWER(COALESCE(api_name, '')) LIKE "
+      "'%graphlaunch%' OR LOWER(COALESCE(api_name, '')) LIKE "
+      "'%aclmdlriexecuteasync%' THEN 'graph_launch' WHEN "
+      "LOWER(COALESCE(api_name, '')) LIKE '%launch%' THEN 'launch' WHEN "
+      "LOWER(COALESCE(api_name, '')) LIKE '%memcpy%' OR "
+      "LOWER(COALESCE(api_name, '')) LIKE '%memset%' OR "
+      "LOWER(COALESCE(api_name, '')) LIKE '%inplacecopy%' THEN 'memory' "
+      "WHEN LOWER(COALESCE(api_name, '')) LIKE '%capture%' OR "
+      "LOWER(COALESCE(api_name, '')) LIKE '%graph%' THEN 'graph_control' "
+      "ELSE 'other' END AS api_family FROM traceloom_runtime_call call");
 
   db.exec(
       "CREATE VIEW IF NOT EXISTS traceloom_v_anchor_runtime_call AS "
@@ -122,11 +150,15 @@ void materialize_runtime_device_views(SqliteDb& db) {
       "interval_relation, c.process_id AS "
       "observed_process_id, c.thread_id AS observed_thread_id, "
       "c.source_table AS observed_source_table, c.source_key AS "
-      "observed_source_key, a.observed_order FROM "
-      "traceloom_anchor_host_activity a JOIN "
-      "traceloom_v_anchor_host_interval i ON i.interval_id = a.interval_id "
-      "JOIN traceloom_runtime_call c ON c.runtime_call_id = "
-      "a.runtime_call_id");
+      "observed_source_key, ROW_NUMBER() OVER (PARTITION BY i.interval_id "
+      "ORDER BY c.start_ns, c.end_ns, c.runtime_call_id) - 1 AS "
+      "observed_order FROM traceloom_v_anchor_host_interval i JOIN "
+      "traceloom_runtime_call c ON i.support_state = 'supported_ordered' "
+      "AND c.db_idx = i.db_idx AND c.provider = i.provider AND "
+      "c.clock_domain = i.clock_domain AND c.start_ns < i.host_end_ns AND "
+      "c.end_ns > i.host_start_ns AND (i.scope_policy <> 'same_process' OR "
+      "c.process_id = i.process_id) AND (i.scope_policy <> 'same_thread' OR "
+      "(c.process_id = i.process_id AND c.thread_id = i.thread_id))");
 
   db.exec(
       "CREATE VIEW IF NOT EXISTS traceloom_v_node_host_interval AS "
@@ -165,11 +197,16 @@ void materialize_runtime_device_views(SqliteDb& db) {
       "i.host_end_ns THEN 'contained' ELSE 'boundary_overlap' END AS "
       "interval_relation, c.process_id AS observed_process_id, c.thread_id "
       "AS observed_thread_id, c.source_table AS observed_source_table, "
-      "c.source_key AS observed_source_key, a.observed_order "
-      "FROM traceloom_v_node_host_interval i "
-      "JOIN traceloom_anchor_host_activity a ON a.interval_id = "
-      "i.interval_id JOIN traceloom_runtime_call c ON c.runtime_call_id = "
-      "a.runtime_call_id");
+      "c.source_key AS observed_source_key, ROW_NUMBER() OVER (PARTITION BY "
+      "i.node_id, i.occurrence_idx, i.interval_id ORDER BY c.start_ns, "
+      "c.end_ns, c.runtime_call_id) - 1 AS observed_order FROM "
+      "traceloom_v_node_host_interval i JOIN traceloom_runtime_call c ON "
+      "i.support_state = 'supported_ordered' AND c.db_idx = i.db_idx AND "
+      "c.provider = i.provider AND c.clock_domain = i.clock_domain AND "
+      "c.start_ns < i.host_end_ns AND c.end_ns > i.host_start_ns AND "
+      "(i.scope_policy <> 'same_process' OR c.process_id = i.process_id) "
+      "AND (i.scope_policy <> 'same_thread' OR (c.process_id = i.process_id "
+      "AND c.thread_id = i.thread_id))");
 }
 
 #endif

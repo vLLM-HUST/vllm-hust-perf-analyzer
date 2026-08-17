@@ -23,7 +23,6 @@ struct NativeCompatibilitySidecarOptions {
   bool materialize_structural_views = true;
   bool materialize_collective_tags = true;
   bool materialize_aux_attribution = true;
-  std::uint64_t max_host_activity_rows = 1000000;
   std::string collective_run_name;
   std::string collective_db_name;
   std::uint32_t collective_expected_world_size = 0;

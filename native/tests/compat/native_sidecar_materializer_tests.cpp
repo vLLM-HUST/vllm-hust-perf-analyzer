@@ -131,7 +131,8 @@ int main() {
   require(run_scalar_text(
               db_path,
               "SELECT value FROM traceloom_metadata WHERE key = "
-              "'anchor_host_activity_materialization_state'") == "complete");
+              "'anchor_host_activity_materialization_state'") ==
+          "query_time_only");
   require(run_scalar_text(
               db_path,
               "SELECT value FROM traceloom_metadata WHERE key = "
@@ -139,7 +140,7 @@ int main() {
   require(run_scalar_text(
               db_path,
               "SELECT value FROM traceloom_metadata WHERE key = "
-              "'anchor_host_activity_materialization_limit'") == "1000000");
+              "'anchor_host_activity_materialization_limit'") == "0");
   require(run_scalar_text(db_path,
                           "SELECT value FROM traceloom_metadata WHERE key = "
                           "'evidence_role_policy_id'") ==

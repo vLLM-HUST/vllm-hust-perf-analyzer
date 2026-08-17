@@ -591,6 +591,7 @@ void run_packaging_materializer_tests() {
               "surface_name = 'anchor_symbol_lineage' AND relation_name = "
               "'traceloom_v_anchor_symbol_lineage'") == 1);
   require_analysis_surface_queries_prepare(augmented_path);
+  run_host_window_query_tests(augmented_path);
   require(run_scalar_text(augmented_path,
                           "SELECT embedded_table_name FROM "
                           "traceloom_raw_table WHERE source_table = "

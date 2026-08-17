@@ -155,27 +155,6 @@ int main() {
   require(rows.host_intervals.size() == 1);
   require(rows.host_intervals[0].support_state == "supported_ordered");
   require(rows.host_intervals[0].scope_policy == "same_thread");
-  require(rows.host_activities.size() == 1);
-  require(rows.host_api_summaries.size() == 1);
-  require(rows.host_activity_materialization_state == "complete");
-  require(rows.host_activity_candidate_upper_bound == 1);
-  require(rows.host_activity_materialization_limit == 1000000);
-  require(rows.host_api_summaries[0].api_family == "query");
-  require(rows.host_api_summaries[0].call_count == 1);
-  require(rows.host_api_summaries[0].distinct_api_name_count == 1);
-  compat::RuntimeDeviceProjectionOptions withheld_options;
-  withheld_options.max_host_activity_rows = 0;
-  const compat::RuntimeDeviceSqlRows withheld_rows =
-      compat::build_runtime_device_sql_rows(ir, 3, withheld_options);
-  require(withheld_rows.host_activity_materialization_state ==
-          "withheld_candidate_upper_bound_exceeds_limit");
-  require(withheld_rows.host_activity_candidate_upper_bound == 1);
-  require(withheld_rows.host_activity_materialization_limit == 0);
-  require(withheld_rows.host_activities.empty());
-  require(withheld_rows.host_api_summaries.empty());
-  require(withheld_rows.host_intervals.size() == 1);
-  require(withheld_rows.host_intervals[0].support_state ==
-          "supported_ordered_activity_withheld_size_limit");
   for (const compat::RuntimeCallSqlRow& row : rows.runtime_calls) {
     require(row.db_idx == 3);
   }

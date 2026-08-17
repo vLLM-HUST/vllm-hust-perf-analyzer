@@ -85,8 +85,6 @@ void materialize_structural_compatibility_views(
     db.exec("ANALYZE traceloom_anchor_host_interval");
     db.exec("ANALYZE traceloom_anchor_host_activity");
     db.exec("ANALYZE traceloom_structure_bubble_occurrence");
-    db.exec("ANALYZE traceloom_structure_bubble_api_occurrence");
-    db.exec("ANALYZE traceloom_structure_bubble_api_stats");
     emit_phase("analyze");
     db.exec("COMMIT");
     emit_phase("commit");

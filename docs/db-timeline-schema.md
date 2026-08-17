@@ -276,37 +276,28 @@ Host runtime calls are deliberately not counted as device auxiliary work.
 Their intervals remain in the provider host clock and their relation to device
 events remains explicit.
 
-The augmented DB materializes three narrow bridges rather than forcing every
-consumer to reconstruct them from wide joins:
+The augmented DB materializes two narrow bridges rather than forcing every
+consumer to reconstruct endpoint identity:
 
 - `traceloom_anchor_runtime_relation`: anchor to relation outcome;
 - `traceloom_anchor_host_interval`: adjacent anchor pair and its typed host
-  endpoint interval;
-- `traceloom_anchor_host_activity`: profiler-observed runtime calls overlapping
-  a supported interval, in observed start order.
+  endpoint interval.
 
-The last relation can be much larger than either input population: endpoint
-order may make many anchor intervals span large portions of a process or
-thread runtime timeline. TraceLoom computes a conservative candidate-row upper
-bound before expanding any interval. If that bound exceeds the declared
-`anchor_host_activity_materialization_limit`, it withholds the entire activity
-and API-summary projection rather than publish a partial or practically
-unbounded relation. The metadata state becomes
-`withheld_candidate_upper_bound_exceeds_limit`, and otherwise-supported
-intervals become
-`supported_ordered_activity_withheld_size_limit`. The runtime calls, anchor
-endpoints, and typed intervals remain queryable; an empty activity table in
-this state must not be interpreted as observing no host calls.
+It deliberately does **not** materialize the many-interval-to-many-call
+activity relation. Endpoint order can make that relation much larger than
+either input population, so even a nominally bounded global expansion is the
+wrong artifact. `traceloom_metadata` records
+`anchor_host_activity_materialization_state=query_time_only`; the legacy
+activity and API-summary tables remain empty compatibility placeholders, and
+their zero row counts must not be interpreted as observing no host calls.
 
-Query these `traceloom_metadata` keys before consuming host activity:
-
-- `anchor_host_activity_materialization_state`;
-- `anchor_host_activity_candidate_upper_bound`;
-- `anchor_host_activity_materialization_limit`.
-
-This fail-closed bound applies to global materialization. A future bounded
-interval-local query path may expose selected calls without claiming that a
-full Cartesian-like projection is an acceptable artifact.
+Instead, `traceloom_v_anchor_host_activity` and
+`traceloom_v_node_host_activity` are query-time relations. The
+`host_window_calls` recipe first materializes only the selected `interval_id`
+as a one-row CTE, then intersects indexed `traceloom_runtime_call` rows in the
+same database, provider clock, and declared thread/process scope. Use an
+interval, node, or occurrence selector; do not request the full unbounded
+relation merely because it is expressible as a view.
 
 ### Host runtime behavior between device anchors
 
@@ -319,18 +310,17 @@ otherwise reports the shared provider clock domain. Unsupported cases remain typ
 `missing_endpoint`, `ambiguous_endpoint`, `incompatible_host_domain`, or
 `nonmonotonic_host_order`.
 
-When the metadata state is `complete`, `traceloom_anchor_host_activity` stores
-the narrow interval/call links;
-`traceloom_v_anchor_host_activity` joins their readable fields and returns
-every **profiler-observed runtime call** overlapping a supported interval. This lets
-a query ask whether the same device structure is accompanied by a launch
-burst, synchronization calls, or different runtime-call distributions across
-occurrences. It does not assert what unprofiled CPU code did between calls and
-does not label a device gap's cause. Clock calibration is needed only for
-genuinely cross-clock measures such as enqueue-to-execute latency; it is not
-required to query ordered calls inside one host clock domain.
+`traceloom_v_anchor_host_activity` computes every **profiler-observed runtime
+call** overlapping a selected supported interval at query time. This lets a
+query ask whether the same device structure is accompanied by a launch burst,
+synchronization calls, or different runtime-call distributions across
+occurrences without storing all interval/call pairs. It does not assert what
+unprofiled CPU code did between calls and does not label a device gap's cause.
+Clock calibration is needed only for genuinely cross-clock measures such as
+enqueue-to-execute latency; it is not required to query ordered calls inside
+one host clock domain.
 
-The readable view retains full call duration and also materializes the call's
+The readable view retains full call duration and also computes the call's
 clipped `observed_overlap_us` plus a `contained`/`boundary_overlap` relation.
 Runtime calls may nest or overlap each other, so summing either duration is a
 scheduled-call measure, not an overlap-safe host busy union.
@@ -361,20 +351,15 @@ the adjacent anchors' supported runtime endpoints. `bubble_us` is device cost;
 `host_interval_us` is a contextual host-clock interval and is not charged as
 device cost.
 
-`traceloom_anchor_host_api_summary` is a compact intermediate relation built
-while TraceLoom constructs host-activity links. Its grain is one supported host
-interval and one public API family. It preserves call count, distinct API-name
-count, scheduled call duration, and clipped scheduled overlap. This avoids
-rejoining millions of activity links to the provenance-heavy runtime table for
-every analytical query.
-
-`traceloom_v_structure_bubble_api_occurrence` associates those family summaries
-with individual bubble occurrences. `traceloom_v_structure_bubble_api_stats`
-then aggregates equivalent recovered structural positions and reports bubble
-cost, host-observation coverage, API-family presence, average counts, and
-scheduled duration measures. Presence against all bubbles and against only
-host-observable bubbles are separate columns so unsupported host endpoints do
-not silently become zero API activity.
+`traceloom_v_structure_bubble_api_occurrence` computes API-family summaries for
+selected bubble occurrences from the same indexed runtime-call intersection.
+`traceloom_v_structure_bubble_api_stats` then aggregates equivalent recovered
+structural positions and reports bubble cost, host-observation coverage,
+API-family presence, average counts, and scheduled duration measures. These are
+query-time views, not stored interval/call links or global API-summary tables.
+Presence against all bubbles and against only host-observable bubbles are
+separate columns so unsupported host endpoints do not silently become zero API
+activity.
 
 `traceloom_v_structure_bubble_position` is the typed population entry point.
 It preserves every recurrent position and counts supported, missing-endpoint,

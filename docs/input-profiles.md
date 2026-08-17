@@ -23,11 +23,12 @@ side evidence (`host/sqlite/runtime.db`, `host/sqlite/stream_info.db`, or a
 the optional Loop Tree header prints the same contract. Never compare a
 DB-only report with a full-profile report as if they were equivalent runs.
 
-Input completeness is independent of projection scalability. Before using
-host-activity or host-API-summary rows, also require
-`anchor_host_activity_materialization_state=complete`; a typed withheld state
-means the global interval/call expansion exceeded its declared safety bound,
-not that the profiler observed no host activity.
+Input completeness is independent of projection scalability. TraceLoom records
+`anchor_host_activity_materialization_state=query_time_only`: it never stores
+the global interval/call expansion. Select a typed host interval, node, or
+occurrence and query the indexed activity views or `host_window_calls` recipe.
+The empty compatibility activity/summary tables do not mean that the profiler
+observed no host activity.
 
 For each `PROF_*` directory, the native analyzer prefers a monolithic DB with a
 nonempty `TASK` table. If it is absent or unusable, TraceLoom reports a warning

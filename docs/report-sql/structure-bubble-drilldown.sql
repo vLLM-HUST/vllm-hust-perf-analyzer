@@ -69,10 +69,10 @@ SELECT bubble.bubble_id,
        call.source_key AS runtime_source_key,
        bubble.api_association_semantics
 FROM bubble
-LEFT JOIN traceloom_anchor_host_activity AS activity
+LEFT JOIN traceloom_v_anchor_host_activity AS activity
   ON activity.interval_id = bubble.host_interval_id
 LEFT JOIN traceloom_runtime_call AS call
-  ON call.runtime_call_id = activity.runtime_call_id
+  ON call.runtime_call_id = activity.observed_runtime_call_id
  AND (lower(coalesce(call.api_name, '')) GLOB 'acl*'
    OR lower(coalesce(call.api_name, '')) GLOB 'cuda*'
    OR lower(coalesce(call.api_name, '')) GLOB 'hip*')

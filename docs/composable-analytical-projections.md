@@ -212,15 +212,23 @@ matters: every structural position remains visible as `supported_ordered`,
 `missing_endpoint`, `nonmonotonic_host_order`, or another typed boundary.
 `scope_host_context` then left-projects profiler-visible API distributions;
 unsupported and supported-but-empty intervals remain rows. It does not charge
-host duration to the device node or assign a cause.
+host duration to the device node or assign a cause. The recipe materializes
+only the selected interval population as a CTE and intersects indexed runtime
+calls at query time; it does not depend on a globally materialized
+interval/call relation.
 
 `bubble_host_context` starts from a recovered structural position, holds that
 position fixed across bubble occurrences, and combines overlap-safe uncovered
-device cost with supported upstream API-family observations. A selected bubble
-can then continue through `bubble_occurrences` to `host_window_calls` and
-`runtime_call_audit`. `bubble_hotspots` retains positions whose occurrences
-have no supported host window, so changing observation domain never turns an
-unsupported population into an empty successful answer.
+device cost with supported upstream API-family observations. Its recipe
+materializes only the selected position and bubble population as CTEs, then
+uses fixed join order and the runtime-time index; it does not aggregate the
+global bubble/call relation. A selected bubble can then continue through
+`bubble_occurrences` to `host_window_calls` and `runtime_call_audit`.
+`bubble_hotspots` retains positions whose occurrences have no supported host
+window, so changing observation domain never turns an unsupported population
+into an empty successful answer. Generic bubble API-family views remain
+query-time relations and should be filtered by structural position or bubble
+identity.
 
 Cost columns remain named lenses. Scheduled task sums, overlap-safe busy time,
 wall-span envelopes, device bubble cost, and host scheduled-call duration are

@@ -15,6 +15,7 @@ NativeIr build_collective_repeat_ir();
 NativeIr build_exact_cuda_graph_replay_ir();
 
 void run_graph_materializer_tests();
+void run_host_window_query_tests(const std::string& augmented_path);
 void run_packaging_materializer_tests();
 
 }  // namespace traceloom::testing::sidecar_materializer

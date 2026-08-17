@@ -28,31 +28,24 @@ before execution. Select summary fields before reading results, run the exact
 analyzer commit twice, and compare deterministic summaries. Do not use an old
 report to supply expected counts.
 
-## Guard interval/activity expansion before materializing it
+## Never materialize the global interval/activity relation
 
 `traceloom_anchor_host_activity` is a many-interval-to-many-call projection.
 Its size is not bounded by either the anchor count or runtime-call count:
 ordered anchor endpoints can span large portions of a thread or process
-runtime timeline. Always inspect these metadata keys before consuming the
-activity or API-summary tables:
+runtime timeline. The accepted invariant is stronger than a size guard: do not
+materialize this global relation at all. Materialize runtime calls, auditable
+endpoint relations, and typed host intervals; keep
+`anchor_host_activity_materialization_state=query_time_only` and the legacy
+activity/API-summary tables empty. A zero row count there means **not
+materialized**, never “no host calls.”
 
-- `anchor_host_activity_materialization_state`;
-- `anchor_host_activity_candidate_upper_bound`;
-- `anchor_host_activity_materialization_limit`.
-
-The accepted implementation computes a conservative range-size upper bound
-before emitting any activity row. When it exceeds the configured limit, it
-withholds the complete global activity and summary projection, changes every
-otherwise-supported interval to
-`supported_ordered_activity_withheld_size_limit`, and records
-`withheld_candidate_upper_bound_exceeds_limit`. Empty activity tables in that
-state mean **withheld**, never “no host calls.” Runtime calls, endpoint
-relations, and typed host intervals remain available.
-
-The projection is all-or-nothing by design. Do not emit an arbitrary prefix of
-intervals or calls: that would look like complete observed evidence. A future
-interval-local query path can recover selected activity without restoring an
-unbounded global expansion.
+Recover selected activity through `host_window_calls`,
+`traceloom_v_anchor_host_activity`, or `scope_host_context`. These routes first
+bind one interval or a selected structural scope and then use
+`idx_traceloom_runtime_call_time(db_idx, provider, clock_domain, start_ns,
+end_ns)` plus the interval's thread/process policy. Do not remove the selector
+and treat an expressible full view as a safe artifact.
 
 ## Bounded exp001 observation (2026-08-17)
 
@@ -69,7 +62,7 @@ Observed before the guard at TraceLoom `d0c62f0`:
 - a raw-SQL audit over all task endpoints estimated 12,767,955,435
   same-process plus 1,751,247,794 same-thread candidate rank spans.
 
-Observed with the guard in the immediate repair tree:
+Observed with the predecessor size guard at TraceLoom `ac1c650`:
 
 - the analyzer's selected-anchor upper bound was 3,368,005,894 rows against a
   1,000,000-row limit;
@@ -80,19 +73,43 @@ Observed with the guard in the immediate repair tree:
   for attribution.
 
 These are bounded observations for the named bytes and analyzer lineage, not
-universal performance or cardinality guarantees. Freeze the exact repair
-commit and repeat before promoting them to a repository golden.
+universal performance or cardinality guarantees. They explain why the final
+contract removed global activity materialization entirely; they are not
+performance receipts for the query-time implementation.
+
+## Bounded query-time projection observation (2026-08-17)
+
+On the same exp001 bytes and raw inventory, a Release analyzer built from
+parent `ac1c650` plus dirty runtime patch
+`52f732d19e68455c49186e6edb002978dd82fda627f3d32a712abf9991afefd9`
+completed in 104.980 seconds with a 3,058,196,480-byte DB. Metadata reported
+`query_time_only`, zero materialized activity rows, and zero materialized API
+summaries.
+
+A late same-thread interval selected from 1,108,204 runtime calls returned its
+two overlapping calls in 0.204 seconds; the readable view returned the same
+count in 0.136 seconds, and both plans used
+`idx_traceloom_runtime_call_time`. An initial bubble recipe still hid a global
+aggregate behind a view and was interrupted after 30.185 seconds. Binding
+`node-N028` first, forcing selected-position -> selected-bubble -> runtime-call
+join order with `CROSS JOIN`, and adding the structural-position index changed
+the same query to 0.003 seconds with both the position and runtime-time indexes.
+
+This is a bounded implementation observation, not a universal latency or
+canonical-determinism claim. Preserve the explicit CTE bounds, `CROSS JOIN`
+ordering, and plan assertions when changing these recipes.
 
 ## Verify a change
 
 1. Unit-test complete, partial, and isolated-DB input classification.
-2. Exercise a small supported interval and require exact activity and API
-   summary rows.
-3. Force the activity limit below the same fixture's candidate count; require
-   zero partial activity/summary rows, typed interval states, and metadata
-   counts/limit.
+2. Require empty compatibility activity/API-summary tables and
+   `anchor_host_activity_materialization_state=query_time_only`.
+3. Exercise a selected supported interval and require exact query-time calls,
+   half-open boundary behavior, database/provider/clock isolation, scope-policy
+   filtering, deterministic observed order, and indexed query planning.
 4. Run the complete native test preset.
-5. On the bounded real profile, enforce wall-time and output-size limits, query
-   the input/activity metadata first, and preserve a receipt for any timeout.
+5. On the bounded real profile, query one selected interval or structural scope
+   with a wall-time/output limit and inspect `EXPLAIN QUERY PLAN`; never run the
+   full activity view as a validation shortcut.
 6. Only after a clean exact-commit run succeeds, compare two independently
    generated canonical summaries and one byte-identical DB-only input run.
