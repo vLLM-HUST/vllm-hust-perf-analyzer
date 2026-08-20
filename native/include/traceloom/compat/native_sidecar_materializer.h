@@ -15,6 +15,7 @@ namespace traceloom::compat {
 struct NativeCompatibilitySidecarOptions {
   std::uint32_t db_idx = 0;
   std::string source_kind = "native_ir";
+  std::string input_format = "unknown";
   std::string source_path;
   std::string input_evidence_contract = "not_evaluated";
   std::string input_scope = "not_evaluated";
@@ -41,10 +42,55 @@ struct NativeCompatibilitySidecarOptions {
   FlatAnchorBuildConfig evidence_role_config;
 };
 
+struct NativeGrammarLiveNodeSummary {
+  std::uint64_t grammar_node_id = 0;
+  std::uint64_t symbol_id = 0;
+  bool has_macro_def_id = false;
+  std::uint64_t macro_def_id = 0;
+  std::string label;
+  std::size_t source_begin_token_index = 0;
+  std::size_t source_end_token_index_exclusive = 0;
+  std::uint32_t first_anchor_idx = 0;
+  std::uint32_t last_anchor_idx = 0;
+  double span_us = 0.0;
+};
+
+struct NativeGrammarMacroSummary {
+  std::uint64_t macro_def_id = 0;
+  std::uint64_t symbol_id = 0;
+  std::string level;
+  std::string label;
+  std::vector<std::string> rhs_labels;
+  std::size_t definition_len = 0;
+  std::size_t replace_count = 0;
+  std::ptrdiff_t gain = 0;
+  std::size_t first_pos = 0;
+  std::size_t occurrence_count = 0;
+  std::uint32_t first_anchor_idx = 0;
+  std::uint32_t last_anchor_idx = 0;
+  double inclusive_span_us = 0.0;
+};
+
+struct NativeCompactGrammarProjection {
+  std::uint32_t device_id = 0;
+  bool available = false;
+  std::string stop_reason;
+  std::size_t engine_step_count = 0;
+  std::size_t source_token_count = 0;
+  std::vector<NativeGrammarLiveNodeSummary> live_nodes;
+  std::vector<NativeGrammarMacroSummary> macro_defs;
+};
+
 struct NativeDeviceStructuralProjection {
   std::uint32_t device_id = 0;
   std::vector<StructuralProjectionToken> tokens;
   StructuralOccurrenceGraph graph;
+  NativeCompactGrammarProjection compact_grammar;
+};
+
+struct NativeLoopTreeReportData {
+  NodeCoverageSqlRows coverage;
+  std::vector<NativeCompactGrammarProjection> compact_grammars;
 };
 
 void write_basic_native_compatibility_sidecar(
@@ -80,6 +126,14 @@ void write_queryable_database_timeline(
 // device and never invents a cross-device graph.
 std::vector<NativeDeviceStructuralProjection>
 build_native_device_structural_projections(
+    const NativeIr& ir,
+    const NativeCompatibilitySidecarOptions& options =
+        NativeCompatibilitySidecarOptions{});
+
+// Builds the expanded evidence rows and the bounded live-grammar projection
+// from the same device-local recovery pass. Human renderers can therefore
+// choose a compact summary without rerunning or weakening structural recovery.
+NativeLoopTreeReportData build_native_loop_tree_report_data(
     const NativeIr& ir,
     const NativeCompatibilitySidecarOptions& options =
         NativeCompatibilitySidecarOptions{});

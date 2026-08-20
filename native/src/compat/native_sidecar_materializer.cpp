@@ -1,6 +1,7 @@
 #include "traceloom/compat/native_sidecar_materializer.h"
 
 #include "augmented_catalog_materializer.h"
+#include "compact_grammar_projection.h"
 #include "native_sidecar_packaging.h"
 
 #include <algorithm>
@@ -99,13 +100,15 @@ void require_matching_policy_hint(const std::string& field,
                                 " disagrees with evidence_role_config");
   }
 }
-
-
-
 StructuralOccurrenceGraph recover_structural_occurrence_graph(
     const NativeIr& ir,
     const NativeCompatibilitySidecarOptions& options,
-    const std::vector<StructuralProjectionToken>& structural_tokens) {
+    const std::vector<StructuralProjectionToken>& structural_tokens,
+    NativeCompactGrammarProjection* compact_grammar) {
+  if (compact_grammar != nullptr) {
+    compact_grammar->source_token_count = structural_tokens.size();
+    compact_grammar->stop_reason = "disabled";
+  }
   if (!options.materialize_grammar_structural_projection ||
       structural_tokens.empty()) {
     return build_structural_occurrence_graph_from_tokens(structural_tokens);
@@ -126,6 +129,11 @@ StructuralOccurrenceGraph recover_structural_occurrence_graph(
         grammar_state.metadata.full_discovery_cap;
     const GrammarEngineResult grammar_result =
         run_grammar_state_machine(grammar_state, grammar_engine_config);
+    if (compact_grammar != nullptr) {
+      *compact_grammar = detail::summarize_compact_grammar(
+          ir, structural_tokens, grammar_state, grammar_result,
+          structural_tokens.empty() ? 0 : structural_tokens.front().device_id);
+    }
     if (options.timing_diagnostics) {
       std::cerr << "timing loop_tree_grammar_stop_reason="
                 << grammar_engine_stop_reason_name(grammar_result.stop_reason)
@@ -173,6 +181,10 @@ StructuralOccurrenceGraph recover_structural_occurrence_graph(
     }
     return tree;
   } catch (const std::exception& ex) {
+    if (compact_grammar != nullptr) {
+      compact_grammar->available = false;
+      compact_grammar->stop_reason = "exception";
+    }
     StructuralOccurrenceGraph fallback =
         build_structural_occurrence_graph_from_tokens(structural_tokens);
     fallback.diagnostics.push_back(Diagnostic{
@@ -299,16 +311,19 @@ build_native_device_structural_projections(
     const Stopwatch tree_watch;
     NativeDeviceStructuralProjection device;
     device.device_id = partition.device_id;
+    device.compact_grammar.device_id = partition.device_id;
     device.tokens = partition.tokens;
     if (partitions.size() == 1) {
       device.graph =
-          recover_structural_occurrence_graph(ir, options, partition.tokens);
+          recover_structural_occurrence_graph(ir, options, partition.tokens,
+                                              &device.compact_grammar);
     } else {
       const NativeIr projection =
           project_ir_for_device(ir, partition.device_id);
       device.graph =
           recover_structural_occurrence_graph(projection, options,
-                                              partition.tokens);
+                                              partition.tokens,
+                                              &device.compact_grammar);
     }
     if (options.timing_diagnostics) {
       std::cerr << "timing loop_tree_structural_projection_ms_device="
@@ -321,6 +336,12 @@ build_native_device_structural_projections(
 }
 
 NodeCoverageSqlRows build_native_loop_tree_node_coverage_rows(
+    const NativeIr& ir,
+    const NativeCompatibilitySidecarOptions& options) {
+  return build_native_loop_tree_report_data(ir, options).coverage;
+}
+
+NativeLoopTreeReportData build_native_loop_tree_report_data(
     const NativeIr& ir,
     const NativeCompatibilitySidecarOptions& options) {
   const std::vector<NativeDeviceStructuralProjection> device_trees =
@@ -337,31 +358,33 @@ NodeCoverageSqlRows build_native_loop_tree_node_coverage_rows(
   }
   const Stopwatch coverage_watch;
   const bool scope_node_ids = device_trees.size() > 1;
-  NodeCoverageSqlRows rows;
+  NativeLoopTreeReportData report;
+  report.compact_grammars.reserve(device_trees.size());
   for (const NativeDeviceStructuralProjection& device : device_trees) {
     NodeCoverageSqlRows device_rows = build_structural_node_coverage_sql_rows(
         device.graph, device.tokens, aux_rows, options.db_idx,
         "native_report_tree", scope_node_ids);
-    rows.nodes.insert(rows.nodes.end(), device_rows.nodes.begin(),
+    report.coverage.nodes.insert(report.coverage.nodes.end(), device_rows.nodes.begin(),
                       device_rows.nodes.end());
-    rows.edges.insert(rows.edges.end(), device_rows.edges.begin(),
+    report.coverage.edges.insert(report.coverage.edges.end(), device_rows.edges.begin(),
                       device_rows.edges.end());
-    rows.loop_nodes.insert(rows.loop_nodes.end(),
+    report.coverage.loop_nodes.insert(report.coverage.loop_nodes.end(),
                            device_rows.loop_nodes.begin(),
                            device_rows.loop_nodes.end());
-    rows.node_anchors.insert(rows.node_anchors.end(),
+    report.coverage.node_anchors.insert(report.coverage.node_anchors.end(),
                              device_rows.node_anchors.begin(),
                              device_rows.node_anchors.end());
-    rows.anchor_primary_nodes.insert(
-        rows.anchor_primary_nodes.end(),
+    report.coverage.anchor_primary_nodes.insert(
+        report.coverage.anchor_primary_nodes.end(),
         device_rows.anchor_primary_nodes.begin(),
         device_rows.anchor_primary_nodes.end());
+    report.compact_grammars.push_back(device.compact_grammar);
   }
   if (options.timing_diagnostics) {
     std::cerr << "timing loop_tree_coverage_rows_ms="
               << coverage_watch.elapsed_ms() << "\n";
   }
-  return rows;
+  return report;
 }
 
 void write_basic_native_compatibility_sidecar(
@@ -385,6 +408,7 @@ void write_basic_native_compatibility_sidecar(
       {"traceloom_schema_version", "augmented_db_v1"},
       {"native_compatibility_materializer", "basic_native_ir_v1"},
       {"source_kind", options.source_kind},
+      {"input_format", options.input_format},
       {"source_path", options.source_path},
       {"input_evidence_contract", options.input_evidence_contract},
       {"input_scope", options.input_scope},

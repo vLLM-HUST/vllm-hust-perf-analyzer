@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <iomanip>
 #include <limits>
+#include <map>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -111,6 +112,238 @@ struct RenderRow {
   const compat::VizNodeSqlRow* row = nullptr;
   std::uint32_t depth = 0;
 };
+
+const char* markdown_view_name(LoopTreeMarkdownView view) {
+  switch (view) {
+    case LoopTreeMarkdownView::kCompact:
+      return "compact_grammar";
+    case LoopTreeMarkdownView::kExpanded:
+      return "expanded_tree";
+    case LoopTreeMarkdownView::kBoth:
+      return "compact_grammar_and_expanded_tree";
+  }
+  return "unknown";
+}
+
+std::string markdown_cell(std::string text) {
+  std::string out;
+  out.reserve(text.size());
+  for (char ch : text) {
+    if (ch == '|') {
+      out += "\\|";
+    } else if (ch == '`') {
+      out += '\'';
+    } else if (ch == '\n' || ch == '\r') {
+      out += ' ';
+    } else {
+      out += ch;
+    }
+  }
+  return out;
+}
+
+std::string compact_rhs(
+    const compat::NativeGrammarMacroSummary& macro,
+    std::size_t symbol_limit) {
+  std::ostringstream out;
+  const std::size_t emitted = std::min(symbol_limit, macro.rhs_labels.size());
+  for (std::size_t index = 0; index < emitted; ++index) {
+    if (index != 0) {
+      out << " ";
+    }
+    out << markdown_cell(macro.rhs_labels[index]);
+  }
+  if (emitted < macro.rhs_labels.size()) {
+    out << " ... +" << (macro.rhs_labels.size() - emitted);
+  }
+  return out.str();
+}
+
+struct OperatorFamilySummary {
+  std::string symbol;
+  std::string category;
+  std::uint64_t node_def_count = 0;
+  std::uint64_t occurrence_count = 0;
+  double self_us = 0.0;
+  double aux_us = 0.0;
+};
+
+std::vector<OperatorFamilySummary> aggregate_operator_families(
+    const std::vector<const compat::VizNodeSqlRow*>& selected) {
+  std::map<std::pair<std::string, std::string>, OperatorFamilySummary>
+      by_identity;
+  for (const compat::VizNodeSqlRow* row : selected) {
+    if (row->kind != "atom") {
+      continue;
+    }
+    OperatorFamilySummary& summary =
+        by_identity[{row->symbol, row->category}];
+    summary.symbol = row->symbol;
+    summary.category = row->category;
+    ++summary.node_def_count;
+    summary.occurrence_count += row->occurrence_count;
+    summary.self_us += row->self_us;
+    summary.aux_us += row->aux_us;
+  }
+  std::vector<OperatorFamilySummary> out;
+  out.reserve(by_identity.size());
+  for (auto& item : by_identity) {
+    out.push_back(std::move(item.second));
+  }
+  std::stable_sort(out.begin(), out.end(),
+                   [](const OperatorFamilySummary& left,
+                      const OperatorFamilySummary& right) {
+                     if (left.self_us != right.self_us) {
+                       return left.self_us > right.self_us;
+                     }
+                     if (left.symbol != right.symbol) {
+                       return left.symbol < right.symbol;
+                     }
+                     return left.category < right.category;
+                   });
+  return out;
+}
+
+double root_total_us(
+    const std::vector<const compat::VizNodeSqlRow*>& selected) {
+  double total_us = 0.0;
+  for (const compat::VizNodeSqlRow* row : selected) {
+    if (row->kind == "seq") {
+      total_us = std::max(total_us, row->total_us);
+    }
+  }
+  if (total_us != 0.0) {
+    return total_us;
+  }
+  for (const compat::VizNodeSqlRow* row : selected) {
+    total_us = std::max(total_us, row->total_us);
+  }
+  return total_us;
+}
+
+void write_compact_projection(
+    std::ostream& out,
+    const std::vector<const compat::VizNodeSqlRow*>& selected,
+    const LoopTreeMarkdownOptions& options,
+    const compat::NativeCompactGrammarProjection* grammar,
+    std::uint32_t device_id) {
+  const std::vector<OperatorFamilySummary> families =
+      aggregate_operator_families(selected);
+  const double root_us = root_total_us(selected);
+
+  out << "\n## Compact Grammar Summary\n\n";
+  out << "This is the bounded reading surface. Repeated atom realizations are "
+         "aggregated below; the `native_report_tree` rows remain the "
+         "authoritative positional drill-down. Infrastructure and profiler "
+         "markers are retained observations, not causal explanations for an "
+         "adjacent gap.\n\n";
+  out << "- expanded_node_def_count: `" << selected.size() << "`\n";
+  out << "- operator_family_count: `" << families.size() << "`\n";
+  if (grammar == nullptr || !grammar->available) {
+    out << "- compact_grammar_state: `unavailable`\n";
+    if (grammar != nullptr && !grammar->stop_reason.empty()) {
+      out << "- compact_grammar_stop_reason: `" << grammar->stop_reason
+          << "`\n";
+    }
+  } else {
+    out << "- compact_grammar_state: `available`\n";
+    out << "- compact_grammar_stop_reason: `" << grammar->stop_reason
+        << "`\n";
+    out << "- source_token_count: `" << grammar->source_token_count << "`\n";
+    out << "- grammar_engine_steps: `" << grammar->engine_step_count << "`\n";
+    out << "- live_grammar_nodes: `" << grammar->live_nodes.size() << "`\n";
+    out << "- macro_definitions: `" << grammar->macro_defs.size() << "`\n";
+  }
+
+  out << "\n### Operator families by exact leaf self cost\n\n";
+  out << "Leaf self costs are additive across this table. Inclusive macro "
+         "spans below are nested and are not additive.\n\n";
+  out << "| Family | Category | Node defs | Occurrences | Self us | Root % | Aux us |\n";
+  out << "| --- | --- | ---: | ---: | ---: | ---: | ---: |\n";
+  const std::size_t family_limit =
+      std::min(options.compact_operator_family_limit, families.size());
+  for (std::size_t index = 0; index < family_limit; ++index) {
+    const OperatorFamilySummary& family = families[index];
+    const double root_pct =
+        root_us == 0.0 ? 0.0 : family.self_us * 100.0 / root_us;
+    out << "| `" << markdown_cell(family.symbol) << "` | `"
+        << markdown_cell(family.category) << "` | " << family.node_def_count
+        << " | " << family.occurrence_count << " | " << fmt(family.self_us)
+        << " | " << fmt(root_pct) << "% | " << fmt(family.aux_us) << " |\n";
+  }
+  if (family_limit < families.size()) {
+    OperatorFamilySummary remainder;
+    for (std::size_t index = family_limit; index < families.size(); ++index) {
+      remainder.node_def_count += families[index].node_def_count;
+      remainder.occurrence_count += families[index].occurrence_count;
+      remainder.self_us += families[index].self_us;
+      remainder.aux_us += families[index].aux_us;
+    }
+    const double root_pct =
+        root_us == 0.0 ? 0.0 : remainder.self_us * 100.0 / root_us;
+    out << "| _other " << (families.size() - family_limit)
+        << " families_ |  | " << remainder.node_def_count << " | "
+        << remainder.occurrence_count << " | " << fmt(remainder.self_us)
+        << " | " << fmt(root_pct) << "% | " << fmt(remainder.aux_us)
+        << " |\n";
+  }
+
+  if (grammar != nullptr && grammar->available) {
+    out << "\n### Live grammar sequence\n\n";
+    out << "Each `G*` entry is one final live grammar node. Token spans are "
+           "half-open; anchor ranges give the exact expanded evidence window.\n\n";
+    out << "| Live ID | Macro | Symbol | Token span | Anchor range | Span us |\n";
+    out << "| --- | --- | --- | ---: | ---: | ---: |\n";
+    for (const compat::NativeGrammarLiveNodeSummary& node :
+         grammar->live_nodes) {
+      out << "| `G" << node.grammar_node_id << "` | ";
+      if (node.has_macro_def_id) {
+        out << "`M" << node.macro_def_id << "`";
+      }
+      out << " | `" << markdown_cell(node.label) << "` | `"
+          << node.source_begin_token_index << ".."
+          << node.source_end_token_index_exclusive << "` | `"
+          << node.first_anchor_idx << ".." << node.last_anchor_idx << "` | "
+          << fmt(node.span_us) << " |\n";
+    }
+
+    out << "\n### Macro definitions\n\n";
+    out << "`Occurrences` counts exact grammar-node realizations. `Inclusive "
+           "span us` includes nested bodies and gaps, so rows must not be "
+           "summed. The anchor range is the coverage envelope; use the live "
+           "sequence or expanded tree for exact positions.\n\n";
+    out << "| Macro | Level | Label / RHS prefix | Occurrences | Replacements | Gain | Inclusive span us | Anchor envelope |\n";
+    out << "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: |\n";
+    for (const compat::NativeGrammarMacroSummary& macro :
+         grammar->macro_defs) {
+      const std::string rhs =
+          compact_rhs(macro, options.compact_rhs_symbol_limit);
+      out << "| `M" << macro.macro_def_id << "` | `"
+          << markdown_cell(macro.level) << "` | `"
+          << markdown_cell(macro.label);
+      if (!rhs.empty()) {
+        out << " := " << rhs;
+      }
+      out << "` | " << macro.occurrence_count << " | "
+          << macro.replace_count << " | " << macro.gain << " | "
+          << fmt(macro.inclusive_span_us) << " | `"
+          << macro.first_anchor_idx << ".." << macro.last_anchor_idx
+          << "` |\n";
+    }
+  }
+
+  out << "\n### Expanded evidence drill-down\n\n";
+  out << "The queryable database keeps every expanded position. For this "
+         "device, start with:\n\n";
+  out << "```sql\n"
+      << "SELECT node_id, local_node_id, path, kind, symbol, category,\n"
+      << "       occurrence_count, self_us, total_us\n"
+      << "FROM traceloom_viz_node\n"
+      << "WHERE view_name = 'native_report_tree' AND device_id = "
+      << device_id << "\n"
+      << "ORDER BY self_us DESC, total_us DESC;\n"
+      << "```\n";
+}
 
 std::vector<RenderRow> edge_ordered_rows(
     const compat::NodeCoverageSqlRows& rows,
@@ -231,7 +464,9 @@ std::vector<RenderRow> edge_ordered_rows(
 
 void write_loop_tree_markdown(std::ostream& out,
                               const compat::NodeCoverageSqlRows& rows,
-                              const LoopTreeMarkdownOptions& options) {
+                              const LoopTreeMarkdownOptions& options,
+                              const compat::NativeCompactGrammarProjection*
+                                  compact_grammar) {
   std::set<std::uint32_t> device_ids;
   for (const compat::VizNodeSqlRow& row : rows.nodes) {
     if (row.view_name == "native_report_tree" && row.db_idx == options.db_idx) {
@@ -289,8 +524,10 @@ void write_loop_tree_markdown(std::ostream& out,
   out << "- db_idx: `" << options.db_idx << "`\n";
   out << "- global_rank: `native`\n";
   out << "- report_view: `native_report_tree`\n";
-  out << "- renderer: `native_loop_tree_markdown_v0`\n";
+  out << "- human_view: `" << markdown_view_name(options.view) << "`\n";
+  out << "- renderer: `native_loop_tree_markdown_v1`\n";
   out << "- source_kind: `" << options.source_kind << "`\n";
+  out << "- input_format: `" << options.input_format << "`\n";
   out << "- input_evidence_contract: `" << options.input_evidence_contract
       << "`\n";
   out << "- input_scope: `" << options.input_scope << "`\n";
@@ -322,10 +559,19 @@ void write_loop_tree_markdown(std::ostream& out,
     }
   }
 
+  if (options.view == LoopTreeMarkdownView::kCompact ||
+      options.view == LoopTreeMarkdownView::kBoth) {
+    write_compact_projection(out, selected, options, compact_grammar,
+                             device_id);
+  }
+  if (options.view == LoopTreeMarkdownView::kCompact) {
+    return;
+  }
+
   constexpr std::size_t kTreeColumnWidth = 48;
   constexpr std::size_t kCategoryColumnWidth = 14;
 
-  out << "\n## Root\n\n";
+  out << "\n## Expanded Root\n\n";
   out << "```\n";
   out << pad_right("tree", kTreeColumnWidth) << "  "
       << pad_right("cat", kCategoryColumnWidth)

@@ -430,6 +430,16 @@ int main() {
   require(multi_trees[1].device_id == 1);
   require(multi_trees[0].tokens.size() == 6);
   require(multi_trees[1].tokens.size() == 4);
+  require(multi_trees[0].compact_grammar.device_id == 0);
+  require(multi_trees[1].compact_grammar.device_id == 1);
+  require(!multi_trees[0].compact_grammar.available);
+  require(!multi_trees[1].compact_grammar.available);
+
+  const compat::NativeLoopTreeReportData multi_report =
+      compat::build_native_loop_tree_report_data(multi_ir, multi_options);
+  require(multi_report.compact_grammars.size() == 2);
+  require(multi_report.compact_grammars[0].device_id == 0);
+  require(multi_report.compact_grammars[1].device_id == 1);
 
   const compat::NodeCoverageSqlRows multi_rows =
       compat::build_native_loop_tree_node_coverage_rows(multi_ir,

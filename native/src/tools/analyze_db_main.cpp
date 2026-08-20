@@ -16,6 +16,8 @@
 #include <thread>
 #include <vector>
 
+#include "profile_input_discovery.h"
+
 #include "traceloom/adapters/ascend_sqlite_adapter.h"
 #include "traceloom/adapters/cuda_nsys_sqlite_adapter.h"
 #include "traceloom/adapters/hygon_sqlite_adapter.h"
@@ -65,6 +67,7 @@ struct CliOptions {
   std::string loop_tree_db_label;
   bool has_loop_tree_device_id = false;
   std::uint32_t loop_tree_device_id = 0;
+  std::string loop_tree_view = "compact";
   bool loop_tree_grammar = true;
   bool loop_tree_aux = true;
   std::size_t loop_tree_full_discovery_cap = 5000000;
@@ -79,9 +82,6 @@ struct CliOptions {
   std::string event_reconciliation_rules_path;
   std::string extend_event_reconciliation_rules_path;
 };
-
-std::vector<std::string> discover_profile_dbs(const std::string& input,
-                                               const std::string& source_kind);
 
 std::size_t default_thread_count() {
   const unsigned int hardware = std::thread::hardware_concurrency();
@@ -104,7 +104,9 @@ void print_usage(const char* argv0) {
             << "Use traceloom_analysis_surface to discover the underlying "
                "hierarchy, cost, replay, and evidence relations.\n"
             << "Use --loop-tree-out only when a Markdown projection is "
-               "needed for a human reader.\n"
+               "needed for a human reader. It defaults to a compact grammar "
+               "summary; select the exact expanded tree with "
+               "--loop-tree-view expanded.\n"
             << "Use --help-advanced for compatibility and debug options.\n";
 }
 
@@ -119,6 +121,7 @@ void print_advanced_usage(const char* argv0) {
                " [--loop-tree-out PATH|-]"
                " [--loop-tree-db-label LABEL]"
                " [--loop-tree-device-id N]"
+               " [--loop-tree-view compact|expanded|both]"
                " [--loop-tree-grammar|--loop-tree-no-grammar]"
                " [--loop-tree-full-discovery-cap N]"
                " [--loop-tree-aux|--loop-tree-no-aux]"
@@ -181,6 +184,8 @@ CliOptions parse_args(int argc, char** argv) {
       options.loop_tree_device_id =
           static_cast<std::uint32_t>(parse_size(require_value(arg), arg));
       options.has_loop_tree_device_id = true;
+    } else if (arg == "--loop-tree-view") {
+      options.loop_tree_view = require_value(arg);
     } else if (arg == "--loop-tree-grammar") {
       options.loop_tree_grammar = true;
     } else if (arg == "--loop-tree-no-grammar") {
@@ -238,8 +243,15 @@ CliOptions parse_args(int argc, char** argv) {
     throw std::invalid_argument("unsupported --source-kind: " +
                                 options.source_kind);
   }
+  if (options.loop_tree_view != "compact" &&
+      options.loop_tree_view != "expanded" &&
+      options.loop_tree_view != "both") {
+    throw std::invalid_argument(
+        "unsupported --loop-tree-view: " + options.loop_tree_view);
+  }
   options.source_dbs =
-      discover_profile_dbs(options.source_input, options.source_kind);
+      traceloom::tools::discover_profile_dbs(options.source_input,
+                                             options.source_kind);
   if (options.source_dbs.empty()) {
     throw std::invalid_argument("no supported Ascend, Hygon, or CUDA/Nsight "
                                 "profile DB found under input path: " +
@@ -292,114 +304,6 @@ CliOptions parse_args(int argc, char** argv) {
         "--loop-tree-out");
   }
   return options;
-}
-
-bool looks_like_msprof_db(const fs::path& path) {
-  if (!fs::is_regular_file(path)) {
-    return false;
-  }
-  const std::string name = path.filename().string();
-  return name.rfind("msprof_", 0) == 0 && path.extension() == ".db";
-}
-
-bool has_sqlite_profile_extension(const fs::path& path) {
-  const std::string extension = path.extension().string();
-  return extension == ".db" || extension == ".sqlite" ||
-         extension == ".sqlite3";
-}
-
-bool looks_like_supported_profile_db(const fs::path& path,
-                                     const std::string& source_kind) {
-  if (!fs::is_regular_file(path) || !has_sqlite_profile_extension(path)) {
-    return false;
-  }
-  if (source_kind == "cuda_nsys_sqlite") {
-    return traceloom::looks_like_cuda_nsys_sqlite_profile(path.string());
-  }
-  if (source_kind == "hygon_sqlite") {
-    return traceloom::looks_like_hygon_sqlite_profile(path.string());
-  }
-  if (source_kind == "ascend_sqlite_hot_path") {
-    return traceloom::ascend_sqlite_has_usable_task_table(path.string());
-  }
-  if (source_kind == "ascend_sqlite_split") {
-    return false;
-  }
-  if (traceloom::looks_like_cuda_nsys_sqlite_profile(path.string())) {
-    return true;
-  }
-  if (traceloom::ascend_sqlite_has_usable_task_table(path.string())) {
-    return true;
-  }
-  return traceloom::looks_like_hygon_sqlite_profile(path.string());
-}
-
-std::vector<std::string> discover_profile_dbs(const std::string& input,
-                                               const std::string& source_kind) {
-  const fs::path root(input);
-  std::vector<fs::path> dbs;
-  std::vector<fs::path> split_profiles;
-  std::error_code ec;
-  const bool allow_split_profiles =
-      source_kind == "auto" || source_kind == "ascend_sqlite_split";
-  if (looks_like_supported_profile_db(root, source_kind)) {
-    dbs.push_back(root);
-  } else if (allow_split_profiles && looks_like_msprof_db(root)) {
-    const fs::path profile_dir = root.parent_path();
-    if (traceloom::looks_like_ascend_split_sqlite_profile(
-            profile_dir.string())) {
-      split_profiles.push_back(profile_dir);
-    }
-  } else if (fs::is_directory(root, ec)) {
-    if (allow_split_profiles &&
-        traceloom::looks_like_ascend_split_sqlite_profile(root.string())) {
-      split_profiles.push_back(root);
-    }
-    for (fs::recursive_directory_iterator iterator(root), end;
-         iterator != end; ++iterator) {
-      const auto& entry = *iterator;
-      if (entry.is_directory() && entry.path().filename() == "traceloom") {
-        iterator.disable_recursion_pending();
-        continue;
-      }
-      if (looks_like_supported_profile_db(entry.path(), source_kind)) {
-        dbs.push_back(entry.path());
-      }
-      if (allow_split_profiles && entry.is_directory() &&
-          fs::is_directory(entry.path() / "host" / "sqlite", ec) &&
-          traceloom::looks_like_ascend_split_sqlite_profile(
-              entry.path().string())) {
-        split_profiles.push_back(entry.path());
-      }
-    }
-  } else if (!fs::exists(root, ec)) {
-    throw std::invalid_argument("input path does not exist: " + input);
-  } else {
-    throw std::invalid_argument(
-        "input is not a supported Ascend/Hygon/CUDA profile DB or directory: " +
-        input);
-  }
-  std::sort(dbs.begin(), dbs.end());
-  std::sort(split_profiles.begin(), split_profiles.end());
-  split_profiles.erase(
-      std::unique(split_profiles.begin(), split_profiles.end()),
-      split_profiles.end());
-  for (const fs::path& profile : split_profiles) {
-    const bool has_usable_monolithic =
-        std::any_of(dbs.begin(), dbs.end(), [&](const fs::path& db) {
-          return db.parent_path() == profile;
-        });
-    if (!has_usable_monolithic) {
-      dbs.push_back(profile);
-    }
-  }
-  std::sort(dbs.begin(), dbs.end());
-  std::vector<std::string> result;
-  result.reserve(dbs.size());
-  for (const auto& db : dbs) {
-    result.push_back(db.string());
-  }
-  return result;
 }
 
 fs::path default_output_root(const std::string& input) {
@@ -493,6 +397,8 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
               : (is_hygon ? "hygon_sqlite"
                           : (is_split ? "ascend_sqlite_split"
                                       : "ascend_sqlite_hot_path"));
+    const std::string input_format =
+        traceloom::tools::input_format_for(source_db, source_kind);
     traceloom::NativeIr ir;
     const Stopwatch load_watch;
     if (is_cuda) {
@@ -591,6 +497,7 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
 
     traceloom::compat::NativeCompatibilitySidecarOptions sidecar_options;
     sidecar_options.source_kind = source_kind;
+    sidecar_options.input_format = input_format;
     sidecar_options.source_path = source_db;
     if (!is_cuda && !is_hygon) {
       const traceloom::AscendProfileEvidenceState evidence =
@@ -636,6 +543,7 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
           sidecar_options);
       std::cerr << "wrote queryable database timeline: " << augmented_db_out << "\n";
       std::cerr << "  source: " << source_db << "\n";
+      std::cerr << "  input_format: " << input_format << "\n";
       std::cerr << "  start: SELECT * FROM traceloom_projection_recipe "
                    "ORDER BY display_order;\n";
       std::cerr << "  relations: SELECT * FROM traceloom_analysis_surface;\n";
@@ -648,9 +556,11 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
       const traceloom::compat::NativeCompatibilitySidecarOptions
           loop_tree_options = sidecar_options;
       const Stopwatch loop_tree_rows_watch;
-      const traceloom::compat::NodeCoverageSqlRows loop_tree_rows =
-          traceloom::compat::build_native_loop_tree_node_coverage_rows(
+      const traceloom::compat::NativeLoopTreeReportData loop_tree_report =
+          traceloom::compat::build_native_loop_tree_report_data(
               ir, loop_tree_options);
+      const traceloom::compat::NodeCoverageSqlRows& loop_tree_rows =
+          loop_tree_report.coverage;
       if (cli.timings) {
         std::cerr << "timing loop_tree_rows_ms="
                   << loop_tree_rows_watch.elapsed_ms() << "\n";
@@ -697,6 +607,7 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
               ? default_db_label(source_db, db_index, cli.source_dbs.size())
               : cli.loop_tree_db_label;
       markdown_options.source_kind = source_kind;
+      markdown_options.input_format = input_format;
       markdown_options.source_path = source_db;
       markdown_options.input_evidence_contract =
           sidecar_options.input_evidence_contract;
@@ -713,6 +624,13 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
       markdown_options.replay_composition_region_count =
           ir.replay_composition_regions.size();
       markdown_options.replay_unit_count = ir.replay_units.size();
+      if (cli.loop_tree_view == "compact") {
+        markdown_options.view = traceloom::LoopTreeMarkdownView::kCompact;
+      } else if (cli.loop_tree_view == "expanded") {
+        markdown_options.view = traceloom::LoopTreeMarkdownView::kExpanded;
+      } else {
+        markdown_options.view = traceloom::LoopTreeMarkdownView::kBoth;
+      }
       std::map<std::string, std::uint64_t> reconstruction_status_counts;
       for (const traceloom::ReplayCompositionRegionRow& region :
            ir.replay_composition_regions.rows()) {
@@ -737,12 +655,22 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
       }
       const Stopwatch loop_tree_render_watch;
       std::ostringstream markdown;
+      const traceloom::compat::NativeCompactGrammarProjection*
+          compact_grammar = nullptr;
+      for (const auto& candidate : loop_tree_report.compact_grammars) {
+        if (candidate.device_id == render_device_id) {
+          compact_grammar = &candidate;
+          break;
+        }
+      }
       traceloom::write_loop_tree_markdown(markdown, loop_tree_rows,
-                                          markdown_options);
+                                          markdown_options, compact_grammar);
       write_text_output(cli.loop_tree_out_path, markdown.str());
       if (cli.loop_tree_out_path != "-") {
         std::cerr << "wrote loop tree: " << cli.loop_tree_out_path << "\n";
         std::cerr << "  source_db: " << source_db << "\n";
+        std::cerr << "  input_format: " << input_format << "\n";
+        std::cerr << "  human_view: " << cli.loop_tree_view << "\n";
         std::cerr << "  device_id: " << render_device_id << "\n";
       }
       if (cli.timings) {

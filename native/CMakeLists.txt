@@ -127,6 +127,7 @@ add_library(traceloom_native_materialize
   src/compat/augmented_replay_body_projection_catalog.cpp
   src/compat/aux_attribution_rows.cpp
   src/compat/collective_tag_rows.cpp
+  src/compat/compact_grammar_projection.cpp
   src/compat/exact_graph_sql_rows.cpp
   src/compat/native_graph_replay_rows.cpp
   src/compat/native_sidecar_materializer.cpp
@@ -248,6 +249,7 @@ if(TRACELOOM_NATIVE_SQLITE_ADAPTERS_AVAILABLE)
 
   add_executable(traceloom
     src/tools/analyze_db_main.cpp
+    src/tools/profile_input_discovery.cpp
   )
   target_link_libraries(
     traceloom PRIVATE
@@ -1199,6 +1201,8 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
         --no-aug-db
         --compat-sidecar-out
         ${CMAKE_CURRENT_BINARY_DIR}/official_ascend_cli_compat.db
+        --loop-tree-out
+        ${CMAKE_CURRENT_BINARY_DIR}/official_ascend_cli_compact.md
     )
     set_tests_properties(
       traceloom_native_analyze_official_ascend_cli_input
@@ -1209,7 +1213,8 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     add_test(
       NAME traceloom_native_analyze_official_ascend_cli_sidecar
       COMMAND traceloom_native_cli_sidecar_smoke_tests
-        ${CMAKE_CURRENT_BINARY_DIR}/official_ascend_cli_compat.db fixture
+        ${CMAKE_CURRENT_BINARY_DIR}/official_ascend_cli_compat.db ascend
+        ${CMAKE_CURRENT_BINARY_DIR}/official_ascend_cli_compact.md
     )
     set_tests_properties(
       traceloom_native_analyze_official_ascend_cli_sidecar

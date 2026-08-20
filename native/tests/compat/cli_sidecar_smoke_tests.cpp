@@ -296,6 +296,11 @@ void require_ascend_augmented_database(const std::string& path) {
                                   "'ascend_sqlite_hot_path'") == 1);
   traceloom::testing::require(run_scalar_int(
                                   path,
+                                  "SELECT COUNT(*) FROM traceloom_metadata "
+                                  "WHERE key = 'input_format' AND value = "
+                                  "'torch_npu_profiler'") == 1);
+  traceloom::testing::require(run_scalar_int(
+                                  path,
                                   "SELECT COUNT(*) FROM "
                                   "traceloom_raw_source_database") == 1);
   traceloom::testing::require(run_scalar_int(
@@ -314,10 +319,31 @@ void require_cuda_markdown(const std::string& path) {
   traceloom::testing::require(
       text.find("report_view: `native_report_tree`") != std::string::npos);
   traceloom::testing::require(
-      text.find("renderer: `native_loop_tree_markdown_v0`") !=
+      text.find("renderer: `native_loop_tree_markdown_v1`") !=
       std::string::npos);
   traceloom::testing::require(
+      text.find("human_view: `compact_grammar`") != std::string::npos);
+  traceloom::testing::require(
       text.find("source_kind: `cuda_nsys_sqlite`") != std::string::npos);
+}
+
+void require_ascend_markdown(const std::string& path) {
+  std::ifstream input(path);
+  traceloom::testing::require(input.good(),
+                              "Ascend loop tree Markdown was not written");
+  std::ostringstream contents;
+  contents << input.rdbuf();
+  const std::string text = contents.str();
+  traceloom::testing::require(
+      text.find("input_format: `torch_npu_profiler`") != std::string::npos);
+  traceloom::testing::require(
+      text.find("human_view: `compact_grammar`") != std::string::npos);
+  traceloom::testing::require(
+      text.find("## Compact Grammar Summary") != std::string::npos);
+  traceloom::testing::require(
+      text.find("### Live grammar sequence") != std::string::npos);
+  traceloom::testing::require(
+      text.find("## Expanded Root") == std::string::npos);
 }
 
 }  // namespace
@@ -341,6 +367,15 @@ int main(int argc, char** argv) {
   } else if (mode == "ascend-augmented") {
     traceloom::testing::require(argc == 3);
     require_ascend_augmented_database(path);
+  } else if (mode == "ascend") {
+    traceloom::testing::require(
+        argc == 4, "Ascend sidecar smoke test requires Loop Tree Markdown");
+    traceloom::testing::require(run_scalar_int(
+                                    path,
+                                    "SELECT COUNT(*) FROM traceloom_metadata "
+                                    "WHERE key = 'input_format' AND value = "
+                                    "'torch_npu_profiler'") == 1);
+    require_ascend_markdown(argv[3]);
   } else {
     traceloom::testing::require(argc == 3);
     traceloom::testing::require(mode == "fixture");
