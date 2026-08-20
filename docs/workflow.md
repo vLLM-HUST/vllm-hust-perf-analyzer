@@ -119,6 +119,13 @@ traceloom /path/to/msprof.db \
   --output /tmp/traceloom-analysis.db
 ```
 
+`--loop-tree-out` defaults to the bounded `compact` human view. It aggregates
+repeated leaf operators, exposes the live grammar and macro definitions, and
+keeps source token/anchor ranges for drill-down. Use `--loop-tree-view
+expanded` for every positional tree row or `--loop-tree-view both` to append
+that exact tree after the compact summary. The queryable database always keeps
+the expanded `native_report_tree` relations regardless of the Markdown choice.
+
 It contains embedded raw profiler tables as well as the TraceLoom hierarchy and
 cost relations, so source references remain queryable after inputs are moved.
 Run

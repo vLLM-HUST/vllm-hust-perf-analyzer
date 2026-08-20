@@ -102,6 +102,10 @@ traceloom /path/to/PROF_.../msprof_YYYYMMDDHHMMSS.db
 traceloom /path/to/ASCEND_PROFILER_OUTPUT/ascend_pytorch_profiler_0.db
 ```
 
+官方 torch-npu 文件名可以直接使用，不要为了兼容性把它改名或软链成
+`msprof_*.db`。TraceLoom 会显示 `input_format=torch_npu_profiler`，底层适配
+契约仍保持为 `source_kind=ascend_sqlite_hot_path`。
+
 默认会在源数据库旁边生成一等产品——自包含的 queryable DB timeline：
 
 ```text
@@ -297,6 +301,24 @@ traceloom /path/to/msprof.db \
   --loop-tree-out /tmp/loop_tree_v2.md \
   --output /tmp/traceloom-analysis.db
 ```
+
+Markdown 默认生成 compact grammar summary：把重复 atom realization 聚合为
+可加总的 leaf self-cost family，然后展示最终 live grammar sequence 与 macro
+definition。自包含分析数据库仍保留全部 `native_report_tree` 位置。需要完整位置树
+或两种视图时显式选择：
+
+```bash
+traceloom /path/to/ASCEND_PROFILER_OUTPUT/ascend_pytorch_profiler_0.db \
+  --loop-tree-out /tmp/loop_tree_expanded.md \
+  --loop-tree-view expanded
+
+traceloom /path/to/ASCEND_PROFILER_OUTPUT/ascend_pytorch_profiler_0.db \
+  --loop-tree-out /tmp/loop_tree_both.md \
+  --loop-tree-view both
+```
+
+profiler/infrastructure marker 在报告里仍是被保留的边界观测；它出现在某个 gap
+旁边，不会被表述成造成该 gap 的因果证据。
 
 外围调试导出器应读取这个自包含分析数据库；生产 CLI 不再维护第二套内存 JSON
 模型。

@@ -50,8 +50,20 @@ With `--source-kind ascend_sqlite_hot_path --threads 32 --sidecar-only
 input and reported 503 grammar steps, 50 live grammar nodes, 270 macro
 definitions, and a 6,885-line expanded Markdown tree. This is an input and
 materialization observation for those exact bytes, not a general performance
-or grammar-quality receipt; improving the human projection of the compact
-grammar is a separate UX concern.
+or grammar-quality receipt.
+
+The compact-human-view candidate on 2026-08-20 reran the same bytes and grammar
+state and emitted 426 lines / 29,444 bytes instead of 6,885 lines / 838,151
+bytes. It retained the exact 6,861-node `native_report_tree` as the queryable
+and explicitly selectable expanded view, while the default Markdown grouped
+74 leaf families and exposed the 50 live nodes plus all 270 macro definitions.
+The leading additive leaf self-cost families were AllToAll 4,175,107 us
+(37.48% of root), `KERNEL_MIX_AIC` 1,049,558 us, AsStrided 718,757 us,
+ViewCopy 607,478 us, HcPre 533,433 us, and HcPost 238,874 us. Macro inclusive
+spans are nested and must not be added; macro anchor ranges are coverage
+envelopes, while live-node anchor ranges and expanded rows remain the exact
+positional route. Treat profiler/infrastructure markers as retained boundary
+observations, never as causal explanations for an adjacent gap.
 
 ## Never materialize the global interval/activity relation
 

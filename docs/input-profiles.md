@@ -19,6 +19,12 @@ Monolithic inputs are recognized from their nonempty, compatible `TASK` schema
 rather than from a filename convention. This includes the database packaging
 emitted by the official vLLM Ascend/torch-npu profiler workflow.
 
+When the canonical `ascend_pytorch_profiler_*.db` filename is observed,
+TraceLoom publishes `input_format=torch_npu_profiler` in its metadata and human
+report. This is a UX classification, not a new adapter or a stronger evidence
+claim: `source_kind` remains `ascend_sqlite_hot_path`, and the evidence state is
+still derived from the actually available neighboring files.
+
 A monolithic DB can support bounded compute/event analysis, but a DB copied
 away from its neighboring `PROF_*` evidence is not a complete cross-layer
 input. TraceLoom records `input_evidence_state=evidence_incomplete` and

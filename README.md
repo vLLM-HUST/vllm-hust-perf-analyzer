@@ -120,6 +120,10 @@ traceloom /path/to/PROF_.../msprof_YYYYMMDDHHMMSS.db
 traceloom /path/to/ASCEND_PROFILER_OUTPUT/ascend_pytorch_profiler_0.db
 ```
 
+The official torch-npu filename is accepted directly—do not rename or symlink
+it to `msprof_*.db`. TraceLoom reports `input_format=torch_npu_profiler` while
+keeping the underlying adapter contract as `source_kind=ascend_sqlite_hot_path`.
+
 The default product is a self-contained queryable database timeline written beside the source database:
 
 ```text
@@ -440,6 +444,25 @@ traceloom /path/to/msprof.db \
   --loop-tree-out /tmp/loop_tree_v2.md \
   --output /tmp/traceloom-analysis.db
 ```
+
+The Markdown defaults to a compact grammar summary: repeated atom realizations
+are aggregated into exact leaf self-cost families, followed by the final live
+grammar sequence and macro definitions. The queryable database still contains
+every `native_report_tree` position. Request that full positional rendering, or
+both surfaces, explicitly:
+
+```bash
+traceloom /path/to/ASCEND_PROFILER_OUTPUT/ascend_pytorch_profiler_0.db \
+  --loop-tree-out /tmp/loop_tree_expanded.md \
+  --loop-tree-view expanded
+
+traceloom /path/to/ASCEND_PROFILER_OUTPUT/ascend_pytorch_profiler_0.db \
+  --loop-tree-out /tmp/loop_tree_both.md \
+  --loop-tree-view both
+```
+
+Profiler/infrastructure markers remain observed boundaries in these reports;
+their position beside a gap is not presented as proof that they caused it.
 
 Peripheral debug exporters should read the self-contained analysis database;
 the production CLI does not publish a second in-memory JSON model.
