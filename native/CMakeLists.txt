@@ -1192,6 +1192,7 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
       NAME traceloom_native_analyze_official_ascend_cli_input
       COMMAND traceloom
         ${TRACELOOM_OFFICIAL_ASCEND_CLI_INPUT}
+        --source-kind ascend_sqlite_hot_path
         --threads 2
         --timings
         --sidecar-only
@@ -1213,6 +1214,90 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     set_tests_properties(
       traceloom_native_analyze_official_ascend_cli_sidecar
       PROPERTIES DEPENDS traceloom_native_analyze_official_ascend_cli_input
+    )
+
+    set(
+      TRACELOOM_OFFICIAL_ASCEND_MULTI_INPUT_ROOT
+      ${CMAKE_CURRENT_BINARY_DIR}/official_ascend_cli_multi_input
+    )
+    set(
+      TRACELOOM_OFFICIAL_ASCEND_MULTI_INPUT_0
+      ${TRACELOOM_OFFICIAL_ASCEND_MULTI_INPUT_ROOT}/rank0_ascend_pt/ASCEND_PROFILER_OUTPUT/ascend_pytorch_profiler_0.db
+    )
+    set(
+      TRACELOOM_OFFICIAL_ASCEND_MULTI_INPUT_1
+      ${TRACELOOM_OFFICIAL_ASCEND_MULTI_INPUT_ROOT}/rank1_ascend_pt/ASCEND_PROFILER_OUTPUT/ascend_pytorch_profiler_1.db
+    )
+    add_test(
+      NAME traceloom_native_prepare_official_ascend_multi_input_dirs
+      COMMAND ${CMAKE_COMMAND} -E make_directory
+        ${TRACELOOM_OFFICIAL_ASCEND_MULTI_INPUT_ROOT}/rank0_ascend_pt/ASCEND_PROFILER_OUTPUT
+        ${TRACELOOM_OFFICIAL_ASCEND_MULTI_INPUT_ROOT}/rank1_ascend_pt/ASCEND_PROFILER_OUTPUT
+    )
+    add_test(
+      NAME traceloom_native_prepare_official_ascend_multi_input_0
+      COMMAND traceloom_native_ascend_sqlite_adapter_tests
+        --materialize ${TRACELOOM_OFFICIAL_ASCEND_MULTI_INPUT_0}
+    )
+    add_test(
+      NAME traceloom_native_prepare_official_ascend_multi_input_1
+      COMMAND traceloom_native_ascend_sqlite_adapter_tests
+        --materialize ${TRACELOOM_OFFICIAL_ASCEND_MULTI_INPUT_1}
+    )
+    set_tests_properties(
+      traceloom_native_prepare_official_ascend_multi_input_0
+      traceloom_native_prepare_official_ascend_multi_input_1
+      PROPERTIES DEPENDS traceloom_native_prepare_official_ascend_multi_input_dirs
+    )
+    add_test(
+      NAME traceloom_native_analyze_official_ascend_multi_input
+      COMMAND traceloom
+        ${TRACELOOM_OFFICIAL_ASCEND_MULTI_INPUT_ROOT}
+        --threads 2
+        --timings
+    )
+    set_tests_properties(
+      traceloom_native_analyze_official_ascend_multi_input
+      PROPERTIES
+        DEPENDS
+          "traceloom_native_prepare_official_ascend_multi_input_0;traceloom_native_prepare_official_ascend_multi_input_1"
+        PASS_REGULAR_EXPRESSION
+          "wrote queryable database timeline: .*official_ascend_cli_multi_input/traceloom/analysis_db0[12].db"
+    )
+    add_test(
+      NAME traceloom_native_analyze_official_ascend_multi_input_0
+      COMMAND traceloom_native_cli_sidecar_smoke_tests
+        ${TRACELOOM_OFFICIAL_ASCEND_MULTI_INPUT_ROOT}/traceloom/analysis_db01.db
+        ascend-augmented
+    )
+    add_test(
+      NAME traceloom_native_analyze_official_ascend_multi_input_1
+      COMMAND traceloom_native_cli_sidecar_smoke_tests
+        ${TRACELOOM_OFFICIAL_ASCEND_MULTI_INPUT_ROOT}/traceloom/analysis_db02.db
+        ascend-augmented
+    )
+    set_tests_properties(
+      traceloom_native_analyze_official_ascend_multi_input_0
+      traceloom_native_analyze_official_ascend_multi_input_1
+      PROPERTIES DEPENDS traceloom_native_analyze_official_ascend_multi_input
+    )
+
+    add_test(
+      NAME traceloom_native_prepare_unrelated_sqlite_input
+      COMMAND traceloom_native_ascend_sqlite_adapter_tests
+        --materialize-unrelated
+        ${CMAKE_CURRENT_BINARY_DIR}/unrelated_profile.db
+    )
+    add_test(
+      NAME traceloom_native_rejects_unrelated_sqlite_input
+      COMMAND ${CMAKE_COMMAND}
+        -DTRACELOOM_ANALYZER=$<TARGET_FILE:traceloom>
+        -DTRACELOOM_UNRELATED_DB=${CMAKE_CURRENT_BINARY_DIR}/unrelated_profile.db
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/boundary/reject_unrelated_sqlite_input.cmake
+    )
+    set_tests_properties(
+      traceloom_native_rejects_unrelated_sqlite_input
+      PROPERTIES DEPENDS traceloom_native_prepare_unrelated_sqlite_input
     )
 
     add_test(

@@ -28,6 +28,31 @@ before execution. Select summary fields before reading results, run the exact
 analyzer commit twice, and compare deterministic summaries. Do not use an old
 report to supply expected counts.
 
+Official torch-npu monolithic outputs named
+`ASCEND_PROFILER_OUTPUT/ascend_pytorch_profiler_*.db` are valid direct inputs
+when their schema contains a usable Ascend TASK table; neither a rename nor an
+`msprof_*.db` symlink is part of the contract. Directory discovery likewise
+finds multiple rank-local official outputs and assigns deterministic
+`analysis_dbNN.db` destinations. Discovery is schema-gated: an arbitrary
+SQLite database must still be rejected rather than admitted by its `.db`
+suffix. These official monolithic inputs retain the same
+`monolithic_db_only` / `evidence_incomplete` boundary unless the neighboring
+full-profile components are actually present.
+
+### Bounded official torch-npu input observation (2026-08-20)
+
+TraceLoom lineage rooted at `f0a7a62` analyzed the original, unrenamed
+`ascend_pytorch_profiler_0.db` from a StateHarbor TP8 rank-0 capture directly.
+The source SHA-256 was
+`ac2aced218c5db0926116676f5fb4daf45ea5e3de0120c0f0f9d68e4dcfae449`.
+With `--source-kind ascend_sqlite_hot_path --threads 32 --sidecar-only
+--no-aug-db --loop-tree-out`, the run completed without a symlink or copied
+input and reported 503 grammar steps, 50 live grammar nodes, 270 macro
+definitions, and a 6,885-line expanded Markdown tree. This is an input and
+materialization observation for those exact bytes, not a general performance
+or grammar-quality receipt; improving the human projection of the compact
+grammar is a separate UX concern.
+
 ## Never materialize the global interval/activity relation
 
 `traceloom_anchor_host_activity` is a many-interval-to-many-call projection.

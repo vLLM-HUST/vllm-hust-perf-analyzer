@@ -283,6 +283,27 @@ void require_augmented_database(const std::string& path) {
                                   "51cc7472.priority=96%'") == 1);
 }
 
+void require_ascend_augmented_database(const std::string& path) {
+  traceloom::testing::require(run_scalar_int(
+                                  path,
+                                  "SELECT COUNT(*) FROM traceloom_metadata "
+                                  "WHERE key = 'artifact_kind' AND value = "
+                                  "'queryable_database_timeline'") == 1);
+  traceloom::testing::require(run_scalar_int(
+                                  path,
+                                  "SELECT COUNT(*) FROM traceloom_metadata "
+                                  "WHERE key = 'source_kind' AND value = "
+                                  "'ascend_sqlite_hot_path'") == 1);
+  traceloom::testing::require(run_scalar_int(
+                                  path,
+                                  "SELECT COUNT(*) FROM "
+                                  "traceloom_raw_source_database") == 1);
+  traceloom::testing::require(run_scalar_int(
+                                  path,
+                                  "SELECT COUNT(*) FROM "
+                                  "traceloom_analysis_surface") >= 8);
+}
+
 void require_cuda_markdown(const std::string& path) {
   std::ifstream input(path);
   traceloom::testing::require(input.good(),
@@ -317,6 +338,9 @@ int main(int argc, char** argv) {
     traceloom::testing::require(argc == 3);
     require_cuda_sidecar(path);
     require_augmented_database(path);
+  } else if (mode == "ascend-augmented") {
+    traceloom::testing::require(argc == 3);
+    require_ascend_augmented_database(path);
   } else {
     traceloom::testing::require(argc == 3);
     traceloom::testing::require(mode == "fixture");

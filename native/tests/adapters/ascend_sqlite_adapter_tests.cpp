@@ -128,8 +128,21 @@ int main(int argc, char** argv) {
             "materialized official-package fixture is not usable");
     return 0;
   }
+  if (argc == 3 && std::string(argv[1]) == "--materialize-unrelated") {
+    const std::filesystem::path output_path(argv[2]);
+    std::error_code ignored;
+    std::filesystem::remove(output_path, ignored);
+    materialize_sqlite_fixture(
+        output_path,
+        ascend_sqlite_fixture_dir("split_golden") / "negatives" /
+            "unusable_monolithic.sql");
+    require(!ascend_sqlite_has_usable_task_table(output_path.string()),
+            "materialized unrelated fixture unexpectedly has a usable TASK table");
+    return 0;
+  }
   require(argc == 1,
-          "usage: ascend_sqlite_adapter_tests [--materialize OUTPUT.db]");
+          "usage: ascend_sqlite_adapter_tests "
+          "[--materialize|--materialize-unrelated OUTPUT.db]");
 
   const std::string db_path = temp_ascend_db_path("_ok");
   materialize_ascend_minimal_fixture(db_path);
