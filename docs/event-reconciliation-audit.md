@@ -2,10 +2,13 @@
 
 Event reconciliation is a narrow, provider-backed transformation for the case
 where multiple profiler rows are complementary observations of one physical
-device action. TraceLoom never asks users to trust that transformation as a
-hidden preprocessing step. The effective policy, its rules, every candidate
-decision, every member contribution, the canonical anchor, and the original
-source locators are all stored in `analysis.db`.
+device action. This includes both same-table context/detail pairs and explicit
+cross-table provider relations such as an Ascend MC2 `COMMUNICATION_OP`
+contained by its fused `MatmulAllReduce` task. TraceLoom never asks users to
+trust that transformation as a hidden preprocessing step. The effective
+policy, its rules, every candidate decision, every member contribution, the
+canonical anchor, and the original source locators are all stored in
+`analysis.db`.
 
 This guide answers four questions in order:
 
@@ -68,8 +71,9 @@ SELECT policy_id, policy_version, manifest_schema, source_manifest,
 FROM traceloom_event_reconciliation_policy;
 
 SELECT rule_id, priority, provider_scope, source_domain, task_type,
-       generic_context_id, concrete_context_id, min_contained_fraction,
-       rule_origin, rule_origin_sha256
+       generic_context_id, concrete_context_id, task_op_type,
+       communication_op_name_prefix, identity_policy,
+       min_contained_fraction, rule_origin, rule_origin_sha256
 FROM traceloom_event_reconciliation_rule
 ORDER BY priority DESC, rule_id;
 ```
@@ -89,7 +93,8 @@ ORDER BY status, reason_code;
 
 Interpret the statuses as follows:
 
-- `reconciled`: one supported, unique pair produced one canonical anchor;
+- `reconciled`: one supported, unique observation set produced one canonical
+  anchor;
 - `independent`: the observed candidate group did not have a supported peer;
 - `ambiguous`: more than one candidate could satisfy the relation;
 - `conflict`: candidate evidence disagreed on a required invariant.
@@ -135,10 +140,14 @@ WHERE decision_id = :decision_id
 ORDER BY member_order;
 ```
 
-For a successful pair, one member normally supplies the timing envelope and
-cost while the semantic-detail member supplies the structural symbol. The
+For a successful context/detail pair, one member normally supplies the timing
+envelope and cost while the semantic-detail member supplies the structural
+symbol. For a fused task/communication relation, the canonical task supplies
+timing, symbol, and union cost while `provider_detail` retains the
+communication observation without becoming another anchor or charge. The
 contribution flags are the contract; do not infer roles from duration or event
-names.
+names. `source_domain` identifies each member's typed origin; `task_id` and
+`communication_op_id` are mutually exclusive and nullable.
 
 If the investigation starts from an event rather than a decision, use the
 projection recipe embedded in the database:
@@ -216,10 +225,14 @@ policy, rule origins, and outcome counts are the receipt.
 
 Event reconciliation is not a general temporal containment hierarchy. A rule
 must name provider evidence that establishes shared identity; interval overlap
-alone is insufficient. Reconciliation also does not delete normalized events
-or raw rows. Its only structural effect is to let one uniquely supported set
-of complementary observations contribute one canonical anchor and one charge
-of physical cost.
+alone is insufficient. The bundled MC2 rule therefore requires the exact task
+operator type and communication-name prefix, the same admitted analysis input
+and device, full containment, and a unique one-to-one candidate. One split-
+profile input may legitimately place the two tables in different constituent
+SQLite files, so exact file-path equality is not an identity condition. Reconciliation
+also does not delete normalized events or raw rows. Its only structural effect
+is to let one uniquely supported set of complementary observations contribute
+one canonical anchor and one charge of physical cost.
 
 For neighboring TraceLoom transformations, see
 [the evidence-role projection contract](evidence-role-projection.md) and the

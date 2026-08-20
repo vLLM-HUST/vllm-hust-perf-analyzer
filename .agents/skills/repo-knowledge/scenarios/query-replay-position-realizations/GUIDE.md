@@ -84,6 +84,87 @@ The owned implementation surfaces are
 belong in `native/src/compat/augmented_replay_projection_catalog.*` rather
 than growing the general projection catalog.
 
+## Reconcile provider observations before projecting anchors
+
+One physical fused realization can be reported through both `TASK` and
+`COMMUNICATION_OP`. Do not resolve that duplication by deleting either raw
+row, matching names alone, or adding their durations. Reconcile the two
+observations only when the provider detail has exactly one containing task
+candidate with the expected fused task type in the same admitted analysis
+input and on the same device. A split-profile input may store the two tables in
+different constituent SQLite files, so exact file-path equality is not a valid
+cross-table identity gate. Ambiguous or many-to-one candidates must remain
+independent.
+
+For the accepted MC2 rule, the containing `TASK` is the canonical structural
+and cost anchor. The contained `COMMUNICATION_OP` remains normalized,
+source-addressable provider detail but contributes no second anchor, timing,
+symbol, auxiliary attribution, or cost. This is an observation-identity
+decision; it does not imply that physical communication or waiting vanished.
+
+Keep this rule in the audited event-reconciliation policy rather than a report
+query. Downstream flattened views should consume the canonical anchor and the
+reconciliation lineage instead of rediscovering containment independently.
+
+## Separate graph-control matching from replay-body recovery
+
+Ascend MC2 work can emit `NOTIFY_WAIT` and `NOTIFY_RECORD` controls that reuse a
+launch connection identifier. A graph matcher that selects only by connection
+can therefore bind an inner communication control and erase otherwise valid
+launch occurrences. Require the launch wait on the execute stream and after
+the execute call. When capture identity tables are available, require the
+record to carry capture-backed model identity; retain the older fallback only
+when that schema is absent.
+
+Even a correctly matched launch occurrence does not prove that an exact body
+exists. Count and report these gates separately:
+
+- raw execute calls;
+- accepted graph-launch occurrences;
+- occurrences with exact bodies;
+- complete replay units admitted by the fail-closed partition.
+
+Never synthesize a body or admit a partially evidenced replay wave merely to
+make those counts equal.
+
+## Bounded official MC2 observation (validated 2026-08-20)
+
+Forward validation used the two immutable fused-arm monolithic databases under
+`benchmark-artifacts/traceloom-collective-handshake-ablation-official-v018-20260817`
+with analyzer SHA-256
+`bc2b48cd112748bde6268b880d360e4c7173dfd4b583e65569442f9929a4335b`.
+The exact source manifest and read-only database checks for the isolated
+current-main extraction are preserved in
+`analysis/m-only-traceloom-anchor-reconciliation-main7488536-20260820/forward-verification.json`
+(SHA-256
+`f617f64c01b9b6cd0a05e0b23ff9b0525c4a573f27ea5600cb817495e5a275de`).
+
+Observed results:
+
+- both ranks reconciled all 144 MC2 provider rows to unique containing fused
+  tasks, with zero ambiguous/conflict/independent decisions and zero retained
+  provider-detail duplicate anchors;
+- all 272 raw and normalized `COMMUNICATION_OP` rows remained queryable in
+  each rank;
+- graph-control matching recovered all 2,294 launch occurrences in both
+  ranks;
+- rank 0 had 2,294 exact bodies and 62 replay units;
+- rank 1 had 2,292 exact bodies; the two bodyless occurrences invalidated
+  their two 37-launch waves, so the public exact surface admitted 2,220 launch
+  rows and 60 replay units.
+
+A real split-profile fallback smoke check passed but exposed only 64 AllGather
+and three ordinary AllReduce provider rows, not MC2 provider rows. It therefore
+checks split ingestion and absence of false MC2 decisions, while a regression
+fixture with task and communication source refs in different constituent DB
+paths checks the cross-path identity contract. Do not cite the split smoke as
+real-profile MC2 reconciliation evidence.
+
+The rank-1 gap is body evidence missing after successful control matching, not
+missing communication and not a reason to weaken the exact replay contract.
+These counts are observations for the named bytes and analyzer, not a general
+cardinality guarantee.
+
 ## Keep filtered queries launch-local
 
 A first implementation used window functions over every replay member. On
@@ -129,4 +210,10 @@ latency or placement guarantees.
    `flat = anchors - expanded Positions + exact members`; inject overlapping
    replay regions in a fixture and require annotation/expansion to fail
    closed without duplicating mainline anchors.
-6. Run the complete native test preset and the release build before handoff.
+6. For cross-provider rules, test exact unique containment, ambiguous
+   containment, typed member references, duplicate-anchor suppression, and
+   duplicate-cost/auxiliary suppression.
+7. For graph matching, inject same-connection controls before execute and on a
+   nested stream; require the causal same-stream wait and capture-backed
+   record, then assert occurrence/body/replay counts independently.
+8. Run the complete native test preset and the release build before handoff.

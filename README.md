@@ -226,13 +226,14 @@ Important costs are:
 
 #### Audit sparse event reconciliation
 
-Some profiler schemas can expose two rows for one physical device action: a
-generic timing envelope and a context-specific row carrying the operator
-identity. TraceLoom reconciles only explicitly supported, uniquely paired
-observations before projecting anchors. Both normalized events and both raw
-source locators remain in the database; the canonical anchor takes its
-interval/cost once from the envelope and its symbol from the detail row.
-Missing, ambiguous, or conflicting peers stay independent.
+Some profiler schemas can expose complementary rows for one physical device
+action. Examples include a generic timing envelope plus a context-specific
+operator row, or an Ascend `COMMUNICATION_OP` observation nested in the fused
+`TASK` that owns its compute/communication interval. TraceLoom reconciles only
+explicitly supported, unique provider relations before projecting anchors.
+Every normalized event and raw source locator remains in the database; one
+canonical anchor contributes the interval, symbol, and union cost exactly
+once. Missing, ambiguous, or conflicting peers stay independent.
 
 The default policy is the small, versioned table
 [`native/data/default_event_reconciliation_rules.tsv`](native/data/default_event_reconciliation_rules.tsv).
@@ -242,8 +243,10 @@ The default policy is the small, versioned table
 every decision, and every member contribution are queryable:
 
 ```sql
-SELECT policy_id, policy_version, rule_id, task_type,
-       generic_context_id, concrete_context_id, min_contained_fraction
+SELECT policy_id, policy_version, rule_id, source_domain, task_type,
+       generic_context_id, concrete_context_id, task_op_type,
+       communication_op_name_prefix, identity_policy,
+       min_contained_fraction
 FROM traceloom_event_reconciliation_rule;
 
 SELECT decision_id, status, reason_code, event_id, member_role,

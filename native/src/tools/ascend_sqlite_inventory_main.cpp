@@ -106,6 +106,13 @@ int main(int argc, char** argv) {
     std::cout << "trace_events=" << ir.trace_events.size() << "\n";
     std::cout << "tasks=" << ir.tasks.size() << "\n";
     std::cout << "communication_ops=" << ir.communication_ops.size() << "\n";
+    std::cout << "captured_graph_instances="
+              << ir.captured_graph_instances.size() << "\n";
+    std::cout << "graph_launch_occurrences="
+              << ir.graph_launch_occurrences.size() << "\n";
+    std::cout << "graph_launch_bodies=" << ir.graph_launch_bodies.size()
+              << "\n";
+    std::cout << "replay_units=" << ir.replay_units.size() << "\n";
     std::cout << "anchor_projection="
               << pipeline.anchor_stats.projection_kind << "\n";
     std::cout << "evidence_role_policy_id="

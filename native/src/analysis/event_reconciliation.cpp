@@ -19,6 +19,8 @@
 #include "traceloom/core/sha256.h"
 #include "traceloom/ir/native_ir.h"
 
+#include "event_reconciliation_internal.h"
+
 #ifndef TRACELOOM_SOURCE_DEFAULT_EVENT_RECONCILIATION_RULESET_PATH
 #define TRACELOOM_SOURCE_DEFAULT_EVENT_RECONCILIATION_RULESET_PATH ""
 #endif
@@ -30,8 +32,10 @@
 namespace traceloom {
 namespace {
 
-constexpr const char* kManifestSchema =
+constexpr const char* kManifestSchemaV1 =
     "traceloom.event-reconciliation-policy/v1";
+constexpr const char* kManifestSchemaV2 =
+    "traceloom.event-reconciliation-policy/v2";
 
 std::string trim(std::string value) {
   while (!value.empty() &&
@@ -115,8 +119,7 @@ double parse_fraction(const std::string& value, std::uint64_t line) {
 void validate_rules(const std::vector<EventReconciliationRule>& rules) {
   std::unordered_set<std::string> ids;
   for (const auto& rule : rules) {
-    if (rule.rule_id.empty() || rule.provider_scope.empty() ||
-        rule.source_domain != "task" || rule.task_type.empty()) {
+    if (rule.rule_id.empty() || rule.provider_scope.empty()) {
       throw std::invalid_argument(
           "event-reconciliation rule has invalid required fields at line " +
           std::to_string(rule.source_line));
@@ -126,9 +129,30 @@ void validate_rules(const std::vector<EventReconciliationRule>& rules) {
           "unsupported event-reconciliation provider_scope at line " +
           std::to_string(rule.source_line));
     }
-    if (rule.generic_context_id == rule.concrete_context_id) {
+    if (rule.source_domain == "task") {
+      if (rule.task_type.empty() ||
+          rule.generic_context_id == rule.concrete_context_id ||
+          !rule.task_op_type.empty() ||
+          !rule.communication_op_name_prefix.empty() ||
+          (!rule.identity_policy.empty() &&
+           rule.identity_policy !=
+               "same_source_ref,device,stream,raw_task_id,raw_connection_id")) {
+        throw std::invalid_argument(
+            "invalid task event-reconciliation rule at line " +
+            std::to_string(rule.source_line));
+      }
+    } else if (rule.source_domain == "task+communication_op") {
+      if (!rule.task_type.empty() || rule.task_op_type.empty() ||
+          rule.communication_op_name_prefix.empty() ||
+          rule.identity_policy !=
+              "same_input,device,unique_containment") {
+        throw std::invalid_argument(
+            "invalid task+communication_op reconciliation rule at line " +
+            std::to_string(rule.source_line));
+      }
+    } else {
       throw std::invalid_argument(
-          "event-reconciliation contexts must differ at line " +
+          "unsupported event-reconciliation source_domain at line " +
           std::to_string(rule.source_line));
     }
     if (!ids.insert(rule.rule_id).second) {
@@ -244,7 +268,8 @@ void append_members(EventReconciliationState& state,
                     EventReconciliationMemberRole role) {
   for (const TaskRow* task : tasks) {
     state.members.push_back({decision_id, task->id, task->trace_event_id, role,
-                             false, false, false, true});
+                             false, false, false, true,
+                             CommunicationOpId::invalid()});
   }
 }
 
@@ -268,6 +293,8 @@ const char* event_reconciliation_member_role_name(
       return "timing_envelope";
     case EventReconciliationMemberRole::kSemanticDetail:
       return "semantic_detail";
+    case EventReconciliationMemberRole::kProviderDetail:
+      return "provider_detail";
     case EventReconciliationMemberRole::kIndependentCandidate:
       return "independent_candidate";
     case EventReconciliationMemberRole::kConflictingCandidate:
@@ -291,7 +318,9 @@ EventReconciliationRuleset::EventReconciliationRuleset(
       manifest_sha256_(std::move(manifest_sha256)),
       unmatched_behavior_(std::move(unmatched_behavior)),
       rules_(std::move(rules)) {
-  if (manifest_schema_ != kManifestSchema || policy_id_.empty() ||
+  if ((manifest_schema_ != kManifestSchemaV1 &&
+       manifest_schema_ != kManifestSchemaV2) ||
+      policy_id_.empty() ||
       policy_version_.empty() || unmatched_behavior_ != "independent") {
     throw std::invalid_argument(
         "invalid event-reconciliation policy metadata");
@@ -321,6 +350,9 @@ EventReconciliationPolicySnapshot EventReconciliationRuleset::snapshot()
                          rule.generic_context_id,
                          rule.concrete_context_id,
                          rule.min_contained_fraction,
+                         rule.task_op_type,
+                         rule.communication_op_name_prefix,
+                         rule.identity_policy,
                          rule.rule_origin,
                          rule.rule_origin_sha256,
                          rule.source_line,
@@ -340,10 +372,25 @@ EventReconciliationRuleset load_event_reconciliation_ruleset(
   std::string line;
   while (std::getline(stream, line)) lines.push_back(line);
 
-  const std::vector<std::string> expected{
+  const std::string manifest_schema =
+      metadata_value(lines, "manifest_schema");
+  const std::vector<std::string> expected_v1{
       "priority", "rule_id", "provider_scope", "source_domain", "task_type",
       "generic_context_id", "concrete_context_id",
       "min_contained_fraction", "note"};
+  const std::vector<std::string> expected_v2{
+      "priority", "rule_id", "provider_scope", "source_domain", "task_type",
+      "generic_context_id", "concrete_context_id",
+      "min_contained_fraction", "task_op_type",
+      "communication_op_name_prefix", "identity_policy", "note"};
+  const std::vector<std::string>& expected =
+      manifest_schema == kManifestSchemaV1 ? expected_v1 : expected_v2;
+  if (manifest_schema != kManifestSchemaV1 &&
+      manifest_schema != kManifestSchemaV2) {
+    throw std::invalid_argument(
+        "unsupported event-reconciliation manifest schema: " +
+        manifest_schema);
+  }
   bool saw_header = false;
   std::vector<EventReconciliationRule> rules;
   for (std::size_t index = 0; index < lines.size(); ++index) {
@@ -361,22 +408,32 @@ EventReconciliationRuleset load_event_reconciliation_ruleset(
     }
     if (fields.size() != expected.size()) {
       throw std::invalid_argument(
-          "event-reconciliation rule must contain nine fields at line " +
+          "event-reconciliation rule has the wrong field count at line " +
           std::to_string(index + 1));
     }
     const auto source_line = static_cast<std::uint64_t>(index + 1);
-    rules.push_back({parse_priority(fields[0], source_line),
-                     fields[1],
-                     fields[2],
-                     fields[3],
-                     fields[4],
-                     parse_i64(fields[5], "generic_context_id", source_line),
-                     parse_i64(fields[6], "concrete_context_id", source_line),
-                     parse_fraction(fields[7], source_line),
-                     fields[8],
-                     path,
-                     "",
-                     source_line});
+    EventReconciliationRule rule;
+    rule.priority = parse_priority(fields[0], source_line);
+    rule.rule_id = fields[1];
+    rule.provider_scope = fields[2];
+    rule.source_domain = fields[3];
+    rule.task_type = fields[4];
+    rule.generic_context_id =
+        parse_i64(fields[5], "generic_context_id", source_line);
+    rule.concrete_context_id =
+        parse_i64(fields[6], "concrete_context_id", source_line);
+    rule.min_contained_fraction = parse_fraction(fields[7], source_line);
+    if (manifest_schema == kManifestSchemaV2) {
+      rule.task_op_type = fields[8];
+      rule.communication_op_name_prefix = fields[9];
+      rule.identity_policy = fields[10];
+      rule.note = fields[11];
+    } else {
+      rule.note = fields[8];
+    }
+    rule.rule_origin = path;
+    rule.source_line = source_line;
+    rules.push_back(std::move(rule));
   }
   if (!saw_header) {
     throw std::invalid_argument(
@@ -384,7 +441,7 @@ EventReconciliationRuleset load_event_reconciliation_ruleset(
   }
   const std::string sha = sha256_file_hex(path);
   for (auto& rule : rules) rule.rule_origin_sha256 = sha;
-  return {metadata_value(lines, "manifest_schema"),
+  return {manifest_schema,
           metadata_value(lines, "policy_id"),
           metadata_value(lines, "policy_version"),
           path,
@@ -441,7 +498,12 @@ EventReconciliationRuleset overlay_event_reconciliation_ruleset(
   }
   const std::string digest =
       sha256_hex(base.manifest_sha256() + ":" + overlay.manifest_sha256());
-  return {kManifestSchema,
+  const std::string manifest_schema =
+      base.manifest_schema() == kManifestSchemaV2 ||
+              overlay.manifest_schema() == kManifestSchemaV2
+          ? kManifestSchemaV2
+          : kManifestSchemaV1;
+  return {manifest_schema,
           base.policy_id() + "+overlay:" + overlay.policy_id(),
           base.policy_version() + "+" + overlay.policy_version(),
           base.source_manifest() + ";" + overlay.source_manifest(),
@@ -553,13 +615,14 @@ EventReconciliationState reconcile_event_observations(
     state.members.push_back(
         {decision_id, generic.front()->id, generic.front()->trace_event_id,
          EventReconciliationMemberRole::kTimingEnvelope, true, false, true,
-         true});
+         true, CommunicationOpId::invalid()});
     state.members.push_back(
         {decision_id, detail.front()->id, detail.front()->trace_event_id,
          EventReconciliationMemberRole::kSemanticDetail, false, true, false,
-         true});
+         true, CommunicationOpId::invalid()});
     state.decisions.push_back(std::move(decision));
   }
+  reconcile_task_communication_observations(ir, ruleset, state);
   return state;
 }
 

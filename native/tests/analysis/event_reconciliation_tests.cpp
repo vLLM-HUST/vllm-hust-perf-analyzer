@@ -28,6 +28,25 @@ traceloom::EventReconciliationRuleset ruleset(
           "independent", {rule}};
 }
 
+traceloom::EventReconciliationRuleset task_communication_ruleset() {
+  traceloom::EventReconciliationRule rule;
+  rule.priority = 90;
+  rule.rule_id = "ascend.task-communication.mc2-fused";
+  rule.provider_scope = "ascend";
+  rule.source_domain = "task+communication_op";
+  rule.task_op_type = "MatmulAllReduce";
+  rule.communication_op_name_prefix = "MatmulAllReduceMc2AicpuKernel_";
+  rule.identity_policy = "same_input,device,unique_containment";
+  rule.min_contained_fraction = 1.0;
+  rule.note = "test";
+  rule.rule_origin = "memory";
+  rule.rule_origin_sha256 = "test-sha";
+  rule.source_line = 1;
+  return {"traceloom.event-reconciliation-policy/v2",
+          "test.task-communication-reconciliation", "1", "memory",
+          "test-sha", "independent", {rule}};
+}
+
 void append_task(traceloom::NativeIr& ir,
                  traceloom::SourceRefId source,
                  std::uint64_t source_row,
@@ -50,6 +69,35 @@ void append_task(traceloom::NativeIr& ir,
                   traceloom::SymbolId::invalid(),
                   traceloom::SymbolId::invalid(), -1,
                   traceloom::SymbolId::invalid(), context_id);
+}
+
+void append_fused_task(traceloom::NativeIr& ir,
+                       traceloom::SourceRefId source,
+                       std::uint64_t source_row,
+                       std::int64_t start_ns,
+                       std::int64_t end_ns) {
+  const traceloom::SymbolId task_type =
+      ir.symbols.intern("KERNEL_MIX_AIC");
+  const traceloom::SymbolId op_type =
+      ir.symbols.intern("MatmulAllReduce");
+  const traceloom::TraceEventId event = ir.trace_events.append(
+      source, source_row, 0, 47, start_ns, end_ns, task_type);
+  ir.tasks.append(source, event, source_row, source_row, source_row, task_type,
+                  op_type, op_type, traceloom::SymbolId::invalid(),
+                  traceloom::SymbolId::invalid());
+}
+
+void append_mc2_communication(traceloom::NativeIr& ir,
+                              traceloom::SourceRefId source,
+                              std::uint64_t source_row,
+                              std::int64_t start_ns,
+                              std::int64_t end_ns) {
+  const traceloom::SymbolId name =
+      ir.symbols.intern("MatmulAllReduceMc2AicpuKernel_fixture");
+  const traceloom::TraceEventId event = ir.trace_events.append(
+      source, source_row, 0, 116, start_ns, end_ns, name);
+  ir.communication_ops.append(source, event, source_row, source_row, 1, 1,
+                              name);
 }
 
 }  // namespace
@@ -130,6 +178,51 @@ int main() {
           EventReconciliationStatus::kConflict);
   require(conflict_state.decisions[0].reason_code ==
           "insufficient_interval_containment");
+
+  NativeIr cross_provider;
+  const SourceRefId cross_task_source =
+      cross_provider.source_refs.append(
+          "ascend", "profile/device_0/sqlite/ascend_task.db", "TASK", 0);
+  const SourceRefId cross_comm_source = cross_provider.source_refs.append(
+      "ascend", "profile/device_0/sqlite/hccl_single_device.db",
+      "COMMUNICATION_OP", 0);
+  append_fused_task(cross_provider, cross_task_source, 1, 100, 200);
+  append_mc2_communication(cross_provider, cross_comm_source, 2, 120, 180);
+  const EventReconciliationState cross_state =
+      reconcile_event_observations(cross_provider,
+                                   task_communication_ruleset());
+  require(cross_state.decisions.size() == 1);
+  require(cross_state.decisions[0].status ==
+          EventReconciliationStatus::kReconciled);
+  require(cross_state.decisions[0].reason_code ==
+          "unique_provider_observation_with_containing_task");
+  require(cross_state.decisions[0].canonical_event_id == TraceEventId(0));
+  require(cross_state.members.size() == 2);
+  require(cross_state.members[0].role ==
+          EventReconciliationMemberRole::kProviderDetail);
+  require(cross_state.members[0].communication_op_id ==
+          CommunicationOpId(0));
+  require(cross_state.members[1].contributes_timing &&
+          cross_state.members[1].contributes_symbol &&
+          cross_state.members[1].contributes_cost);
+
+  NativeIr cross_ambiguous;
+  const SourceRefId ambiguous_task_source = cross_ambiguous.source_refs.append(
+      "ascend", "profile.db", "TASK", 0);
+  const SourceRefId ambiguous_comm_source =
+      cross_ambiguous.source_refs.append(
+          "ascend", "profile.db", "COMMUNICATION_OP", 0);
+  append_fused_task(cross_ambiguous, ambiguous_task_source, 1, 100, 200);
+  append_fused_task(cross_ambiguous, ambiguous_task_source, 2, 90, 210);
+  append_mc2_communication(cross_ambiguous, ambiguous_comm_source, 3, 120,
+                           180);
+  const EventReconciliationState cross_ambiguous_state =
+      reconcile_event_observations(cross_ambiguous,
+                                   task_communication_ruleset());
+  require(cross_ambiguous_state.decisions.size() == 1);
+  require(cross_ambiguous_state.decisions[0].status ==
+          EventReconciliationStatus::kAmbiguous);
+  require(cross_ambiguous_state.members.size() == 3);
 
   const EventReconciliationRuleset overlaid =
       overlay_event_reconciliation_ruleset(ruleset(100),

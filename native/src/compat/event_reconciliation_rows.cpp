@@ -45,6 +45,51 @@ void replace_event_reconciliation_rows(const std::string& sqlite_path,
                                        const NativeIr& ir,
                                        std::uint32_t db_idx) {
 #if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
+  {
+    SqliteDb db(sqlite_path);
+    const bool legacy_rule =
+        table_has_column(db.get(),
+                         "traceloom_event_reconciliation_rule", "rule_id") &&
+        !table_has_column(db.get(),
+                          "traceloom_event_reconciliation_rule",
+                          "task_op_type");
+    const bool legacy_member =
+        table_has_column(db.get(),
+                         "traceloom_event_reconciliation_member",
+                         "event_id") &&
+        !table_has_column(db.get(),
+                          "traceloom_event_reconciliation_member",
+                          "source_domain");
+    if (legacy_rule || legacy_member) {
+      db.exec("BEGIN IMMEDIATE");
+      try {
+        db.exec("DROP VIEW IF EXISTS traceloom_v_event_reconciliation");
+        db.exec(
+            "DROP INDEX IF EXISTS "
+            "traceloom_reconciliation_member_event_idx");
+        db.exec(
+            "DROP INDEX IF EXISTS "
+            "traceloom_reconciliation_decision_status_idx");
+        db.exec(
+            "DROP TABLE IF EXISTS "
+            "traceloom_event_reconciliation_member");
+        db.exec(
+            "DROP TABLE IF EXISTS "
+            "traceloom_event_reconciliation_decision");
+        db.exec(
+            "DROP TABLE IF EXISTS traceloom_event_reconciliation_rule");
+        db.exec(
+            "DROP TABLE IF EXISTS traceloom_event_reconciliation_policy");
+        db.exec("COMMIT");
+      } catch (...) {
+        try {
+          db.exec("ROLLBACK");
+        } catch (...) {
+        }
+        throw;
+      }
+    }
+  }
   materialize_compatibility_schema(
       sqlite_path,
       {event_reconciliation_policy_table_schema(),
@@ -109,9 +154,10 @@ void replace_event_reconciliation_rows(const std::string& sqlite_path,
           "INSERT INTO traceloom_event_reconciliation_rule ("
           "policy_id, policy_version, rule_id, priority, provider_scope, "
           "source_domain, task_type, generic_context_id, "
-          "concrete_context_id, min_contained_fraction, rule_origin, "
+          "concrete_context_id, min_contained_fraction, task_op_type, "
+          "communication_op_name_prefix, identity_policy, rule_origin, "
           "rule_origin_sha256, source_line, note"
-          ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+          ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
       for (const EventReconciliationRuleSnapshot& rule : policy.rules) {
         bind_text(rule_stmt, 1, policy.policy_id);
         bind_text(rule_stmt, 2, policy.policy_version);
@@ -123,11 +169,14 @@ void replace_event_reconciliation_rows(const std::string& sqlite_path,
         bind_int64(rule_stmt, 8, rule.generic_context_id);
         bind_int64(rule_stmt, 9, rule.concrete_context_id);
         bind_double(rule_stmt, 10, rule.min_contained_fraction);
-        bind_text(rule_stmt, 11, rule.rule_origin);
-        bind_text(rule_stmt, 12, rule.rule_origin_sha256);
-        bind_int64(rule_stmt, 13,
+        bind_text(rule_stmt, 11, rule.task_op_type);
+        bind_text(rule_stmt, 12, rule.communication_op_name_prefix);
+        bind_text(rule_stmt, 13, rule.identity_policy);
+        bind_text(rule_stmt, 14, rule.rule_origin);
+        bind_text(rule_stmt, 15, rule.rule_origin_sha256);
+        bind_int64(rule_stmt, 16,
                    static_cast<std::int64_t>(rule.source_line));
-        bind_text(rule_stmt, 14, rule.note);
+        bind_text(rule_stmt, 17, rule.note);
         finish_row(rule_stmt,
                    "failed to insert event-reconciliation rule row");
       }
@@ -189,22 +238,45 @@ void replace_event_reconciliation_rows(const std::string& sqlite_path,
     SqliteStmt member_stmt(
         db.get(),
         "INSERT INTO traceloom_event_reconciliation_member ("
-        "decision_id, member_order, db_idx, event_id, task_id, source_path, "
-        "source_table, source_key, device_id, stream_id, raw_task_id, "
-        "raw_global_task_id, raw_connection_id, raw_context_id, member_role, "
-        "contributes_timing, contributes_symbol, contributes_cost, "
+        "decision_id, member_order, db_idx, event_id, source_domain, task_id, "
+        "communication_op_id, source_path, source_table, source_key, "
+        "device_id, stream_id, raw_task_id, raw_global_task_id, "
+        "raw_connection_id, raw_context_id, member_role, contributes_timing, "
+        "contributes_symbol, contributes_cost, "
         "retained_as_normalized_evidence"
         ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
-        "?)");
+        "?, ?, ?)");
     for (const EventReconciliationMemberRow& member :
          ir.event_reconciliation.members) {
-      if (!member.task_id.valid() || member.task_id.value() >= ir.tasks.size() ||
-          !member.event_id.valid() ||
+      if (!member.event_id.valid() ||
           member.event_id.value() >= ir.trace_events.size()) {
         throw std::logic_error(
-            "event-reconciliation member references an invalid task/event");
+            "event-reconciliation member references an invalid event");
       }
-      const TaskRow& task = ir.tasks.row(member.task_id);
+      const TaskRow* task = nullptr;
+      const CommunicationOpRow* communication = nullptr;
+      if (member.task_id.valid()) {
+        if (member.task_id.value() >= ir.tasks.size()) {
+          throw std::logic_error(
+              "event-reconciliation member references an invalid task");
+        }
+        task = &ir.tasks.row(member.task_id);
+      }
+      if (member.communication_op_id.valid()) {
+        if (member.communication_op_id.value() >=
+            ir.communication_ops.size()) {
+          throw std::logic_error(
+              "event-reconciliation member references an invalid "
+              "communication op");
+        }
+        communication =
+            &ir.communication_ops.row(member.communication_op_id);
+      }
+      if ((task == nullptr) == (communication == nullptr)) {
+        throw std::logic_error(
+            "event-reconciliation member must reference exactly one typed "
+            "observation");
+      }
       const TraceEventRow& event = ir.trace_events.row(member.event_id);
       const SourceRefRow& source = ir.source_refs.row(event.source_ref_id);
       bind_text(member_stmt, 1, decision_id(member.decision_id));
@@ -212,23 +284,40 @@ void replace_event_reconciliation_rows(const std::string& sqlite_path,
                  next_member_order[member.decision_id.value()]++);
       bind_int64(member_stmt, 3, db_idx);
       bind_text(member_stmt, 4, trace_event_compat_id(member.event_id));
-      bind_int64(member_stmt, 5, member.task_id.value());
-      bind_text(member_stmt, 6, source.source_path);
-      bind_text(member_stmt, 7, source.table_name);
-      bind_text(member_stmt, 8, std::to_string(event.source_row_id));
-      bind_int64(member_stmt, 9, event.device_id);
-      bind_int64(member_stmt, 10, event.stream_id);
-      bind_int64(member_stmt, 11,
-                 static_cast<std::int64_t>(task.raw_task_id));
-      bind_optional_id(member_stmt, 12, task.raw_global_task_id);
-      bind_optional_id(member_stmt, 13, task.raw_connection_id);
-      bind_optional_id(member_stmt, 14, task.raw_context_id);
-      bind_text(member_stmt, 15,
+      bind_text(member_stmt, 5,
+                task == nullptr ? "communication_op" : "task");
+      if (task == nullptr) {
+        bind_null(member_stmt, 6);
+        bind_int64(member_stmt, 7, communication->id.value());
+      } else {
+        bind_int64(member_stmt, 6, task->id.value());
+        bind_null(member_stmt, 7);
+      }
+      bind_text(member_stmt, 8, source.source_path);
+      bind_text(member_stmt, 9, source.table_name);
+      bind_text(member_stmt, 10, std::to_string(event.source_row_id));
+      bind_int64(member_stmt, 11, event.device_id);
+      bind_int64(member_stmt, 12, event.stream_id);
+      if (task == nullptr) {
+        bind_null(member_stmt, 13);
+      } else {
+        bind_int64(member_stmt, 13,
+                   static_cast<std::int64_t>(task->raw_task_id));
+      }
+      bind_optional_id(member_stmt, 14,
+                       task == nullptr ? -1 : task->raw_global_task_id);
+      bind_optional_id(
+          member_stmt, 15,
+          task == nullptr ? communication->raw_connection_id
+                          : task->raw_connection_id);
+      bind_optional_id(member_stmt, 16,
+                       task == nullptr ? -1 : task->raw_context_id);
+      bind_text(member_stmt, 17,
                 event_reconciliation_member_role_name(member.role));
-      bind_int64(member_stmt, 16, member.contributes_timing ? 1 : 0);
-      bind_int64(member_stmt, 17, member.contributes_symbol ? 1 : 0);
-      bind_int64(member_stmt, 18, member.contributes_cost ? 1 : 0);
-      bind_int64(member_stmt, 19,
+      bind_int64(member_stmt, 18, member.contributes_timing ? 1 : 0);
+      bind_int64(member_stmt, 19, member.contributes_symbol ? 1 : 0);
+      bind_int64(member_stmt, 20, member.contributes_cost ? 1 : 0);
+      bind_int64(member_stmt, 21,
                  member.retained_as_normalized_evidence ? 1 : 0);
       finish_row(member_stmt,
                  "failed to insert event-reconciliation member row");

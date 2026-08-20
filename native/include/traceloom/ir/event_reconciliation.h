@@ -19,6 +19,7 @@ enum class EventReconciliationStatus {
 enum class EventReconciliationMemberRole {
   kTimingEnvelope,
   kSemanticDetail,
+  kProviderDetail,
   kIndependentCandidate,
   kConflictingCandidate,
 };
@@ -32,6 +33,9 @@ struct EventReconciliationRuleSnapshot {
   std::int64_t generic_context_id = -1;
   std::int64_t concrete_context_id = -1;
   double min_contained_fraction = 1.0;
+  std::string task_op_type;
+  std::string communication_op_name_prefix;
+  std::string identity_policy;
   std::string rule_origin;
   std::string rule_origin_sha256;
   std::uint64_t source_line = 0;
@@ -72,6 +76,7 @@ struct EventReconciliationMemberRow {
   bool contributes_symbol = false;
   bool contributes_cost = false;
   bool retained_as_normalized_evidence = true;
+  CommunicationOpId communication_op_id;
 };
 
 struct EventReconciliationState {

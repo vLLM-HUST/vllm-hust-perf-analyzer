@@ -247,6 +247,41 @@ int main() {
                   .row(launch1.captured_graph_instance_id)
                   .slot_template_id,
           "same-profile graph instances lost their slot-template identity");
+
+  apply_ascend_fixture_mutation(launch_identity_path, "launch_identity",
+                                "mc2_nested_controls.sql");
+  const NativeIr nested_control_ir =
+      AscendSQLiteAdapter(launch_identity_path, "graph_nested_controls")
+          .load();
+  require(nested_control_ir.graph_launch_occurrences.size() == 4,
+          "nested same-connection controls changed graph launch count");
+  const GraphLaunchOccurrenceRow& nested_launch =
+      nested_control_ir.graph_launch_occurrences.row(
+          GraphLaunchOccurrenceId(0));
+  const TaskRow& nested_wait =
+      nested_control_ir.tasks.row(nested_launch.notify_wait_task_id);
+  const TaskRow& nested_record =
+      nested_control_ir.tasks.row(nested_launch.notify_record_task_id);
+  const TraceEventRow& nested_wait_event =
+      nested_control_ir.trace_events.row(nested_wait.trace_event_id);
+  const TraceEventRow& nested_record_event =
+      nested_control_ir.trace_events.row(nested_record.trace_event_id);
+  require(nested_wait_event.stream_id == 3 &&
+              nested_wait_event.start_ns == 115,
+          "graph matcher selected a pre-execute or nested-stream notify wait");
+  require(nested_record_event.stream_id == 36 &&
+              nested_record.raw_connection_id == 9001,
+          "graph matcher selected a same-connection nested notify record");
+  require(nested_launch.instance_association_policy ==
+              GraphLaunchInstanceAssociationPolicy::kRecordModelId &&
+              nested_launch.captured_graph_instance_id.valid(),
+          "nested controls displaced capture-backed graph identity");
+  require(nested_control_ir.replay_units.size() ==
+              launch_identity_ir.replay_units.size() &&
+              nested_control_ir.graph_launch_bodies.size() ==
+                  launch_identity_ir.graph_launch_bodies.size(),
+          "nested controls changed exact replay recovery");
+
   require(launch_identity_ir.graph_launch_activities.size() == 2 &&
               launch_identity_ir.graph_launch_activity_members.size() == 4,
           "host blocking sync boundaries did not preserve launch activities");

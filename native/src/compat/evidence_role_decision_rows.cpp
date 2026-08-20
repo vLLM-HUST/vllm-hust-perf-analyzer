@@ -591,7 +591,7 @@ std::vector<EvidenceRoleDecisionRow> build_decisions(
           canonical->second.size() == 1) {
         canonical_anchor = anchor_compat_id(canonical->second.front());
       }
-      if (member.role == EventReconciliationMemberRole::kTimingEnvelope) {
+      if (member.event_id != decision.canonical_event_id) {
         apply_system_decision(
             row, "anchor", "identity", "system.event_reconciliation",
             "provider_relation", "supported",
@@ -605,6 +605,8 @@ std::vector<EvidenceRoleDecisionRow> build_decisions(
           canonical_anchor, "traceloom_event_reconciliation_member",
           member.role == EventReconciliationMemberRole::kTimingEnvelope
               ? "timing_envelope_for_canonical_anchor"
+          : member.role == EventReconciliationMemberRole::kProviderDetail
+              ? "provider_detail_for_canonical_anchor"
               : "semantic_detail_for_canonical_anchor");
     }
 

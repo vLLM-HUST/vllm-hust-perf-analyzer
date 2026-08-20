@@ -147,8 +147,10 @@ one device action. It does not delete or rewrite `traceloom_event`.
 
 - `traceloom_event_reconciliation_policy`: effective manifest identity,
   digest, and unmatched behavior;
-- `traceloom_event_reconciliation_rule`: exact provider/task/context predicate
-  and containment threshold, including per-rule source file and digest;
+- `traceloom_event_reconciliation_rule`: exact provider predicate, typed
+  source domains, task/context or task/communication match fields, identity
+  policy, and containment threshold, including per-rule source file and
+  digest;
 - `traceloom_event_reconciliation_decision`: one candidate identity group with
   `reconciled`, `independent`, `ambiguous`, or `conflict` status;
 - `traceloom_event_reconciliation_member`: every candidate event and whether
@@ -156,14 +158,16 @@ one device action. It does not delete or rewrite `traceloom_event`.
 - `traceloom_v_event_reconciliation`: member rows joined to the observed event
   and, when supported, the canonical structural anchor.
 
-Only a unique supported pair suppresses a duplicate structural candidate. The
-timing envelope supplies the canonical interval and cost, while semantic detail
-supplies the anchor label; this charges the physical action once. Every member
-retains `source_path`, `source_table`, `source_key`, raw task/connection/context
-identity, and a normalized `event_id`. An absent peer stays `independent`;
-multiple candidates become `ambiguous`; interval or protected-membership
-disagreement becomes `conflict`. These outcomes leave the original candidates
-independent in the structural sequence.
+Only a unique supported observation set suppresses a duplicate structural
+candidate. Context/detail rules combine envelope timing with the detail label;
+fused task/communication rules keep the task as the timing/symbol/cost anchor
+and retain the communication row as `provider_detail`. This charges the
+physical interval once. Every member retains its typed `source_domain`,
+normalized `event_id`, source locator, and whichever of `task_id` or
+`communication_op_id` applies. An absent peer stays `independent`; multiple
+candidates become `ambiguous`; interval or protected-membership disagreement
+becomes `conflict`. These outcomes leave the original candidates independent
+in the structural sequence.
 
 The installed default can be fully replaced with
 `--event-reconciliation-rules PATH`. An extension supplied through

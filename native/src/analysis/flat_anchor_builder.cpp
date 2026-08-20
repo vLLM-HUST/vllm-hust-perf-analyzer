@@ -449,7 +449,8 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
       continue;
     }
     ++stats.reconciled_event_members;
-    if (member.role == EventReconciliationMemberRole::kTimingEnvelope) {
+    if (member.event_id.valid() &&
+        member.event_id != decision.canonical_event_id) {
       suppressed_events.insert(member.event_id.value());
     }
   }
@@ -619,6 +620,11 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
 
   for (const CommunicationOpRow& comm : ir.communication_ops.rows()) {
     if (!comm.trace_event_id.valid()) {
+      continue;
+    }
+    if (suppressed_events.find(comm.trace_event_id.value()) !=
+        suppressed_events.end()) {
+      ++stats.suppressed_duplicate_observations;
       continue;
     }
     const TraceEventRow& event = ir.trace_events.row(comm.trace_event_id);

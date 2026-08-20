@@ -19,6 +19,9 @@ struct EventReconciliationRule {
   std::int64_t generic_context_id = -1;
   std::int64_t concrete_context_id = -1;
   double min_contained_fraction = 1.0;
+  std::string task_op_type;
+  std::string communication_op_name_prefix;
+  std::string identity_policy;
   std::string note;
   std::string rule_origin;
   std::string rule_origin_sha256;

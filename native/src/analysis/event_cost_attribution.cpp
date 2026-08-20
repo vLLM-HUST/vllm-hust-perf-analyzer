@@ -57,12 +57,11 @@ std::unordered_set<TraceEventId::value_type> host_runtime_event_ids(
 }
 
 std::unordered_set<TraceEventId::value_type>
-reconciled_timing_envelope_event_ids(const NativeIr& ir) {
+reconciled_noncanonical_event_ids(const NativeIr& ir) {
   std::unordered_set<TraceEventId::value_type> out;
   for (const EventReconciliationMemberRow& member :
        ir.event_reconciliation.members) {
-    if (member.role != EventReconciliationMemberRole::kTimingEnvelope ||
-        !member.decision_id.valid() ||
+    if (!member.decision_id.valid() ||
         member.decision_id.value() >=
             ir.event_reconciliation.decisions.size()) {
       continue;
@@ -70,7 +69,8 @@ reconciled_timing_envelope_event_ids(const NativeIr& ir) {
     const EventReconciliationDecisionRow& decision =
         ir.event_reconciliation.decisions[member.decision_id.value()];
     if (decision.status == EventReconciliationStatus::kReconciled &&
-        member.event_id.valid()) {
+        member.event_id.valid() &&
+        member.event_id != decision.canonical_event_id) {
       out.insert(member.event_id.value());
     }
   }
@@ -138,14 +138,14 @@ EventCostAttributionMask build_event_cost_attribution_mask(
   }
 
   const auto host_events = host_runtime_event_ids(ir);
-  const auto reconciled_envelopes =
-      reconciled_timing_envelope_event_ids(ir);
+  const auto reconciled_noncanonical =
+      reconciled_noncanonical_event_ids(ir);
   EventCostAttributionMask mask;
   mask.included_.assign(ir.trace_events.size(), 0);
   for (const TraceEventRow& event : ir.trace_events.rows()) {
     if (host_events.find(event.id.value()) != host_events.end() ||
-        reconciled_envelopes.find(event.id.value()) !=
-            reconciled_envelopes.end()) {
+        reconciled_noncanonical.find(event.id.value()) !=
+            reconciled_noncanonical.end()) {
       continue;
     }
     if (communication_events.find(event.id.value()) !=

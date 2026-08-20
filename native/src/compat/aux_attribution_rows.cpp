@@ -57,12 +57,11 @@ std::unordered_set<TraceEventId::value_type> host_runtime_trace_event_ids(
 }
 
 std::unordered_set<TraceEventId::value_type>
-reconciled_timing_envelope_event_ids(const NativeIr& ir) {
+reconciled_noncanonical_event_ids(const NativeIr& ir) {
   std::unordered_set<TraceEventId::value_type> out;
   for (const EventReconciliationMemberRow& member :
        ir.event_reconciliation.members) {
-    if (member.role != EventReconciliationMemberRole::kTimingEnvelope ||
-        !member.decision_id.valid() ||
+    if (!member.decision_id.valid() ||
         member.decision_id.value() >=
             ir.event_reconciliation.decisions.size()) {
       continue;
@@ -70,7 +69,8 @@ reconciled_timing_envelope_event_ids(const NativeIr& ir) {
     const EventReconciliationDecisionRow& decision =
         ir.event_reconciliation.decisions[member.decision_id.value()];
     if (decision.status == EventReconciliationStatus::kReconciled &&
-        member.event_id.valid()) {
+        member.event_id.valid() &&
+        member.event_id != decision.canonical_event_id) {
       out.insert(member.event_id.value());
     }
   }
@@ -127,8 +127,7 @@ AuxAttributionSqlRows build_aux_attribution_sql_rows_impl(
   const std::unordered_set<TraceEventId::value_type> host_runtime_events =
       host_runtime_trace_event_ids(ir);
   const std::unordered_set<TraceEventId::value_type>
-      reconciled_timing_envelopes =
-          reconciled_timing_envelope_event_ids(ir);
+      reconciled_noncanonical = reconciled_noncanonical_event_ids(ir);
   const AnchorsByDevice anchors_by_device = index_anchors_by_device(ir);
   AuxAttributionSqlRows rows;
   std::map<AnchorId::value_type, AuxSlotAccum> slots;
@@ -145,8 +144,8 @@ AuxAttributionSqlRows build_aux_attribution_sql_rows_impl(
     // A timing envelope reconciled into a canonical anchor is retained as
     // normalized evidence, but is not additional device work.  Counting it as
     // prelude auxiliary cost would charge the same physical interval twice.
-    if (reconciled_timing_envelopes.find(event.id.value()) !=
-        reconciled_timing_envelopes.end()) {
+    if (reconciled_noncanonical.find(event.id.value()) !=
+        reconciled_noncanonical.end()) {
       continue;
     }
     if (cost_mask != nullptr && !cost_mask->includes(event.id)) {

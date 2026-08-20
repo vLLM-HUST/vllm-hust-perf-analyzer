@@ -158,8 +158,10 @@ void materialize_aclgraph_launch_occurrences(
       }
       const GraphTaskView& candidate = notify_waits[index];
       if (candidate.event->device_id != execute.event->device_id ||
+          candidate.event->stream_id != execute.event->stream_id ||
           candidate.task->raw_connection_id !=
-              execute.task->raw_connection_id) {
+              execute.task->raw_connection_id ||
+          candidate.event->start_ns < execute.event->end_ns) {
         continue;
       }
       const std::uint64_t delta = absolute_timestamp_delta(
@@ -182,6 +184,26 @@ void materialize_aclgraph_launch_occurrences(
     std::uint64_t absolute_delta_ns = 0;
   };
   static constexpr std::uint64_t kCompletionAdjacencyThresholdNs = 10'000;
+  const bool has_capture_identity =
+      !captured_graph_instances.by_model_id.empty() ||
+      !captured_graph_instances.by_model_stream.empty();
+  const auto record_has_capture_identity =
+      [&captured_graph_instances](const GraphTaskView& record) {
+        if (record.task->raw_model_id >= 0 &&
+            captured_graph_instances.by_model_id.find(
+                CapturedGraphInstanceKey{record.event->device_id,
+                                         record.task->raw_model_id}) !=
+                captured_graph_instances.by_model_id.end()) {
+          return true;
+        }
+        const auto model_stream =
+            captured_graph_instances.by_model_stream.find(
+                CapturedGraphModelStreamKey{record.event->device_id,
+                                            record.event->stream_id});
+        return model_stream !=
+                   captured_graph_instances.by_model_stream.end() &&
+               model_stream->second.valid();
+      };
   std::vector<CompletionCandidate> candidates;
   for (std::size_t launch_index = 0; launch_index < launches.size();
        ++launch_index) {
@@ -193,6 +215,10 @@ void materialize_aclgraph_launch_occurrences(
          ++record_index) {
       const GraphTaskView& record = notify_records[record_index];
       if (record.event->device_id != launch.execute.event->device_id) {
+        continue;
+      }
+      if (has_capture_identity &&
+          !record_has_capture_identity(record)) {
         continue;
       }
       const std::uint64_t delta = absolute_timestamp_delta(
@@ -234,7 +260,9 @@ void materialize_aclgraph_launch_occurrences(
     }
   }
   for (std::size_t index = 0; index < notify_records.size(); ++index) {
-    if (!record_claimed[index]) {
+    const GraphTaskView& record = notify_records[index];
+    if (!record_claimed[index] &&
+        (!has_capture_identity || record_has_capture_identity(record))) {
       records_by_device[notify_records[index].event->device_id].push_back(
           index);
     }
