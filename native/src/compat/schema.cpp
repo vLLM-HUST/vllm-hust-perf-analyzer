@@ -705,6 +705,8 @@ std::vector<CompatTableSchema> compatibility_table_schemas() {
       position_refinement_table_schema(),
       position_occurrence_table_schema(),
       position_member_table_schema(),
+      execution_tree_edge_table_schema(),
+      execution_tree_edge_role_table_schema(),
       collective_global_link_table_schema(),
       anchor_cost_breakdown_table_schema(),
   };

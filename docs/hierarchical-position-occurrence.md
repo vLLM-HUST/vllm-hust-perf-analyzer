@@ -73,6 +73,64 @@ ORDER BY slot_ordinal, member_order;
 `occurrence_path` also includes member ordinals, so repeated realizations of one
 slot remain distinct without inventing additional Positions.
 
+## Ordered tree-edge query surface
+
+The HPO relations above remain the canonical storage model, but an analyst
+should not have to reconstruct a concrete tree walk from the separate `k` and
+`r` coordinates. TraceLoom therefore publishes a flattened SQL-facing edge
+surface:
+
+| Surface | Meaning |
+| --- | --- |
+| `traceloom_v_tree_edge_role` | contextual structural edge classes under one Position |
+| `traceloom_v_tree_edge` | one concrete parent-to-child Occurrence edge in measured tree order |
+| `traceloom_v_tree_edge_cost` | the same concrete edge with child-Occurrence cost lenses |
+
+`edge_order` is the single concrete order under one parent Occurrence.
+`edge_ordinal_in_role` is derived from that order rather than presented as an
+independent query axis. `edge_role_id` is contextual: equal IDs identify the
+only concrete edges that may be ranged over as one structural population in
+this database timeline. Equal operator labels alone do not establish edge
+equivalence.
+
+The corresponding recipe path is:
+
+```text
+hpo_positions -> tree_edge_roles -> equivalent_tree_edges
+hpo_occurrences -> tree_edges -> equivalent_tree_edges
+```
+
+For example:
+
+```sql
+-- Discover structurally distinct child-edge roles under one Position.
+SELECT edge_role_id, edge_label, first_edge_order,
+       parent_occurrence_count, concrete_edge_count,
+       edges_per_parent_min, edges_per_parent_max, population_support
+FROM traceloom_v_tree_edge_role
+WHERE parent_position_id = :position_id
+ORDER BY parent_tree_path, first_edge_order;
+
+-- Read one measured child-edge stream on a single ordered plane.
+SELECT edge_order, edge_ordinal_in_role, edge_role_id,
+       edge_label, child_occurrence_id
+FROM traceloom_v_tree_edge
+WHERE parent_occurrence_id = :occurrence_id
+ORDER BY edge_order;
+
+-- Compare only one context-safe equivalent-edge population.
+SELECT parent_occurrence_idx, edge_order, edge_ordinal_in_role,
+       child_total_us, child_compute_us, child_comm_us,
+       child_uncovered_us, child_aux_us
+FROM traceloom_v_tree_edge_cost
+WHERE edge_role_id = :edge_role_id
+ORDER BY parent_occurrence_idx, edge_order;
+```
+
+Compute, communication, and uncovered time partition the supported child
+total. `child_aux_us` is a separate attribution lens and must not be stacked as
+a fourth additive component.
+
 `traceloom_tree_node_anchor` remains a useful coverage relation, but it is not
 direct HPO membership: a composite node may cover terminal anchors reached
 transitively through several child Positions.

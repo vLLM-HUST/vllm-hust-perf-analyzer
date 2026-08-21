@@ -54,4 +54,51 @@ const CompatTableSchema& position_member_table_schema() {
   return schema;
 }
 
+const CompatTableSchema& execution_tree_edge_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_execution_tree_edge",
+      {{"edge_id", CompatColumnType::kText, false},
+       {"edge_role_id", CompatColumnType::kText, false},
+       {"edge_order", CompatColumnType::kInteger, false},
+       {"edge_ordinal_in_role", CompatColumnType::kInteger, false},
+       {"parent_position_id", CompatColumnType::kText, false},
+       {"parent_tree_path", CompatColumnType::kText, false},
+       {"parent_occurrence_id", CompatColumnType::kText, false},
+       {"parent_occurrence_idx", CompatColumnType::kInteger, false},
+       {"parent_repeat_iteration", CompatColumnType::kInteger, false},
+       {"parent_occurrence_path", CompatColumnType::kText, false},
+       {"child_position_id", CompatColumnType::kText, false},
+       {"child_occurrence_id", CompatColumnType::kText, false},
+       {"child_occurrence_idx", CompatColumnType::kInteger, false},
+       {"child_repeat_iteration", CompatColumnType::kInteger, false},
+       {"child_token_start_ordinal", CompatColumnType::kInteger, false},
+       {"child_token_end_exclusive", CompatColumnType::kInteger, false},
+       {"child_occurrence_path", CompatColumnType::kText, false},
+       {"db_idx", CompatColumnType::kInteger, false},
+       {"device_id", CompatColumnType::kInteger, false},
+       {"tree_id", CompatColumnType::kText, false},
+       {"view_name", CompatColumnType::kText, false}}};
+  return schema;
+}
+
+const CompatTableSchema& execution_tree_edge_role_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_execution_tree_edge_role",
+      {{"edge_role_id", CompatColumnType::kText, false},
+       {"parent_position_id", CompatColumnType::kText, false},
+       {"parent_tree_path", CompatColumnType::kText, false},
+       {"child_position_id", CompatColumnType::kText, false},
+       {"parent_occurrence_count", CompatColumnType::kInteger, false},
+       {"concrete_edge_count", CompatColumnType::kInteger, false},
+       {"edges_per_parent_min", CompatColumnType::kInteger, false},
+       {"edges_per_parent_max", CompatColumnType::kInteger, false},
+       {"population_support", CompatColumnType::kText, false},
+       {"first_edge_order", CompatColumnType::kInteger, false},
+       {"db_idx", CompatColumnType::kInteger, false},
+       {"device_id", CompatColumnType::kInteger, false},
+       {"tree_id", CompatColumnType::kText, false},
+       {"view_name", CompatColumnType::kText, false}}};
+  return schema;
+}
+
 }  // namespace traceloom::compat

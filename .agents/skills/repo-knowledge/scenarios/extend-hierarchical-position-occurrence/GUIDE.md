@@ -73,6 +73,43 @@ to direct members; terminal evidence must continue through the relevant event
 or replay-cost coordinate. The metadata key `structural_coordinate_model`
 identifies the shipped contract as `hierarchical_position_occurrence_v1`.
 
+### Present a single ordered edge plane to SQL consumers
+
+Keep `k` and `r` distinct in canonical HPO storage, but do not force an AugDB
+query to reconstruct a concrete tree walk from both axes. The SQL-facing route
+is:
+
+```text
+hpo_positions -> tree_edge_roles -> equivalent_tree_edges
+hpo_occurrences -> tree_edges -> equivalent_tree_edges
+```
+
+`traceloom_execution_tree_edge` materializes one parent-to-child Occurrence
+edge with a single `edge_order`; `edge_ordinal_in_role` is derived from that
+order. `traceloom_execution_tree_edge_role` materializes contextual structural
+equivalence classes. Only equal `edge_role_id` populations are valid to
+aggregate. Never infer equivalence from an operator label: the checked-in
+kickstart profile has two distinct `AllReduce` roles at first-edge orders 8
+and 13 under `node-N286`.
+
+Keep the two thin coordinate tables materialized. Reconstructing roles from
+HPO membership inside every view query made the real role-catalog query take
+seconds. Also index the selectors used by public recipes as leftmost columns:
+`parent_occurrence_id` for one concrete stream and `edge_role_id` for one
+equivalent population. On the same 25,771-edge artifact this changed one
+336-edge stream from about 101 ms to 3.8 ms and a 696-edge cost population from
+about 518 ms to 28 ms; the 14-row role catalog became sub-millisecond after a
+warm page cache.
+
+Cost lookup crosses two deliberately different view names. Semantic Position
+rows use `anchor_tree`, while `traceloom_viz_node_anchor` rows for this tree use
+the `traceloom_semantic_tree.semantic_projection` value
+`native_report_tree`. Carry that mapping through the tree catalog; do not join
+the two tables by equal `view_name`, and do not omit view identity and silently
+mix an unrelated projection. Compute, communication, and uncovered cost
+partition supported child total; auxiliary cost remains a separate,
+non-additive lens.
+
 ## Keep compatibility contained
 
 Existing tree, Loop Tree, `scope_*`, replay-pattern, bubble, host, and coverage
@@ -106,8 +143,11 @@ Require fixtures for:
 2. a repeat whose one body slot has several ordered realizations;
 3. terminal membership reaching normalized event/source evidence;
 4. replay HPO refinements, Occurrences, and terminal aggregate coordinates;
-5. projection continuation routes and the model metadata key; and
-6. rejection of mismatched slots, repeat iterations, or occurrence-edge order.
+5. projection continuation routes and the model metadata key;
+6. rejection of mismatched slots, repeat iterations, or occurrence-edge order;
+7. contextual edge-role equality plus derived ordinal-in-role; and
+8. cost lookup that excludes a same-node/same-occurrence row from an unrelated
+   projection view.
 
 Before handoff, run the full native test preset, a release build, the
 repository-knowledge validator, `git diff --check`, and inspect file sizes so a
