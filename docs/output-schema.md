@@ -39,6 +39,10 @@ latter distinguishes repeated measured realizations within one slot.
 that kernel. They let queries discover context-safe edge populations, read one
 concrete edge stream, and compare equivalent edges without exposing storage
 slot/member axes as separate user coordinates.
+Specialized evidence relations remain available as lenses over those selected
+coordinates; compatibility navigation may remain materialized without being a
+second public structural model. The staged boundary is recorded in
+[`augdb-sql-ux-migration.md`](augdb-sql-ux-migration.md).
 
 If one source database contains several devices, the artifact contains one
 independently recovered structural tree per observed `device_id`. TraceLoom

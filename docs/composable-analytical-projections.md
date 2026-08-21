@@ -19,36 +19,58 @@ Web view, or a paper figure may all project the same selected coordinates.
 
 ## Start from one Position
 
-The canonical structural route is
-`hpo_positions -> hpo_refinements -> hpo_occurrences -> hpo_members`.
-A Position is the reusable coordinate, an Occurrence is one measured
-realization, and direct members retain structural slot order separately from
-the ordered realizations within each slot. See the
-[Hierarchical Position--Occurrence model](hierarchical-position-occurrence.md).
-The older `scope_*` recipes remain compatibility projections over the same
-timeline while consumers migrate.
+The canonical structural routes are:
 
-Pick a high-level structural handle from the self-describing scope catalog.
-Besides cost and occurrence counts, the catalog returns device-sequence order,
-parent, symbol, and anchor extent. An analyst can therefore constrain a
-candidate by observed timeline placement before reusing its `node_id`, without
-falling back to a private tree-table join:
+```text
+hpo_positions -> hpo_occurrences -> hpo_members
+              -> tree_edge_roles -> equivalent_tree_edges
+hpo_occurrences -> tree_edges -> equivalent_tree_edges
+equivalent_tree_edges -> occurrence_host_windows / occurrence_host_context
+```
+
+A Position is the reusable coordinate, an Occurrence is one measured
+realization, a concrete edge belongs to one measured child stream, and
+`edge_role_id` defines contextual structural equivalence. Direct HPO members
+retain the storage distinction between structural slot order and repeated
+realizations, while the SQL-facing edge projection presents one concrete
+`edge_order`. See the
+[Hierarchical Position--Occurrence model](hierarchical-position-occurrence.md).
+
+Pick a structural handle from the Position catalog. It retains cost,
+occurrence count, parent, path, and preorder placement, so selection does not
+fall back to a private tree-table join:
 
 ```sql
-SELECT node_id, parent_node_id, display_order, symbol, label,
-       occurrence_count, first_anchor_idx, last_anchor_idx,
+SELECT position_id, parent_position_id, preorder_idx, symbol, label,
+       node_type, repeat_count, occurrence_count,
        round(total_us, 3) AS total_us
-FROM traceloom_v_tree_node
-ORDER BY total_us DESC, db_idx, device_id, view_name, display_order;
+FROM traceloom_v_position
+ORDER BY total_us DESC, db_idx, tree_id, preorder_idx;
 ```
 
 Inside the `sqlite3` shell, bind that handle once:
 
 ```sql
 .parameter init
-.parameter set :node_id 'node-N006'
-.parameter set :occurrence_idx NULL
+.parameter set :position_id 'node-N286'
+.parameter set :occurrence_id NULL
 ```
+
+Discover child roles before defining a comparison population:
+
+```sql
+SELECT edge_role_id, edge_label, first_edge_order,
+       parent_occurrence_count, concrete_edge_count,
+       edges_per_parent_min, edges_per_parent_max, population_support
+FROM traceloom_v_tree_edge_role
+WHERE parent_position_id = :position_id
+ORDER BY parent_tree_path, first_edge_order;
+```
+
+Equal labels do not imply equal roles. After selecting one `edge_role_id`, use
+`equivalent_tree_edges` to compare its concrete population and select an
+unusual returned `child_occurrence_id`. Use `tree_edges` when the question is
+the ordered texture of one parent Occurrence rather than a population.
 
 Every generated database describes the reusable recipes that accept these
 coordinates:
@@ -67,7 +89,7 @@ learn selector types or where candidate coordinates come from:
 SELECT parameter_name, sqlite_type, is_nullable, coordinate_kind,
        selection_relation, selection_column, purpose
 FROM traceloom_projection_parameter
-WHERE projection_name = 'scope_members'
+WHERE projection_name = 'equivalent_tree_edges'
 ORDER BY parameter_order;
 ```
 
@@ -76,26 +98,27 @@ Each recipe also declares which result columns are reusable coordinates:
 ```sql
 SELECT result_column, coordinate_kind, purpose
 FROM traceloom_projection_coordinate
-WHERE projection_name = 'scope_members'
+WHERE projection_name = 'equivalent_tree_edges'
 ORDER BY coordinate_order;
 ```
 
 The database derives compatible continuations from those input and output
-contracts. For example, after ranking aligned positions, ask which returned
-columns can drive the next query:
+contracts. For example, after comparing equivalent edges, ask which returned
+columns can change observation domain:
 
 ```sql
 SELECT source_column, target_projection, target_parameter,
        target_parameter_nullable
 FROM traceloom_v_projection_continuation
-WHERE source_projection = 'position_population'
+WHERE source_projection = 'equivalent_tree_edges'
 ORDER BY target_projection, source_column;
 ```
 
-The result includes `position_occurrences`: its required `node_id` and
-`anchor_order` both come from the selected population row. The agent can then
-inspect the full corresponding-position population, select an unusual
-`occurrence_idx`, and continue from its returned `event_id` to `event_audit`.
+The result includes `occurrence_host_windows` and `occurrence_host_context`:
+their required `occurrence_id` comes directly from
+`child_occurrence_id`. The agent can therefore change from device cost to host
+observation without translating the selected Occurrence back into legacy
+`node_id + occurrence_idx` coordinates.
 A continuation is published only when every non-nullable target coordinate is
 available; optional selectors may be retained from analyst state or left
 `NULL`.
@@ -104,44 +127,51 @@ Copy the `example_sql` for a recipe to run it. SQL remains the semantic
 interface: a CLI, agent, notebook, or UI binds the parameters and renders the
 returned rows without defining a second analysis API.
 
-## Switch between one occurrence and the population
+## Switch between one Occurrence and the population
 
-`scope_occurrences` uses the same query for both readings:
+`hpo_occurrences` selects one or all realizations of a Position:
 
 ```sql
-SELECT node_id, local_node_id, occurrence_idx, repeat_context,
-       start_ns, end_ns, anchor_count,
-       compute_us, comm_us, idle_us, total_us, self_us, aux_us
-FROM traceloom_tree_node_occurrence
-WHERE node_id = :node_id
-  AND (:occurrence_idx IS NULL OR occurrence_idx = :occurrence_idx)
+SELECT *
+FROM traceloom_v_position_occurrence
+WHERE position_id = :position_id
+  AND (:occurrence_id IS NULL OR occurrence_id = :occurrence_id)
 ORDER BY occurrence_idx;
 ```
 
-With `:occurrence_idx = NULL`, the rows are the vertical cost population for
-the selected structure. Bind `:occurrence_idx = 7` to obtain the seventh
-realized occurrence without changing scope identity or reconstructing its
-boundary.
+With `:occurrence_id = NULL`, the rows are the complete realization population.
+Bind one returned ID to select an exact execution without reconstructing its
+boundary. For a contextual child-edge population, use
+`equivalent_tree_edges`; it prevents same-label edges from different call sites
+from entering one statistical population.
 
 ## Change resolution without losing the coordinate
 
-Use `scope_hierarchy` to keep the scope folded and read its ordered children.
-Use `scope_members` to expand one or all occurrences to anchors and normalized
+Use `tree_edge_roles` to keep a Position folded while discovering context-safe
+child classes. Use `tree_edges` to read one measured child stream and
+`hpo_members` to expand one Occurrence to direct child Occurrences or terminal
 events. Exact graph/replay relations extend the same route where provider
 evidence supports visible members. Event/source locators then continue to the
 embedded profiler rows.
 
-The selected structural node remains the coordinate throughout:
+The selected coordinates remain explicit throughout:
 
 ```text
-node-N006
-  -> all occurrences          population view
-  -> occurrence 7             one realized view
-  -> ordered children         hierarchical view
-  -> anchors and events       expanded device view
-  -> supported host windows   cross-domain context
-  -> profiler rows            evidence audit
+Position
+  -> edge roles                    valid child populations
+  -> one parent Occurrence         one realized edge stream
+  -> equivalent concrete edges     population view
+  -> one child Occurrence           selected outlier
+  -> direct events / replay members expanded device view
+  -> typed host windows             cross-domain context
+  -> profiler rows                  evidence audit
 ```
+
+The older `scope_*`, anchor-order `position_*`, and Pattern-named replay
+recipes remain compatibility projections while consumers migrate. Their useful
+analytical methods are re-keyed one at a time rather than deleted with their
+old navigation nouns. See the
+[AugDB SQL UX migration](augdb-sql-ux-migration.md).
 
 Exact replay cost maps are also coordinate-composable rather than a hidden
 table family. `replay_cost_units` discovers supported and unsupported exact
@@ -215,17 +245,20 @@ in client SQL.
 
 ## Change observation domain or measure lens
 
-`scope_host_context` projects the same `:node_id` and optional
-`:occurrence_idx` into host windows delimited by runtime endpoints of adjacent
-device anchors. Start with `scope_host_windows` when the support state itself
-matters: every structural position remains visible as `supported_ordered`,
-`missing_endpoint`, `nonmonotonic_host_order`, or another typed boundary.
-`scope_host_context` then left-projects profiler-visible API distributions;
-unsupported and supported-but-empty intervals remain rows. It does not charge
-host duration to the device node or assign a cause. The recipe materializes
-only the selected interval population as a CTE and intersects indexed runtime
-calls at query time; it does not depend on a globally materialized
-interval/call relation.
+`occurrence_host_windows` projects one selected `:occurrence_id` into host
+windows delimited by runtime endpoints of adjacent covered device anchors.
+Start there when the support state itself matters: every returned position is
+`supported_ordered`, `missing_endpoint`, `nonmonotonic_host_order`, or another
+typed boundary. `occurrence_host_context` then left-projects profiler-visible
+API distributions; unsupported and supported-but-empty intervals remain rows.
+It does not charge host duration to the device Occurrence or assign a cause.
+The recipe pushes the selected Position/Occurrence coordinates into the host
+interval view before intersecting indexed runtime calls at query time; it does
+not materialize the global interval/call relation.
+
+The older `scope_host_windows` and `scope_host_context` accept
+`node_id + occurrence_idx` and remain compatibility routes over the same host
+evidence until consumers migrate.
 
 `bubble_host_context` starts from a recovered structural position, holds that
 position fixed across bubble occurrences, and combines overlap-safe uncovered
@@ -267,10 +300,11 @@ outcomes rather than empty successful projections.
 The RQ2 interaction contract is therefore concrete:
 
 ```text
-select scope/position
-  -> inspect a population
-  -> choose an occurrence from returned coordinates
-  -> change resolution or observation domain
+select a Position
+  -> discover contextual edge roles
+  -> inspect one equivalent-edge population
+  -> choose a child Occurrence from returned coordinates
+  -> change resolution, measure lens, or observation domain
   -> reach an embedded source row or a typed support boundary
 ```
 

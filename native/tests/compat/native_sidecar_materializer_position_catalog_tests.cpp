@@ -36,6 +36,19 @@ void run_position_projection_catalog_tests(const std::string& path) {
               "'equivalent_tree_edges')") == 3);
   require(run_scalar_int(
               path,
+              "SELECT COUNT(*) FROM traceloom_projection_recipe WHERE "
+              "projection_name IN ('occurrence_host_windows', "
+              "'occurrence_host_context')") == 2);
+  require(run_scalar_int(
+              path,
+              "SELECT COUNT(*) FROM traceloom_projection_recipe WHERE "
+              "projection_name IN ('scope_catalog','scope_occurrences',"
+              "'scope_hierarchy','scope_members','position_population',"
+              "'position_occurrences','scope_host_windows',"
+              "'scope_host_context') AND display_order >= 100 AND "
+              "purpose LIKE 'compatibility:%'") == 8);
+  require(run_scalar_int(
+              path,
               "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
               "WHERE source_projection='hpo_positions' AND "
               "target_projection IN ('hpo_refinements','hpo_occurrences') "
@@ -76,6 +89,27 @@ void run_position_projection_catalog_tests(const std::string& path) {
               "WHERE source_projection='tree_edges' AND "
               "target_projection='equivalent_tree_edges' AND "
               "source_column='edge_role_id'") == 1);
+  require(run_scalar_int(
+              path,
+              "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
+              "WHERE source_projection='equivalent_tree_edges' AND "
+              "target_projection IN ('occurrence_host_windows', "
+              "'occurrence_host_context') AND "
+              "source_column='child_occurrence_id'") == 2);
+  require(run_scalar_int(
+              path,
+              "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
+              "WHERE source_projection IN ('occurrence_host_windows', "
+              "'occurrence_host_context') AND "
+              "target_projection='host_window_calls' AND "
+              "source_column='interval_id'") == 2);
+  require(run_scalar_int(
+              path,
+              "SELECT COUNT(*) FROM traceloom_projection_recipe WHERE "
+              "projection_name IN ('occurrence_host_windows', "
+              "'occurrence_host_context') AND "
+              "example_sql LIKE '%tree.semantic_projection%' AND "
+              "example_sql NOT LIKE '%:node_id%'") == 2);
   require(run_scalar_int(
               path,
               "SELECT COUNT(*) FROM traceloom_projection_recipe WHERE "
