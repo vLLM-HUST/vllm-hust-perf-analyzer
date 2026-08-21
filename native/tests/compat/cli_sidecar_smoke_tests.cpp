@@ -217,15 +217,15 @@ void require_augmented_database(const std::string& path) {
   traceloom::testing::require(run_scalar_int(
                                   path,
                                   "SELECT COUNT(*) FROM "
-                                  "traceloom_projection_recipe") == 42);
+                                  "traceloom_projection_recipe") == 43);
   traceloom::testing::require(run_scalar_int(
                                   path,
                                   "SELECT COUNT(*) FROM "
-                                  "traceloom_projection_parameter") == 48);
+                                  "traceloom_projection_parameter") == 49);
   traceloom::testing::require(run_scalar_int(
                                   path,
                                   "SELECT COUNT(*) FROM "
-                                  "traceloom_projection_coordinate") == 150);
+                                  "traceloom_projection_coordinate") == 157);
   traceloom::testing::require(run_scalar_int(
                                   path,
                                   "SELECT COUNT(*) FROM traceloom_metadata "

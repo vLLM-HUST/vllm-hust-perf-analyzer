@@ -360,13 +360,13 @@ void run_packaging_materializer_tests() {
               "SELECT COUNT(*) FROM traceloom_projection_recipe WHERE "
               "scope_kind != '' AND population_mode != '' AND "
               "resolution != '' AND observation_domain != '' AND "
-              "measure_lens != ''") == 42);
+              "measure_lens != ''") == 43);
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_projection_parameter WHERE "
               "parameter_name != '' AND sqlite_type IN ('TEXT', 'INTEGER') "
               "AND coordinate_kind != '' AND selection_relation != '' AND "
-              "selection_column != ''") == 48);
+              "selection_column != ''") == 49);
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_projection_parameter p LEFT "
@@ -375,7 +375,7 @@ void run_packaging_materializer_tests() {
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_projection_coordinate") ==
-          150);
+          157);
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_projection_coordinate WHERE "
@@ -406,7 +406,7 @@ void run_packaging_materializer_tests() {
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
-              "WHERE source_projection = 'bubble_occurrences' AND "
+              "WHERE source_projection = 'edge_role_bubbles' AND "
               "target_projection = 'host_window_calls' AND source_column = "
               "'host_interval_id'") == 1);
   require(run_scalar_int(
@@ -511,15 +511,13 @@ void run_packaging_materializer_tests() {
               "target_projection = 'position_occurrences'") == 0);
   require(run_scalar_int(
               augmented_path,
-              "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
-              "WHERE source_projection = 'scope_catalog' AND "
-              "target_projection IN ('bubble_occurrences', "
-              "'bubble_host_context')") == 0);
+              "SELECT COUNT(*) FROM traceloom_projection_recipe WHERE "
+              "projection_name = 'bubble_occurrences'") == 0);
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
               "WHERE source_projection = 'bubble_hotspots' AND "
-              "target_projection = 'bubble_occurrences' AND source_column = "
+              "target_projection = 'bubble_host_context' AND source_column = "
               "'structural_position_id' AND target_parameter = "
               "'structural_position_id' AND coordinate_kind = "
               "'structural_position_id'") == 1);

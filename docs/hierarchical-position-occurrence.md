@@ -98,6 +98,7 @@ The corresponding recipe path is:
 ```text
 hpo_positions -> tree_edge_roles -> equivalent_tree_edges
 hpo_occurrences -> tree_edges -> equivalent_tree_edges
+tree_edge_roles -> edge_role_bubble_summary -> edge_role_bubbles
 equivalent_tree_edges -> occurrence_host_windows / occurrence_host_context
 ```
 
@@ -139,6 +140,14 @@ typed host-window support and bounded runtime-call projection without asking
 the user to translate the Occurrence back into legacy `node_id` and
 `occurrence_idx` selectors. See the
 [AugDB SQL UX migration](augdb-sql-ux-migration.md).
+
+The same contextual role can be held while changing the measure lens from
+child cost to the uncovered transition immediately before each child
+Occurrence. `edge_role_bubble_summary` compares only that role's population;
+`edge_role_bubbles` preserves its concrete edge and child-Occurrence
+coordinates, including explicit rows for members with no positive bubble.
+This is a selector-first query-time relation over the compact bubble evidence,
+not a globally materialized edge-by-bubble table.
 
 `traceloom_tree_node_anchor` remains a useful coverage relation, but it is not
 direct HPO membership: a composite node may cover terminal anchors reached

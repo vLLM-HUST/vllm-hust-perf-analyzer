@@ -66,8 +66,9 @@ def verify(database: Path) -> None:
             "scope_host_windows",
             "scope_host_context",
             "bubble_hotspots",
-            "bubble_occurrences",
             "bubble_host_context",
+            "edge_role_bubble_summary",
+            "edge_role_bubbles",
             "host_window_calls",
             "runtime_call_audit",
             "event_audit",
@@ -80,8 +81,9 @@ def verify(database: Path) -> None:
         required_transitions = {
             ("position_population", "position_occurrences"),
             ("position_occurrences", "event_audit"),
-            ("bubble_hotspots", "bubble_occurrences"),
-            ("bubble_occurrences", "host_window_calls"),
+            ("tree_edge_roles", "edge_role_bubble_summary"),
+            ("edge_role_bubble_summary", "edge_role_bubbles"),
+            ("edge_role_bubbles", "host_window_calls"),
             ("host_window_calls", "runtime_call_audit"),
         }
         transitions = {
@@ -96,7 +98,6 @@ def verify(database: Path) -> None:
             f"missing continuations: {required_transitions - transitions}",
         )
         forbidden_transitions = {
-            ("scope_catalog", "bubble_occurrences"),
             ("scope_catalog", "bubble_host_context"),
         }
         require(
@@ -104,6 +105,7 @@ def verify(database: Path) -> None:
             "coordinate typing advertised a node id as a bubble position: "
             f"{forbidden_transitions & transitions}",
         )
+        require("bubble_occurrences" not in recipes, "superseded bubble UX remains")
 
         scope = db.execute(
             "SELECT node_id, occurrence_count FROM traceloom_v_tree_node "
@@ -229,30 +231,93 @@ def verify(database: Path) -> None:
         )
 
         position_count = scalar(db, "SELECT COUNT(*) FROM traceloom_v_structure_bubble_position")
-        context_position_count = scalar(
+        bounded_position = db.execute(
+            "SELECT structural_position_id "
+            "FROM traceloom_v_structure_bubble_position "
+            "ORDER BY (supported_host_occurrence_count != 0), "
+            "bubble_occurrence_count, total_bubble_us, structural_position_id "
+            "LIMIT 1"
+        ).fetchone()
+        require(bounded_position is not None, "bubble-position population is empty")
+        context_sql = scalar(
             db,
-            "SELECT COUNT(DISTINCT structural_position_id) "
-            "FROM traceloom_v_structure_bubble_host_context",
+            "SELECT example_sql FROM traceloom_projection_recipe "
+            "WHERE projection_name='bubble_host_context'",
+        )
+        context_rows = list(
+            db.execute(
+                context_sql,
+                {"structural_position_id": bounded_position["structural_position_id"]},
+            )
         )
         require(
-            position_count == context_position_count,
-            "changing to host context erased a bubble position",
+            position_count > 0 and context_rows,
+            "bounded host context erased the selected bubble position",
         )
 
-        bubble = db.execute(
-            "SELECT b.* FROM traceloom_v_structure_bubble_occurrence b "
-            "WHERE b.host_observation_status='supported_ordered' "
-            "AND EXISTS (SELECT 1 FROM traceloom_v_anchor_host_activity h "
-            "WHERE h.interval_id=b.host_interval_id) "
-            "ORDER BY b.bubble_us DESC, b.bubble_id LIMIT 1"
+        role = db.execute(
+            "SELECT r.edge_role_id "
+            "FROM traceloom_v_structure_bubble_position b "
+            "JOIN traceloom_semantic_tree t "
+            "ON t.db_idx=b.db_idx AND t.device_id=b.device_id "
+            "AND t.semantic_projection=b.view_name "
+            "JOIN traceloom_v_tree_edge_role r "
+            "ON r.db_idx=t.db_idx AND r.device_id=t.device_id "
+            "AND r.tree_id=t.tree_id "
+            "AND r.child_position_id=b.structural_position_id "
+            "ORDER BY b.total_bubble_us DESC, b.bubble_occurrence_count DESC "
+            "LIMIT 1"
         ).fetchone()
-        require(bubble is not None, "no bubble occurrence with literal host calls")
+        require(role is not None, "no edge role maps to the bubble population")
+        role_id = role["edge_role_id"]
+        summary_sql = scalar(
+            db,
+            "SELECT example_sql FROM traceloom_projection_recipe "
+            "WHERE projection_name='edge_role_bubble_summary'",
+        )
+        summary = db.execute(summary_sql, {"edge_role_id": role_id}).fetchone()
+        require(summary is not None, "edge-role bubble summary is empty")
+        require(summary["positive_bubble_occurrence_count"] > 0, str(dict(summary)))
+
+        bubble_sql = scalar(
+            db,
+            "SELECT example_sql FROM traceloom_projection_recipe "
+            "WHERE projection_name='edge_role_bubbles'",
+        )
+        bubbles = list(
+            db.execute(
+                bubble_sql,
+                {"edge_role_id": role_id, "occurrence_id": None},
+            )
+        )
+        bubble = next(
+            (
+                row
+                for row in bubbles
+                if row["bubble_state"] == "positive_bubble"
+                and row["host_observation_status"] == "supported_ordered"
+            ),
+            None,
+        )
+        require(bubble is not None, "no supported bubble in selected edge role")
+
+        calls_sql = scalar(
+            db,
+            "SELECT example_sql FROM traceloom_projection_recipe "
+            "WHERE projection_name='host_window_calls'",
+        )
+        calls = list(db.execute(calls_sql, {"interval_id": bubble["host_interval_id"]}))
+        runtime_call = next((row for row in calls if row["runtime_call_id"]), None)
+        require(runtime_call is not None, "selected bubble host interval has no literal call")
+
+        audit_sql = scalar(
+            db,
+            "SELECT example_sql FROM traceloom_projection_recipe "
+            "WHERE projection_name='runtime_call_audit'",
+        )
         runtime_locator = db.execute(
-            "SELECT l.* FROM traceloom_v_anchor_host_activity h "
-            "JOIN traceloom_v_runtime_call_source_locator l "
-            "ON l.runtime_call_id=h.observed_runtime_call_id "
-            "WHERE h.interval_id=? ORDER BY h.observed_order LIMIT 1",
-            (bubble["host_interval_id"],),
+            audit_sql,
+            {"runtime_call_id": runtime_call["runtime_call_id"]},
         ).fetchone()
         require(runtime_locator is not None, "runtime-call audit projection is empty")
         require_embedded_row(db, runtime_locator)
