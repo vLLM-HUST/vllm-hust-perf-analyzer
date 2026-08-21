@@ -25,6 +25,17 @@ void run_position_projection_catalog_tests(const std::string& path) {
               "'replay_hpo_%'") == 8);
   require(run_scalar_int(
               path,
+              "SELECT COUNT(*) FROM traceloom_analysis_surface WHERE "
+              "surface_name IN ('execution_tree_edge', "
+              "'execution_tree_edge_role', 'execution_tree_edge_cost')") ==
+          3);
+  require(run_scalar_int(
+              path,
+              "SELECT COUNT(*) FROM traceloom_projection_recipe WHERE "
+              "projection_name IN ('tree_edge_roles', 'tree_edges', "
+              "'equivalent_tree_edges')") == 3);
+  require(run_scalar_int(
+              path,
               "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
               "WHERE source_projection='hpo_positions' AND "
               "target_projection IN ('hpo_refinements','hpo_occurrences') "
@@ -41,6 +52,36 @@ void run_position_projection_catalog_tests(const std::string& path) {
               "WHERE source_projection='hpo_members' AND "
               "target_projection='event_audit' AND source_column='event_id'") ==
           1);
+  require(run_scalar_int(
+              path,
+              "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
+              "WHERE source_projection='hpo_positions' AND "
+              "target_projection='tree_edge_roles' AND "
+              "source_column='position_id'") == 1);
+  require(run_scalar_int(
+              path,
+              "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
+              "WHERE source_projection='hpo_occurrences' AND "
+              "target_projection='tree_edges' AND "
+              "source_column='occurrence_id'") == 1);
+  require(run_scalar_int(
+              path,
+              "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
+              "WHERE source_projection='tree_edge_roles' AND "
+              "target_projection='equivalent_tree_edges' AND "
+              "source_column='edge_role_id'") == 1);
+  require(run_scalar_int(
+              path,
+              "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
+              "WHERE source_projection='tree_edges' AND "
+              "target_projection='equivalent_tree_edges' AND "
+              "source_column='edge_role_id'") == 1);
+  require(run_scalar_int(
+              path,
+              "SELECT COUNT(*) FROM traceloom_projection_recipe WHERE "
+              "projection_name IN ('tree_edges','equivalent_tree_edges') "
+              "AND example_sql NOT LIKE '%slot_ordinal%' AND "
+              "example_sql NOT LIKE '%member_order%'") == 2);
   require(run_scalar_int(
               path,
               "SELECT COUNT(*) FROM traceloom_v_projection_continuation "

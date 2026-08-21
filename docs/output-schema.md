@@ -34,6 +34,11 @@ canonical [Hierarchical Position--Occurrence](hierarchical-position-occurrence.m
 structural query kernel. Refinement slot order and direct-member order are
 separate coordinates: the former defines a composite Position, while the
 latter distinguishes repeated measured realizations within one slot.
+`traceloom_v_tree_edge_role`, `traceloom_v_tree_edge`, and
+`traceloom_v_tree_edge_cost` are the SQL-facing ordered-edge projection over
+that kernel. They let queries discover context-safe edge populations, read one
+concrete edge stream, and compare equivalent edges without exposing storage
+slot/member axes as separate user coordinates.
 
 If one source database contains several devices, the artifact contains one
 independently recovered structural tree per observed `device_id`. TraceLoom

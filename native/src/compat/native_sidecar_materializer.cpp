@@ -602,6 +602,9 @@ void write_basic_native_compatibility_sidecar(
     position_rows.members.insert(position_rows.members.end(),
                                  device_position_rows.members.begin(),
                                  device_position_rows.members.end());
+    position_rows.edges.insert(position_rows.edges.end(),
+                               device_position_rows.edges.begin(),
+                               device_position_rows.edges.end());
   }
   replace_loop_tree_rows(sqlite_path, split_loop_tree_sql_rows(node_rows));
   const NodeAnchorCoverageSqlRows coverage_rows =

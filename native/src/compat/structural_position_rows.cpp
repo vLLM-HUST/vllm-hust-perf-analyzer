@@ -1,5 +1,6 @@
 #include "traceloom/compat/structural_position_rows.h"
 
+#include <algorithm>
 #include <map>
 #include <stdexcept>
 #include <string>
@@ -25,6 +26,26 @@ std::string position_id(const StructuralNodeDef& def,
 std::string occurrence_id(const std::string& position,
                           std::uint32_t occurrence_idx) {
   return position + "-occurrence-" + std::to_string(occurrence_idx);
+}
+
+std::string edge_role_id(std::uint32_t db_idx,
+                         std::uint32_t device_id,
+                         const std::string& tree_id,
+                         const std::string& parent_tree_path,
+                         std::uint32_t role_ordinal) {
+  return "edge-role:d" + std::to_string(db_idx) + ":dev" +
+         std::to_string(device_id) + ":" + tree_id + ":" +
+         parent_tree_path + ":e" + std::to_string(role_ordinal);
+}
+
+std::string edge_id(std::uint32_t db_idx,
+                    std::uint32_t device_id,
+                    const std::string& tree_id,
+                    const std::string& parent_occurrence_id,
+                    std::uint32_t edge_order) {
+  return "edge:d" + std::to_string(db_idx) + ":dev" +
+         std::to_string(device_id) + ":" + tree_id + ":" +
+         parent_occurrence_id + ":" + std::to_string(edge_order);
 }
 
 struct MemberAddress {
@@ -59,6 +80,35 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_traceloom_position_member_coordinate
     db_idx, tree_id, parent_occurrence_id, slot_ordinal, member_order);
 CREATE INDEX IF NOT EXISTS idx_traceloom_position_member_child
   ON traceloom_position_member(db_idx, tree_id, child_occurrence_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_traceloom_execution_tree_edge_identity
+  ON traceloom_execution_tree_edge(db_idx, tree_id, edge_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_traceloom_execution_tree_edge_order
+  ON traceloom_execution_tree_edge(
+    db_idx, tree_id, parent_occurrence_id, edge_order);
+CREATE INDEX IF NOT EXISTS idx_traceloom_execution_tree_edge_role
+  ON traceloom_execution_tree_edge(
+    db_idx, tree_id, edge_role_id, parent_occurrence_idx, edge_order);
+CREATE INDEX IF NOT EXISTS idx_traceloom_execution_tree_edge_role_lookup
+  ON traceloom_execution_tree_edge(
+    edge_role_id, parent_occurrence_id, parent_occurrence_idx, edge_order);
+CREATE INDEX IF NOT EXISTS idx_traceloom_execution_tree_edge_parent_lookup
+  ON traceloom_execution_tree_edge(parent_occurrence_id, edge_order);
+CREATE INDEX IF NOT EXISTS idx_traceloom_execution_tree_edge_parent_position
+  ON traceloom_execution_tree_edge(
+    db_idx, tree_id, parent_position_id, parent_tree_path, edge_order);
+CREATE INDEX IF NOT EXISTS idx_traceloom_execution_tree_edge_child
+  ON traceloom_execution_tree_edge(
+    db_idx, tree_id, child_occurrence_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_traceloom_execution_tree_edge_role_id
+  ON traceloom_execution_tree_edge_role(db_idx, tree_id, edge_role_id);
+CREATE INDEX IF NOT EXISTS idx_traceloom_execution_tree_edge_role_lookup_id
+  ON traceloom_execution_tree_edge_role(edge_role_id);
+CREATE INDEX IF NOT EXISTS idx_traceloom_execution_tree_edge_role_parent
+  ON traceloom_execution_tree_edge_role(
+    db_idx, tree_id, parent_position_id, parent_tree_path, first_edge_order);
+CREATE INDEX IF NOT EXISTS idx_traceloom_semantic_node_coordinate
+  ON traceloom_semantic_node(
+    node_id, db_idx, device_id, tree_id, view_name);
 
 DROP VIEW IF EXISTS traceloom_v_position;
 CREATE VIEW traceloom_v_position AS
@@ -95,6 +145,125 @@ LEFT JOIN traceloom_event e
   ON e.event_id = a.event_id
  AND e.db_idx = a.db_idx
  AND e.device_id = a.device_id;
+
+DROP VIEW IF EXISTS traceloom_v_tree_edge_cost;
+DROP VIEW IF EXISTS traceloom_v_tree_edge_role;
+DROP VIEW IF EXISTS traceloom_v_tree_edge;
+CREATE VIEW traceloom_v_tree_edge AS
+SELECT
+  edge.edge_id, edge.edge_role_id, edge.edge_order,
+  edge.edge_ordinal_in_role,
+  edge.db_idx, edge.device_id, edge.tree_id, edge.view_name,
+  tree.semantic_projection AS cost_view_name,
+  edge.parent_position_id, edge.parent_tree_path,
+  edge.parent_occurrence_id, edge.parent_occurrence_idx,
+  edge.parent_repeat_iteration, edge.parent_occurrence_path,
+  parent.label AS parent_label,
+  edge.child_position_id, edge.child_occurrence_id,
+  edge.child_occurrence_idx, edge.child_repeat_iteration,
+  edge.child_token_start_ordinal, edge.child_token_end_exclusive,
+  edge.child_occurrence_path,
+  child.node_type AS edge_node_type,
+  child.semantic_kind AS edge_semantic_kind,
+  child.symbol AS edge_symbol, child.label AS edge_label,
+  child.category AS edge_category
+FROM traceloom_execution_tree_edge edge
+JOIN traceloom_semantic_tree tree
+  ON tree.tree_id = edge.tree_id
+ AND tree.db_idx = edge.db_idx
+ AND tree.device_id = edge.device_id
+ AND tree.view_name = edge.view_name
+JOIN traceloom_semantic_node parent
+  ON parent.node_id = edge.parent_position_id
+ AND parent.db_idx = edge.db_idx
+ AND parent.device_id = edge.device_id
+ AND parent.tree_id = edge.tree_id
+ AND parent.view_name = edge.view_name
+JOIN traceloom_semantic_node child
+  ON child.node_id = edge.child_position_id
+ AND child.db_idx = edge.db_idx
+ AND child.device_id = edge.device_id
+ AND child.tree_id = edge.tree_id
+ AND child.view_name = edge.view_name;
+
+CREATE VIEW traceloom_v_tree_edge_cost AS
+SELECT edge.*,
+  CASE WHEN EXISTS (
+    SELECT 1 FROM traceloom_viz_node_anchor member
+    WHERE member.node_id = edge.child_position_id
+      AND member.db_idx = edge.db_idx
+      AND member.device_id = edge.device_id
+      AND member.view_name = edge.cost_view_name
+      AND member.occurrence_idx = edge.child_occurrence_idx)
+    THEN 'supported' ELSE 'missing' END AS child_cost_support,
+  (SELECT round(sum(member.compute_us), 3)
+   FROM traceloom_viz_node_anchor member
+   WHERE member.node_id = edge.child_position_id
+     AND member.db_idx = edge.db_idx
+     AND member.device_id = edge.device_id
+     AND member.view_name = edge.cost_view_name
+     AND member.occurrence_idx = edge.child_occurrence_idx) AS child_compute_us,
+  (SELECT round(sum(member.comm_us), 3)
+   FROM traceloom_viz_node_anchor member
+   WHERE member.node_id = edge.child_position_id
+     AND member.db_idx = edge.db_idx
+     AND member.device_id = edge.device_id
+     AND member.view_name = edge.cost_view_name
+     AND member.occurrence_idx = edge.child_occurrence_idx) AS child_comm_us,
+  (SELECT round(sum(member.idle_us), 3)
+   FROM traceloom_viz_node_anchor member
+   WHERE member.node_id = edge.child_position_id
+     AND member.db_idx = edge.db_idx
+     AND member.device_id = edge.device_id
+     AND member.view_name = edge.cost_view_name
+     AND member.occurrence_idx = edge.child_occurrence_idx) AS child_uncovered_us,
+  (SELECT round(sum(member.total_us), 3)
+   FROM traceloom_viz_node_anchor member
+   WHERE member.node_id = edge.child_position_id
+     AND member.db_idx = edge.db_idx
+     AND member.device_id = edge.device_id
+     AND member.view_name = edge.cost_view_name
+     AND member.occurrence_idx = edge.child_occurrence_idx) AS child_total_us,
+  (SELECT round(sum(member.self_us), 3)
+   FROM traceloom_viz_node_anchor member
+   WHERE member.node_id = edge.child_position_id
+     AND member.db_idx = edge.db_idx
+     AND member.device_id = edge.device_id
+     AND member.view_name = edge.cost_view_name
+     AND member.occurrence_idx = edge.child_occurrence_idx) AS child_self_us,
+  (SELECT round(sum(member.aux_us), 3)
+   FROM traceloom_viz_node_anchor member
+   WHERE member.node_id = edge.child_position_id
+     AND member.db_idx = edge.db_idx
+     AND member.device_id = edge.device_id
+     AND member.view_name = edge.cost_view_name
+     AND member.occurrence_idx = edge.child_occurrence_idx) AS child_aux_us
+FROM traceloom_v_tree_edge edge;
+
+CREATE VIEW traceloom_v_tree_edge_role AS
+SELECT role.edge_role_id, role.db_idx, role.device_id, role.tree_id,
+       role.view_name, role.parent_position_id, role.parent_tree_path,
+       parent.label AS parent_label, role.child_position_id,
+       child.node_type AS edge_node_type,
+       child.semantic_kind AS edge_semantic_kind,
+       child.symbol AS edge_symbol, child.label AS edge_label,
+       child.category AS edge_category,
+       role.parent_occurrence_count, role.concrete_edge_count,
+       role.edges_per_parent_min, role.edges_per_parent_max,
+       role.population_support, role.first_edge_order
+FROM traceloom_execution_tree_edge_role role
+JOIN traceloom_semantic_node parent
+  ON parent.node_id = role.parent_position_id
+ AND parent.db_idx = role.db_idx
+ AND parent.device_id = role.device_id
+ AND parent.tree_id = role.tree_id
+ AND parent.view_name = role.view_name
+JOIN traceloom_semantic_node child
+  ON child.node_id = role.child_position_id
+ AND child.db_idx = role.db_idx
+ AND child.device_id = role.device_id
+ AND child.tree_id = role.tree_id
+ AND child.view_name = role.view_name;
 )SQL");
 }
 
@@ -193,6 +362,77 @@ StructuralPositionSqlRows build_structural_position_sql_rows(
         measured_path});
   }
 
+  std::vector<const StructuralNodeOccurrence*> concrete_children;
+  concrete_children.reserve(graph.occurrences.size());
+  for (const StructuralNodeOccurrence& occurrence : graph.occurrences) {
+    if (occurrence.parent_occurrence_id.valid()) {
+      concrete_children.push_back(&occurrence);
+    }
+  }
+  std::sort(concrete_children.begin(), concrete_children.end(),
+            [](const StructuralNodeOccurrence* lhs,
+               const StructuralNodeOccurrence* rhs) {
+              if (lhs->parent_occurrence_id != rhs->parent_occurrence_id) {
+                return lhs->parent_occurrence_id < rhs->parent_occurrence_id;
+              }
+              if (lhs->edge_order != rhs->edge_order) {
+                return lhs->edge_order < rhs->edge_order;
+              }
+              return lhs->id < rhs->id;
+            });
+  std::map<std::pair<StructuralNodeOccurrenceId::value_type, std::uint32_t>,
+           std::uint32_t>
+      next_ordinal_by_role;
+  for (const StructuralNodeOccurrence* child_ptr : concrete_children) {
+    const StructuralNodeOccurrence& child = *child_ptr;
+    const StructuralNodeOccurrence& parent = structural_node_occurrence(
+        graph, child.parent_occurrence_id);
+    const auto address = address_by_child.find(child.id.value());
+    if (address == address_by_child.end()) {
+      throw std::invalid_argument(
+          "execution tree edge has no structural role address");
+    }
+    const auto role_key =
+        std::make_pair(parent.id.value(), address->second.slot_ordinal);
+    const std::uint32_t ordinal_in_role = ++next_ordinal_by_role[role_key];
+    if (ordinal_in_role != address->second.member_order) {
+      throw std::invalid_argument(
+          "execution tree edge role rank disagrees with measured order");
+    }
+    const std::string& parent_occurrence =
+        occurrence_ids.at(parent.id.value());
+    const std::string& parent_tree_path =
+        rooted_position_paths.at(parent.id.value());
+    const StructuralNodeDef& parent_def =
+        structural_node_def(graph, parent.node_def_id);
+    const StructuralNodeDef& child_def =
+        structural_node_def(graph, child.node_def_id);
+    out.edges.push_back(ExecutionTreeEdgeSqlRow{
+        edge_id(db_idx, device_id, tree_id, parent_occurrence,
+                child.edge_order),
+        edge_role_id(db_idx, device_id, tree_id, parent_tree_path,
+                     address->second.slot_ordinal),
+        child.edge_order,
+        ordinal_in_role,
+        position_id(parent_def, device_id, scope_position_ids_by_device),
+        parent_tree_path,
+        parent_occurrence,
+        parent.occurrence_index_for_def + 1,
+        parent.repeat_iteration,
+        occurrence_paths.at(parent.id.value()),
+        position_id(child_def, device_id, scope_position_ids_by_device),
+        occurrence_ids.at(child.id.value()),
+        child.occurrence_index_for_def + 1,
+        child.repeat_iteration,
+        child.token_start_ordinal,
+        child.token_end_ordinal,
+        occurrence_paths.at(child.id.value()),
+        db_idx,
+        device_id,
+        tree_id,
+        view_name});
+  }
+
   for (const StructuralPositionMember& row : model.members) {
     const StructuralNodeOccurrence& parent =
         structural_node_occurrence(graph, row.parent_occurrence_id);
@@ -245,12 +485,16 @@ void replace_structural_position_rows(
   materialize_compatibility_schema(
       sqlite_path,
       {position_refinement_table_schema(), position_occurrence_table_schema(),
-       position_member_table_schema(), semantic_node_table_schema(),
+       position_member_table_schema(), execution_tree_edge_table_schema(),
+       execution_tree_edge_role_table_schema(),
+       semantic_tree_table_schema(), semantic_node_table_schema(),
        anchor_table_schema(), event_table_schema()});
   SqliteDb db(sqlite_path);
   db.exec("BEGIN IMMEDIATE");
   try {
     db.exec("DELETE FROM traceloom_position_member");
+    db.exec("DELETE FROM traceloom_execution_tree_edge");
+    db.exec("DELETE FROM traceloom_execution_tree_edge_role");
     db.exec("DELETE FROM traceloom_position_occurrence");
     db.exec("DELETE FROM traceloom_position_refinement");
 
@@ -323,6 +567,59 @@ void replace_structural_position_rows(
       bind_text(member_stmt, column++, row.member_path);
       finish_row(member_stmt, "failed to insert Position member");
     }
+
+    SqliteStmt edge_stmt(
+        db.get(), "INSERT INTO traceloom_execution_tree_edge VALUES "
+                  "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+    for (const ExecutionTreeEdgeSqlRow& row : rows.edges) {
+      int column = 1;
+      bind_text(edge_stmt, column++, row.edge_id);
+      bind_text(edge_stmt, column++, row.edge_role_id);
+      bind_int64(edge_stmt, column++, row.edge_order);
+      bind_int64(edge_stmt, column++, row.edge_ordinal_in_role);
+      bind_text(edge_stmt, column++, row.parent_position_id);
+      bind_text(edge_stmt, column++, row.parent_tree_path);
+      bind_text(edge_stmt, column++, row.parent_occurrence_id);
+      bind_int64(edge_stmt, column++, row.parent_occurrence_idx);
+      bind_int64(edge_stmt, column++, row.parent_repeat_iteration);
+      bind_text(edge_stmt, column++, row.parent_occurrence_path);
+      bind_text(edge_stmt, column++, row.child_position_id);
+      bind_text(edge_stmt, column++, row.child_occurrence_id);
+      bind_int64(edge_stmt, column++, row.child_occurrence_idx);
+      bind_int64(edge_stmt, column++, row.child_repeat_iteration);
+      bind_int64(edge_stmt, column++, row.child_token_start_ordinal);
+      bind_int64(edge_stmt, column++, row.child_token_end_exclusive);
+      bind_text(edge_stmt, column++, row.child_occurrence_path);
+      bind_int64(edge_stmt, column++, row.db_idx);
+      bind_int64(edge_stmt, column++, row.device_id);
+      bind_text(edge_stmt, column++, row.tree_id);
+      bind_text(edge_stmt, column++, row.view_name);
+      finish_row(edge_stmt, "failed to insert execution tree edge");
+    }
+    db.exec(R"SQL(
+INSERT INTO traceloom_execution_tree_edge_role
+WITH per_parent AS (
+  SELECT edge_role_id, parent_position_id, parent_tree_path,
+         child_position_id, parent_occurrence_id,
+         count(*) AS edge_count, min(edge_order) AS first_edge_order,
+         db_idx, device_id, tree_id, view_name
+  FROM traceloom_execution_tree_edge
+  GROUP BY edge_role_id, parent_position_id, parent_tree_path,
+           child_position_id, parent_occurrence_id,
+           db_idx, device_id, tree_id, view_name
+)
+SELECT edge_role_id, parent_position_id, parent_tree_path, child_position_id,
+       count(*) AS parent_occurrence_count,
+       sum(edge_count) AS concrete_edge_count,
+       min(edge_count) AS edges_per_parent_min,
+       max(edge_count) AS edges_per_parent_max,
+       CASE WHEN min(edge_count) = max(edge_count)
+            THEN 'uniform' ELSE 'nonuniform' END AS population_support,
+       min(first_edge_order), db_idx, device_id, tree_id, view_name
+FROM per_parent
+GROUP BY edge_role_id, parent_position_id, parent_tree_path,
+         child_position_id, db_idx, device_id, tree_id, view_name;
+)SQL");
     create_indexes_and_views(db);
     db.exec("COMMIT");
   } catch (...) {

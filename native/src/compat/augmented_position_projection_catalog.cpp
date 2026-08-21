@@ -61,6 +61,23 @@ void materialize_position_projection_catalog(sqlite3* db) {
            "evidence without using transitive coverage",
            "SELECT * FROM traceloom_v_position_member ORDER BY db_idx, "
            "tree_id, parent_occurrence_id, slot_ordinal, member_order;"},
+          {"execution_tree_edge", "traceloom_v_tree_edge",
+           "one concrete ordered parent-to-child Occurrence edge",
+           "read realized tree order without exposing storage slot and member "
+           "axes",
+           "SELECT * FROM traceloom_v_tree_edge ORDER BY db_idx, tree_id, "
+           "parent_occurrence_id, edge_order;"},
+          {"execution_tree_edge_role", "traceloom_v_tree_edge_role",
+           "one contextual structural equivalence class of tree edges",
+           "discover the only edge populations that are valid to aggregate",
+           "SELECT * FROM traceloom_v_tree_edge_role ORDER BY db_idx, tree_id, "
+           "parent_tree_path, first_edge_order;"},
+          {"execution_tree_edge_cost", "traceloom_v_tree_edge_cost",
+           "one concrete tree edge with its child Occurrence cost lenses",
+           "compare equivalent edges while retaining exact child Occurrence "
+           "coordinates",
+           "SELECT * FROM traceloom_v_tree_edge_cost ORDER BY db_idx, tree_id, "
+           "parent_occurrence_idx, edge_order;"},
           {"replay_hierarchical_position",
            "traceloom_v_replay_body_position_definition",
            "one reusable hierarchical Position in a replay-body domain",
@@ -110,6 +127,28 @@ void materialize_position_projection_catalog(sqlite3* db) {
            "SELECT * FROM traceloom_v_position_member WHERE "
            "parent_occurrence_id=:occurrence_id ORDER BY slot_ordinal, "
            "member_order;"},
+          {"tree_edge_roles", "10", "hierarchical_position",
+           "structural_edge_classes", "folded_roles", "device",
+           "edge_population_support", ":position_id",
+           "list contextual edge roles under one selected structural node",
+           "SELECT * FROM traceloom_v_tree_edge_role WHERE "
+           "parent_position_id=:position_id ORDER BY parent_tree_path, "
+           "first_edge_order;"},
+          {"tree_edges", "11", "position_occurrence", "one_occurrence",
+           "ordered_child_edges", "device", "child_occurrence_identity",
+           ":occurrence_id", "read one concrete child-edge stream in measured "
+           "tree order",
+           "SELECT * FROM traceloom_v_tree_edge WHERE "
+           "parent_occurrence_id=:occurrence_id ORDER BY edge_order;"},
+          {"equivalent_tree_edges", "12", "execution_tree_edge_role",
+           "one_or_all_parent_occurrences", "equivalent_edge_population",
+           "device", "child_occurrence_cost",
+           ":edge_role_id, :occurrence_id (NULL selects all parents)",
+           "compare only concrete edges that share one contextual role",
+           "SELECT * FROM traceloom_v_tree_edge_cost WHERE "
+           "edge_role_id=:edge_role_id AND (:occurrence_id IS NULL OR "
+           "parent_occurrence_id=:occurrence_id) ORDER BY "
+           "parent_occurrence_idx, edge_order;"},
           {"replay_hpo_positions", "41", "replay_body_domain",
            "definitions", "folded", "device", "position_definition",
            ":domain_id", "select hierarchical Positions recovered in one "
@@ -153,6 +192,19 @@ void materialize_position_projection_catalog(sqlite3* db) {
           {"hpo_members", "10", "occurrence_id", "TEXT", "0",
            "position_occurrence_id", "traceloom_position_occurrence",
            "occurrence_id", "selected measured Position realization"},
+          {"tree_edge_roles", "10", "position_id", "TEXT", "0",
+           "hierarchical_position_id", "traceloom_v_position", "position_id",
+           "selected structural parent"},
+          {"tree_edges", "10", "occurrence_id", "TEXT", "0",
+           "position_occurrence_id", "traceloom_v_position_occurrence",
+           "occurrence_id", "selected concrete parent realization"},
+          {"equivalent_tree_edges", "10", "edge_role_id", "TEXT", "0",
+           "execution_tree_edge_role_id", "traceloom_v_tree_edge_role",
+           "edge_role_id", "selected contextual edge equivalence class"},
+          {"equivalent_tree_edges", "20", "occurrence_id", "TEXT", "1",
+           "position_occurrence_id", "traceloom_v_position_occurrence",
+           "occurrence_id", "NULL selects the role across all parent "
+           "Occurrences"},
           {"replay_hpo_positions", "10", "domain_id", "TEXT", "0",
            "replay_body_domain_id", "traceloom_replay_body_pattern_domain",
            "domain_id", "selected exact replay-body domain"},
@@ -194,6 +246,33 @@ void materialize_position_projection_catalog(sqlite3* db) {
            "position_occurrence_id", "direct child Occurrence when present"},
           {"hpo_members", "50", "event_id", "normalized_event_id",
            "terminal event available for source audit"},
+          {"tree_edge_roles", "10", "parent_position_id",
+           "hierarchical_position_id", "selected structural parent"},
+          {"tree_edge_roles", "20", "edge_role_id",
+           "execution_tree_edge_role_id", "context-safe aggregation key"},
+          {"tree_edge_roles", "30", "child_position_id",
+           "hierarchical_position_id", "child structure available to expand"},
+          {"tree_edges", "10", "edge_id", "execution_tree_edge_id",
+           "selected concrete tree edge"},
+          {"tree_edges", "20", "edge_role_id",
+           "execution_tree_edge_role_id", "edge population available to "
+           "compare"},
+          {"tree_edges", "30", "parent_occurrence_id",
+           "position_occurrence_id", "owning parent Occurrence"},
+          {"tree_edges", "40", "child_position_id",
+           "hierarchical_position_id", "child structural node"},
+          {"tree_edges", "50", "child_occurrence_id",
+           "position_occurrence_id", "child Occurrence available to expand"},
+          {"equivalent_tree_edges", "10", "edge_id",
+           "execution_tree_edge_id", "concrete member of the selected role"},
+          {"equivalent_tree_edges", "20", "edge_role_id",
+           "execution_tree_edge_role_id", "held structural equivalence class"},
+          {"equivalent_tree_edges", "30", "parent_occurrence_id",
+           "position_occurrence_id", "owning parent Occurrence"},
+          {"equivalent_tree_edges", "40", "child_position_id",
+           "hierarchical_position_id", "child structural node"},
+          {"equivalent_tree_edges", "50", "child_occurrence_id",
+           "position_occurrence_id", "measured child available to expand"},
           {"replay_hpo_positions", "10", "position_id",
            "hierarchical_position_id", "selected replay-body Position"},
           {"replay_hpo_refinements", "10", "parent_position_id",

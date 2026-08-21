@@ -53,6 +53,7 @@ int main() {
   require(position_rows.refinements.size() == 2);
   require(position_rows.occurrences.size() == 4);
   require(position_rows.members.size() == 5);
+  require(position_rows.edges.size() == 3);
   require(position_rows.refinements[0].parent_position_id == "node-N001");
   require(position_rows.refinements[0].slot_ordinal == 1);
   require(position_rows.refinements[0].child_position_id == "node-N002");
@@ -78,6 +79,20 @@ int main() {
   require(position_rows.members[3].member_path ==
           "node-N001-occurrence-1/s1/r1/node-N002-occurrence-1/"
           "s1/r1/node-N003-occurrence-1/terminal/r1/token-0");
+  require(position_rows.edges[0].parent_occurrence_id ==
+          "node-N001-occurrence-1");
+  require(position_rows.edges[0].edge_order == 1);
+  require(position_rows.edges[0].edge_ordinal_in_role == 1);
+  require(position_rows.edges[1].parent_occurrence_id ==
+          "node-N002-occurrence-1");
+  require(position_rows.edges[1].edge_order == 1);
+  require(position_rows.edges[1].edge_ordinal_in_role == 1);
+  require(position_rows.edges[2].edge_order == 2);
+  require(position_rows.edges[2].edge_ordinal_in_role == 2);
+  require(position_rows.edges[1].edge_role_id ==
+          position_rows.edges[2].edge_role_id);
+  require(position_rows.edges[0].edge_role_id !=
+          position_rows.edges[1].edge_role_id);
 
   const compat::NodeCoverageSqlRows rows =
       compat::build_native_structural_node_coverage_sql_rows(ir, 7, "tree");

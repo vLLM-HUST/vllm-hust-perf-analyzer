@@ -76,6 +76,8 @@ const CompatTableSchema& semantic_edge_table_schema();
 const CompatTableSchema& position_refinement_table_schema();
 const CompatTableSchema& position_occurrence_table_schema();
 const CompatTableSchema& position_member_table_schema();
+const CompatTableSchema& execution_tree_edge_table_schema();
+const CompatTableSchema& execution_tree_edge_role_table_schema();
 const CompatTableSchema& collective_global_link_table_schema();
 const CompatTableSchema& global_collective_summary_table_schema();
 const CompatTableSchema& global_collective_member_table_schema();

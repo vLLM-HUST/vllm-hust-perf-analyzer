@@ -121,6 +121,41 @@ int main() {
   require(run_scalar_int(
               db_path,
               "SELECT COUNT(*) FROM traceloom_position_member") == 2);
+  require(run_scalar_int(
+              db_path,
+              "SELECT COUNT(*) FROM traceloom_execution_tree_edge") == 1);
+  require(run_scalar_int(
+              db_path,
+              "SELECT COUNT(*) FROM traceloom_v_tree_edge") == 1);
+  require(run_scalar_int(
+              db_path,
+              "SELECT COUNT(*) FROM traceloom_v_tree_edge_role WHERE "
+              "population_support='uniform' AND concrete_edge_count=1 AND "
+              "edges_per_parent_min=1 AND edges_per_parent_max=1") == 1);
+  require(run_scalar_int(
+              db_path,
+              "SELECT CAST(child_total_us * 1000 AS INTEGER) FROM "
+              "traceloom_v_tree_edge_cost") == 2000);
+  run_sql(
+      db_path,
+      "INSERT INTO traceloom_viz_node_anchor "
+      "SELECT member.node_id, member.anchor_id, member.db_idx, "
+      "member.device_id, 'unrelated_view', member.occurrence_idx, "
+      "member.anchor_order, member.coverage_kind, member.repeat_context, "
+      "member.compute_us, member.comm_us, member.idle_us, member.total_us, "
+      "member.self_us, member.aux_events, member.aux_us "
+      "FROM traceloom_viz_node_anchor member "
+      "JOIN traceloom_execution_tree_edge edge "
+      "ON edge.child_position_id=member.node_id "
+      "AND edge.db_idx=member.db_idx AND edge.device_id=member.device_id "
+      "WHERE member.view_name='native_report_tree'");
+  require(run_scalar_int(
+              db_path,
+              "SELECT CAST(child_total_us * 1000 AS INTEGER) FROM "
+              "traceloom_v_tree_edge_cost") == 2000);
+  run_sql(db_path,
+          "DELETE FROM traceloom_viz_node_anchor "
+          "WHERE view_name='unrelated_view'");
   require(run_scalar_int(db_path,
                          "SELECT COUNT(*) FROM traceloom_v_position") == 2);
   require(run_scalar_text(

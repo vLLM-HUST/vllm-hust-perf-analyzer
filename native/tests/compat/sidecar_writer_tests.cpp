@@ -62,6 +62,8 @@ int main() {
               "traceloom_event_reconciliation_policy",
               "traceloom_event_reconciliation_rule",
               "traceloom_event_source",
+              "traceloom_execution_tree_edge",
+              "traceloom_execution_tree_edge_role",
               "traceloom_graph_body_member",
               "traceloom_graph_launch",
               "traceloom_loop_node",
