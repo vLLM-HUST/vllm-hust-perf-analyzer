@@ -318,9 +318,13 @@ selectors used the same incorrect coordinate kind.  The continuation view
 therefore advertised routes such as `scope_catalog -> bubble_occurrences`: a
 syntactically valid node id could be bound as a different identifier domain and
 produce a misleading empty answer.  The catalog now gives bubble positions
-their own `structural_position_id` kind.  Positive oracles retain the intended
-`bubble_hotspots -> bubble_occurrences` route, while both the unit fixture and
-the executable real-profile tour reject node-to-bubble continuations.
+their own `structural_position_id` kind.  The original repair retained the
+typed `bubble_hotspots -> bubble_occurrences` route while rejecting
+node-to-bubble continuations. The later HPO UX migration supersedes and removes
+that occurrence recipe in favor of
+`tree_edge_roles -> edge_role_bubble_summary -> edge_role_bubbles`; the
+physical bubble evidence and the distinct global hotspot/API-family lenses
+remain.
 
 ### A11. Occurrence populations and denominator rules are internally exact
 

@@ -146,6 +146,45 @@ values from the selected Occurrence preserved the node-anchor and interval
 indexes and took roughly 0.2 ms after a warm cache. Query UX migration must
 preserve bounded execution shape as well as row semantics.
 
+## Bound bubble joins by the selected edge role
+
+Do not solve edge-role bubble navigation by materializing a global edge/bubble
+relation, and never restore the global interval/runtime-call relation. Commit
+`792482b` removed the latter after a real profile exposed a conservative
+candidate bound in the billions. The compact device-side
+`traceloom_structure_bubble_occurrence` table is intentional; runtime calls
+remain selector-first query-time evidence.
+
+For an `edge_role_id`, first materialize the one selected role. Use its
+`db_idx`, `device_id`, semantic cost view, and `child_position_id` to select
+bubbles through `idx_traceloom_structure_bubble_transition`, then join that
+bounded set to the selected concrete edges by child occurrence index. Do not
+join every tree edge directly to every bubble and rely on SQLite to build an
+automatic coordinate index.
+
+Bounded observation on the first checked-in kickstart profile (2026-08-21): a
+naive 2,146-edge join took roughly 28--29 seconds and built an automatic bubble
+coordinate index. The selector-first CTE shape took 35--43 ms using the
+existing structural-position index, with no new persisted index or relation.
+The final Release catalog dogfood then returned the role population in 46.6 ms and
+one selected child Occurrence in 13.3 ms. Treat these as artifact-specific
+observations, not latency guarantees.
+
+Use a left join from selected edges to selected positive bubbles. A missing
+bubble row means `no_positive_bubble`; it must not remove the concrete edge.
+Name host coverage as conditional on positive bubbles so a zero-positive role
+does not misleadingly claim that its ordinary host windows are unsupported.
+
+Do not validate completeness with an unfiltered
+`SELECT COUNT(*) FROM traceloom_v_structure_bubble_host_context`. That view is
+query-time by design; an old tour verifier drove the full bubble/runtime
+relation at 100% of one CPU for more than three minutes on the kickstart
+artifact before it was stopped. Validate the retained API-family lens with its
+selector-first `bubble_host_context` recipe on one small or unsupported-only
+position, then validate the default path with
+`edge_role_bubble_summary -> edge_role_bubbles -> host_window_calls`. The
+repaired verifier completed in about one second on the same artifact.
+
 ## Keep compatibility contained
 
 Existing tree, Loop Tree, `scope_*`, replay-pattern, bubble, host, and coverage

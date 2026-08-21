@@ -23,7 +23,8 @@ SELECT projection_name, population_mode, resolution,
 FROM traceloom_projection_recipe
 WHERE projection_name IN (
   'hpo_positions', 'tree_edge_roles', 'hpo_occurrences', 'tree_edges',
-  'equivalent_tree_edges', 'occurrence_host_windows',
+  'equivalent_tree_edges', 'edge_role_bubble_summary', 'edge_role_bubbles',
+  'occurrence_host_windows',
   'occurrence_host_context', 'host_window_calls', 'event_audit')
 ORDER BY display_order;
 ```
@@ -98,6 +99,22 @@ ORDER BY edge_order;
 
 每一行都在同一个 concrete order 平面上；`edge_ordinal_in_role` 是从这个顺序派生的
 第几次同类边，不是要求用户另行组合的坐标轴。
+
+如果问题是“同一个结构位置前面的 device 空档怎样分布”，不要把所有 bubbles
+全局展开后再关联。将选中的 `edge_role_id` 传给 `edge_role_bubble_summary`，先看该
+等价边人口中正 bubble、无正 bubble、host 可观察性以及 `bubble_us` 分布；再用
+`edge_role_bubbles` 展开具体 child Occurrences。它保留每一条 concrete edge，且用
+`positive_bubble` / `no_positive_bubble` 明确区分是否存在正的未覆盖区间。返回的
+`child_occurrence_id` 可切换到 occurrence host lens，`host_interval_id` 可直接进入
+`host_window_calls`。这里的 host 行为只是相邻 anchors 提供的上下文证据，不是对
+device bubble 原因的自动归因。
+summary 中的 `positive_bubble_host_observation_coverage` 只以正 bubble 为分母；
+当一个 role 没有正 bubble 时，零表示“不适用”，不表示其普通 host windows 全部
+不可观察。
+
+这条 recipe 会先锁定一个 role，再借助已有 structural-position 索引选择 bubbles；
+不会物化全局 edge×bubble 或 interval×runtime-call 关系。旧的全局 bubble hotspot
+和 API-family aggregate 暂时保留，因为它们仍提供尚未完全迁移的分析动作。
 
 选出异常 `child_occurrence_id` 后，可以直接绑定为 `:occurrence_id` 并运行
 `occurrence_host_windows` 或 `occurrence_host_context`。它们保留原 host 投影中缺端点、

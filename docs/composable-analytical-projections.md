@@ -25,6 +25,7 @@ The canonical structural routes are:
 hpo_positions -> hpo_occurrences -> hpo_members
               -> tree_edge_roles -> equivalent_tree_edges
 hpo_occurrences -> tree_edges -> equivalent_tree_edges
+tree_edge_roles -> edge_role_bubble_summary -> edge_role_bubbles
 equivalent_tree_edges -> occurrence_host_windows / occurrence_host_context
 ```
 
@@ -260,18 +261,26 @@ The older `scope_host_windows` and `scope_host_context` accept
 `node_id + occurrence_idx` and remain compatibility routes over the same host
 evidence until consumers migrate.
 
-`bubble_host_context` starts from a recovered structural position, holds that
-position fixed across bubble occurrences, and combines overlap-safe uncovered
-device cost with supported upstream API-family observations. Its recipe
-materializes only the selected position and bubble population as CTEs, then
-uses fixed join order and the runtime-time index; it does not aggregate the
-global bubble/call relation. A selected bubble can then continue through
-`bubble_occurrences` to `host_window_calls` and `runtime_call_audit`.
-`bubble_hotspots` retains positions whose occurrences have no supported host
-window, so changing observation domain never turns an unsupported population
-into an empty successful answer. Generic bubble API-family views remain
-query-time relations and should be filtered by structural position or bubble
-identity.
+`edge_role_bubble_summary` holds one contextual edge equivalence class fixed
+and reports its positive-bubble count, no-positive-bubble count, uncovered
+device-cost distribution, and typed host-observation coverage.
+That coverage is named `positive_bubble_host_observation_coverage` because its
+denominator is the positive-bubble population, not every edge in the role.
+`edge_role_bubbles` then retains every concrete edge and exact
+`child_occurrence_id`, including a `no_positive_bubble` row when the compact
+bubble table has no positive observation. A positive row returns
+`host_interval_id`, so the exact host calls and their raw locators remain
+reachable through `host_window_calls` and `runtime_call_audit`.
+
+Both recipes materialize only the selected role and its candidate bubble
+population as CTEs. They use the existing structural-position bubble index and
+do not materialize a global edge/bubble or bubble/call relation. The superseded
+`bubble_occurrences` catalog recipe is removed; the physical occurrence
+evidence remains. `bubble_hotspots` and `bubble_host_context` stay as
+specialized lenses because the global hotspot and API-family population
+aggregate still answer useful questions that have not yet earned safe
+edge-role-wide replacements. Generic bubble API-family views remain query-time
+relations and must be filtered by structural position or bubble identity.
 
 Cost columns remain named lenses. Scheduled task sums, overlap-safe busy time,
 wall-span envelopes, device bubble cost, and host scheduled-call duration are

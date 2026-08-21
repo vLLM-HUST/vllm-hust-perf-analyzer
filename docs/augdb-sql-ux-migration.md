@@ -63,7 +63,7 @@ without breaking existing SQL.
 | `scope_host_windows` | retain typed supported/unsupported host intervals | `occurrence_host_windows` | migrated wrapper; legacy recipe retained |
 | `scope_host_context` | compare bounded runtime API distributions | `occurrence_host_context` | migrated wrapper; legacy recipe retained |
 | `replay_body_pattern*` | recover and audit recursive replay internals | `replay_hpo_*` plus exact replay evidence recipes | partially migrated; Pattern storage remains compatibility and terminal lineage bridge |
-| bubble surfaces | quantify recurrent uncovered intervals and host visibility | Position/edge-bounded bubble lens | not yet re-keyed; preserve current evidence and support states |
+| bubble surfaces | quantify recurrent uncovered intervals and host visibility | `tree_edge_roles -> edge_role_bubble_summary -> edge_role_bubbles` | occurrence recipe replaced and removed; legacy global hotspot and API-family aggregate retained |
 | replay cost/partition/member surfaces | retain exact protected membership and non-interchangeable cost lenses | branch from selected Occurrence/edge into replay coordinates | specialized evidence retained; continuation still being simplified |
 | annotated/flattened timeline | show replay regions and exact members on one plane | presentation after coordinate selection | retained, not a competing data model |
 
@@ -99,6 +99,78 @@ The query must push the selected Occurrence coordinates into
 artifact, a join that first materialized the global host view took about
 300 ms for one row; the bounded form took about 0.2 ms after a warm cache.
 Preserving an analytical verb includes preserving its bounded execution shape.
+
+## Second vertical slice: contextual edge role to bubble evidence
+
+The bubble lens now starts from `edge_role_id`, not from the legacy
+`structural_position_id`:
+
+```text
+tree_edge_roles / equivalent_tree_edges
+  -> edge_role_bubble_summary
+  -> edge_role_bubbles
+       -> occurrence_host_windows / occurrence_host_context
+       -> host_window_calls -> runtime_call_audit
+```
+
+`edge_role_bubble_summary` counts both positive bubble observations and
+concrete edges with no positive bubble. `edge_role_bubbles` preserves every
+concrete child Occurrence and labels those two states explicitly; selecting a
+returned `child_occurrence_id` or `host_interval_id` therefore does not require
+translation through a legacy node selector. `bubble_us` remains the
+overlap-safe uncovered device cost immediately before the right, self-owned
+anchor. The associated host interval is contextual evidence, not a cause.
+The summary's `positive_bubble_host_observation_coverage` is conditional on
+positive bubbles; a role with no positive bubble reports zero applicability,
+not evidence that all of its ordinary host windows are unsupported.
+
+This slice deliberately does **not** materialize an edge-by-bubble table or a
+global bubble-by-runtime-call relation. Git history records that the latter
+class of global interval/activity expansion was removed after one real profile
+produced a conservative candidate bound of billions of rows. The role recipes
+first materialize one selected role, then use the existing
+`(db_idx, device_id, view_name, structural_position_id)` bubble index to bound
+the population. On the checked-in kickstart artifact, this changed a naive
+2,146-edge join from roughly 28--29 seconds to 35--43 ms without adding a
+persisted index or relation.
+
+The superseded `bubble_occurrences` recipe is removed from the catalog on this
+migration branch; its physical bubble evidence remains. `bubble_hotspots` and
+`bubble_host_context` stay because the global hotspot and API-family population
+aggregate still answer useful questions that have not yet earned equally
+bounded edge-role replacements.
+
+### Bounded dogfood observation (2026-08-21)
+
+A Release build containing this slice regenerated the first checked-in
+kickstart profile into a 777,744,384-byte AugDB in 28.788 seconds. Catalog-only
+addition did not restore any global host-activity materialization.
+
+Following the catalog rather than handwritten joins:
+
+- `edge_role_bubble_summary` summarized the 2,146-edge `Fill` role under
+  `node-N264` in 35.6 ms;
+- `edge_role_bubbles` returned all 2,146 concrete child Occurrences in 46.6 ms;
+- selecting `node-N265-occurrence-1113` returned one 707,340.233-us positive
+  bubble in 13.3 ms, while another member had only 0.020 us;
+- `host_window_calls` returned 323 profiler-visible calls from the selected
+  707,292.840-us host interval in 62.0 ms, and `runtime_call_audit` resolved a
+  call to its embedded `CANN_API` locator in 0.35 ms; and
+- a different 696-edge role returned 696 explicit `no_positive_bubble` rows,
+  proving that absence was not erased by the lens.
+
+The long host interval contained only about 13.7 ms of summed scheduled call
+overlap. That contrast is useful evidence for a follow-up question, but it is
+not proof that unprofiled CPU or scheduler work caused the device bubble.
+These are bounded observations for the named artifact and build, not universal
+latency guarantees.
+
+The dogfood also found that the old tour verifier counted the unfiltered
+query-time `traceloom_v_structure_bubble_host_context` view. It consumed one
+CPU for more than three minutes before being stopped. The verifier now binds
+one small position for the retained API-family lens and follows the new
+edge-role route for literal-call audit; it completes in about one second on
+the same artifact.
 
 ## Deprecation gates
 

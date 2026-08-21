@@ -149,7 +149,97 @@ void materialize_position_projection_catalog(sqlite3* db) {
            "edge_role_id=:edge_role_id AND (:occurrence_id IS NULL OR "
            "parent_occurrence_id=:occurrence_id) ORDER BY "
            "parent_occurrence_idx, edge_order;"},
-          {"occurrence_host_windows", "14", "position_occurrence",
+          {"edge_role_bubble_summary", "13", "execution_tree_edge_role",
+           "all_child_occurrences", "bubble_population", "device_and_host",
+           "bubble_cost_and_host_support", ":edge_role_id",
+           "summarize positive uncovered transitions for one contextual edge "
+           "role without materializing a global edge-by-bubble relation",
+           "WITH selected_role AS MATERIALIZED (SELECT r.*, "
+           "tree.semantic_projection AS cost_view_name FROM "
+           "traceloom_v_tree_edge_role r JOIN traceloom_semantic_tree tree ON "
+           "tree.tree_id=r.tree_id AND tree.db_idx=r.db_idx AND "
+           "tree.device_id=r.device_id AND tree.view_name=r.view_name WHERE "
+           "r.edge_role_id=:edge_role_id), selected_edge AS MATERIALIZED "
+           "(SELECT e.* FROM selected_role r CROSS JOIN "
+           "traceloom_v_tree_edge e WHERE e.edge_role_id=r.edge_role_id AND "
+           "e.db_idx=r.db_idx AND e.device_id=r.device_id AND "
+           "e.tree_id=r.tree_id), selected_bubble AS MATERIALIZED (SELECT "
+           "b.* FROM selected_role r CROSS JOIN "
+           "traceloom_structure_bubble_occurrence b WHERE b.db_idx=r.db_idx "
+           "AND b.device_id=r.device_id AND b.view_name=r.cost_view_name AND "
+           "b.structural_position_id=r.child_position_id) SELECT "
+           "r.edge_role_id, r.parent_position_id, r.parent_tree_path, "
+           "r.parent_label, r.child_position_id, r.edge_node_type, "
+           "r.edge_semantic_kind, r.edge_symbol, r.edge_label, "
+           "r.edge_category, r.parent_occurrence_count, "
+           "r.concrete_edge_count, count(b.bubble_id) AS "
+           "positive_bubble_occurrence_count, count(e.edge_id) - "
+           "count(b.bubble_id) AS no_positive_bubble_occurrence_count, "
+           "ROUND(count(b.bubble_id) * 1.0 / count(e.edge_id), 6) AS "
+           "positive_bubble_fraction_of_edges, SUM(CASE WHEN "
+           "b.host_observation_status='supported_ordered' THEN 1 ELSE 0 END) "
+           "AS supported_host_occurrence_count, SUM(CASE WHEN "
+           "b.host_observation_status='missing_endpoint' THEN 1 ELSE 0 END) "
+           "AS missing_endpoint_occurrence_count, SUM(CASE WHEN "
+           "b.host_observation_status='nonmonotonic_host_order' THEN 1 ELSE "
+           "0 END) AS nonmonotonic_occurrence_count, SUM(CASE WHEN "
+           "b.bubble_id IS NOT NULL AND b.host_observation_status NOT IN "
+           "('supported_ordered', 'missing_endpoint', "
+           "'nonmonotonic_host_order') THEN 1 ELSE 0 END) AS "
+           "other_unsupported_occurrence_count, ROUND(CASE WHEN "
+           "count(b.bubble_id)=0 THEN 0.0 ELSE SUM(CASE WHEN "
+           "b.host_observation_status='supported_ordered' THEN 1 ELSE 0 END) "
+           "* 1.0 / count(b.bubble_id) END, 6) AS "
+           "positive_bubble_host_observation_coverage, "
+           "COALESCE(ROUND(sum(b.bubble_us), 3), "
+           "0.0) AS total_bubble_us, ROUND(avg(b.bubble_us), 3) AS "
+           "avg_bubble_us, ROUND(min(b.bubble_us), 3) AS min_bubble_us, "
+           "ROUND(max(b.bubble_us), 3) AS max_bubble_us FROM selected_role r "
+           "CROSS JOIN selected_edge e LEFT JOIN selected_bubble b ON "
+           "b.right_node_id=e.child_position_id AND "
+           "b.right_occurrence_idx=e.child_occurrence_idx GROUP BY "
+           "r.edge_role_id, r.parent_position_id, r.parent_tree_path, "
+           "r.parent_label, r.child_position_id, r.edge_node_type, "
+           "r.edge_semantic_kind, r.edge_symbol, r.edge_label, "
+           "r.edge_category, r.parent_occurrence_count, "
+           "r.concrete_edge_count;"},
+          {"edge_role_bubbles", "14", "execution_tree_edge_role",
+           "one_or_all_child_occurrences", "ordered_edge_population",
+           "device_and_host", "bubble_cost_and_host_support",
+           ":edge_role_id, :occurrence_id (NULL selects all children)",
+           "inspect one contextual edge population and retain child "
+           "Occurrence coordinates even when no positive bubble exists",
+           "WITH selected_role AS MATERIALIZED (SELECT r.*, "
+           "tree.semantic_projection AS cost_view_name FROM "
+           "traceloom_v_tree_edge_role r JOIN traceloom_semantic_tree tree ON "
+           "tree.tree_id=r.tree_id AND tree.db_idx=r.db_idx AND "
+           "tree.device_id=r.device_id AND tree.view_name=r.view_name WHERE "
+           "r.edge_role_id=:edge_role_id), selected_edge AS MATERIALIZED "
+           "(SELECT e.* FROM selected_role r CROSS JOIN "
+           "traceloom_v_tree_edge e WHERE e.edge_role_id=r.edge_role_id AND "
+           "e.db_idx=r.db_idx AND e.device_id=r.device_id AND "
+           "e.tree_id=r.tree_id AND (:occurrence_id IS NULL OR "
+           "e.child_occurrence_id=:occurrence_id)), selected_bubble AS "
+           "MATERIALIZED (SELECT b.* FROM selected_role r CROSS JOIN "
+           "traceloom_structure_bubble_occurrence b WHERE b.db_idx=r.db_idx "
+           "AND b.device_id=r.device_id AND b.view_name=r.cost_view_name AND "
+           "b.structural_position_id=r.child_position_id) SELECT e.edge_id, "
+           "e.edge_role_id, e.parent_position_id, e.parent_occurrence_id, "
+           "e.parent_occurrence_idx, e.child_position_id, "
+           "e.child_occurrence_id, e.child_occurrence_idx, e.edge_order, "
+           "e.edge_ordinal_in_role, e.edge_label, CASE WHEN b.bubble_id IS "
+           "NULL THEN 'no_positive_bubble' ELSE 'positive_bubble' END AS "
+           "bubble_state, b.bubble_id, b.bubble_us, "
+           "b.transition_compute_us, b.transition_comm_us, "
+           "b.transition_aux_us, b.transition_total_us, "
+           "b.bubble_fraction_of_transition, b.left_anchor_id, "
+           "b.right_anchor_id, b.host_interval_id, "
+           "b.host_observation_status, b.host_interval_us FROM selected_edge "
+           "e LEFT JOIN selected_bubble b ON "
+           "b.right_node_id=e.child_position_id AND "
+           "b.right_occurrence_idx=e.child_occurrence_idx ORDER BY "
+           "b.bubble_us DESC, e.parent_occurrence_idx, e.edge_order;"},
+          {"occurrence_host_windows", "16", "position_occurrence",
            "one_occurrence", "anchor_pair_windows", "device_and_host",
            "typed_host_interval_support", ":occurrence_id",
            "project one selected Occurrence to every covered anchor-delimited "
@@ -174,7 +264,7 @@ void materialize_position_projection_catalog(sqlite3* db) {
            "i.host_interval_us, i.left_endpoint_count, "
            "i.right_endpoint_count FROM selected_occurrence o LEFT JOIN "
            "selected_interval i ON TRUE ORDER BY i.anchor_order;"},
-          {"occurrence_host_context", "15", "position_occurrence",
+          {"occurrence_host_context", "17", "position_occurrence",
            "one_occurrence", "anchor_pair_windows", "host",
            "runtime_api_distribution", ":occurrence_id",
            "compare profiler-visible runtime API distributions for one "
@@ -266,6 +356,16 @@ void materialize_position_projection_catalog(sqlite3* db) {
            "position_occurrence_id", "traceloom_v_position_occurrence",
            "occurrence_id", "NULL selects the role across all parent "
            "Occurrences"},
+          {"edge_role_bubble_summary", "10", "edge_role_id", "TEXT", "0",
+           "execution_tree_edge_role_id", "traceloom_v_tree_edge_role",
+           "edge_role_id", "selected contextual edge equivalence class"},
+          {"edge_role_bubbles", "10", "edge_role_id", "TEXT", "0",
+           "execution_tree_edge_role_id", "traceloom_v_tree_edge_role",
+           "edge_role_id", "selected contextual edge equivalence class"},
+          {"edge_role_bubbles", "20", "occurrence_id", "TEXT", "1",
+           "position_occurrence_id", "traceloom_v_position_occurrence",
+           "occurrence_id", "NULL selects every child Occurrence in the "
+           "selected role"},
           {"occurrence_host_windows", "10", "occurrence_id", "TEXT", "0",
            "position_occurrence_id", "traceloom_v_position_occurrence",
            "occurrence_id", "selected Position Occurrence"},
@@ -340,6 +440,34 @@ void materialize_position_projection_catalog(sqlite3* db) {
            "hierarchical_position_id", "child structural node"},
           {"equivalent_tree_edges", "50", "child_occurrence_id",
            "position_occurrence_id", "measured child available to expand"},
+          {"edge_role_bubble_summary", "10", "edge_role_id",
+           "execution_tree_edge_role_id", "held contextual edge role"},
+          {"edge_role_bubble_summary", "20", "parent_position_id",
+           "hierarchical_position_id", "owning parent Position"},
+          {"edge_role_bubble_summary", "30", "child_position_id",
+           "hierarchical_position_id", "child Position whose incoming "
+           "transition is summarized"},
+          {"edge_role_bubbles", "10", "edge_id", "execution_tree_edge_id",
+           "concrete member of the selected role"},
+          {"edge_role_bubbles", "20", "edge_role_id",
+           "execution_tree_edge_role_id", "held contextual edge role"},
+          {"edge_role_bubbles", "30", "parent_position_id",
+           "hierarchical_position_id", "owning parent Position"},
+          {"edge_role_bubbles", "40", "parent_occurrence_id",
+           "position_occurrence_id", "owning parent Occurrence"},
+          {"edge_role_bubbles", "50", "child_position_id",
+           "hierarchical_position_id", "child Position"},
+          {"edge_role_bubbles", "60", "child_occurrence_id",
+           "position_occurrence_id", "child Occurrence available to inspect"},
+          {"edge_role_bubbles", "70", "bubble_id", "bubble_id",
+           "positive bubble observation when present"},
+          {"edge_role_bubbles", "80", "left_anchor_id", "anchor_id",
+           "left device endpoint when a positive bubble exists"},
+          {"edge_role_bubbles", "90", "right_anchor_id", "anchor_id",
+           "right device endpoint when a positive bubble exists"},
+          {"edge_role_bubbles", "100", "host_interval_id",
+           "host_interval_id", "typed host interval available for literal "
+           "call drill-down"},
           {"occurrence_host_windows", "10", "occurrence_id",
            "position_occurrence_id", "selected Position Occurrence"},
           {"occurrence_host_windows", "20", "position_id",

@@ -428,20 +428,6 @@ void materialize_projection_catalog(
        "total_bubble_us, avg_bubble_us, min_bubble_us, max_bubble_us FROM "
        "traceloom_v_structure_bubble_position ORDER BY total_bubble_us "
        "DESC, bubble_occurrence_count DESC;"},
-      {"bubble_occurrences", "68", "structural_position",
-       "one_or_all_occurrences", "bubble_occurrences", "device_and_host",
-       "bubble_cost_and_host_support",
-       ":structural_position_id, :bubble_id (NULL selects all)",
-       "inspect one recurrent bubble population or select one occurrence "
-       "for host-window and source drill-down",
-       "SELECT structural_position_id, bubble_id, right_node_id, "
-       "right_occurrence_idx, left_anchor_id, right_anchor_id, bubble_us, "
-       "transition_total_us, host_interval_id, host_observation_status, "
-       "host_interval_us, provider, host_start_ns, host_end_ns FROM "
-       "traceloom_v_structure_bubble_occurrence WHERE "
-       "structural_position_id = :structural_position_id AND (:bubble_id "
-       "IS NULL OR bubble_id = :bubble_id) ORDER BY bubble_us DESC, "
-       "right_occurrence_idx;"},
       {"bubble_host_context", "70", "structural_position",
        "all_occurrences", "bubble_population", "device_and_host",
        "bubble_and_runtime_api_distribution",
@@ -611,14 +597,6 @@ void materialize_projection_catalog(
        "structural_occurrence_index", "traceloom_tree_node_occurrence",
        "occurrence_idx",
        "NULL selects all occurrences; a value selects one execution"},
-      {"bubble_occurrences", "10", "structural_position_id", "TEXT",
-       "0", "structural_position_id",
-       "traceloom_v_structure_bubble_position", "structural_position_id",
-       "selected recurrent bubble position"},
-      {"bubble_occurrences", "20", "bubble_id", "TEXT", "1",
-       "bubble_id", "traceloom_v_structure_bubble_occurrence",
-       "bubble_id",
-       "NULL selects all bubbles; a value selects one occurrence"},
       {"bubble_host_context", "10", "structural_position_id", "TEXT",
        "0", "structural_position_id",
        "traceloom_v_structure_bubble_position",
@@ -725,18 +703,6 @@ void materialize_projection_catalog(
        "typed host interval available for literal-call drill-down"},
       {"bubble_hotspots", "10", "structural_position_id",
        "structural_position_id", "recurrent bubble position"},
-      {"bubble_occurrences", "10", "structural_position_id",
-       "structural_position_id", "selected recurrent bubble position"},
-      {"bubble_occurrences", "20", "bubble_id", "bubble_id",
-       "selected bubble occurrence"},
-      {"bubble_occurrences", "30", "right_node_id",
-       "structural_node_id", "right-hand structural node"},
-      {"bubble_occurrences", "40", "left_anchor_id", "anchor_id",
-       "left device endpoint"},
-      {"bubble_occurrences", "50", "right_anchor_id", "anchor_id",
-       "right device endpoint"},
-      {"bubble_occurrences", "60", "host_interval_id",
-       "host_interval_id", "typed upstream host interval"},
       {"bubble_host_context", "10", "structural_position_id",
        "structural_position_id", "selected recurrent bubble position"},
       {"host_window_calls", "10", "interval_id", "host_interval_id",

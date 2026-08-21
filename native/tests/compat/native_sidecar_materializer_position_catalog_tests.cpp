@@ -42,6 +42,11 @@ void run_position_projection_catalog_tests(const std::string& path) {
   require(run_scalar_int(
               path,
               "SELECT COUNT(*) FROM traceloom_projection_recipe WHERE "
+              "projection_name IN ('edge_role_bubble_summary', "
+              "'edge_role_bubbles')") == 2);
+  require(run_scalar_int(
+              path,
+              "SELECT COUNT(*) FROM traceloom_projection_recipe WHERE "
               "projection_name IN ('scope_catalog','scope_occurrences',"
               "'scope_hierarchy','scope_members','position_population',"
               "'position_occurrences','scope_host_windows',"
@@ -96,6 +101,39 @@ void run_position_projection_catalog_tests(const std::string& path) {
               "target_projection IN ('occurrence_host_windows', "
               "'occurrence_host_context') AND "
               "source_column='child_occurrence_id'") == 2);
+  require(run_scalar_int(
+              path,
+              "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
+              "WHERE source_projection='tree_edge_roles' AND "
+              "target_projection IN ('edge_role_bubble_summary', "
+              "'edge_role_bubbles') AND source_column='edge_role_id'") == 2);
+  require(run_scalar_int(
+              path,
+              "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
+              "WHERE source_projection='edge_role_bubble_summary' AND "
+              "target_projection='edge_role_bubbles' AND "
+              "source_column='edge_role_id'") == 1);
+  require(run_scalar_int(
+              path,
+              "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
+              "WHERE source_projection='edge_role_bubbles' AND "
+              "target_projection IN ('occurrence_host_windows', "
+              "'occurrence_host_context') AND "
+              "source_column='child_occurrence_id'") == 2);
+  require(run_scalar_int(
+              path,
+              "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
+              "WHERE source_projection='edge_role_bubbles' AND "
+              "target_projection='host_window_calls' AND "
+              "source_column='host_interval_id'") == 1);
+  require(run_scalar_int(
+              path,
+              "SELECT COUNT(*) FROM traceloom_projection_recipe WHERE "
+              "projection_name IN ('edge_role_bubble_summary', "
+              "'edge_role_bubbles') AND example_sql LIKE "
+              "'%selected_role AS MATERIALIZED%' AND example_sql LIKE "
+              "'%selected_bubble AS MATERIALIZED%' AND example_sql LIKE "
+              "'%CROSS JOIN traceloom_structure_bubble_occurrence%'") == 2);
   require(run_scalar_int(
               path,
               "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
