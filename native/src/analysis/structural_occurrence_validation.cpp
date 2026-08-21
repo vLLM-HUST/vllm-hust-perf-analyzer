@@ -111,6 +111,9 @@ void validate_structural_occurrence_graph_or_throw(
     if (child.parent_occurrence_id != parent.id) {
       throw std::invalid_argument("edge disagrees with child parent id");
     }
+    if (edge.edge_order != child.edge_order) {
+      throw std::invalid_argument("edge disagrees with child local order");
+    }
     const std::uint64_t key =
         (static_cast<std::uint64_t>(parent.id.value()) << 32u) |
         static_cast<std::uint64_t>(edge.edge_order);

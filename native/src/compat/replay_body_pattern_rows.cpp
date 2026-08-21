@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "sqlite_support.h"
+#include "traceloom/analysis/structural_position_model.h"
 #include "traceloom/compat/sidecar_writer.h"
 #include "traceloom/pattern/grammar_modes.h"
 
@@ -180,6 +181,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_traceloom_replay_body_position_coordinate
   ON traceloom_replay_body_position(domain_id, position_ordinal);
 CREATE INDEX IF NOT EXISTS idx_traceloom_replay_body_position_aggregate
   ON traceloom_replay_body_position(aggregate_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_traceloom_replay_body_refinement_coordinate
+  ON traceloom_replay_body_position_refinement(
+    domain_id, parent_position_id, slot_ordinal);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_traceloom_replay_body_member_coordinate
+  ON traceloom_replay_body_position_member(
+    domain_id, parent_occurrence_id, slot_ordinal, member_order);
+CREATE INDEX IF NOT EXISTS idx_traceloom_replay_body_member_child
+  ON traceloom_replay_body_position_member(
+    domain_id, child_occurrence_id);
 
 DROP VIEW IF EXISTS traceloom_v_replay_body_pattern;
 CREATE VIEW traceloom_v_replay_body_pattern AS
@@ -247,6 +257,35 @@ JOIN traceloom_event_source s
   ON s.event_id = m.event_id
  AND s.db_idx = m.db_idx
  AND s.device_id = m.device_id;
+
+DROP VIEW IF EXISTS traceloom_v_replay_body_position_definition;
+CREATE VIEW traceloom_v_replay_body_position_definition AS
+SELECT
+  pattern_id AS position_id, domain_id, db_idx, device_id,
+  local_pattern_id AS local_position_id, node_kind AS position_kind,
+  label, category, repeat_count, display_depth, loop_depth, occurrence_count,
+  positions_per_occurrence AS terminal_positions_per_occurrence,
+  visibility_reason
+FROM traceloom_replay_body_pattern_definition;
+
+DROP VIEW IF EXISTS traceloom_v_replay_body_position_occurrence;
+CREATE VIEW traceloom_v_replay_body_position_occurrence AS
+SELECT
+  occurrence_id, pattern_id AS position_id, domain_id,
+  parent_occurrence_id, db_idx, device_id, occurrence_index,
+  repeat_iteration, position_start, position_end_exclusive, position_count,
+  duration_p25_sum_ns, duration_median_sum_ns, duration_p75_sum_ns,
+  scheduled_work_share_ppm_sum, scheduled_work_share_supported
+FROM traceloom_replay_body_pattern_occurrence;
+
+DROP VIEW IF EXISTS traceloom_v_replay_body_position_direct_member;
+CREATE VIEW traceloom_v_replay_body_position_direct_member AS
+SELECT m.*, p.identity AS terminal_identity, p.kind AS terminal_kind,
+       p.duration_p25_ns, p.duration_median_ns, p.duration_p75_ns
+FROM traceloom_replay_body_position_member m
+LEFT JOIN traceloom_replay_body_position p
+  ON p.position_id = m.terminal_position_id
+ AND p.domain_id = m.domain_id;
 )SQL");
 }
 
@@ -270,6 +309,8 @@ void replace_replay_body_pattern_rows(
        replay_body_pattern_definition_table_schema(),
        replay_body_pattern_occurrence_table_schema(),
        replay_body_position_table_schema(),
+       replay_body_position_refinement_table_schema(),
+       replay_body_position_member_table_schema(),
        replay_body_pattern_issue_table_schema()});
 
   SqliteDb db(sqlite_path);
@@ -277,6 +318,8 @@ void replace_replay_body_pattern_rows(
   try {
     for (const char* table :
          {"traceloom_replay_body_pattern_issue",
+          "traceloom_replay_body_position_member",
+          "traceloom_replay_body_position_refinement",
           "traceloom_replay_body_position",
           "traceloom_replay_body_pattern_occurrence",
           "traceloom_replay_body_pattern_definition",
@@ -328,6 +371,14 @@ void replace_replay_body_pattern_rows(
         db.get(),
         "INSERT INTO traceloom_replay_body_position VALUES "
         "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+    SqliteStmt refinement_stmt(
+        db.get(),
+        "INSERT INTO traceloom_replay_body_position_refinement VALUES "
+        "(?,?,?,?,?,?)");
+    SqliteStmt direct_member_stmt(
+        db.get(),
+        "INSERT INTO traceloom_replay_body_position_member VALUES "
+        "(?,?,?,?,?,?,?,?,?,?,?,?,?)");
     SqliteStmt issue_stmt(
         db.get(),
         "INSERT INTO traceloom_replay_body_pattern_issue VALUES "
@@ -506,6 +557,69 @@ void replace_replay_body_pattern_rows(
                 : 0);
         finish_row(occurrence_stmt,
                    "failed to insert replay-body pattern occurrence");
+      }
+
+      const StructuralPositionModel position_model =
+          build_structural_position_model(
+              domain.graph,
+              static_cast<std::uint32_t>(domain.aggregate_indices.size()));
+      for (const StructuralPositionRefinement& refinement :
+           position_model.refinements) {
+        int i = 1;
+        bind_text(refinement_stmt, i++,
+                  pattern_id(domain_name,
+                             refinement.parent_position_id));
+        bind_int64(refinement_stmt, i++, refinement.slot_ordinal);
+        bind_text(refinement_stmt, i++,
+                  pattern_id(domain_name,
+                             refinement.child_position_id));
+        bind_text(refinement_stmt, i++, domain_name);
+        bind_int64(refinement_stmt, i++, db_idx);
+        bind_int64(refinement_stmt, i++, domain.key.device_id);
+        finish_row(refinement_stmt,
+                   "failed to insert replay-body Position refinement");
+      }
+      for (const StructuralPositionMember& member : position_model.members) {
+        const StructuralNodeOccurrence& parent =
+            structural_node_occurrence(domain.graph,
+                                       member.parent_occurrence_id);
+        int i = 1;
+        bind_text(direct_member_stmt, i++,
+                  pattern_id(domain_name, parent.node_def_id));
+        bind_text(direct_member_stmt, i++,
+                  occurrence_id(domain_name, parent.id));
+        bind_int64(direct_member_stmt, i++, member.slot_ordinal);
+        bind_int64(direct_member_stmt, i++, member.member_order);
+        bind_text(direct_member_stmt, i++,
+                  structural_position_member_kind_name(member.kind));
+        if (member.kind ==
+            StructuralPositionMemberKind::kChildOccurrence) {
+          bind_text(direct_member_stmt, i++,
+                    pattern_id(domain_name, member.child_position_id));
+          bind_text(direct_member_stmt, i++,
+                    occurrence_id(domain_name, member.child_occurrence_id));
+          bind_null(direct_member_stmt, i++);
+          bind_null(direct_member_stmt, i++);
+          bind_null(direct_member_stmt, i++);
+        } else {
+          const std::size_t ordinal = member.terminal_token_ordinal;
+          if (ordinal >= domain.aggregate_indices.size()) {
+            throw std::invalid_argument(
+                "replay-body terminal member Position is out of range");
+          }
+          bind_null(direct_member_stmt, i++);
+          bind_null(direct_member_stmt, i++);
+          bind_text(direct_member_stmt, i++,
+                    position_id(domain_name, ordinal));
+          bind_int64(direct_member_stmt, i++, ordinal);
+          bind_text(direct_member_stmt, i++,
+                    aggregate_id(domain.aggregate_indices[ordinal]));
+        }
+        bind_text(direct_member_stmt, i++, domain_name);
+        bind_int64(direct_member_stmt, i++, db_idx);
+        bind_int64(direct_member_stmt, i++, domain.key.device_id);
+        finish_row(direct_member_stmt,
+                   "failed to insert replay-body Position member");
       }
     }
 

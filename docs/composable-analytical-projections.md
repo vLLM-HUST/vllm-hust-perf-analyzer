@@ -8,7 +8,7 @@ Every projection makes five choices:
 
 | Axis | Typical choices | Question answered |
 | --- | --- | --- |
-| **Scope** | structural node/pattern, position, occurrence, bounded device window | What part of the observed execution am I selecting? |
+| **Scope** | hierarchical Position, Occurrence, bounded device window | What part of the observed execution am I selecting? |
 | **Population** | one occurrence, all occurrences at the same structural coordinate | Do I want one realized behavior or a statistical population? |
 | **Resolution** | folded node, immediate children, anchors/events, exact replay members, raw rows | How far should the view expand? |
 | **Observation domain** | device, supported host windows, embedded profiler evidence | Which observation domain should contextualize the scope? |
@@ -17,7 +17,16 @@ Every projection makes five choices:
 Presentation is a sixth, downstream choice: SQL rows, a tree, a timeline, a
 Web view, or a paper figure may all project the same selected coordinates.
 
-## Start from one scope
+## Start from one Position
+
+The canonical structural route is
+`hpo_positions -> hpo_refinements -> hpo_occurrences -> hpo_members`.
+A Position is the reusable coordinate, an Occurrence is one measured
+realization, and direct members retain structural slot order separately from
+the ordered realizations within each slot. See the
+[Hierarchical Position--Occurrence model](hierarchical-position-occurrence.md).
+The older `scope_*` recipes remain compatibility projections over the same
+timeline while consumers migrate.
 
 Pick a high-level structural handle from the self-describing scope catalog.
 Besides cost and occurrence counts, the catalog returns device-sequence order,
@@ -170,15 +179,16 @@ zero-cost member rows. A cost unit is supported only after exact task-kind
 membership and the nonempty stream/lane mapping pass the replay cost-map
 contract.
 
-Supported exact replay bodies add a recursive structural route over those
-aligned Positions:
+Supported exact replay bodies expose the same hierarchical Position--Occurrence
+route over aligned terminal Positions:
 
 ```text
 replay_body_domains
-  -> replay_body_patterns                 recursive definitions
-  -> replay_body_pattern_occurrences      realized Position spans and costs
-  -> replay_body_pattern_positions        aligned Position distributions
-  -> replay_body_pattern_members          exact members and event coordinates
+  -> replay_hpo_positions                 hierarchical Position definitions
+  -> replay_hpo_refinements               ordered child slots
+  -> replay_hpo_occurrences               measured Occurrences and costs
+  -> replay_hpo_members                   child Occurrences or terminal Positions
+  -> replay_body_pattern_members          compatibility terminal drill-down
   -> event_audit                          embedded source rows
 ```
 
@@ -189,7 +199,7 @@ order back into grammar or infer dependencies. A full-body decode replay can
 therefore be folded into repeated nested structure, compared across
 occurrences, and audited back to embedded raw evidence without leaving the
 coordinate contract. See
-[Recursive Replay-Body Patterns](replay-body-patterns.md).
+[Recursive Replay-Body Positions](replay-body-patterns.md).
 
 Exact replay evidence offers another horizontal coordinate system over the
 complete device sequence. The parameter-free `exact_replay_partition` recipe
@@ -240,10 +250,10 @@ A user-selected time interval is also a valid query scope. Bind
 `:db_idx`, `:device_id`, `:start_ns`, and `:end_ns`, then use the
 `device_window_events` recipe to inspect overlapping normalized events.
 
-Selecting an interval does **not** promote it into a recovered pattern. The
-window can be intersected with TraceLoom's materialized structures, but pattern
-identity, occurrence correspondence, and hierarchy remain governed by the
-analyzer's evidence contracts.
+Selecting an interval does **not** promote it into a committed Position. The
+window can be intersected with TraceLoom's materialized structures, but
+Position identity, Occurrence correspondence, and hierarchy remain governed
+by the analyzer's evidence contracts.
 
 ## Product invariant
 

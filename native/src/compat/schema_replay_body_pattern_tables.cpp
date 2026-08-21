@@ -112,6 +112,37 @@ const CompatTableSchema& replay_body_position_table_schema() {
   return schema;
 }
 
+const CompatTableSchema& replay_body_position_refinement_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_replay_body_position_refinement",
+      {{"parent_position_id", CompatColumnType::kText, false},
+       {"slot_ordinal", CompatColumnType::kInteger, false},
+       {"child_position_id", CompatColumnType::kText, false},
+       {"domain_id", CompatColumnType::kText, false},
+       {"db_idx", CompatColumnType::kInteger, false},
+       {"device_id", CompatColumnType::kInteger, false}}};
+  return schema;
+}
+
+const CompatTableSchema& replay_body_position_member_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_replay_body_position_member",
+      {{"parent_position_id", CompatColumnType::kText, false},
+       {"parent_occurrence_id", CompatColumnType::kText, false},
+       {"slot_ordinal", CompatColumnType::kInteger, false},
+       {"member_order", CompatColumnType::kInteger, false},
+       {"member_kind", CompatColumnType::kText, false},
+       {"child_position_id", CompatColumnType::kText, true},
+       {"child_occurrence_id", CompatColumnType::kText, true},
+       {"terminal_position_id", CompatColumnType::kText, true},
+       {"terminal_position_ordinal", CompatColumnType::kInteger, true},
+       {"terminal_aggregate_id", CompatColumnType::kText, true},
+       {"domain_id", CompatColumnType::kText, false},
+       {"db_idx", CompatColumnType::kInteger, false},
+       {"device_id", CompatColumnType::kInteger, false}}};
+  return schema;
+}
+
 const CompatTableSchema& replay_body_pattern_issue_table_schema() {
   static const CompatTableSchema schema{
       "traceloom_replay_body_pattern_issue",

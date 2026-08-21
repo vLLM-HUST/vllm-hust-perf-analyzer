@@ -112,6 +112,31 @@ int main() {
   options.input_missing_components = "host/sqlite/runtime.db";
   compat::write_basic_native_compatibility_sidecar(db_path, ir, options);
 
+  require(run_scalar_int(
+              db_path,
+              "SELECT COUNT(*) FROM traceloom_position_refinement") == 1);
+  require(run_scalar_int(
+              db_path,
+              "SELECT COUNT(*) FROM traceloom_position_occurrence") == 2);
+  require(run_scalar_int(
+              db_path,
+              "SELECT COUNT(*) FROM traceloom_position_member") == 2);
+  require(run_scalar_int(db_path,
+                         "SELECT COUNT(*) FROM traceloom_v_position") == 2);
+  require(run_scalar_text(
+              db_path,
+              "SELECT rooted_position_path FROM "
+              "traceloom_position_occurrence WHERE position_id='node-N002'") ==
+          "node-N001/s1/node-N002");
+  require(run_scalar_text(
+              db_path,
+              "SELECT terminal_anchor_id FROM traceloom_position_member "
+              "WHERE member_kind='terminal_token'") == "anchor-0");
+  require(run_scalar_text(
+              db_path,
+              "SELECT event_id FROM traceloom_v_position_member "
+              "WHERE member_kind='terminal_token'") == "event-0");
+
   require(run_scalar_int(db_path,
                          "SELECT COUNT(*) FROM traceloom_metadata") == 45);
   require(run_scalar_text(db_path,

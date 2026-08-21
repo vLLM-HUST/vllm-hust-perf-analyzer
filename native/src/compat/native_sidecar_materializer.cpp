@@ -29,6 +29,7 @@
 #include "traceloom/compat/sidecar_writer.h"
 #include "traceloom/compat/symbol_normalization_rows.h"
 #include "traceloom/compat/structural_projection_rows.h"
+#include "traceloom/compat/structural_position_rows.h"
 #include "traceloom/compat/timeline_rows.h"
 #include "traceloom/pattern/grammar_engine.h"
 #include "traceloom/pattern/grammar_state.h"
@@ -570,6 +571,7 @@ void write_basic_native_compatibility_sidecar(
   const bool scope_node_ids = device_trees.size() > 1;
   NodeCoverageSqlRows node_rows;
   SemanticTreeSqlRows semantic_rows;
+  StructuralPositionSqlRows position_rows;
   for (const NativeDeviceStructuralProjection& device : device_trees) {
     const NodeCoverageSqlRows device_node_rows =
         build_structural_node_coverage_sql_rows(
@@ -609,6 +611,21 @@ void write_basic_native_compatibility_sidecar(
     semantic_rows.edges.insert(semantic_rows.edges.end(),
                                device_semantic_rows.edges.begin(),
                                device_semantic_rows.edges.end());
+
+    const StructuralPositionSqlRows device_position_rows =
+        build_structural_position_sql_rows(
+            device.graph, device.tokens, options.db_idx, tree_id,
+            "anchor_tree", scope_node_ids);
+    position_rows.refinements.insert(
+        position_rows.refinements.end(),
+        device_position_rows.refinements.begin(),
+        device_position_rows.refinements.end());
+    position_rows.occurrences.insert(position_rows.occurrences.end(),
+                                     device_position_rows.occurrences.begin(),
+                                     device_position_rows.occurrences.end());
+    position_rows.members.insert(position_rows.members.end(),
+                                 device_position_rows.members.begin(),
+                                 device_position_rows.members.end());
   }
   replace_loop_tree_rows(sqlite_path, split_loop_tree_sql_rows(node_rows));
   const NodeAnchorCoverageSqlRows coverage_rows =
@@ -648,6 +665,7 @@ void write_basic_native_compatibility_sidecar(
       sqlite_path, split_semantic_tree_catalog_sql_rows(semantic_rows));
   replace_semantic_graph_rows(sqlite_path,
                               split_semantic_graph_sql_rows(semantic_rows));
+  replace_structural_position_rows(sqlite_path, position_rows);
   if (options.materialize_structural_views) {
     const Stopwatch structural_views_watch;
     materialize_structural_compatibility_views(sqlite_path,

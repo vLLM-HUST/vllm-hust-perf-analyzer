@@ -19,6 +19,11 @@ enter supported host-window context, or change the compatible cost lens without
 reconstructing its boundary. Horizontal drill-down, vertical comparison,
 hierarchical navigation, and cross-domain context are views over the same
 coordinates. See [Composable Analytical Projections](docs/composable-analytical-projections.md).
+The canonical structural kernel is
+[Hierarchical Position--Occurrence](docs/hierarchical-position-occurrence.md):
+Positions are reusable coordinates at any depth, Occurrences are measured
+realizations, and ordered direct membership connects them to child
+Occurrences or terminal evidence.
 
 Try the reproducible, beginner-friendly
 [`60-second database-timeline tour`](examples/db-timeline-tour) on the checked-in real
@@ -51,6 +56,8 @@ Key capabilities:
 - native semantic reconstruction for compute, HCCL, synchronization, and
   ACLGraph activity;
 - repeated decode/layer structure discovery over semantic anchors;
+- first-class hierarchical Position, refinement, Occurrence, and direct-member
+  recipes for composable structural queries;
 - recursive grammar recovery inside supported exact replay bodies, with
   occurrence costs and raw-source drill-down;
 - overlap-safe wall-clock accounting across concurrent streams;
@@ -219,8 +226,8 @@ Bind one scope once in the `sqlite3` shell, then reuse it across recipes:
 typed host windows, or change cost lens. Host intervals with missing or
 nonmonotonic endpoints remain rows; they do not disappear merely because no
 runtime call distribution can be formed. A bounded device window is also a
-valid query scope, but selecting it does not promote it into a recovered
-pattern. See the [complete projection UX](docs/composable-analytical-projections.md).
+valid query scope, but selecting it does not promote it into a committed
+Position. See the [complete projection UX](docs/composable-analytical-projections.md).
 
 Important costs are:
 
@@ -426,9 +433,11 @@ protection decision. The published `observed_order` is not a dependency claim.
 
 Exact replay bodies are not left as opaque intervals. When membership and
 per-stream order are complete, TraceLoom reuses its recursive grammar engine
-over the aligned replay Positions and publishes nested patterns, realized
-occurrences, cost distributions, and source locators. See
-[Recursive Replay-Body Patterns](docs/replay-body-patterns.md).
+over the aligned replay Positions and publishes hierarchical Positions,
+measured Occurrences, direct membership, cost distributions, and source
+locators. Grammar patterns remain a construction mechanism rather than a peer
+analytical entity. See
+[Recursive Replay-Body Positions](docs/replay-body-patterns.md).
 
 For split layouts, inspect `traceloom_raw_source_database` and
 `traceloom_raw_table` to resolve each original `(source_path, source_table)` to
@@ -501,6 +510,7 @@ still run.
 - [Step-by-step workflow](docs/workflow.md)
 - [Accepted input layouts](docs/input-profiles.md)
 - [Output contract](docs/output-schema.md)
+- [Hierarchical Position--Occurrence model](docs/hierarchical-position-occurrence.md)
 - [Native architecture](docs/architecture.md)
 - [Queryable database timeline guide (Chinese)](docs/db-timeline-guide.zh.md)
 

@@ -511,6 +511,36 @@ void run_graph_materializer_tests() {
   require(run_scalar_int(
               exact_cuda_graph_db_path,
               "SELECT COUNT(*) FROM "
+              "traceloom_v_replay_body_position_definition") == 4);
+  require(run_scalar_int(
+              exact_cuda_graph_db_path,
+              "SELECT COUNT(*) FROM "
+              "traceloom_v_replay_body_position_occurrence") == 5);
+  require(run_scalar_int(
+              exact_cuda_graph_db_path,
+              "SELECT COUNT(*) FROM "
+              "traceloom_replay_body_position_refinement") == 3);
+  require(run_scalar_int(
+              exact_cuda_graph_db_path,
+              "SELECT COUNT(*) FROM "
+              "traceloom_replay_body_position_member") == 7);
+  require(run_scalar_int(
+              exact_cuda_graph_db_path,
+              "SELECT COUNT(*) FROM (SELECT parent_occurrence_id, "
+              "slot_ordinal FROM traceloom_replay_body_position_member "
+              "WHERE member_kind='child_occurrence' GROUP BY "
+              "parent_occurrence_id, slot_ordinal HAVING COUNT(*)=2 AND "
+              "MIN(member_order)=1 AND MAX(member_order)=2)") == 1);
+  require(run_scalar_int(
+              exact_cuda_graph_db_path,
+              "SELECT COUNT(*) FROM "
+              "traceloom_v_replay_body_position_direct_member "
+              "WHERE member_kind='terminal_token' AND "
+              "terminal_aggregate_id IS NOT NULL AND "
+              "terminal_identity IS NOT NULL") == 3);
+  require(run_scalar_int(
+              exact_cuda_graph_db_path,
+              "SELECT COUNT(*) FROM "
               "traceloom_replay_body_pattern_occurrence WHERE "
               "parent_occurrence_id IS NULL AND position_start = 0 AND "
               "position_end_exclusive = 3 AND "

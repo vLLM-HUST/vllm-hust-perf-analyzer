@@ -691,6 +691,8 @@ std::vector<CompatTableSchema> compatibility_table_schemas() {
       replay_body_pattern_definition_table_schema(),
       replay_body_pattern_occurrence_table_schema(),
       replay_body_position_table_schema(),
+      replay_body_position_refinement_table_schema(),
+      replay_body_position_member_table_schema(),
       replay_body_pattern_issue_table_schema(),
       viz_node_table_schema(),
       viz_edge_table_schema(),
@@ -700,6 +702,9 @@ std::vector<CompatTableSchema> compatibility_table_schemas() {
       semantic_tree_table_schema(),
       semantic_node_table_schema(),
       semantic_edge_table_schema(),
+      position_refinement_table_schema(),
+      position_occurrence_table_schema(),
+      position_member_table_schema(),
       collective_global_link_table_schema(),
       anchor_cost_breakdown_table_schema(),
   };

@@ -28,6 +28,13 @@ kind, source, and purpose independently queryable.
 by later projections, while `traceloom_v_projection_continuation` lists target
 recipes for which every required coordinate kind is available.
 
+`traceloom_v_position`, `traceloom_position_refinement`,
+`traceloom_v_position_occurrence`, and `traceloom_v_position_member` form the
+canonical [Hierarchical Position--Occurrence](hierarchical-position-occurrence.md)
+structural query kernel. Refinement slot order and direct-member order are
+separate coordinates: the former defines a composite Position, while the
+latter distinguishes repeated measured realizations within one slot.
+
 If one source database contains several devices, the artifact contains one
 independently recovered structural tree per observed `device_id`. TraceLoom
 does not concatenate those device sequences or invent a cross-device order.
