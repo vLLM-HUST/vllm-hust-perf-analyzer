@@ -149,6 +149,67 @@ void materialize_position_projection_catalog(sqlite3* db) {
            "edge_role_id=:edge_role_id AND (:occurrence_id IS NULL OR "
            "parent_occurrence_id=:occurrence_id) ORDER BY "
            "parent_occurrence_idx, edge_order;"},
+          {"occurrence_host_windows", "14", "position_occurrence",
+           "one_occurrence", "anchor_pair_windows", "device_and_host",
+           "typed_host_interval_support", ":occurrence_id",
+           "project one selected Occurrence to every covered anchor-delimited "
+           "host window without returning to legacy node coordinates",
+           "WITH selected_occurrence AS MATERIALIZED (SELECT o.*, "
+           "tree.semantic_projection AS cost_view_name FROM "
+           "traceloom_v_position_occurrence o JOIN traceloom_semantic_tree "
+           "tree ON tree.tree_id=o.tree_id AND tree.db_idx=o.db_idx AND "
+           "tree.device_id=o.device_id AND tree.view_name=o.view_name WHERE "
+           "o.occurrence_id=:occurrence_id), selected_interval AS "
+           "MATERIALIZED (SELECT i.* FROM traceloom_v_node_host_interval i "
+           "WHERE i.node_id=(SELECT position_id FROM selected_occurrence) "
+           "AND i.db_idx=(SELECT db_idx FROM selected_occurrence) AND "
+           "i.device_id=(SELECT device_id FROM selected_occurrence) AND "
+           "i.view_name=(SELECT cost_view_name FROM selected_occurrence) AND "
+           "i.occurrence_idx=(SELECT occurrence_idx FROM "
+           "selected_occurrence)) SELECT o.occurrence_id, o.position_id, "
+           "o.occurrence_idx AS position_occurrence_idx, i.anchor_order, "
+           "i.coverage_kind, i.interval_id, i.left_anchor_id, "
+           "i.right_anchor_id, i.right_anchor_symbol, i.support_state, "
+           "i.provider, i.clock_domain, i.host_start_ns, i.host_end_ns, "
+           "i.host_interval_us, i.left_endpoint_count, "
+           "i.right_endpoint_count FROM selected_occurrence o LEFT JOIN "
+           "selected_interval i ON TRUE ORDER BY i.anchor_order;"},
+          {"occurrence_host_context", "15", "position_occurrence",
+           "one_occurrence", "anchor_pair_windows", "host",
+           "runtime_api_distribution", ":occurrence_id",
+           "compare profiler-visible runtime API distributions for one "
+           "selected Occurrence while retaining typed unsupported windows",
+           "WITH selected_occurrence AS MATERIALIZED (SELECT o.*, "
+           "tree.semantic_projection AS cost_view_name FROM "
+           "traceloom_v_position_occurrence o JOIN traceloom_semantic_tree "
+           "tree ON tree.tree_id=o.tree_id AND tree.db_idx=o.db_idx AND "
+           "tree.device_id=o.device_id AND tree.view_name=o.view_name WHERE "
+           "o.occurrence_id=:occurrence_id), selected_interval AS "
+           "MATERIALIZED (SELECT i.* FROM traceloom_v_node_host_interval i "
+           "WHERE i.node_id=(SELECT position_id FROM selected_occurrence) "
+           "AND i.db_idx=(SELECT db_idx FROM selected_occurrence) AND "
+           "i.device_id=(SELECT device_id FROM selected_occurrence) AND "
+           "i.view_name=(SELECT cost_view_name FROM selected_occurrence) AND "
+           "i.occurrence_idx=(SELECT occurrence_idx FROM "
+           "selected_occurrence)) SELECT o.occurrence_id, o.position_id, "
+           "o.occurrence_idx AS position_occurrence_idx, i.anchor_order, "
+           "i.coverage_kind, i.interval_id, i.right_anchor_symbol, "
+           "i.support_state, i.host_interval_us, c.api_name, "
+           "count(c.runtime_call_id) AS observed_calls, "
+           "COALESCE(ROUND(sum((MIN(c.end_ns, i.host_end_ns) - "
+           "MAX(c.start_ns, i.host_start_ns)) / 1000.0), 3), 0.0) AS "
+           "scheduled_overlap_us FROM selected_occurrence o LEFT JOIN "
+           "selected_interval i ON TRUE LEFT JOIN traceloom_runtime_call c "
+           "ON i.support_state='supported_ordered' AND c.db_idx=i.db_idx "
+           "AND c.provider=i.provider AND c.clock_domain=i.clock_domain AND "
+           "c.start_ns<i.host_end_ns AND c.end_ns>i.host_start_ns AND "
+           "(i.scope_policy<>'same_process' OR c.process_id=i.process_id) "
+           "AND (i.scope_policy<>'same_thread' OR (c.process_id=i.process_id "
+           "AND c.thread_id=i.thread_id)) GROUP BY o.occurrence_id, "
+           "o.position_id, o.occurrence_idx, i.anchor_order, "
+           "i.coverage_kind, i.interval_id, i.right_anchor_symbol, "
+           "i.support_state, i.host_interval_us, c.api_name ORDER BY "
+           "i.anchor_order, scheduled_overlap_us DESC;"},
           {"replay_hpo_positions", "41", "replay_body_domain",
            "definitions", "folded", "device", "position_definition",
            ":domain_id", "select hierarchical Positions recovered in one "
@@ -205,6 +266,12 @@ void materialize_position_projection_catalog(sqlite3* db) {
            "position_occurrence_id", "traceloom_v_position_occurrence",
            "occurrence_id", "NULL selects the role across all parent "
            "Occurrences"},
+          {"occurrence_host_windows", "10", "occurrence_id", "TEXT", "0",
+           "position_occurrence_id", "traceloom_v_position_occurrence",
+           "occurrence_id", "selected Position Occurrence"},
+          {"occurrence_host_context", "10", "occurrence_id", "TEXT", "0",
+           "position_occurrence_id", "traceloom_v_position_occurrence",
+           "occurrence_id", "selected Position Occurrence"},
           {"replay_hpo_positions", "10", "domain_id", "TEXT", "0",
            "replay_body_domain_id", "traceloom_replay_body_pattern_domain",
            "domain_id", "selected exact replay-body domain"},
@@ -273,6 +340,26 @@ void materialize_position_projection_catalog(sqlite3* db) {
            "hierarchical_position_id", "child structural node"},
           {"equivalent_tree_edges", "50", "child_occurrence_id",
            "position_occurrence_id", "measured child available to expand"},
+          {"occurrence_host_windows", "10", "occurrence_id",
+           "position_occurrence_id", "selected Position Occurrence"},
+          {"occurrence_host_windows", "20", "position_id",
+           "hierarchical_position_id", "owning structural Position"},
+          {"occurrence_host_windows", "30", "anchor_order",
+           "structural_anchor_order", "covered device position"},
+          {"occurrence_host_windows", "40", "interval_id",
+           "host_interval_id", "typed host interval available to inspect"},
+          {"occurrence_host_windows", "50", "left_anchor_id", "anchor_id",
+           "left device endpoint"},
+          {"occurrence_host_windows", "60", "right_anchor_id", "anchor_id",
+           "right device endpoint"},
+          {"occurrence_host_context", "10", "occurrence_id",
+           "position_occurrence_id", "selected Position Occurrence"},
+          {"occurrence_host_context", "20", "position_id",
+           "hierarchical_position_id", "owning structural Position"},
+          {"occurrence_host_context", "30", "anchor_order",
+           "structural_anchor_order", "covered device position"},
+          {"occurrence_host_context", "40", "interval_id",
+           "host_interval_id", "typed host interval available to inspect"},
           {"replay_hpo_positions", "10", "position_id",
            "hierarchical_position_id", "selected replay-body Position"},
           {"replay_hpo_refinements", "10", "parent_position_id",

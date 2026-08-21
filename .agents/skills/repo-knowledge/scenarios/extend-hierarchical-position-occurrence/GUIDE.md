@@ -110,6 +110,42 @@ mix an unrelated projection. Compute, communication, and uncovered cost
 partition supported child total; auxiliary cost remains a separate,
 non-additive lens.
 
+### Migrate a legacy lens without deleting its evidence
+
+Retire competing navigation nouns, not analytical verbs. A specialized host,
+bubble, replay, collective, or audit relation may remain authoritative or
+materialized after it stops being a default UX entry. Re-key its public recipe
+to Position, Occurrence, or edge coordinates; remove the physical relation
+only after it has no unique evidence, consumer, or measured materialization
+value.
+
+The first accepted bridge is:
+
+```text
+equivalent_tree_edges.child_occurrence_id
+  -> occurrence_host_windows / occurrence_host_context
+  -> host_window_calls
+  -> runtime_call_audit
+```
+
+The bridge preserves typed unsupported/empty host windows and bounded
+query-time runtime-call intersection. It removes the user-visible translation
+from `occurrence_id` back to `node_id + occurrence_idx`.
+
+Compatibility recipes remain executable but are demoted after the canonical
+route with `display_order >= 100` and an explicit `compatibility:` purpose.
+Prefer this reversible catalog change before deleting a relation or breaking a
+consumer.
+
+Push the selected Occurrence coordinates into
+`traceloom_v_node_host_interval` before joining the result. A direct outer join
+from one selected Occurrence caused SQLite to materialize the global host view
+and took roughly 300 ms for one row on the checked-in kickstart artifact. A
+`selected_interval AS MATERIALIZED` CTE whose `WHERE` predicates use scalar
+values from the selected Occurrence preserved the node-anchor and interval
+indexes and took roughly 0.2 ms after a warm cache. Query UX migration must
+preserve bounded execution shape as well as row semantics.
+
 ## Keep compatibility contained
 
 Existing tree, Loop Tree, `scope_*`, replay-pattern, bubble, host, and coverage

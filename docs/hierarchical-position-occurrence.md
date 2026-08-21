@@ -98,6 +98,7 @@ The corresponding recipe path is:
 ```text
 hpo_positions -> tree_edge_roles -> equivalent_tree_edges
 hpo_occurrences -> tree_edges -> equivalent_tree_edges
+equivalent_tree_edges -> occurrence_host_windows / occurrence_host_context
 ```
 
 For example:
@@ -130,6 +131,14 @@ ORDER BY parent_occurrence_idx, edge_order;
 Compute, communication, and uncovered time partition the supported child
 total. `child_aux_us` is a separate attribution lens and must not be stacked as
 a fourth additive component.
+
+An `equivalent_tree_edges` row returns `child_occurrence_id`, so an analyst may
+select an unusual population member and pass that coordinate directly to
+`occurrence_host_windows` or `occurrence_host_context`. Those recipes preserve
+typed host-window support and bounded runtime-call projection without asking
+the user to translate the Occurrence back into legacy `node_id` and
+`occurrence_idx` selectors. See the
+[AugDB SQL UX migration](augdb-sql-ux-migration.md).
 
 `traceloom_tree_node_anchor` remains a useful coverage relation, but it is not
 direct HPO membership: a composite node may cover terminal anchors reached

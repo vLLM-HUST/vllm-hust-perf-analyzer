@@ -301,42 +301,42 @@ void materialize_projection_catalog(
                 "failed to insert analysis surface row");
   }
   const std::vector<std::vector<std::string>> projection_recipes = {
-      {"scope_catalog", "5", "structural_node", "candidate_scopes",
+      {"scope_catalog", "105", "structural_node", "candidate_scopes",
        "folded", "device", "node_cost", "(none)",
-       "rank and select reusable structural scopes before composing more "
-       "specific projections",
+       "compatibility: rank legacy structural-node scopes while consumers "
+       "migrate to hpo_positions",
        "SELECT node_id, parent_node_id, local_node_id, db_idx, device_id, "
        "view_name, display_order, path, symbol, label, node_type, "
        "repeat_count, occurrence_count, anchor_count, first_anchor_idx, "
        "last_anchor_idx, total_us, avg_total_us FROM "
        "traceloom_v_tree_node ORDER BY total_us DESC, db_idx, device_id, "
        "view_name, display_order;"},
-      {"scope_occurrences", "10", "structural_node",
+      {"scope_occurrences", "110", "structural_node",
        "one_or_all_occurrences", "folded", "device",
        "occurrence_cost",
        ":node_id, :occurrence_idx (NULL selects all)",
-       "inspect one realized occurrence or the full cost population of the "
-       "same structural scope",
+       "compatibility: inspect legacy node occurrences while consumers "
+       "migrate to hpo_occurrences",
        "SELECT node_id, local_node_id, occurrence_idx, repeat_context, "
        "start_ns, end_ns, anchor_count, compute_us, comm_us, idle_us, "
        "total_us, self_us, aux_us FROM traceloom_tree_node_occurrence "
        "WHERE node_id = :node_id AND (:occurrence_idx IS NULL OR "
        "occurrence_idx = :occurrence_idx) ORDER BY occurrence_idx;"},
-      {"scope_hierarchy", "20", "structural_node", "definition",
+      {"scope_hierarchy", "120", "structural_node", "definition",
        "immediate_children", "device", "node_cost",
        ":node_id",
-       "keep a selected scope folded while reading its ordered child "
-       "patterns and costs",
+       "compatibility: read legacy ordered children while consumers migrate "
+       "to tree_edge_roles and tree_edges",
        "SELECT parent_node_id, child_node_id, edge_order, local_node_id, "
        "label, node_type, repeat_count, occurrence_count, total_us, "
        "avg_total_us FROM traceloom_v_node_children WHERE parent_node_id = "
        ":node_id ORDER BY edge_order;"},
-      {"scope_members", "30", "structural_node",
+      {"scope_members", "130", "structural_node",
        "one_or_all_occurrences", "anchors_and_events", "device",
        "member_cost",
        ":node_id, :occurrence_idx (NULL selects all)",
-       "expand a selected scope to ordered anchors and normalized event "
-       "evidence",
+       "compatibility: expand legacy node coverage while consumers migrate "
+       "to hpo_members and exact evidence lenses",
        "SELECT na.node_id, na.occurrence_idx, na.anchor_order, "
        "na.coverage_kind, a.anchor_id, a.anchor_idx, a.symbol, e.event_id, "
        "e.stream_id, e.start_ns, e.end_ns, e.dur_us, e.role, "
@@ -345,11 +345,11 @@ void materialize_projection_catalog(
        "traceloom_event e ON e.event_id = a.event_id WHERE na.node_id = "
        ":node_id AND (:occurrence_idx IS NULL OR na.occurrence_idx = "
        ":occurrence_idx) ORDER BY na.occurrence_idx, na.anchor_order;"},
-      {"position_population", "50", "structural_node",
+      {"position_population", "150", "structural_node",
        "all_occurrences", "aligned_positions", "device",
        "position_cost_distribution", ":node_id",
-       "compare corresponding ordered positions across every occurrence of "
-       "the selected scope",
+       "compatibility: compare anchor-order populations while consumers "
+       "migrate to contextual equivalent_tree_edges",
        "SELECT na.node_id, na.anchor_order, na.coverage_kind, a.symbol, "
        "count(DISTINCT na.occurrence_idx) AS occurrence_count, "
        "avg(na.total_us) AS avg_total_us, min(na.total_us) AS min_total_us, "
@@ -360,12 +360,12 @@ void materialize_projection_catalog(
        "a.anchor_id = na.anchor_id WHERE na.node_id = :node_id GROUP BY "
        "na.node_id, na.anchor_order, na.coverage_kind, a.symbol ORDER BY "
        "na.anchor_order, a.symbol;"},
-      {"position_occurrences", "55", "structural_position",
+      {"position_occurrences", "155", "structural_position",
        "one_or_all_occurrences", "aligned_position_members", "device",
        "position_occurrence_cost",
        ":node_id, :anchor_order, :occurrence_idx (NULL selects all)",
-       "inspect the occurrence population behind one aligned structural "
-       "position, then select an outlier without losing its coordinates",
+       "compatibility: inspect anchor-order occurrences while consumers "
+       "select child Occurrences from equivalent_tree_edges",
        "SELECT na.node_id, na.occurrence_idx, na.anchor_order, "
        "na.coverage_kind, na.anchor_id, a.symbol, e.event_id, e.stream_id, "
        "e.start_ns, e.end_ns, e.dur_us, na.compute_us, na.comm_us, "
@@ -375,12 +375,12 @@ void materialize_projection_catalog(
        "e.event_id = a.event_id WHERE na.node_id = :node_id AND "
        "na.anchor_order = :anchor_order AND (:occurrence_idx IS NULL OR "
        "na.occurrence_idx = :occurrence_idx) ORDER BY na.occurrence_idx;"},
-      {"scope_host_windows", "58", "structural_node",
+      {"scope_host_windows", "158", "structural_node",
        "one_or_all_occurrences", "anchor_pair_windows", "device_and_host",
        "typed_host_interval_support",
        ":node_id, :occurrence_idx (NULL selects all)",
-       "project every adjacent-anchor position in a selected device scope "
-       "to a supported or explicitly unsupported host interval",
+       "compatibility: project legacy node selectors to typed host windows "
+       "while consumers migrate to occurrence_host_windows",
        "SELECT node_id, occurrence_idx, anchor_order, coverage_kind, "
        "interval_id, left_anchor_id, right_anchor_id, right_anchor_symbol, "
        "support_state, provider, clock_domain, host_start_ns, host_end_ns, "
@@ -388,13 +388,12 @@ void materialize_projection_catalog(
        "traceloom_v_node_host_interval WHERE node_id = :node_id AND "
        "(:occurrence_idx IS NULL OR occurrence_idx = :occurrence_idx) "
        "ORDER BY occurrence_idx, anchor_order;"},
-      {"scope_host_context", "60", "structural_node",
+      {"scope_host_context", "160", "structural_node",
        "one_or_all_occurrences", "anchor_pair_windows", "host",
        "runtime_api_distribution",
        ":node_id, :occurrence_idx (NULL selects all)",
-       "project the same device scope into typed host windows and compare "
-       "profiler-visible runtime API distributions through a bounded "
-       "query-time join without hiding unsupported or empty windows",
+       "compatibility: compare host API distributions from legacy node "
+       "selectors while consumers migrate to occurrence_host_context",
        "WITH selected_interval AS MATERIALIZED (SELECT * FROM "
        "traceloom_v_node_host_interval WHERE node_id = :node_id AND "
        "(:occurrence_idx IS NULL OR occurrence_idx = :occurrence_idx)) "

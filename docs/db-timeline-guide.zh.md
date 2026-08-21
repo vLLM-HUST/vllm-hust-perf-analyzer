@@ -2,9 +2,9 @@
 
 TraceLoom 的一等产物是 `analysis.db`：一条把原始 profiler 行、规范化事件、
 恢复结构、occurrence、成本和 provenance 放在同一份 SQLite 里的
-**queryable DB timeline**。使用者不需要先读 Markdown 报告；直接从数据库的
-自描述入口选择结构 scope，再组合一次执行、统计总体、层级、device/host context
-与成本 lens。
+**queryable DB timeline**。使用者不需要先读 Markdown 报告；直接从 Position、
+Occurrence 和有序执行树边开始，形成结构等价的统计人口，再切换 device、host、
+replay、collective 或原始证据 lens。
 
 ## 60 秒上手
 
@@ -19,8 +19,12 @@ sqlite3 -readonly /path/to/traceloom/analysis.db
 .headers on
 .mode box
 SELECT projection_name, population_mode, resolution,
-       observation_domain, measure_lens, selector_parameters
+       observation_domain, measure_lens, selector_parameters, purpose
 FROM traceloom_projection_recipe
+WHERE projection_name IN (
+  'hpo_positions', 'tree_edge_roles', 'hpo_occurrences', 'tree_edges',
+  'equivalent_tree_edges', 'occurrence_host_windows',
+  'occurrence_host_context', 'host_window_calls', 'event_audit')
 ORDER BY display_order;
 ```
 
@@ -30,61 +34,93 @@ ORDER BY display_order;
 .read examples/db-timeline-tour/tour.sql
 ```
 
-## 核心玩法：选择一个 scope，组合投影视图
+## 核心玩法：沿同一组结构坐标逐级释放证据
 
 TraceLoom 不生成一张不可改变的报告。它把执行关系物化成稳定坐标，让使用者沿
 五个互相独立的轴组合视图：
 
 | 投影轴 | 常见选择 |
 | --- | --- |
-| scope | pattern/node、position、occurrence、device window |
+| scope | Position、Occurrence、ordered edge、device window |
 | population | 某一次 occurrence、同一结构坐标下的全部 occurrences |
-| resolution | 折叠结构、children、anchors/events、exact replay members、raw rows |
+| resolution | edge roles、concrete edges、events、exact replay members、raw rows |
 | observation domain | device、受支持的 host windows、内嵌 profiler evidence |
 | measure lens | overlap-safe cost、occurrence cost、scheduled work、bubble、host API distribution |
 
-每份 `analysis.db` 都用 `traceloom_projection_recipe` 自描述这些组合。先从
-`scope_catalog` 选择一个高层结构并绑定坐标：
+默认调查路径是：
+
+```text
+Position
+  -> contextual edge roles
+  -> one concrete Occurrence edge stream
+  -> one equivalent-edge population
+  -> one unusual child Occurrence
+  -> cost / host / replay / collective lens
+  -> literal evidence
+```
+
+先从 `hpo_positions` 选择一个任意深度的结构坐标：
 
 ```sql
-SELECT node_id, parent_node_id, display_order, symbol, label,
-       occurrence_count, first_anchor_idx, last_anchor_idx, total_us
-FROM traceloom_v_tree_node
-ORDER BY total_us DESC, db_idx, device_id, view_name, display_order;
+SELECT position_id, parent_position_id, preorder_idx, symbol, label,
+       node_type, repeat_count, occurrence_count, total_us
+FROM traceloom_v_position
+ORDER BY total_us DESC, db_idx, tree_id, preorder_idx;
 
 .parameter init
-.parameter set :node_id 'node-N006'
-.parameter set :occurrence_idx NULL
+.parameter set :position_id 'node-N286'
+.parameter set :occurrence_id NULL
 ```
 
-再查看可用 recipe：
+不要先按算子名构造统计总体。查询该 Position 下已经过上下文区分的边角色：
 
 ```sql
-SELECT projection_name, population_mode, resolution,
-       observation_domain, measure_lens, selector_parameters, purpose
-FROM traceloom_projection_recipe
-ORDER BY display_order;
+SELECT edge_role_id, edge_label, first_edge_order,
+       parent_occurrence_count, concrete_edge_count,
+       edges_per_parent_min, edges_per_parent_max, population_support
+FROM traceloom_v_tree_edge_role
+WHERE parent_position_id = :position_id
+ORDER BY parent_tree_path, first_edge_order;
 ```
 
-需要让 agent 或 UI 自动生成查询时，再读
-`traceloom_projection_parameter`；它会逐项给出 selector 的 SQLite 类型、
-可空性、坐标类型、用途，以及候选坐标来自哪张 relation/column。
-`traceloom_projection_coordinate` 列出 recipe 结果里仍可复用的坐标，
-`traceloom_v_projection_continuation` 则把这些输出与下一步 recipe 的输入对接；
-只有目标 recipe 的全部必需坐标都已经具备时，continuation 才会出现。
+同名算子可以是不同 `edge_role_id`；只有同一个 role 的 concrete edges 才是合法
+统计人口。选择一个 role 后，用 `equivalent_tree_edges` 比较它在各个 parent
+Occurrences 中的 child cost，并从返回的 `child_occurrence_id` 选择异常实例。
+需要读某一次真实展开时，先从 `hpo_occurrences` 取得 `occurrence_id`，再运行：
+
+```sql
+SELECT edge_order, edge_ordinal_in_role, edge_role_id,
+       edge_label, child_occurrence_id
+FROM traceloom_v_tree_edge
+WHERE parent_occurrence_id = :occurrence_id
+ORDER BY edge_order;
+```
+
+每一行都在同一个 concrete order 平面上；`edge_ordinal_in_role` 是从这个顺序派生的
+第几次同类边，不是要求用户另行组合的坐标轴。
+
+选出异常 `child_occurrence_id` 后，可以直接绑定为 `:occurrence_id` 并运行
+`occurrence_host_windows` 或 `occurrence_host_context`。它们保留原 host 投影中缺端点、
+host 顺序不单调、受支持但没有观察到 runtime call 等 typed 结果，却不再要求用户
+把 Occurrence 手工拆回旧的 `node_id + occurrence_idx`。返回的 `interval_id` 还能继续
+进入 `host_window_calls` 和 `runtime_call_audit`。
+
+每份 `analysis.db` 都用 `traceloom_projection_recipe` 自描述这些组合。需要让 agent
+自动选择下一步时，查询 `traceloom_projection_parameter`、
+`traceloom_projection_coordinate` 和 `traceloom_v_projection_continuation`：
 
 ```sql
 SELECT source_column, target_projection, target_parameter
 FROM traceloom_v_projection_continuation
-WHERE source_projection = 'position_population'
+WHERE source_projection = 'equivalent_tree_edges'
 ORDER BY target_projection, source_column;
 ```
 
-把 `:occurrence_idx` 保持为 `NULL`，得到同一结构的 occurrence population；绑定
-具体数字，就得到那一次真实执行。同一个 `:node_id` 可以继续切换 hierarchy、
-members、host context 和 measure lens。`scope_host_windows` 会保留缺端点、
-host 顺序不单调等带类型结果；换到 host domain 不会把不支持的位置静默变成空集。
-详细契约见
+`scope_*`、anchor-order `position_*` 和 Pattern-named replay recipes 暂时仍是兼容入口，
+但不再是默认教学模型。它们中好的 host、bubble、replay 和 evidence 方法会逐条迁到
+Position/Occurrence/edge 坐标上；物理表只有在失去独有证据、消费者和物化价值后
+才会删除。迁移边界见
+[`augdb-sql-ux-migration.md`](augdb-sql-ux-migration.md)，完整投影契约见
 [`composable-analytical-projections.md`](composable-analytical-projections.md)。
 
 如果 profile 中存在受支持的 exact replay，数据库还直接给出 replay 边界诱导的
@@ -138,10 +174,10 @@ captured topology 中没有 scheduled member 的空 lane 仍然保留为 topolog
 以下横向、纵向、层级和 cross-domain 阅读方式不是四套模型，而是这组坐标上的
 不同投影。
 
-`scope_catalog` 除了按成本排序候选 scope，还直接返回 `display_order`、
-`parent_node_id`、`symbol` 和 `first_anchor_idx/last_anchor_idx`。因此“位于某个
-ReplayUnit 之前的重复结构”这类带时间线位置约束的选择，可以从同一个公开入口
-完成，不必退回底层 tree relation 临时重建顺序。
+`hpo_positions` 保留 `preorder_idx`、父 Position、结构路径、symbol 与成本，因此
+“位于某个 replay 区域之前的重复结构”这类带时间线位置约束的选择仍能从统一入口
+完成。需要一次真实展开时再进入 `tree_edges`；不要为了读取顺序退回底层表重建
+另一套坐标。
 
 ## 审计 TraceLoom 自己做出的变换
 
@@ -310,41 +346,44 @@ profile 把一个多对多投影膨胀成巨型持久化产物。空的兼容 ac
 ### 纵向：固定结构，比较同构 occurrence
 
 ```text
-one structural pattern / position
-  -> all equivalent occurrences
+one contextual edge role
+  -> all equivalent concrete edges
   -> comparable cost population
   -> outlier or skew
 ```
 
-纵向关系回答“同样结构在不同 occurrence、位置或 rank 上成本如何分布”。结构
-本身定义统计总体，避免把不同阶段里同名算子粗暴混在一起。
+纵向关系回答“同一条结构边在不同 occurrence 或 rank 上成本如何分布”。
+`edge_role_id` 定义统计总体，避免把不同上下文里的同名算子粗暴混在一起。
 
 ```sql
-SELECT occurrence_idx,
-       round(total_us, 3) AS total_us,
-       round(compute_us, 3) AS compute_us,
-       round(comm_us, 3) AS comm_us,
-       round(aux_us, 3) AS aux_us
-FROM traceloom_tree_node_occurrence
-WHERE local_node_id = 'N027'
-ORDER BY total_us DESC;
+SELECT child_occurrence_id, parent_occurrence_idx,
+       edge_order, edge_ordinal_in_role,
+       round(child_total_us, 3) AS total_us,
+       round(child_compute_us, 3) AS compute_us,
+       round(child_comm_us, 3) AS comm_us,
+       round(child_uncovered_us, 3) AS uncovered_us,
+       round(child_aux_us, 3) AS aux_us
+FROM traceloom_v_tree_edge_cost
+WHERE edge_role_id = :edge_role_id
+ORDER BY child_total_us DESC;
 ```
 
 ## 从粗到细定位热点
 
-先查询层级 timeline，而不是先做全库 top-k：
+先查询 Position catalog，而不是先按算子名做全库 top-k：
 
 ```sql
-SELECT local_node_id, label, depth, occurrence_count,
-       round(avg_total_us, 3) AS avg_total_us,
+SELECT position_id, parent_position_id, preorder_idx,
+       label, node_type, repeat_count, occurrence_count,
        round(total_us, 3) AS total_us
-FROM traceloom_v_tree_node
-ORDER BY total_us DESC
+FROM traceloom_v_position
+ORDER BY total_us DESC, db_idx, tree_id, preorder_idx
 LIMIT 30;
 ```
 
-找到感兴趣的 `local_node_id` 后，继续查询 occurrence、children、anchor、replay
-member 和 raw row。仓库里的 `docs/report-sql/*.sql` 提供可执行的常见路径，
+找到感兴趣的 `position_id` 后，继续查询 edge roles、某次 concrete edge stream、
+等价边 population 和专业 lens。仓库里的 `docs/report-sql/*.sql` 仍提供审计与专业
+关系的有界查询，
 `traceloom_projection_recipe.example_sql` 说明组合路径；
 `traceloom_projection_coordinate` 和 `traceloom_v_projection_continuation`
 说明查询返回了哪些可继续复用的坐标、下一步可以进入哪些 recipe。
@@ -368,20 +407,23 @@ member 和 raw row。仓库里的 `docs/report-sql/*.sql` 提供可执行的常�
 ```text
 这是 TraceLoom 生成的 queryable DB timeline。先查询
 traceloom_projection_recipe、traceloom_projection_coordinate、
-traceloom_v_projection_continuation 与 traceloom_analysis_surface。从总成本最高的
-repeated region 选择一个 node_id，并明确投影坐标：
-1. population：比较全部 occurrences，或选择某一次真实执行；
-2. resolution：保持折叠，或展开 children / anchors / events；
-3. domain：需要时进入受支持的 host-window context；
-4. lens：明确使用的成本或行为统计；
-5. continuation：每次优先复用结果返回的 coordinate，再决定下一步投影；
-6. audit：把关键 event/runtime call 解析到内嵌 profiler 表和 row，或者停在明确的 typed boundary。
+traceloom_v_projection_continuation 与 traceloom_analysis_surface。从
+traceloom_v_position 选择一个 position_id：
+1. structure：读取 contextual edge roles，不用算子名定义等价性；
+2. population：固定一个 edge_role_id，或选择某一次 concrete edge stream；
+3. occurrence：从结果返回的 child_occurrence_id 选择异常实例；
+4. resolution：保持折叠，或展开 direct members / events / exact replay members；
+5. domain：需要时进入受支持的 host-window context；
+6. lens：明确使用的成本或行为统计；
+7. continuation：每次优先复用结果返回的 coordinate，再决定下一步投影；
+8. audit：把关键 event/runtime call 解析到内嵌 profiler 表和 row，或者停在明确的 typed boundary。
 输出所用 SQL、scope、population、resolution、domain、lens 和证据边界。
 不要根据名字推断 workload phase 或因果关系。
 ```
 
-做 A/B 时，先用稳定结构坐标对齐 pattern、occurrence 或 position，再比较成本；
-不要先按算子名全局汇总。SQL 与结果表应和 `analysis.db` 的 SHA-256 一起保留，
+做 A/B 时，先用稳定 Position 路径和 contextual edge role 对齐结构，再比较
+Occurrence population；不要先按算子名全局汇总。SQL 与结果表应和 `analysis.db`
+的 SHA-256 一起保留，
 让诊断可复核。
 
 ## Markdown 和外围导出器的位置
