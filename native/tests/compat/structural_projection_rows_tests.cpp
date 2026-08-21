@@ -1,6 +1,7 @@
 #include "traceloom/analysis/structural_occurrence_builder.h"
 #include "traceloom/compat/native_sidecar_materializer.h"
 #include "traceloom/compat/structural_projection_rows.h"
+#include "traceloom/compat/structural_position_rows.h"
 #include "traceloom/pattern/grammar_state.h"
 #include "traceloom/testing/test_util.h"
 
@@ -43,6 +44,40 @@ int main() {
   require(structural_projections.front().graph.occurrences.size() == 4);
   require(structural_projections.front().graph.edges.size() == 3);
   require(structural_projections.front().graph.coverage.size() == 4);
+
+  const compat::StructuralPositionSqlRows position_rows =
+      compat::build_structural_position_sql_rows(
+          structural_projections.front().graph,
+          structural_projections.front().tokens, 7, "tree-1", "anchor_tree",
+          false);
+  require(position_rows.refinements.size() == 2);
+  require(position_rows.occurrences.size() == 4);
+  require(position_rows.members.size() == 5);
+  require(position_rows.refinements[0].parent_position_id == "node-N001");
+  require(position_rows.refinements[0].slot_ordinal == 1);
+  require(position_rows.refinements[0].child_position_id == "node-N002");
+  require(position_rows.refinements[1].parent_position_id == "node-N002");
+  require(position_rows.refinements[1].slot_ordinal == 1);
+  require(position_rows.refinements[1].child_position_id == "node-N003");
+  require(position_rows.occurrences[2].rooted_position_path ==
+          "node-N001/s1/node-N002/s1/node-N003");
+  require(position_rows.occurrences[2].occurrence_path ==
+          "node-N001-occurrence-1/s1/r1/node-N002-occurrence-1/"
+          "s1/r1/node-N003-occurrence-1");
+  require(position_rows.occurrences[3].rooted_position_path ==
+          position_rows.occurrences[2].rooted_position_path);
+  require(position_rows.occurrences[3].occurrence_path ==
+          "node-N001-occurrence-1/s1/r1/node-N002-occurrence-1/"
+          "s1/r2/node-N003-occurrence-2");
+  require(position_rows.members[1].slot_ordinal == 1);
+  require(position_rows.members[1].member_order == 1);
+  require(position_rows.members[2].slot_ordinal == 1);
+  require(position_rows.members[2].member_order == 2);
+  require(position_rows.members[3].member_kind == "terminal_token");
+  require(position_rows.members[3].terminal_anchor_id == "anchor-0");
+  require(position_rows.members[3].member_path ==
+          "node-N001-occurrence-1/s1/r1/node-N002-occurrence-1/"
+          "s1/r1/node-N003-occurrence-1/terminal/r1/token-0");
 
   const compat::NodeCoverageSqlRows rows =
       compat::build_native_structural_node_coverage_sql_rows(ir, 7, "tree");

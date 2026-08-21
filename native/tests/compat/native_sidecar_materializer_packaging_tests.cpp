@@ -360,13 +360,13 @@ void run_packaging_materializer_tests() {
               "SELECT COUNT(*) FROM traceloom_projection_recipe WHERE "
               "scope_kind != '' AND population_mode != '' AND "
               "resolution != '' AND observation_domain != '' AND "
-              "measure_lens != ''") == 29);
+              "measure_lens != ''") == 37);
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_projection_parameter WHERE "
               "parameter_name != '' AND sqlite_type IN ('TEXT', 'INTEGER') "
               "AND coordinate_kind != '' AND selection_relation != '' AND "
-              "selection_column != ''") == 34);
+              "selection_column != ''") == 42);
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_projection_parameter p LEFT "
@@ -375,7 +375,7 @@ void run_packaging_materializer_tests() {
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_projection_coordinate") ==
-          107);
+          127);
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_projection_coordinate WHERE "
@@ -591,6 +591,7 @@ void run_packaging_materializer_tests() {
               "surface_name = 'anchor_symbol_lineage' AND relation_name = "
               "'traceloom_v_anchor_symbol_lineage'") == 1);
   require_analysis_surface_queries_prepare(augmented_path);
+  run_position_projection_catalog_tests(augmented_path);
   run_host_window_query_tests(augmented_path);
   require(run_scalar_text(augmented_path,
                           "SELECT embedded_table_name FROM "

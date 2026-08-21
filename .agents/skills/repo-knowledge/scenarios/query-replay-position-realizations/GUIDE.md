@@ -56,8 +56,8 @@ explicit resolutions instead:
   `replay_annotation_semantics=region_highlight_not_event_ownership`.
 - `traceloom_v_flattened_execution_timeline` replaces a supported Position
   anchor with its exact `traceloom_graph_body_member` rows and leaves every
-  other mainline anchor at its observed timestamp. Pattern, occurrence, and
-  Position coordinates remain columns on the expanded rows.
+  other mainline anchor at its observed timestamp. Grammar-derived Position
+  and Occurrence coordinates remain columns on the expanded rows.
 
 This split keeps `COMMUNICATION_OP` anchors on the provider's main timeline.
 An anchor inside a replay highlight is observable in that region but is not a
