@@ -206,6 +206,11 @@ if(TRACELOOM_NATIVE_ENABLE_SQLITE_ADAPTERS)
         src/adapters/hygon_sqlite_adapter.cpp
         src/adapters/sqlite_profile_reader.cpp
     )
+    target_sources(traceloom_native_materialize
+      PRIVATE
+        src/compat/perfetto_exporter.cpp
+        src/compat/perfetto_raw_export.cpp
+    )
     if(TARGET SQLite::SQLite3)
       target_link_libraries(traceloom_native_adapters PRIVATE SQLite::SQLite3)
       target_link_libraries(traceloom_native_materialize PRIVATE SQLite::SQLite3)
@@ -278,7 +283,7 @@ if(TRACELOOM_NATIVE_SQLITE_ADAPTERS_AVAILABLE)
       "Native TraceLoom analyzer for profiler SQLite databases")
   set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
   set(CPACK_DEBIAN_PACKAGE_MAINTAINER "vLLM-HUST")
-  set(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6, libstdc++6, libsqlite3-0")
+  set(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6, libstdc++6, libsqlite3-0, gzip")
   set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
   set(CPACK_PACKAGING_INSTALL_PREFIX "/usr")
   include(CPack)
@@ -892,6 +897,35 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     traceloom_add_ascend_sqlite_test(
       traceloom_native_ascend_sqlite_replay_composition_tests
       tests/adapters/ascend_sqlite_replay_composition_tests.cpp
+    )
+
+    add_executable(traceloom_native_perfetto_exporter_tests
+      tests/compat/perfetto_exporter_tests.cpp
+    )
+    add_dependencies(traceloom_native_perfetto_exporter_tests traceloom)
+    target_compile_definitions(
+      traceloom_native_perfetto_exporter_tests PRIVATE
+      TRACELOOM_ANALYZER="$<TARGET_FILE:traceloom>"
+    )
+    target_link_libraries(
+      traceloom_native_perfetto_exporter_tests PRIVATE
+      traceloom_native_materialize
+    )
+    if(TARGET SQLite::SQLite3)
+      target_link_libraries(
+        traceloom_native_perfetto_exporter_tests PRIVATE SQLite::SQLite3
+      )
+    else()
+      target_include_directories(
+        traceloom_native_perfetto_exporter_tests PRIVATE ${SQLite3_INCLUDE_DIRS}
+      )
+      target_link_libraries(
+        traceloom_native_perfetto_exporter_tests PRIVATE ${SQLite3_LIBRARIES}
+      )
+    endif()
+    add_test(
+      NAME traceloom_native_perfetto_exporter_tests
+      COMMAND traceloom_native_perfetto_exporter_tests
     )
 
     add_executable(traceloom_native_ascend_sqlite_determinism_tests

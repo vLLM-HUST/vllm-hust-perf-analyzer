@@ -74,7 +74,7 @@ traceloom --version
 traceloom --help
 ```
 
-运行时依赖为 `libc6`、`libstdc++6` 和 `libsqlite3-0`。
+运行时依赖为 `libc6`、`libstdc++6`、`libsqlite3-0` 和 `gzip`。
 
 卸载：
 
@@ -111,6 +111,23 @@ traceloom /path/to/ASCEND_PROFILER_OUTPUT/ascend_pytorch_profiler_0.db
 ```text
 /path/to/PROF_.../traceloom/analysis.db
 ```
+
+同一份分析可以直接导出为增强 Perfetto timeline，不再依赖一次性可视化脚本：
+
+```bash
+traceloom /path/to/msprof.db \
+  --output /tmp/analysis.db \
+  --perfetto-out /tmp/analysis.perfetto.json.gz
+
+# 也可以稍后从已有 AugDB 投影：
+traceloom export-perfetto /tmp/analysis.db \
+  --output /tmp/analysis.perfetto.json.gz
+```
+
+Perfetto 导出把可查询的树区间、独立的扁平 event track 和内嵌 raw provider
+evidence 放在同一时间轴上。同构 repeat subtree 共用简短 motif 标签与颜色种子；
+根节点直接显示为 `N001 · root`。详细契约见
+[AugDB to Perfetto Timeline](docs/augmented-perfetto-timeline.md)。
 
 ### 2. 分析 profiler 目录
 

@@ -24,6 +24,7 @@
 #include "traceloom/analysis/event_reconciliation.h"
 #include "traceloom/analysis/flat_anchor_builder.h"
 #include "traceloom/compat/native_sidecar_materializer.h"
+#include "traceloom/compat/perfetto_exporter.h"
 #include "traceloom/compat/structural_projection_rows.h"
 #include "traceloom/ir/native_ir.h"
 #include "traceloom/materialize/grammar_debug_json.h"
@@ -57,6 +58,8 @@ struct CliOptions {
   std::string executable_path;
   std::string source_input;
   std::string source_kind = "auto";
+  bool perfetto_export_only = false;
+  std::string perfetto_out_path;
   std::vector<std::string> source_dbs;
   std::string grammar_debug_out_path;
   std::string compat_sidecar_out_path;
@@ -95,6 +98,7 @@ void print_usage(const char* argv0) {
   std::cerr << "usage: " << argv0
             << " <profile.db-or-profile-dir> [--threads N]"
                " [--output ANALYSIS.db]"
+               " [--perfetto-out TIMELINE.json[.gz]]"
                " [--loop-tree-out PATH|-]"
                " [--timings]\n\n"
             << "Writes a self-contained queryable database timeline "
@@ -107,6 +111,9 @@ void print_usage(const char* argv0) {
                "needed for a human reader. It defaults to a compact grammar "
                "summary; select the exact expanded tree with "
                "--loop-tree-view expanded.\n"
+            << "Export an existing queryable database timeline with '"
+            << argv0
+            << " export-perfetto analysis.db [--output timeline.json.gz]'.\n"
             << "Use --help-advanced for compatibility and debug options.\n";
 }
 
@@ -118,6 +125,7 @@ void print_advanced_usage(const char* argv0) {
                " [--grammar-debug-out PATH|-]"
                " [--compat-db-out PATH]"
                " [--output PATH|--aug-db-out PATH|--no-aug-db]"
+               " [--perfetto-out PATH]"
                " [--loop-tree-out PATH|-]"
                " [--loop-tree-db-label LABEL]"
                " [--loop-tree-device-id N]"
@@ -157,7 +165,9 @@ CliOptions parse_args(int argc, char** argv) {
       return argv[index];
     };
 
-    if (arg == "analyze" && options.source_input.empty()) {
+    if (arg == "export-perfetto" && options.source_input.empty()) {
+      options.perfetto_export_only = true;
+    } else if (arg == "analyze" && options.source_input.empty()) {
       std::cerr << "warning: 'traceloom analyze <path>' is deprecated; use "
                    "'traceloom <path>'\n";
     } else if (arg == "--source-db") {
@@ -170,9 +180,18 @@ CliOptions parse_args(int argc, char** argv) {
       options.grammar_debug_out_path = require_value(arg);
     } else if (arg == "--compat-db-out" || arg == "--compat-sidecar-out") {
       options.compat_sidecar_out_path = require_value(arg);
-    } else if (arg == "--output" || arg == "--aug-db-out") {
+    } else if (arg == "--output") {
+      if (options.perfetto_export_only) {
+        options.perfetto_out_path = require_value(arg);
+      } else {
+        options.augmented_db_out_path = require_value(arg);
+        options.augmented_db_enabled = true;
+      }
+    } else if (arg == "--aug-db-out") {
       options.augmented_db_out_path = require_value(arg);
       options.augmented_db_enabled = true;
+    } else if (arg == "--perfetto-out") {
+      options.perfetto_out_path = require_value(arg);
     } else if (arg == "--no-aug-db") {
       options.augmented_db_enabled = false;
     } else if (arg == "--loop-tree-out") {
@@ -249,9 +268,19 @@ CliOptions parse_args(int argc, char** argv) {
     throw std::invalid_argument(
         "unsupported --loop-tree-view: " + options.loop_tree_view);
   }
-  options.source_dbs =
-      traceloom::tools::discover_profile_dbs(options.source_input,
-                                             options.source_kind);
+  if (options.perfetto_export_only) {
+    if (!traceloom::compat::is_queryable_database_timeline(
+            options.source_input)) {
+      throw std::invalid_argument(
+          "export-perfetto input is not a TraceLoom queryable database "
+          "timeline: " +
+          options.source_input);
+    }
+    options.source_dbs = {options.source_input};
+  } else {
+    options.source_dbs = traceloom::tools::discover_profile_dbs(
+        options.source_input, options.source_kind);
+  }
   if (options.source_dbs.empty()) {
     throw std::invalid_argument("no supported Ascend, Hygon, or CUDA/Nsight "
                                 "profile DB found under input path: " +
@@ -261,6 +290,7 @@ CliOptions parse_args(int argc, char** argv) {
       (!options.grammar_debug_out_path.empty() ||
        !options.compat_sidecar_out_path.empty() ||
        !options.augmented_db_out_path.empty() ||
+       !options.perfetto_out_path.empty() ||
        options.loop_tree_out_path_set)) {
     throw std::invalid_argument(
         "explicit output paths are only supported for a single input DB; pass "
@@ -276,6 +306,14 @@ CliOptions parse_args(int argc, char** argv) {
       !options.augmented_db_out_path.empty()) {
     throw std::invalid_argument(
         "--no-aug-db cannot be combined with --output/--aug-db-out");
+  }
+  if (!options.perfetto_export_only && !options.augmented_db_enabled &&
+      !options.perfetto_out_path.empty()) {
+    throw std::invalid_argument(
+        "--perfetto-out requires the queryable database timeline output");
+  }
+  if (options.perfetto_out_path == "-") {
+    throw std::invalid_argument("Perfetto output cannot use '-'");
   }
   if (options.augmented_db_out_path == "-") {
     throw std::invalid_argument("SQLite analysis output cannot use '-'");
@@ -324,6 +362,13 @@ std::string default_augmented_db_output_path(const CliOptions& cli,
   filename << "analysis_db" << std::setw(2) << std::setfill('0')
            << (db_index + 1) << ".db";
   return (output_root / filename.str()).string();
+}
+
+std::string default_perfetto_output_path(const std::string& analysis_db) {
+  const fs::path input(analysis_db);
+  return (input.parent_path() /
+          (input.stem().string() + ".perfetto.json.gz"))
+      .string();
 }
 
 std::vector<std::string> raw_sqlite_sources(const std::string& source_db,
@@ -551,6 +596,20 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
         std::cerr << "timing augmented_db_ms="
                   << augmented_db_watch.elapsed_ms() << "\n";
       }
+      if (!cli.perfetto_out_path.empty()) {
+        const Stopwatch perfetto_watch;
+        const auto receipt = traceloom::compat::write_perfetto_trace(
+            augmented_db_out, cli.perfetto_out_path);
+        std::cerr << "wrote Perfetto timeline: " << cli.perfetto_out_path
+                  << "\n";
+        std::cerr << "  repeat_body_slices: "
+                  << receipt.repeat_body_slices << "\n";
+        std::cerr << "  raw_slices: " << receipt.raw_slices << "\n";
+        if (cli.timings) {
+          std::cerr << "timing perfetto_export_ms="
+                    << perfetto_watch.elapsed_ms() << "\n";
+        }
+      }
     }
     if (cli.loop_tree_out_path_set) {
       const traceloom::compat::NativeCompatibilitySidecarOptions
@@ -711,6 +770,19 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
 int main(int argc, char** argv) {
   try {
     const CliOptions cli = parse_args(argc, argv);
+    if (cli.perfetto_export_only) {
+      const std::string output =
+          cli.perfetto_out_path.empty()
+              ? default_perfetto_output_path(cli.source_input)
+              : cli.perfetto_out_path;
+      const auto receipt =
+          traceloom::compat::write_perfetto_trace(cli.source_input, output);
+      std::cerr << "wrote Perfetto timeline: " << output << "\n";
+      std::cerr << "  repeat_body_slices: " << receipt.repeat_body_slices
+                << "\n";
+      std::cerr << "  raw_slices: " << receipt.raw_slices << "\n";
+      return 0;
+    }
     for (std::size_t index = 0; index < cli.source_dbs.size(); ++index) {
       analyze_one_db(cli, cli.source_dbs[index], index);
     }

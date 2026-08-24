@@ -99,7 +99,8 @@ traceloom --version
 traceloom --help
 ```
 
-Runtime package dependencies are `libc6`, `libstdc++6`, and `libsqlite3-0`.
+Runtime package dependencies are `libc6`, `libstdc++6`, `libsqlite3-0`, and
+`gzip`.
 
 To uninstall:
 
@@ -136,6 +137,25 @@ The default product is a self-contained queryable database timeline written besi
 ```text
 /path/to/PROF_.../traceloom/analysis.db
 ```
+
+Open the same analysis as an augmented Perfetto timeline without a separate
+visualization script:
+
+```bash
+traceloom /path/to/msprof.db \
+  --output /tmp/analysis.db \
+  --perfetto-out /tmp/analysis.perfetto.json.gz
+
+# Or project an existing queryable database timeline later:
+traceloom export-perfetto /tmp/analysis.db \
+  --output /tmp/analysis.perfetto.json.gz
+```
+
+The Perfetto export overlays query-readable tree intervals, a separate flat
+event track, and the embedded raw provider evidence. Isomorphic repeat subtrees
+share a compact motif label and color seed; roots are named directly (for
+example, `N001 · root`). See
+[AugDB to Perfetto Timeline](docs/augmented-perfetto-timeline.md).
 
 ### 2. Analyze A Profiler Directory
 
