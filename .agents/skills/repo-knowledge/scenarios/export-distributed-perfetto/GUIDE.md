@@ -121,6 +121,36 @@ The earlier
 `distributed-tp8.collectives-only.exploration.perfetto.json.gz` is a preserved
 mistaken exploration and is superseded for this use case.
 
+### Reconcile before re-exporting published lanes
+
+The Perfetto exporter consumes the published occurrences already materialized
+in each AugDB. Updating the default event-reconciliation policy does not
+retroactively change an older AugDB: regenerate every distributed input from
+its raw profiler DB before expecting a new reconciliation rule to affect the
+rank lanes. Raw provider tracks remain audit evidence and must not be erased
+merely because their annotation envelopes are removed from the published
+TraceLoom projection.
+
+This distinction was exercised on the TP8 run above after policy v3 added
+`ascend.task.mix-aic.context-detail`. All eight raw inputs were reanalyzed at
+commit `3b85b90`; every resulting AugDB records policy v3 with manifest SHA-256
+`072794b4ef490449932f90f1823136587d6f2c03797ea5e21d91cd6c17518f42`.
+The rule reconciled 13,965 `KERNEL_MIX_AIC` envelopes on rank 0, 14,973 on
+ranks 1--2, and 15,141 on ranks 3--7. Each AugDB then exposed zero published
+tree nodes or occurrences named `KERNEL_MIX_AIC`.
+
+The candidate end-aligned re-export is
+`window/traceloom/distributed-tp8-policy-v3-end-aligned-candidate.perfetto.json.gz`,
+SHA-256
+`6c2b2c717ddd32a854b3ad456cbc62fe695985afcd4c1a5a6a8b097fb6411e0e`.
+It contains 1,646,596 distributed slices: 182,036 on rank 0; 206,330 on ranks
+1--2; and 210,380 on ranks 3--7. A complete streaming JSON validation found
+zero distributed slices named `KERNEL_MIX_AIC` or `KERNEL_MIX_AIV`, while all
+slices retained the candidate alignment marker. The 119,616-slice reduction
+from the policy-v2 artifact exactly equals the reconciled mixed-AIC envelope
+counts. This verifies projection denoising, not deletion of raw evidence, and
+does not strengthen the candidate clock model into a calibrated-time claim.
+
 ## Verification when changing the exporter
 
 Run the focused alignment fixture, then the full suite and non-test build:
