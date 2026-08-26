@@ -135,6 +135,21 @@ void create_rank_fixture(const std::filesystem::path& path, std::int64_t offset)
   }
 }
 
+void create_clock_model_fixture(const std::filesystem::path& path,
+                                const std::string& metric = "end") {
+  std::ofstream output(path);
+  output
+      << "{\"format\":\"traceloom.distributed-clock-model/v1\","
+         "\"rank\":1,\"reference_rank\":0,\"metric\":\""
+      << metric
+      << "\",\"status\":\"candidate_only\","
+         "\"source_clock_domain\":\"rank-1-device\","
+         "\"target_clock_domain\":\"rank-0-device\","
+         "\"marker_contract\":\"collective-family-group-ordinal-candidate-v1\","
+         "\"scale\":0.5,\"reference_source_ns\":50000,"
+         "\"reference_target_ns\":10000}\n";
+}
+
 std::string read_plain(const std::filesystem::path& path) {
   std::ifstream input(path, std::ios::binary);
   return std::string(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
@@ -183,7 +198,10 @@ int main() {
   const auto db_path = temp_path(".db");
   const auto rank0_path = temp_path(".rank0.db");
   const auto rank1_path = temp_path(".rank1.db");
+  const auto model_path = temp_path(".models.jsonl");
+  const auto incomplete_model_path = temp_path(".incomplete-models.jsonl");
   const auto json_path = temp_path(".json");
+  const auto aligned_json_path = temp_path(".aligned.json");
 #if defined(_WIN32)
   const auto cli_path = temp_path(".cli.json");
 #else
@@ -193,6 +211,8 @@ int main() {
   create_fixture(db_path);
   create_rank_fixture(rank0_path, 10000);
   create_rank_fixture(rank1_path, 50000);
+  create_clock_model_fixture(model_path);
+  create_clock_model_fixture(incomplete_model_path, "start");
 
   require(traceloom::compat::is_queryable_database_timeline(db_path.string()));
   traceloom::compat::PerfettoExportOptions distributed_options;
@@ -226,6 +246,40 @@ int main() {
   require(json.find("timeline events · db 0") == std::string::npos);
   require(json.find("shape-") == std::string::npos);
 
+  traceloom::compat::PerfettoExportOptions aligned_options =
+      distributed_options;
+  aligned_options.distributed_clock_model_path = model_path.string();
+  const auto aligned_receipt = traceloom::compat::write_perfetto_trace(
+      db_path.string(), aligned_json_path.string(), aligned_options);
+  require(aligned_receipt.distributed_alignment ==
+              "collective_end_affine_clock_model" &&
+          aligned_receipt.distributed_clock_model_sha256.size() == 64);
+  const std::string aligned_json = read_plain(aligned_json_path);
+  require_contains(
+      aligned_json,
+      "\"distributed_alignment\":\"collective_end_affine_clock_model\"");
+  require_contains(aligned_json,
+                   "\"distributed_alignment_evidence_status\":"
+                   "\"candidate_only\"");
+  require_contains(aligned_json,
+                   "\"clock_model_status\":\"candidate_only\"");
+  require_contains(aligned_json,
+                   "\"clock_model_status\":\"reference_identity\"");
+  require_contains(aligned_json, "\"source_start_ns\":50200");
+  require_contains(aligned_json, "\"clock_model_metric\":\"end\"");
+  require_contains(aligned_json, "\"ts\":9.200");
+  bool rejected_incomplete_model = false;
+  try {
+    auto invalid_options = distributed_options;
+    invalid_options.distributed_clock_model_path =
+        incomplete_model_path.string();
+    traceloom::compat::write_perfetto_trace(
+        db_path.string(), aligned_json_path.string(), invalid_options);
+  } catch (const std::invalid_argument&) {
+    rejected_incomplete_model = true;
+  }
+  require(rejected_incomplete_model);
+
 #if !defined(_WIN32)
   traceloom::compat::PerfettoExportOptions gzip_options;
   gzip_options.include_raw_provider_timeline = false;
@@ -239,6 +293,8 @@ int main() {
                                   db_path.string() + "\" --output \"" + cli_path.string() +
                                   "\" --distributed-rank 0=\"" + rank0_path.string() +
                                   "\" --distributed-rank 1=\"" + rank1_path.string() +
+                                  "\" --distributed-clock-model \"" +
+                                  model_path.string() +
                                   "\" >/dev/null 2>&1";
   require(std::system(cli_command.c_str()) == 0);
 #if defined(_WIN32)
@@ -246,12 +302,16 @@ int main() {
 #else
   require_contains(read_gzip(cli_path), "N002 · motif A · body 1/2");
   require_contains(read_gzip(cli_path), "timeline events · rank 1");
+  require_contains(read_gzip(cli_path), "collective_end_affine_clock_model");
 #endif
 
   std::remove(db_path.c_str());
   std::remove(rank0_path.c_str());
   std::remove(rank1_path.c_str());
+  std::remove(model_path.c_str());
+  std::remove(incomplete_model_path.c_str());
   std::remove(json_path.c_str());
+  std::remove(aligned_json_path.c_str());
 #if !defined(_WIN32)
   std::remove(gzip_path.c_str());
 #endif

@@ -15,6 +15,8 @@ struct PerfettoExportOptions {
   bool include_raw_provider_timeline = true;
   std::vector<PerfettoDistributedRankInput> distributed_ranks;
   int distributed_reference_rank = 0;
+  // Explicit opt-in. Empty keeps first-event display normalization.
+  std::string distributed_clock_model_path;
 };
 
 struct PerfettoExportReceipt {
@@ -26,6 +28,8 @@ struct PerfettoExportReceipt {
   std::uint64_t distributed_rank_tracks = 0;
   std::uint64_t counter_samples = 0;
   std::uint64_t motif_classes = 0;
+  std::string distributed_alignment = "none";
+  std::string distributed_clock_model_sha256;
 };
 
 bool is_queryable_database_timeline(const std::string& analysis_db_path);

@@ -575,6 +575,7 @@ PerfettoExportReceipt write_perfetto_trace(const std::string& analysis_db_path,
     for (const auto& o : values) origin = std::min(origin, o.start);
   if (options.include_raw_provider_timeline)
     origin = perfetto_internal::raw_timeline_origin(db.get(), origin);
+  origin = std::min(origin, distributed.display_min_start);
   if (origin == std::numeric_limits<std::int64_t>::max()) origin = 0;
   TraceWriter writer(output_path, origin);
   PerfettoExportReceipt receipt;
@@ -659,13 +660,23 @@ PerfettoExportReceipt write_perfetto_trace(const std::string& analysis_db_path,
   if (options.include_raw_provider_timeline)
     perfetto_internal::export_raw_provider_timeline(db.get(), writer, receipt);
   perfetto_internal::export_distributed_flat_timeline(distributed, writer, receipt);
+  receipt.distributed_alignment = distributed.alignment;
+  receipt.distributed_clock_model_sha256 = distributed.clock_model_sha256;
   writer.finish(
       "{\"format\":\"TraceLoom queryable database timeline Perfetto export\",\"analysis_db\":" +
       json_quote(analysis_db_path) + ",\"time_origin_ns\":" + std::to_string(origin) +
       ",\"repeat_body_slices\":" + std::to_string(receipt.repeat_body_slices) +
       ",\"motif_classes\":" + std::to_string(receipt.motif_classes) +
       ",\"distributed_alignment\":" +
-      json_quote(distributed.ranks.empty() ? "none" : "first_timeline_event_per_rank") +
+      json_quote(distributed.alignment) +
+      ",\"distributed_alignment_evidence_status\":" +
+      json_quote(distributed.alignment_evidence_status) +
+      ",\"distributed_alignment_boundary\":" +
+      json_quote(distributed.alignment_boundary) +
+      ",\"distributed_clock_model_path\":" +
+      json_quote(distributed.clock_model_path) +
+      ",\"distributed_clock_model_sha256\":" +
+      json_quote(distributed.clock_model_sha256) +
       ",\"distributed_reference_rank\":" +
       std::to_string(distributed.reference_rank) +
       ",\"distributed_rank_tracks\":" +

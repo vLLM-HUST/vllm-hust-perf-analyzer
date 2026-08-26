@@ -154,7 +154,8 @@ traceloom export-perfetto /tmp/analysis.db \
 traceloom export-perfetto /tmp/rank0-analysis.db \
   --output /tmp/tp8.perfetto.json.gz \
   --distributed-rank 0=/analysis/rank0.db \
-  --distributed-rank 1=/analysis/rank1.db
+  --distributed-rank 1=/analysis/rank1.db \
+  --distributed-clock-model /analysis/collective-end.models.jsonl
 ```
 
 The Perfetto export overlays query-readable tree intervals, a separate flat
@@ -162,7 +163,10 @@ event track, and the embedded raw provider evidence. Isomorphic repeat subtrees
 share a compact motif label and color seed; roots are named directly (for
 example, `N001 · root`). Explicit distributed-rank TraceLoom timelines replace
 the single flat event row with one compressed event lane per rank, without
-claiming a cross-device absolute-clock contract. See
+claiming a cross-device absolute-clock contract. The explicit clock-model
+option is the recommended collective-comparison view when an auditable
+end-affine receipt is available; every slice retains its raw timestamp and a
+candidate model remains display-only. See
 [AugDB to Perfetto Timeline](docs/augmented-perfetto-timeline.md).
 
 ### 2. Analyze A Profiler Directory

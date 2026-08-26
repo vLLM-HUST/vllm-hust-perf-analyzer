@@ -6,7 +6,9 @@
 #include <cerrno>
 #include <cstdint>
 #include <iomanip>
+#include <limits>
 #include <memory>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -104,6 +106,13 @@ std::string number(double value) {
   return out.str();
 }
 
+std::string precise_number(long double value) {
+  std::ostringstream out;
+  out << std::setprecision(std::numeric_limits<long double>::max_digits10)
+      << value;
+  return out.str();
+}
+
 DistributedRankTimeline load_rank(const PerfettoDistributedRankInput& input) {
   if (input.rank < 0) throw std::invalid_argument("distributed rank must be non-negative");
   if (input.timeline_db_path.empty())
@@ -174,10 +183,8 @@ std::string args_for_event(const DistributedFlatTimeline& timeline,
       << ",\"rank\":" << rank.rank
       << ",\"source_timeline_db\":" << json_quote(rank.timeline_db_path)
       << ",\"source_timeline_db_sha256\":" << json_quote(rank.timeline_db_sha256)
-      << ",\"alignment\":\"first_timeline_event_per_rank\""
-      << ",\"source_anchor_ns\":" << rank.source_anchor
+      << ",\"alignment\":" << json_quote(timeline.alignment)
       << ",\"display_reference_rank\":" << timeline.reference_rank
-      << ",\"display_reference_anchor_ns\":" << timeline.display_reference_anchor
       << ",\"source_start_ns\":" << event.start << ",\"source_end_ns\":" << event.end
       << ",\"node_id\":" << json_quote(event.node_id)
       << ",\"local_node_id\":" << json_quote(event.local_node_id)
@@ -198,7 +205,33 @@ std::string args_for_event(const DistributedFlatTimeline& timeline,
       << ",\"total_us\":" << number(event.total_us)
       << ",\"self_us\":" << number(event.self_us)
       << ",\"aux_events\":" << event.aux_events
-      << ",\"aux_us\":" << number(event.aux_us) << '}';
+      << ",\"aux_us\":" << number(event.aux_us);
+  if (timeline.clock_models.empty()) {
+    out << ",\"source_anchor_ns\":" << rank.source_anchor
+        << ",\"display_reference_anchor_ns\":"
+        << timeline.display_reference_anchor;
+  } else if (rank.rank == timeline.reference_rank) {
+    out << ",\"clock_model_status\":\"reference_identity\""
+        << ",\"clock_model_marker_contract\":\"reference-rank-identity\""
+        << ",\"clock_model_metric\":\"end\""
+        << ",\"clock_model_receipt_sha256\":"
+        << json_quote(timeline.clock_model_sha256);
+  } else {
+    const auto& model = timeline.clock_models.at(rank.rank);
+    out << ",\"clock_model_status\":"
+        << json_quote(std::string(clock_calibration_status_name(model.status)))
+        << ",\"clock_model_marker_contract\":"
+        << json_quote(model.marker_contract)
+        << ",\"clock_model_metric\":\"end\""
+        << ",\"clock_model_scale\":" << json_quote(precise_number(model.scale))
+        << ",\"clock_model_reference_source_ns\":"
+        << json_quote(precise_number(model.reference_source_ns))
+        << ",\"clock_model_reference_target_ns\":"
+        << json_quote(precise_number(model.reference_target_ns))
+        << ",\"clock_model_receipt_sha256\":"
+        << json_quote(timeline.clock_model_sha256);
+  }
+  out << '}';
   return out.str();
 }
 
@@ -208,6 +241,12 @@ DistributedFlatTimeline load_distributed_flat_timeline(const PerfettoExportOptio
   DistributedFlatTimeline timeline;
   if (options.distributed_ranks.empty()) return timeline;
   timeline.reference_rank = options.distributed_reference_rank;
+  std::optional<DistributedClockModelSet> clock_models;
+  if (!options.distributed_clock_model_path.empty()) {
+    clock_models = load_distributed_clock_models(
+        options.distributed_clock_model_path, options.distributed_ranks,
+        timeline.reference_rank);
+  }
   std::set<int> ranks;
   for (const auto& input : options.distributed_ranks) {
     if (!ranks.insert(input.rank).second)
@@ -224,7 +263,62 @@ DistributedFlatTimeline load_distributed_flat_timeline(const PerfettoExportOptio
     throw std::invalid_argument("distributed reference rank " +
                                 std::to_string(timeline.reference_rank) + " was not provided");
   timeline.display_reference_anchor = reference->source_anchor;
+  if (!clock_models) {
+    timeline.alignment = "first_timeline_event_per_rank";
+    timeline.alignment_evidence_status = "display_only";
+    timeline.alignment_boundary =
+        "first-event translation only; no shared absolute-clock claim";
+  } else {
+    timeline.alignment = "collective_end_affine_clock_model";
+    timeline.alignment_evidence_status = clock_models->evidence_status;
+    timeline.alignment_boundary =
+        clock_models->evidence_status == "candidate_only"
+            ? "display-only candidate mapping; source timestamps retained; no calibrated global-time claim"
+            : "validated affine clock-model mapping; source timestamps retained";
+    timeline.clock_model_path = clock_models->path;
+    timeline.clock_model_sha256 = clock_models->sha256;
+    timeline.clock_models = std::move(clock_models->models);
+  }
+  for (const auto& rank : timeline.ranks) {
+    for (const auto& event : rank.events) {
+      const std::int64_t display_start =
+          map_distributed_display_timestamp(timeline, rank, event.start);
+      const std::int64_t display_end =
+          map_distributed_display_timestamp(timeline, rank, event.end);
+      if (display_end < display_start) {
+        throw std::invalid_argument(
+            "distributed clock model produced a negative duration for rank " +
+            std::to_string(rank.rank));
+      }
+      timeline.display_min_start =
+          std::min(timeline.display_min_start, display_start);
+    }
+  }
   return timeline;
+}
+
+std::int64_t map_distributed_display_timestamp(
+    const DistributedFlatTimeline& timeline,
+    const DistributedRankTimeline& rank,
+    std::int64_t source_timestamp_ns) {
+  if (timeline.clock_models.empty()) {
+    return timeline.display_reference_anchor +
+           (source_timestamp_ns - rank.source_anchor);
+  }
+  if (rank.rank == timeline.reference_rank) return source_timestamp_ns;
+  const auto found = timeline.clock_models.find(rank.rank);
+  if (found == timeline.clock_models.end()) {
+    throw std::invalid_argument("missing distributed clock model for rank " +
+                                std::to_string(rank.rank));
+  }
+  const auto mapped =
+      map_clock_timestamp_ns_for_display(found->second, source_timestamp_ns);
+  if (!mapped) {
+    throw std::invalid_argument(
+        "distributed clock model cannot map timestamp for rank " +
+        std::to_string(rank.rank));
+  }
+  return *mapped;
 }
 
 void export_distributed_flat_timeline(const DistributedFlatTimeline& timeline,
@@ -232,15 +326,24 @@ void export_distributed_flat_timeline(const DistributedFlatTimeline& timeline,
                                       PerfettoExportReceipt& receipt) {
   if (timeline.ranks.empty()) return;
   constexpr int pid = 120;
-  writer.process(pid, "TraceLoom · distributed flat timeline events · first-event normalized", 1);
+  writer.process(pid,
+                 timeline.clock_models.empty()
+                     ? "TraceLoom · distributed flat timeline events · first-event normalized"
+                     : "TraceLoom · distributed flat timeline events · collective-end affine aligned",
+                 1);
   int tid = 1;
   for (const auto& rank : timeline.ranks) {
     writer.thread(pid, tid, "timeline events · rank " + std::to_string(rank.rank), tid);
     for (const auto& event : rank.events) {
-      const std::int64_t display_start =
-          timeline.display_reference_anchor + (event.start - rank.source_anchor);
-      const std::int64_t display_end =
-          timeline.display_reference_anchor + (event.end - rank.source_anchor);
+      const std::int64_t display_start = map_distributed_display_timestamp(
+          timeline, rank, event.start);
+      const std::int64_t display_end = map_distributed_display_timestamp(
+          timeline, rank, event.end);
+      if (display_end < display_start) {
+        throw std::invalid_argument(
+            "distributed clock model produced a negative duration for rank " +
+            std::to_string(rank.rank));
+      }
       writer.slice(pid, tid, event.label, display_start, display_end,
                    "traceloom.distributed_timeline_event",
                    args_for_event(timeline, rank, event));

@@ -149,6 +149,9 @@ CliOptions parse_args(int argc, char** argv) {
     } else if (arg == "--distributed-rank") {
       options.perfetto_options.distributed_ranks.push_back(
           traceloom::tools::parse_distributed_rank_input(require_value(arg)));
+    } else if (arg == "--distributed-clock-model") {
+      options.perfetto_options.distributed_clock_model_path =
+          require_value(arg);
     } else if (arg == "--no-aug-db") {
       options.augmented_db_enabled = false;
     } else if (arg == "--loop-tree-out") {
@@ -270,8 +273,15 @@ CliOptions parse_args(int argc, char** argv) {
         "--perfetto-out requires the queryable database timeline output");
   }
   if (!options.perfetto_export_only && options.perfetto_out_path.empty() &&
-      !options.perfetto_options.distributed_ranks.empty())
-    throw std::invalid_argument("--distributed-rank requires a Perfetto output");
+      (!options.perfetto_options.distributed_ranks.empty() ||
+       !options.perfetto_options.distributed_clock_model_path.empty()))
+    throw std::invalid_argument(
+        "distributed Perfetto options require a Perfetto output");
+  if (!options.perfetto_options.distributed_clock_model_path.empty() &&
+      options.perfetto_options.distributed_ranks.empty()) {
+    throw std::invalid_argument(
+        "--distributed-clock-model requires --distributed-rank inputs");
+  }
   if (options.perfetto_out_path == "-") {
     throw std::invalid_argument("Perfetto output cannot use '-'");
   }
@@ -569,6 +579,12 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
                   << receipt.distributed_rank_tracks << "\n";
         std::cerr << "  distributed_timeline_slices: "
                   << receipt.distributed_timeline_slices << "\n";
+        std::cerr << "  distributed_alignment: "
+                  << receipt.distributed_alignment << "\n";
+        if (!receipt.distributed_clock_model_sha256.empty()) {
+          std::cerr << "  distributed_clock_model_sha256: "
+                    << receipt.distributed_clock_model_sha256 << "\n";
+        }
         if (cli.timings) {
           std::cerr << "timing perfetto_export_ms="
                     << perfetto_watch.elapsed_ms() << "\n";
@@ -750,6 +766,12 @@ int main(int argc, char** argv) {
                 << receipt.distributed_rank_tracks << "\n";
       std::cerr << "  distributed_timeline_slices: "
                 << receipt.distributed_timeline_slices << "\n";
+      std::cerr << "  distributed_alignment: "
+                << receipt.distributed_alignment << "\n";
+      if (!receipt.distributed_clock_model_sha256.empty()) {
+        std::cerr << "  distributed_clock_model_sha256: "
+                  << receipt.distributed_clock_model_sha256 << "\n";
+      }
       return 0;
     }
     for (std::size_t index = 0; index < cli.source_dbs.size(); ++index) {

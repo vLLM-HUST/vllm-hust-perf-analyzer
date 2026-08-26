@@ -43,6 +43,54 @@ When `--output` is omitted in the second form, TraceLoom writes
 through `gzip`; any other suffix writes plain JSON. Both formats open directly
 in Perfetto.
 
+### Recommended opt-in for collective comparison
+
+When an auditable affine model receipt is available, explicitly apply its
+collective-end model to the distributed display:
+
+```bash
+traceloom export-perfetto /analysis/rank0.db \
+  --output /tmp/tp8.end-aligned.perfetto.json.gz \
+  --distributed-rank 0=/analysis/rank0.db \
+  --distributed-rank 1=/analysis/rank1.db \
+  --distributed-rank 2=/analysis/rank2.db \
+  --distributed-clock-model /analysis/collective-end.models.jsonl
+```
+
+This is the recommended opt-in when the immediate task is to compare
+collective boundaries across ranks. Aligning the observed collective ends
+removes small clock offset/drift from the visual comparison; remaining start
+spread then becomes a concrete hypothesis about rank entry or provider-observed
+waiting to audit. It is not, by itself, proof of arrival time or causal waiting.
+
+The model receipt is newline-delimited flat JSON. It contains exactly one
+`metric=end` record for every non-reference rank; rank 0 remains identity so
+its execution tree and raw provider evidence stay on their observed timeline.
+Each record has this contract:
+
+```json
+{"format":"traceloom.distributed-clock-model/v1","rank":1,"reference_rank":0,"metric":"end","status":"candidate_only","source_clock_domain":"rank-1-device","target_clock_domain":"rank-0-device","marker_contract":"collective-family-group-ordinal-candidate-v1","scale":0.999999926,"reference_source_ns":1787706527296533405,"reference_target_ns":1787706527296533678.9}
+```
+
+`status` must be `candidate_only` or `calibrated`. All end records must share
+the same status, marker contract, target clock domain, and reference rank.
+Missing, duplicate, extra-rank, non-positive, non-finite, mixed-contract, and
+unsupported models fail closed before the output is opened. Other metrics may
+coexist in the JSONL receipt but are not applied by this UX.
+
+For a non-reference rank, TraceLoom maps each display timestamp with half-even
+rounding:
+
+```text
+reference_target_ns + scale * (source_ns - reference_source_ns)
+```
+
+Every displayed slice retains `source_start_ns`, `source_end_ns`, model status,
+marker contract, exact model parameters, and the receipt SHA-256. Trace metadata
+also records the receipt path, digest, evidence status, and display boundary.
+Candidate models are deliberately admitted only by this explicit Perfetto
+display path; they remain forbidden from moving production/global timestamps.
+
 ## Visual planes
 
 The export intentionally places two independently useful views on the same
@@ -68,13 +116,13 @@ means an observed structural subtree occurrence, not a guessed layer name.
 
 ## Distributed alignment and audit boundary
 
-Distributed lanes use `first_timeline_event_per_rank` display alignment: each
-rank's first published atom occurrence is translated onto rank 0's first atom
-occurrence while all later within-rank elapsed times and durations remain
-unchanged. This view answers “how do the rank timelines evolve after their
-first observed event?” It does **not** assert that provider timestamps form a
-proven global cross-device clock or that visually adjacent events are causal
-peers.
+Without `--distributed-clock-model`, distributed lanes use
+`first_timeline_event_per_rank` display alignment: each rank's first published
+atom occurrence is translated onto rank 0's first atom occurrence while all
+later within-rank elapsed times and durations remain unchanged. This view
+answers “how do the rank timelines evolve after their first observed event?”
+It does **not** assert that provider timestamps form a proven global
+cross-device clock or that visually adjacent events are causal peers.
 
 Every distributed slice retains enough provider identity to audit or refine a
 visual hypothesis:
@@ -82,8 +130,8 @@ visual hypothesis:
 - explicit rank and source timeline DB path and SHA-256;
 - source node ID, local node ID, occurrence index, view, device, and rooted
   role path;
-- unmodified source start/end timestamps and the rank-specific alignment
-  anchor;
+- unmodified source start/end timestamps and either the rank-specific
+  first-event anchor or the selected end-affine model coordinates;
 - repeat context, anchor range, event category, and composable
   compute/communication/idle/auxiliary statistics.
 

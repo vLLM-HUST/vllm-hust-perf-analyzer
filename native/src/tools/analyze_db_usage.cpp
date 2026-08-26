@@ -25,6 +25,8 @@ void print_usage(const char* argv0) {
             << " export-perfetto analysis.db [--output timeline.json.gz]'.\n"
             << "Add one '--distributed-rank RANK=TIMELINE.db' per rank to align compressed "
                "TraceLoom event lanes at each rank's first event.\n"
+            << "For collective comparison, explicitly opt into an auditable end-affine "
+               "display with '--distributed-clock-model MODELS.jsonl'.\n"
             << "Use --help-advanced for compatibility and debug options.\n";
 }
 
@@ -37,6 +39,8 @@ void print_advanced_usage(const char* argv0) {
                " [--compat-db-out PATH]"
                " [--output PATH|--aug-db-out PATH|--no-aug-db]"
                " [--perfetto-out PATH]"
+               " [--distributed-rank RANK=TIMELINE.db]"
+               " [--distributed-clock-model MODELS.jsonl]"
                " [--loop-tree-out PATH|-]"
                " [--loop-tree-db-label LABEL]"
                " [--loop-tree-device-id N]"

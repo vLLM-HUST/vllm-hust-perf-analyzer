@@ -20,6 +20,10 @@ important inquiry boundaries are:
 - `first_timeline_event_per_rank` translates each rank's first published atom
   occurrence onto rank 0's first atom occurrence and preserves later
   within-rank elapsed times and durations;
+- `--distributed-clock-model MODELS.jsonl` is the recommended explicit opt-in
+  for collective comparison when an auditable end-affine receipt exists; it
+  keeps rank 0 as identity, maps every other display lane with its `metric=end`
+  model, and retains raw source timestamps plus the receipt SHA-256;
 - this is a display alignment, not proof of a shared absolute clock, semantic
   event equivalence, or cross-rank causality;
 - every displayed event retains rank, timeline DB SHA-256, original timestamps,
@@ -46,8 +50,9 @@ Keep two boundaries explicit when applying that core to distributed traces:
 
 - structural collective correspondence may create auditable candidate marker
   pairs, but timestamp proximity must never create correspondence;
-- a candidate fit may diagnose constant offset or drift, but it cannot move
-  production timestamps until marker identity is validated independently.
+- a candidate fit may diagnose constant offset or drift; it may drive only the
+  explicit Perfetto display opt-in and cannot move production timestamps until
+  marker identity is validated independently.
 
 The current TP8 capture predates explicit per-rank marker receipts. It can
 support a candidate offset/drift audit and motivate a future calibrated
@@ -139,17 +144,25 @@ The rule reconciled 13,965 `KERNEL_MIX_AIC` envelopes on rank 0, 14,973 on
 ranks 1--2, and 15,141 on ranks 3--7. Each AugDB then exposed zero published
 tree nodes or occurrences named `KERNEL_MIX_AIC`.
 
-The candidate end-aligned re-export is
-`window/traceloom/distributed-tp8-policy-v3-end-aligned-candidate.perfetto.json.gz`,
+The production-CLI opt-in re-export is
+`window/traceloom/distributed-tp8-main-opt-in-end-aligned.perfetto.json.gz`,
 SHA-256
-`6c2b2c717ddd32a854b3ad456cbc62fe695985afcd4c1a5a6a8b097fb6411e0e`.
+`782e5fdc121b386e9ef0b4e3aeff1437c399c34b9131b157e2a9a4fc846777df`.
+It was generated directly by the release `traceloom export-perfetto` CLI with
+`--distributed-clock-model`; no post-export timestamp rewrite was used. The
+seven-record end-model receipt has SHA-256
+`0196a4f0f4f15652523d7bcc389c77eb29c74ad0adb5276bd8fc6fd9ea1fae91`.
 It contains 1,646,596 distributed slices: 182,036 on rank 0; 206,330 on ranks
 1--2; and 210,380 on ranks 3--7. A complete streaming JSON validation found
 zero distributed slices named `KERNEL_MIX_AIC` or `KERNEL_MIX_AIV`, while all
-slices retained the candidate alignment marker. The 119,616-slice reduction
-from the policy-v2 artifact exactly equals the reconciled mixed-AIC envelope
-counts. This verifies projection denoising, not deletion of raw evidence, and
-does not strengthen the candidate clock model into a calibrated-time claim.
+slices retained the candidate alignment marker, raw timestamps, and model
+digest. All 13,965 rank-0 mixed-AIC envelope source rowids were still reachable
+as raw-provider TASK slices even though those slices use their resolved compute
+names rather than `KERNEL_MIX_AIC` as the visible label. The 119,616-slice
+reduction from the policy-v2 artifact exactly equals the reconciled mixed-AIC
+envelope counts. This verifies projection denoising, not deletion of raw
+evidence, and does not strengthen the candidate clock model into a
+calibrated-time claim.
 
 ## Verification when changing the exporter
 

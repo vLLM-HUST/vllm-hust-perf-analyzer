@@ -85,8 +85,10 @@ int main() {
     const ClockCalibrationModel candidate =
         fit_affine_clock_model(make_observations(), options);
     require(candidate.status == ClockCalibrationStatus::kCandidateOnly &&
-                !map_calibrated_clock_timestamp_ns(candidate, 250000),
-            "an unvalidated correspondence can be fitted but cannot move time");
+                !map_calibrated_clock_timestamp_ns(candidate, 250000) &&
+                map_clock_timestamp_ns_for_display(candidate, 250000) ==
+                    255015,
+            "candidate time is displayable only through the explicit display API");
     options.marker_contract_validated = true;
     const ClockCalibrationModel calibrated =
         fit_affine_clock_model(make_observations(), options);

@@ -1,9 +1,12 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
+#include <limits>
 #include <string>
 #include <vector>
 
+#include "traceloom/analysis/clock_calibration.h"
 #include "traceloom/compat/perfetto_exporter.h"
 
 struct sqlite3;
@@ -59,7 +62,22 @@ struct DistributedRankTimeline {
 struct DistributedFlatTimeline {
   int reference_rank = 0;
   std::int64_t display_reference_anchor = 0;
+  std::int64_t display_min_start = std::numeric_limits<std::int64_t>::max();
+  std::string alignment = "none";
+  std::string alignment_evidence_status = "none";
+  std::string alignment_boundary;
+  std::string clock_model_path;
+  std::string clock_model_sha256;
+  std::map<int, ClockCalibrationModel> clock_models;
   std::vector<DistributedRankTimeline> ranks;
+};
+
+struct DistributedClockModelSet {
+  std::string path;
+  std::string sha256;
+  std::string evidence_status;
+  std::string marker_contract;
+  std::map<int, ClockCalibrationModel> models;
 };
 
 std::int64_t raw_timeline_origin(sqlite3* db, std::int64_t current);
@@ -67,6 +85,14 @@ void export_raw_provider_timeline(sqlite3* db, RawTraceWriter& writer,
                                   PerfettoExportReceipt& receipt);
 DistributedFlatTimeline load_distributed_flat_timeline(
     const PerfettoExportOptions& options);
+DistributedClockModelSet load_distributed_clock_models(
+    const std::string& path,
+    const std::vector<PerfettoDistributedRankInput>& ranks,
+    int reference_rank);
+std::int64_t map_distributed_display_timestamp(
+    const DistributedFlatTimeline& timeline,
+    const DistributedRankTimeline& rank,
+    std::int64_t source_timestamp_ns);
 void export_distributed_flat_timeline(const DistributedFlatTimeline& timeline,
                                       RawTraceWriter& writer,
                                       PerfettoExportReceipt& receipt);

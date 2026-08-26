@@ -81,4 +81,11 @@ std::optional<std::int64_t> map_calibrated_clock_timestamp_ns(
     const ClockCalibrationModel& model,
     std::int64_t source_timestamp_ns);
 
+// Perfetto may opt into an explicitly labelled display-only projection from a
+// candidate model. This does not admit the result as production/global time;
+// callers must preserve the source timestamp and the model evidence status.
+std::optional<std::int64_t> map_clock_timestamp_ns_for_display(
+    const ClockCalibrationModel& model,
+    std::int64_t source_timestamp_ns);
+
 }  // namespace traceloom

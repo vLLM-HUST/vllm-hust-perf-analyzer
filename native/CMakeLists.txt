@@ -210,6 +210,7 @@ if(TRACELOOM_NATIVE_ENABLE_SQLITE_ADAPTERS)
     target_sources(traceloom_native_materialize
       PRIVATE
         src/compat/perfetto_exporter.cpp
+        src/compat/perfetto_distributed_clock_model.cpp
         src/compat/perfetto_distributed_export.cpp
         src/compat/perfetto_raw_export.cpp
     )

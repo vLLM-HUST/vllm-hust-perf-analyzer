@@ -27,13 +27,17 @@ independently of timestamp proximity:
   `invalid`.
 
 Candidate-only models report drift and holdout residuals for investigation but
-cannot move production timestamps. This is important for distributed traces:
+cannot move production timestamps. They may be consumed only by the explicit
+Perfetto display opt-in, which preserves the source timestamp and labels the
+candidate evidence boundary. This is important for distributed traces:
 matching collective events by nearby timestamps and then using those matches
 to prove clock alignment would be circular. Structural correspondence may
 produce candidate marker pairs, but a cross-rank display must keep its original
 timestamps until an independent marker contract is accepted.
 
-The current distributed Perfetto export therefore still uses its explicitly
-labelled display-only first-event translation. A later calibrated export may
-consume this fitter after capture and persistence of an auditable marker
-receipt are implemented.
+The default distributed Perfetto export therefore uses its explicitly labelled
+display-only first-event translation. With `--distributed-clock-model`, the
+exporter may instead consume one auditable end-affine JSONL receipt and label
+the result `candidate_only` or `calibrated` according to that receipt. The
+candidate route remains a visual projection rather than a global-time rewrite;
+see [AugDB to Perfetto Timeline](augmented-perfetto-timeline.md).

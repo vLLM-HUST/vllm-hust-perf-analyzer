@@ -279,4 +279,17 @@ std::optional<std::int64_t> map_calibrated_clock_timestamp_ns(
   return round_half_to_even(mapped);
 }
 
+std::optional<std::int64_t> map_clock_timestamp_ns_for_display(
+    const ClockCalibrationModel& model,
+    std::int64_t source_timestamp_ns) {
+  if (model.status == ClockCalibrationStatus::kInvalid) {
+    return std::nullopt;
+  }
+  const long double mapped =
+      model.reference_target_ns +
+      model.scale * (static_cast<long double>(source_timestamp_ns) -
+                     model.reference_source_ns);
+  return round_half_to_even(mapped);
+}
+
 }  // namespace traceloom

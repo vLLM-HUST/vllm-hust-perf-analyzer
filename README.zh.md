@@ -122,11 +122,20 @@ traceloom /path/to/msprof.db \
 # 也可以稍后从已有 AugDB 投影：
 traceloom export-perfetto /tmp/analysis.db \
   --output /tmp/analysis.perfetto.json.gz
+
+# 有可审计的 collective-end model receipt 时，推荐显式启用八 rank 边界对齐：
+traceloom export-perfetto /tmp/rank0-analysis.db \
+  --output /tmp/tp8.end-aligned.perfetto.json.gz \
+  --distributed-rank 0=/analysis/rank0.db \
+  --distributed-rank 1=/analysis/rank1.db \
+  --distributed-clock-model /analysis/collective-end.models.jsonl
 ```
 
 Perfetto 导出把可查询的树区间、独立的扁平 event track 和内嵌 raw provider
 evidence 放在同一时间轴上。同构 repeat subtree 共用简短 motif 标签与颜色种子；
-根节点直接显示为 `N001 · root`。详细契约见
+根节点直接显示为 `N001 · root`。显式 clock-model 选项只改变 Perfetto 展示，
+每个 slice 仍保留 raw timestamp；`candidate_only` 模型不会被冒充为全局校准时间。
+详细契约见
 [AugDB to Perfetto Timeline](docs/augmented-perfetto-timeline.md)。
 
 ### 2. 分析 profiler 目录
