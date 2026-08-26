@@ -561,6 +561,7 @@ bool is_queryable_database_timeline(const std::string& path) {
 PerfettoExportReceipt write_perfetto_trace(const std::string& analysis_db_path,
                                            const std::string& output_path,
                                            const PerfettoExportOptions& options) {
+  const auto distributed = perfetto_internal::load_distributed_flat_timeline(options);
   auto db = open_db(analysis_db_path);
   if (!has_object(db.get(), "traceloom_v_tree_node") ||
       !has_object(db.get(), "traceloom_tree_node_occurrence"))
@@ -628,38 +629,47 @@ PerfettoExportReceipt write_perfetto_trace(const std::string& analysis_db_path,
     else
       ++receipt.structural_slices;
   }
-  std::map<std::tuple<int, int, std::string>, int> atom_tids;
-  for (const auto& [id, node] : nodes)
-    if (node.kind == "atom") {
-      const auto key = std::make_tuple(node.db, node.device, node.view);
-      if (!atom_tids.count(key)) {
-        const int tid = 900000 + static_cast<int>(atom_tids.size());
-        atom_tids[key] = tid;
-        writer.thread(110, tid,
-                      "timeline events · db " + std::to_string(node.db) + " · device " +
-                          std::to_string(node.device) + " · " + node.view,
-                      tid);
+  if (distributed.ranks.empty()) {
+    std::map<std::tuple<int, int, std::string>, int> atom_tids;
+    for (const auto& [id, node] : nodes)
+      if (node.kind == "atom") {
+        const auto key = std::make_tuple(node.db, node.device, node.view);
+        if (!atom_tids.count(key)) {
+          const int tid = 900000 + static_cast<int>(atom_tids.size());
+          atom_tids[key] = tid;
+          writer.thread(110, tid,
+                        "timeline events · db " + std::to_string(node.db) + " · device " +
+                            std::to_string(node.device) + " · " + node.view,
+                        tid);
+        }
+        auto it = occurrences.find(id);
+        if (it == occurrences.end()) continue;
+        for (const auto& o : it->second) {
+          Interval value{&node, o, false, 0};
+          writer.slice(110, atom_tids[key], node.label, o.start, o.end,
+                       "traceloom.timeline_event", args_for_interval(value));
+          ++receipt.atomic_slices;
+        }
       }
-      auto it = occurrences.find(id);
-      if (it == occurrences.end()) continue;
-      for (const auto& o : it->second) {
-        Interval value{&node, o, false, 0};
-        writer.slice(110, atom_tids[key], node.label, o.start, o.end, "traceloom.timeline_event",
-                     args_for_interval(value));
-        ++receipt.atomic_slices;
-      }
-    }
+  }
   std::set<std::string> motifs;
   for (const auto& [id, n] : nodes)
     if (n.kind == "repeat") motifs.insert(n.topology_sha);
   receipt.motif_classes = motifs.size();
   if (options.include_raw_provider_timeline)
     perfetto_internal::export_raw_provider_timeline(db.get(), writer, receipt);
+  perfetto_internal::export_distributed_flat_timeline(distributed, writer, receipt);
   writer.finish(
       "{\"format\":\"TraceLoom queryable database timeline Perfetto export\",\"analysis_db\":" +
       json_quote(analysis_db_path) + ",\"time_origin_ns\":" + std::to_string(origin) +
       ",\"repeat_body_slices\":" + std::to_string(receipt.repeat_body_slices) +
-      ",\"motif_classes\":" + std::to_string(receipt.motif_classes) + "}");
+      ",\"motif_classes\":" + std::to_string(receipt.motif_classes) +
+      ",\"distributed_alignment\":" +
+      json_quote(distributed.ranks.empty() ? "none" : "first_timeline_event_per_rank") +
+      ",\"distributed_reference_rank\":" +
+      std::to_string(distributed.reference_rank) +
+      ",\"distributed_rank_tracks\":" +
+      std::to_string(receipt.distributed_rank_tracks) + "}");
   return receipt;
 }
 

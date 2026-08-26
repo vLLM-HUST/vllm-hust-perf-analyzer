@@ -29,3 +29,9 @@ and inquiry, not individual assets, lifecycle state, or chronology.
   flattened timeline without weakening atomic replay protection, inventing
   event ownership, or inventing cross-stream dependency. Read
   [`scenarios/query-replay-position-realizations/GUIDE.md`](scenarios/query-replay-position-realizations/GUIDE.md).
+
+- **Export or interpret distributed Perfetto lanes:** use when adding rank-wise
+  evidence to the AugDB Perfetto projection, selecting a cross-rank display
+  alignment, or deciding what a compressed rank texture does and does not
+  establish. Read
+  [`scenarios/export-distributed-perfetto/GUIDE.md`](scenarios/export-distributed-perfetto/GUIDE.md).

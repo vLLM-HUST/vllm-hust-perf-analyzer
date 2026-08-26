@@ -21,6 +21,23 @@ traceloom export-perfetto /tmp/analysis.db \
   --output /tmp/analysis.perfetto.json.gz
 ```
 
+Replace the single flat event track with compressed TraceLoom event tracks from
+a distributed run by mapping every rank explicitly to its analysis or sidecar
+DB:
+
+```bash
+traceloom export-perfetto /tmp/rank0-analysis.db \
+  --output /tmp/tp8.perfetto.json.gz \
+  --distributed-rank 0=/analysis/rank0.db \
+  --distributed-rank 1=/analysis/rank1.db \
+  --distributed-rank 2=/analysis/rank2.db
+```
+
+Each mapped DB must expose `traceloom_v_tree_node` and
+`traceloom_tree_node_occurrence`. The mapping is repeatable and rank identity
+is not inferred from paths, PIDs, or timestamps. Rank 0 must be present because
+it is currently the display reference rank.
+
 When `--output` is omitted in the second form, TraceLoom writes
 `analysis.perfetto.json.gz` beside the input. A `.gz` suffix streams the JSON
 through `gzip`; any other suffix writes plain JSON. Both formats open directly
@@ -40,9 +57,40 @@ observed time axis:
    PyTorch API, CANN API, communication-op, device task, and AICORE-frequency
    tracks are exported from `traceloom_raw_table` mappings. Every raw slice
    retains its source ID, embedded table, and source rowid.
+4. **Distributed TraceLoom event lanes.** When distributed timelines are
+   supplied, the ordinary single flat event track is replaced by one flat rank
+   track from each DB's published atom occurrences. The same TraceLoom event
+   labels seed colors across ranks, so compute, communication, and other
+   observed event textures remain directly comparable.
 
 TraceLoom does not infer semantic model layers for this view. A colored interval
 means an observed structural subtree occurrence, not a guessed layer name.
+
+## Distributed alignment and audit boundary
+
+Distributed lanes use `first_timeline_event_per_rank` display alignment: each
+rank's first published atom occurrence is translated onto rank 0's first atom
+occurrence while all later within-rank elapsed times and durations remain
+unchanged. This view answers “how do the rank timelines evolve after their
+first observed event?” It does **not** assert that provider timestamps form a
+proven global cross-device clock or that visually adjacent events are causal
+peers.
+
+Every distributed slice retains enough provider identity to audit or refine a
+visual hypothesis:
+
+- explicit rank and source timeline DB path and SHA-256;
+- source node ID, local node ID, occurrence index, view, device, and rooted
+  role path;
+- unmodified source start/end timestamps and the rank-specific alignment
+  anchor;
+- repeat context, anchor range, event category, and composable
+  compute/communication/idle/auxiliary statistics.
+
+The rank lanes are therefore a comparative projection over auditable TraceLoom
+intervals, not a hidden cross-rank join. A later analysis may establish a
+stronger alignment contract from explicit wave or structural identities; this
+export does not manufacture one from timestamp proximity.
 
 ## Readable identity and topology color
 

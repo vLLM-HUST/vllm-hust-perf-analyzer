@@ -102,6 +102,39 @@ void create_fixture(const std::filesystem::path& path) {
   }
 }
 
+void create_rank_fixture(const std::filesystem::path& path, std::int64_t offset) {
+  sqlite3* db = nullptr;
+  if (sqlite3_open(path.c_str(), &db) != SQLITE_OK)
+    throw std::runtime_error("failed to create distributed rank fixture");
+  try {
+    exec_sql(db,
+             "CREATE TABLE traceloom_v_tree_node("
+             "node_id TEXT,parent_node_id TEXT,db_idx INTEGER,device_id INTEGER,"
+             "view_name TEXT,local_node_id TEXT,display_order INTEGER,path TEXT,"
+             "tree_depth INTEGER,kind TEXT,label TEXT,category TEXT,repeat_count INTEGER);"
+             "CREATE TABLE traceloom_tree_node_occurrence("
+             "node_id TEXT,db_idx INTEGER,device_id INTEGER,view_name TEXT,"
+             "occurrence_idx INTEGER,repeat_context TEXT,anchor_start_idx INTEGER,"
+             "anchor_end_idx INTEGER,anchor_count INTEGER,start_ns INTEGER,end_ns INTEGER,"
+             "compute_us REAL,comm_us REAL,idle_us REAL,total_us REAL,self_us REAL,"
+             "aux_events INTEGER,aux_us REAL);"
+             "INSERT INTO traceloom_v_tree_node VALUES"
+             "('node-C','',0,0,'native_report_tree','C',0,'C',0,'atom','MatMul','compute',0),"
+             "('node-M','',0,0,'native_report_tree','M',1,'M',0,'atom','AllToAll','comm',0);");
+    const std::string o = std::to_string(offset);
+    exec_sql(db,
+             "INSERT INTO traceloom_tree_node_occurrence VALUES"
+             "('node-C',0,0,'native_report_tree',0,'',0,0,1," + o + "," + o +
+                 "+100,0.1,0,0,0.1,0.1,0,0),"
+             "('node-M',0,0,'native_report_tree',0,'',1,1,1," + o + "+200," + o +
+                 "+300,0,0.1,0,0.1,0.1,0,0);");
+    sqlite3_close(db);
+  } catch (...) {
+    sqlite3_close(db);
+    throw;
+  }
+}
+
 std::string read_plain(const std::filesystem::path& path) {
   std::ifstream input(path, std::ios::binary);
   return std::string(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
@@ -148,6 +181,8 @@ int main() {
   using traceloom::testing::require;
 
   const auto db_path = temp_path(".db");
+  const auto rank0_path = temp_path(".rank0.db");
+  const auto rank1_path = temp_path(".rank1.db");
   const auto json_path = temp_path(".json");
 #if defined(_WIN32)
   const auto cli_path = temp_path(".cli.json");
@@ -156,14 +191,20 @@ int main() {
   const auto cli_path = temp_path(".cli.json.gz");
 #endif
   create_fixture(db_path);
+  create_rank_fixture(rank0_path, 10000);
+  create_rank_fixture(rank1_path, 50000);
 
   require(traceloom::compat::is_queryable_database_timeline(db_path.string()));
-  const auto receipt =
-      traceloom::compat::write_perfetto_trace(db_path.string(), json_path.string());
+  traceloom::compat::PerfettoExportOptions distributed_options;
+  distributed_options.distributed_ranks = {{0, rank0_path.string()}, {1, rank1_path.string()}};
+  const auto receipt = traceloom::compat::write_perfetto_trace(
+      db_path.string(), json_path.string(), distributed_options);
   require(receipt.structural_slices == 2);
   require(receipt.repeat_body_slices == 4);
-  require(receipt.atomic_slices == 4);
+  require(receipt.atomic_slices == 0);
   require(receipt.raw_slices == 1);
+  require(receipt.distributed_timeline_slices == 4);
+  require(receipt.distributed_rank_tracks == 2);
   require(receipt.motif_classes == 1);
 
   const std::string json = read_plain(json_path);
@@ -175,6 +216,14 @@ int main() {
   require_contains(json, "\"database_index\":0,\"device_id\":1");
   require_contains(json, "\"view_name\":\"expanded\"");
   require_contains(json, "torch.matmul");
+  require_contains(json, "timeline events · rank 0");
+  require_contains(json, "timeline events · rank 1");
+  require(count_occurrences(json, "\"ts\":9.100") == 2);
+  require(count_occurrences(json, "\"name\":\"MatMul\"") == 2);
+  require_contains(json, "\"node_id\":\"node-M\"");
+  require_contains(json, "\"occurrence_idx\":0");
+  require_contains(json, "\"alignment\":\"first_timeline_event_per_rank\"");
+  require(json.find("timeline events · db 0") == std::string::npos);
   require(json.find("shape-") == std::string::npos);
 
 #if !defined(_WIN32)
@@ -188,15 +237,20 @@ int main() {
 
   const std::string cli_command = std::string("\"") + TRACELOOM_ANALYZER + "\" export-perfetto \"" +
                                   db_path.string() + "\" --output \"" + cli_path.string() +
+                                  "\" --distributed-rank 0=\"" + rank0_path.string() +
+                                  "\" --distributed-rank 1=\"" + rank1_path.string() +
                                   "\" >/dev/null 2>&1";
   require(std::system(cli_command.c_str()) == 0);
 #if defined(_WIN32)
   require_contains(read_plain(cli_path), "N002 · motif A · body 1/2");
 #else
   require_contains(read_gzip(cli_path), "N002 · motif A · body 1/2");
+  require_contains(read_gzip(cli_path), "timeline events · rank 1");
 #endif
 
   std::remove(db_path.c_str());
+  std::remove(rank0_path.c_str());
+  std::remove(rank1_path.c_str());
   std::remove(json_path.c_str());
 #if !defined(_WIN32)
   std::remove(gzip_path.c_str());

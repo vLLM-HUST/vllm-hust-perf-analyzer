@@ -17,6 +17,8 @@
 #include <vector>
 
 #include "profile_input_discovery.h"
+#include "analyze_db_usage.h"
+#include "perfetto_cli_args.h"
 
 #include "traceloom/adapters/ascend_sqlite_adapter.h"
 #include "traceloom/adapters/cuda_nsys_sqlite_adapter.h"
@@ -60,6 +62,7 @@ struct CliOptions {
   std::string source_kind = "auto";
   bool perfetto_export_only = false;
   std::string perfetto_out_path;
+  traceloom::compat::PerfettoExportOptions perfetto_options;
   std::vector<std::string> source_dbs;
   std::string grammar_debug_out_path;
   std::string compat_sidecar_out_path;
@@ -92,55 +95,6 @@ std::size_t default_thread_count() {
     return 1;
   }
   return std::max<std::size_t>(1, static_cast<std::size_t>(hardware / 2));
-}
-
-void print_usage(const char* argv0) {
-  std::cerr << "usage: " << argv0
-            << " <profile.db-or-profile-dir> [--threads N]"
-               " [--output ANALYSIS.db]"
-               " [--perfetto-out TIMELINE.json[.gz]]"
-               " [--loop-tree-out PATH|-]"
-               " [--timings]\n\n"
-            << "Writes a self-contained queryable database timeline "
-               "under a neighboring traceloom/ directory by default.\n"
-            << "Query its traceloom_projection_recipe catalog to select a "
-               "scope and compose analytical projections.\n"
-            << "Use traceloom_analysis_surface to discover the underlying "
-               "hierarchy, cost, replay, and evidence relations.\n"
-            << "Use --loop-tree-out only when a Markdown projection is "
-               "needed for a human reader. It defaults to a compact grammar "
-               "summary; select the exact expanded tree with "
-               "--loop-tree-view expanded.\n"
-            << "Export an existing queryable database timeline with '"
-            << argv0
-            << " export-perfetto analysis.db [--output timeline.json.gz]'.\n"
-            << "Use --help-advanced for compatibility and debug options.\n";
-}
-
-void print_advanced_usage(const char* argv0) {
-  std::cerr << "usage: " << argv0
-            << " --source-db <profiler.sqlite-or-db> [--threads N]"
-               " [--source-kind auto|ascend_sqlite_hot_path|"
-               "ascend_sqlite_split|hygon_sqlite|cuda_nsys_sqlite]"
-               " [--grammar-debug-out PATH|-]"
-               " [--compat-db-out PATH]"
-               " [--output PATH|--aug-db-out PATH|--no-aug-db]"
-               " [--perfetto-out PATH]"
-               " [--loop-tree-out PATH|-]"
-               " [--loop-tree-db-label LABEL]"
-               " [--loop-tree-device-id N]"
-               " [--loop-tree-view compact|expanded|both]"
-               " [--loop-tree-grammar|--loop-tree-no-grammar]"
-               " [--loop-tree-full-discovery-cap N]"
-               " [--loop-tree-aux|--loop-tree-no-aux]"
-               " [--classification-rules PATH]"
-               " [--extend-classification-rules PATH]"
-               " [--classification-rule-override RULE_ID.FIELD=VALUE]"
-               " [--symbol-rules PATH]"
-               " [--extend-symbol-rules PATH]"
-               " [--event-reconciliation-rules PATH]"
-               " [--extend-event-reconciliation-rules PATH]"
-               " [--timings]\n";
 }
 
 std::size_t parse_size(const std::string& text, const std::string& flag) {
@@ -192,6 +146,9 @@ CliOptions parse_args(int argc, char** argv) {
       options.augmented_db_enabled = true;
     } else if (arg == "--perfetto-out") {
       options.perfetto_out_path = require_value(arg);
+    } else if (arg == "--distributed-rank") {
+      options.perfetto_options.distributed_ranks.push_back(
+          traceloom::tools::parse_distributed_rank_input(require_value(arg)));
     } else if (arg == "--no-aug-db") {
       options.augmented_db_enabled = false;
     } else if (arg == "--loop-tree-out") {
@@ -234,10 +191,10 @@ CliOptions parse_args(int argc, char** argv) {
     } else if (arg == "--timings") {
       options.timings = true;
     } else if (arg == "--help" || arg == "-h") {
-      print_usage(argc > 0 ? argv[0] : "traceloom");
+      traceloom::tools::print_usage(argc > 0 ? argv[0] : "traceloom");
       std::exit(0);
     } else if (arg == "--help-advanced") {
-      print_advanced_usage(argc > 0 ? argv[0] : "traceloom");
+      traceloom::tools::print_advanced_usage(argc > 0 ? argv[0] : "traceloom");
       std::exit(0);
     } else if (arg == "--version" || arg == "-V") {
       std::cout << "traceloom " << TRACELOOM_NATIVE_VERSION << '\n';
@@ -312,6 +269,9 @@ CliOptions parse_args(int argc, char** argv) {
     throw std::invalid_argument(
         "--perfetto-out requires the queryable database timeline output");
   }
+  if (!options.perfetto_export_only && options.perfetto_out_path.empty() &&
+      !options.perfetto_options.distributed_ranks.empty())
+    throw std::invalid_argument("--distributed-rank requires a Perfetto output");
   if (options.perfetto_out_path == "-") {
     throw std::invalid_argument("Perfetto output cannot use '-'");
   }
@@ -599,12 +559,16 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
       if (!cli.perfetto_out_path.empty()) {
         const Stopwatch perfetto_watch;
         const auto receipt = traceloom::compat::write_perfetto_trace(
-            augmented_db_out, cli.perfetto_out_path);
+            augmented_db_out, cli.perfetto_out_path, cli.perfetto_options);
         std::cerr << "wrote Perfetto timeline: " << cli.perfetto_out_path
                   << "\n";
         std::cerr << "  repeat_body_slices: "
                   << receipt.repeat_body_slices << "\n";
         std::cerr << "  raw_slices: " << receipt.raw_slices << "\n";
+        std::cerr << "  distributed_rank_tracks: "
+                  << receipt.distributed_rank_tracks << "\n";
+        std::cerr << "  distributed_timeline_slices: "
+                  << receipt.distributed_timeline_slices << "\n";
         if (cli.timings) {
           std::cerr << "timing perfetto_export_ms="
                     << perfetto_watch.elapsed_ms() << "\n";
@@ -776,11 +740,16 @@ int main(int argc, char** argv) {
               ? default_perfetto_output_path(cli.source_input)
               : cli.perfetto_out_path;
       const auto receipt =
-          traceloom::compat::write_perfetto_trace(cli.source_input, output);
+          traceloom::compat::write_perfetto_trace(cli.source_input, output,
+                                                  cli.perfetto_options);
       std::cerr << "wrote Perfetto timeline: " << output << "\n";
       std::cerr << "  repeat_body_slices: " << receipt.repeat_body_slices
                 << "\n";
       std::cerr << "  raw_slices: " << receipt.raw_slices << "\n";
+      std::cerr << "  distributed_rank_tracks: "
+                << receipt.distributed_rank_tracks << "\n";
+      std::cerr << "  distributed_timeline_slices: "
+                << receipt.distributed_timeline_slices << "\n";
       return 0;
     }
     for (std::size_t index = 0; index < cli.source_dbs.size(); ++index) {
@@ -788,7 +757,7 @@ int main(int argc, char** argv) {
     }
   } catch (const std::exception& ex) {
     std::cerr << "error: " << ex.what() << "\n";
-    print_usage(argc > 0 ? argv[0] : "traceloom");
+    traceloom::tools::print_usage(argc > 0 ? argv[0] : "traceloom");
     return 1;
   }
 

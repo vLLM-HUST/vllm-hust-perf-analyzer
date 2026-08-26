@@ -209,6 +209,7 @@ if(TRACELOOM_NATIVE_ENABLE_SQLITE_ADAPTERS)
     target_sources(traceloom_native_materialize
       PRIVATE
         src/compat/perfetto_exporter.cpp
+        src/compat/perfetto_distributed_export.cpp
         src/compat/perfetto_raw_export.cpp
     )
     if(TARGET SQLite::SQLite3)
@@ -258,6 +259,8 @@ if(TRACELOOM_NATIVE_SQLITE_ADAPTERS_AVAILABLE)
 
   add_executable(traceloom
     src/tools/analyze_db_main.cpp
+    src/tools/analyze_db_usage.cpp
+    src/tools/perfetto_cli_args.cpp
     src/tools/profile_input_discovery.cpp
   )
   target_link_libraries(
