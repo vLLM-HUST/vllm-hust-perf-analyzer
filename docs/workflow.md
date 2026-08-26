@@ -11,6 +11,12 @@ msprof SQLite output
   -> queryable database timeline
 ```
 
+Coding agents should use the repository's
+[`analyze-profiles-with-traceloom` Skill](../.agents/skills/analyze-profiles-with-traceloom/SKILL.md)
+for this workflow. It adds evidence intake, local-build selection, bounded AugDB
+acceptance, query-coordinate discipline, raw-row audit, distributed-clock
+boundaries, and a reproducible diagnosis handoff around the public CLI below.
+
 ## 1. Build And Install
 
 On Debian or Ubuntu, build the package from the repository root:

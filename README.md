@@ -29,6 +29,13 @@ Try the reproducible, beginner-friendly
 [`60-second database-timeline tour`](examples/db-timeline-tour) on the checked-in real
 profile—no prior SQL experience is required.
 
+For agent-operated analysis, the repository ships the first-class
+[`analyze-profiles-with-traceloom` Skill](.agents/skills/analyze-profiles-with-traceloom/SKILL.md).
+It covers evidence-safe profile intake, local build or installation, AugDB
+acceptance, coordinate-preserving statistical analysis, raw-row audit, and
+single- or multi-rank Perfetto export. Invoke it as
+`$analyze-profiles-with-traceloom` in Skill-aware coding agents.
+
 The native implementation is now the only production implementation in this
 repository. The installed CLI has one stable name:
 

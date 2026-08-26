@@ -18,6 +18,12 @@ TraceLoom 是一个原生 C++17 离线性能分析器。它把原始 profiler �
 可以直接用仓库内的真实 profile 试玩
 [`60 秒 DB timeline tour`](examples/db-timeline-tour)，不要求预先熟悉 SQL。
 
+如果由 coding agent 执行分析，仓库现在提供一等的
+[`analyze-profiles-with-traceloom` Skill](.agents/skills/analyze-profiles-with-traceloom/SKILL.md)。
+它覆盖证据安全的 profile 接入、本地构建或安装、AugDB 验收、保留坐标的统计分析、
+原始行审计，以及单 rank / 多 rank Perfetto 导出。在支持 Skill 的 agent 中可以直接
+调用 `$analyze-profiles-with-traceloom`。
+
 本仓库现在只保留原生实现。安装后的正式入口只有一个：
 
 ```bash

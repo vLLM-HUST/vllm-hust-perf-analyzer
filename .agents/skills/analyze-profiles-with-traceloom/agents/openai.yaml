@@ -1,0 +1,4 @@
+interface:
+  display_name: "Analyze Profiles with TraceLoom"
+  short_description: "Turn profiler traces into auditable database timelines"
+  default_prompt: "Use $analyze-profiles-with-traceloom to analyze this profiler output and return an evidence-linked diagnosis."
