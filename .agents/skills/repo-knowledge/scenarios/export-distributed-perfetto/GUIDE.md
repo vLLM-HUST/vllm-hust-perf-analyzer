@@ -32,6 +32,28 @@ occurrences are non-overlapping. Do not substitute a collective-only lane for
 this view; communication is one natural part of the full event texture rather
 than the comparison object.
 
+## Clock-calibration recovery boundary
+
+The retired idle/gap-analysis line contained a useful independent clock core.
+Its original author is Luqhhh; the authoritative historical sequence is
+`5c2e4e1`, `3b659e9`, `f1a1dc8`, then `21cefbd` on
+`origin/feat/host-device-clock-calibration`. Current main recovers its robust
+Theil--Sen affine fit, deterministic every-fifth holdout, uncertainty receipt,
+and half-even mapping as `analysis/clock_calibration.*`, without restoring the
+retired gap-explanation product around it.
+
+Keep two boundaries explicit when applying that core to distributed traces:
+
+- structural collective correspondence may create auditable candidate marker
+  pairs, but timestamp proximity must never create correspondence;
+- a candidate fit may diagnose constant offset or drift, but it cannot move
+  production timestamps until marker identity is validated independently.
+
+The current TP8 capture predates explicit per-rank marker receipts. It can
+support a candidate offset/drift audit and motivate a future calibrated
+capture, but the first-event display alignment must not be silently relabelled
+as calibrated evidence.
+
 ## Real TP8 observation (2026-08-26)
 
 This is a bounded observation, not an accepted performance explanation.

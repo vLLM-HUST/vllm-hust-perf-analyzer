@@ -13,6 +13,7 @@ option(
 set(TRACELOOM_NATIVE_SQLITE_ADAPTERS_AVAILABLE OFF)
 
 add_library(traceloom_native_core
+  src/analysis/clock_calibration.cpp
   src/analysis/event_cost_attribution.cpp
   src/analysis/event_reconciliation.cpp
   src/analysis/event_reconciliation_task_communication.cpp
@@ -449,6 +450,17 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
   add_test(
     NAME traceloom_native_flat_anchor_builder_tests
     COMMAND traceloom_native_flat_anchor_builder_tests
+  )
+
+  add_executable(traceloom_native_clock_calibration_tests
+    tests/analysis/clock_calibration_tests.cpp
+  )
+  target_link_libraries(
+    traceloom_native_clock_calibration_tests PRIVATE traceloom_native_core
+  )
+  add_test(
+    NAME traceloom_native_clock_calibration_tests
+    COMMAND traceloom_native_clock_calibration_tests
   )
 
   add_executable(traceloom_native_event_reconciliation_tests

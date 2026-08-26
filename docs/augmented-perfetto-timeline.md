@@ -92,6 +92,10 @@ intervals, not a hidden cross-rank join. A later analysis may establish a
 stronger alignment contract from explicit wave or structural identities; this
 export does not manufacture one from timestamp proximity.
 
+TraceLoom's recovered affine fitter and the evidence gate for a future
+calibrated projection are documented in
+[Clock calibration boundary](clock-calibration.md).
+
 ## Readable identity and topology color
 
 User-facing titles are short and queryable:
