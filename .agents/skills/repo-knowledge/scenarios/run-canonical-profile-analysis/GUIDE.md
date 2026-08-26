@@ -65,6 +65,13 @@ envelopes, while live-node anchor ranges and expanded rows remain the exact
 positional route. Treat profiler/infrastructure markers as retained boundary
 observations, never as causal explanations for an adjacent gap.
 
+The `KERNEL_MIX_AIC` amount above belongs to that exact older analyzer lineage.
+Default event-reconciliation policy v3 now pairs its generic
+`contextId=4294967295` annotation envelope with the exact-identity
+`contextId=0` operator-detail row and counts the physical interval once. Do not
+compare a post-v3 canonical baseline with the older family total as though the
+input workload changed; regenerate the baseline under one pinned policy.
+
 ## Never materialize the global interval/activity relation
 
 `traceloom_anchor_host_activity` is a many-interval-to-many-call projection.

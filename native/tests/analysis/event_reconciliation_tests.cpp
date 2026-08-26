@@ -56,9 +56,10 @@ void append_task(traceloom::NativeIr& ir,
                  std::int64_t global_task_id,
                  std::int64_t connection_id,
                  std::int64_t context_id,
-                 bool semantic_detail) {
+                 bool semantic_detail,
+                 const std::string& task_type_text = "KERNEL_MIX_AIV") {
   const traceloom::SymbolId task_type =
-      ir.symbols.intern("KERNEL_MIX_AIV");
+      ir.symbols.intern(task_type_text);
   const traceloom::SymbolId reduce_all =
       semantic_detail ? ir.symbols.intern("ReduceAll")
                       : traceloom::SymbolId::invalid();
@@ -105,6 +106,42 @@ void append_mc2_communication(traceloom::NativeIr& ir,
 int main() {
   using namespace traceloom;
   using traceloom::testing::require;
+
+  const EventReconciliationRuleset defaults =
+      load_default_event_reconciliation_ruleset();
+  require(defaults.policy_version() == "3",
+          "default event reconciliation version tracks mixed-AIC recovery");
+  bool found_mix_aic = false;
+  for (const EventReconciliationRule& rule : defaults.rules()) {
+    if (rule.rule_id == "ascend.task.mix-aic.context-detail") {
+      found_mix_aic = rule.task_type == "KERNEL_MIX_AIC" &&
+                      rule.generic_context_id == 4294967295LL &&
+                      rule.concrete_context_id == 0 &&
+                      rule.identity_policy ==
+                          "same_source_ref,device,stream,raw_task_id,"
+                          "raw_connection_id";
+    }
+  }
+  require(found_mix_aic,
+          "default rules reconcile mixed-AIC annotation/detail pairs");
+
+  NativeIr mixed_aic;
+  const SourceRefId mixed_aic_source =
+      mixed_aic.source_refs.append("ascend", "memory", "TASK", 0);
+  append_task(mixed_aic, mixed_aic_source, 1, 100, 140, 7, 31, 500,
+              4294967295LL, false, "KERNEL_MIX_AIC");
+  append_task(mixed_aic, mixed_aic_source, 2, 102, 138, 7, 9, 500, 0, true,
+              "KERNEL_MIX_AIC");
+  const EventReconciliationState mixed_aic_state =
+      reconcile_event_observations(mixed_aic, defaults);
+  require(mixed_aic_state.decisions.size() == 1 &&
+              mixed_aic_state.decisions[0].status ==
+                  EventReconciliationStatus::kReconciled &&
+              mixed_aic_state.decisions[0].canonical_event_id ==
+                  TraceEventId(1) &&
+              mixed_aic_state.decisions[0].envelope_event_id ==
+                  TraceEventId(0),
+          "mixed-AIC annotation contributes timing once and detail identity once");
 
   NativeIr exact;
   const SourceRefId exact_source =

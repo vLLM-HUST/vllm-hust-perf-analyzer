@@ -271,7 +271,8 @@ Important costs are:
 
 Some profiler schemas can expose complementary rows for one physical device
 action. Examples include a generic timing envelope plus a context-specific
-operator row, or an Ascend `COMMUNICATION_OP` observation nested in the fused
+operator row (including paired `KERNEL_MIX_AIV` and `KERNEL_MIX_AIC`
+observations), or an Ascend `COMMUNICATION_OP` observation nested in the fused
 `TASK` that owns its compute/communication interval. TraceLoom reconciles only
 explicitly supported, unique provider relations before projecting anchors.
 Every normalized event and raw source locator remains in the database; one

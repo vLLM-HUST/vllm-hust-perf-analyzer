@@ -54,6 +54,34 @@ support a candidate offset/drift audit and motivate a future calibrated
 capture, but the first-event display alignment must not be silently relabelled
 as calibrated evidence.
 
+### TP8 candidate clock audit (2026-08-26)
+
+Evidence lives at
+`window/traceloom/clock-audit-candidate-v1` under the bounded run named below.
+Its manifest binds all eight raw DB paths, sizes, and SHA-256 values; the audit
+uses the recovered C++ calibration core and labels every model
+`candidate_only`. The exact family+group sequence contained 10,065/10,065
+matching ordinals on every rank: 7,194 AllToAllV, 1,452 AllReduce, and 1,419
+AllGather. A uniform 511-marker sample supplied the fit with deterministic
+every-fifth holdout; all ordinals supplied full residual and spread checks.
+
+Observed, without applying any fit, cross-rank collective-end spread was
+already tight for AllReduce (p50 10.08 us, p95 14.65 us) and AllGather
+(p50 13.34 us, p95 15.24 us). The end-derived candidate fit changed those
+values only by a few microseconds and estimated per-rank reference offsets
+between -1.85 and +1.55 us. AllToAllV was broader (raw end p50 22.30 us,
+p95 716.74 us) and the fit did not improve it.
+
+By contrast, after the same end-derived candidate mapping, collective-start
+spread across all families had p50 416 us and p95 5.13 ms. Some ordinals ended
+within roughly 10 us while their observed starts differed by tens or even
+about 100 ms. This rejects a simple large constant rank-clock offset as the
+explanation for the visual start mismatch and exposes a useful candidate
+signal of rank-dependent collective entry/wait behavior. It does not yet prove
+arrival time or waiting cost: explicit per-rank clock markers and provider
+interval-semantics validation remain required before a paper claim or
+production timestamp rewrite.
+
 ## Real TP8 observation (2026-08-26)
 
 This is a bounded observation, not an accepted performance explanation.

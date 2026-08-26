@@ -75,7 +75,7 @@ int main() {
                  "traceloom_event_reconciliation_policy") == 1);
   require(scalar(path,
                  "SELECT COUNT(*) FROM "
-                 "traceloom_event_reconciliation_rule") == 2);
+                 "traceloom_event_reconciliation_rule") == 3);
   require(scalar(path,
                  "SELECT COUNT(*) FROM "
                  "traceloom_event_reconciliation_decision WHERE status = "

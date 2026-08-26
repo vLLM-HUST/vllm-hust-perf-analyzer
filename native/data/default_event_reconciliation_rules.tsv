@@ -1,7 +1,8 @@
 # manifest_schema=traceloom.event-reconciliation-policy/v2
 # policy_id=traceloom.default.event-reconciliation
-# policy_version=2
+# policy_version=3
 # unmatched_behavior=independent
 priority	rule_id	provider_scope	source_domain	task_type	generic_context_id	concrete_context_id	min_contained_fraction	task_op_type	communication_op_name_prefix	identity_policy	note
 100	ascend.task.mix-aiv.context-detail	ascend	task	KERNEL_MIX_AIV	4294967295	0	0.99			same_source_ref,device,stream,raw_task_id,raw_connection_id	Reconcile one generic mixed-AIV timing envelope with one context-specific operator record sharing exact task identity
+100	ascend.task.mix-aic.context-detail	ascend	task	KERNEL_MIX_AIC	4294967295	0	0.99			same_source_ref,device,stream,raw_task_id,raw_connection_id	Reconcile one generic mixed-AIC annotation envelope with one context-specific operator record sharing exact task identity
 90	ascend.task-communication.mc2-fused	ascend	task+communication_op		-1	-1	1.0	MatmulAllReduce	MatmulAllReduceMc2AicpuKernel_	same_input,device,unique_containment	Reconcile one MC2 communication-provider observation into its unique containing fused MatmulAllReduce task anchor
