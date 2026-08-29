@@ -1,0 +1,33 @@
+{
+  "schema_version": "1.0",
+  "canonical_registry": "https://github.com/vLLM-HUST/vllm-hust-docs/tree/codex/ecosystem-architecture-reorganization/registry",
+  "repository": "https://github.com/vLLM-HUST/vllm-hust-perf-analyzer",
+  "repository_role": "analysis_tool",
+  "relation_to_runtime": "produces_runtime_evidence",
+  "lifecycle": "incubating",
+  "artifacts": [
+    {
+      "id": "traceloom-profiler-analyzer",
+      "artifact_type": "tool",
+      "system_role": "profiling_analysis",
+      "delivery_model": "native_distribution",
+      "execution_planes": ["native", "offline"],
+      "integration_contracts": [],
+      "integration_surfaces": ["Ascend profiler SQLite", "CUDA Nsight trace data"]
+    }
+  ],
+  "system_boundaries": {
+    "is": ["an offline native profiler trace analyzer with source-row provenance"],
+    "is_not": [
+      "a runtime environment manager",
+      "an inference-engine plugin or hot-path component",
+      "performance evidence without an identified input trace"
+    ]
+  },
+  "validation": [
+    "cmake --preset dev-tests",
+    "cmake --build --preset dev-tests -j <chosen-jobs>",
+    "ctest --preset dev-tests"
+  ],
+  "compatibility_document": "README.md"
+}
