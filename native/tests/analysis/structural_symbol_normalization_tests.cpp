@@ -47,9 +47,77 @@ int main() {
   const StructuralSymbolNormalizationRuleset defaults =
       load_default_structural_symbol_ruleset();
   require(defaults.policy_id() == "traceloom.default-structural-symbols");
-  require(defaults.policy_version() == "1");
-  require(defaults.rules().size() == 8);
+  require(defaults.policy_version() == "2");
+  require(defaults.rules().size() == 9);
   require(defaults.manifest_sha256().size() == 64);
+
+  FlatAnchorBuildConfig default_config;
+  default_config.structural_symbol_rules = defaults;
+  NativeIr decorated_cast = build_one_task(
+      "ascend_sqlite_hot_path",
+      "Cast_b2717900ea7de2d41ea9c63d23aa269b_high_performance_210000000");
+  build_flat_anchors(decorated_cast, default_config);
+  const AnchorRow& cast_anchor = decorated_cast.anchors.row(AnchorId(0));
+  require(decorated_cast.symbols.value(cast_anchor.symbol_id) == "Cast");
+  require(decorated_cast.symbols.value(
+              cast_anchor.symbol_decision.observed_symbol_id) ==
+          "Cast_b2717900ea7de2d41ea9c63d23aa269b_high_performance_210000000");
+  require(cast_anchor.symbol_decision.rule_id ==
+          "ascend.task.decorated-kernel-base");
+
+  NativeIr decorated_matmul = build_one_task(
+      "ascend_sqlite_hot_path",
+      "MatMulV3_ND_ND_ND_ND_FP32_FP32_FP32_FP32_high_performance_65537");
+  build_flat_anchors(decorated_matmul, default_config);
+  const AnchorRow& matmul_anchor =
+      decorated_matmul.anchors.row(AnchorId(0));
+  require(decorated_matmul.symbols.value(matmul_anchor.symbol_id) ==
+          "MatMul");
+  require(matmul_anchor.symbol_decision.rule_id ==
+          "ascend.task.matmul-backend-variant");
+
+  NativeIr legacy_matmul = build_one_task(
+      "ascend_sqlite_hot_path",
+      "BatchMatMulV2_ND_ND_FP16_FP16_false_true_all_98499");
+  build_flat_anchors(legacy_matmul, default_config);
+  require(legacy_matmul.symbols.value(
+              legacy_matmul.anchors.row(AnchorId(0)).symbol_id) ==
+          "MatMul");
+
+  NativeIr quant_matmul = build_one_task(
+      "ascend_sqlite_hot_path",
+      "QuantBatchMatmulV3_ND_NZ_int8_int8_bf16_high_performance_24");
+  build_flat_anchors(quant_matmul, default_config);
+  require(quant_matmul.symbols.value(
+              quant_matmul.anchors.row(AnchorId(0)).symbol_id) ==
+          "QuantBatchMatmulV3");
+  require(quant_matmul.anchors.row(AnchorId(0)).symbol_decision.rule_id ==
+          "ascend.task.decorated-kernel-base");
+
+  NativeIr custom_kernel = build_one_task(
+      "ascend_sqlite_hot_path",
+      "RequestOwnedFinalizeMoeRoutes_f330afe51176f77f4f9b1726ccc0759b_0");
+  build_flat_anchors(custom_kernel, default_config);
+  require(custom_kernel.symbols.value(
+              custom_kernel.anchors.row(AnchorId(0)).symbol_id) ==
+          "RequestOwnedFinalizeMoeRoutes");
+
+  NativeIr triton_kernel =
+      build_one_task("ascend_sqlite_hot_path", "triton_rms_kernel_0");
+  build_flat_anchors(triton_kernel, default_config);
+  require(triton_kernel.symbols.value(
+              triton_kernel.anchors.row(AnchorId(0)).symbol_id) ==
+          "triton_rms_kernel_0");
+  require(triton_kernel.anchors.row(AnchorId(0)).symbol_decision.outcome ==
+          StructuralSymbolOutcome::kIdentity);
+
+  NativeIr cuda_decorated = build_one_task(
+      "cuda_nsys_sqlite",
+      "Cast_b2717900ea7de2d41ea9c63d23aa269b_high_performance_210000000");
+  build_flat_anchors(cuda_decorated, default_config);
+  require(cuda_decorated.symbols.value(
+              cuda_decorated.anchors.row(AnchorId(0)).symbol_id) ==
+          "Cast_b2717900ea7de2d41ea9c63d23aa269b_high_performance_210000000");
 
   const std::filesystem::path custom = temp_manifest("_custom");
   write_file(

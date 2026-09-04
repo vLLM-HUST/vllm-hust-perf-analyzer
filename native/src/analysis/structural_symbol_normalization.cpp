@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <unordered_set>
@@ -116,6 +117,10 @@ StructuralSymbolMatch parse_match(const std::string& value,
     return StructuralSymbolMatch::kContainsAnyCaseInsensitive;
   if (value == "opaque_numeric_instance")
     return StructuralSymbolMatch::kOpaqueNumericInstance;
+  if (value == "ascend_kernel_base_exact_any")
+    return StructuralSymbolMatch::kAscendKernelBaseExactAny;
+  if (value == "ascend_decorated_kernel")
+    return StructuralSymbolMatch::kAscendDecoratedKernel;
   throw std::invalid_argument("unknown structural-symbol match at line " +
                               std::to_string(line) + ": " + value);
 }
@@ -143,6 +148,14 @@ void validate_rules(const std::vector<StructuralSymbolNormalizationRule>& rules)
       throw std::invalid_argument(
           "unsupported structural-symbol source_domain at line " +
           std::to_string(rule.source_line) + ": " + rule.source_domain);
+    }
+    if (rule.match == StructuralSymbolMatch::kAscendDecoratedKernel &&
+        (rule.provider_scope != "ascend" || rule.source_domain != "task" ||
+         rule.pattern != "*" || rule.structural_symbol != "{kernel_base}")) {
+      throw std::invalid_argument(
+          "ascend_decorated_kernel requires ascend/task, pattern '*', and "
+          "structural symbol '{kernel_base}' at line " +
+          std::to_string(rule.source_line));
     }
     if (!ids.insert(rule.rule_id).second) {
       throw std::invalid_argument("duplicate structural-symbol rule_id: " +
@@ -253,30 +266,90 @@ std::vector<ObservedSymbol> communication_fields(
   return {};
 }
 
-bool rule_matches(const StructuralSymbolNormalizationRule& rule,
-                  const std::string& value) {
+bool is_ascii_alnum_string(const std::string& value) {
+  return !value.empty() &&
+         std::all_of(value.begin(), value.end(), [](char ch) {
+           return std::isalnum(static_cast<unsigned char>(ch));
+         });
+}
+
+std::optional<std::string> ascend_decorated_kernel_base(
+    const std::string& value) {
+  const std::size_t separator = value.find('_');
+  if (separator == std::string::npos || separator == 0) return std::nullopt;
+
+  const std::string base = value.substr(0, separator);
+  const std::string suffix = value.substr(separator + 1);
+  const std::size_t next_separator = suffix.find('_');
+  const std::string first_segment = suffix.substr(0, next_separator);
+
+  // CANN-generated names carry either a 32-character kernel fingerprint or
+  // an explicit lowering-mode suffix.  Treat those as strong syntax, not as
+  // a fuzzy operator-name guess.  Older MatMul names encode their ND/NZ
+  // layout directly and omit the mode marker.
+  const bool has_fingerprint =
+      first_segment.size() == 32 && is_ascii_alnum_string(first_segment);
+  const bool has_lowering_mode =
+      value.find("_high_performance_") != std::string::npos ||
+      value.find("_high_precision_") != std::string::npos ||
+      value.find("_optional_") != std::string::npos;
+  const bool has_legacy_matmul_layout =
+      (first_segment == "ND" || first_segment == "NZ") &&
+      (base == "MatMulV1" || base == "MatMulV2" || base == "MatMulV3" ||
+       base == "BatchMatMulV1" || base == "BatchMatMulV2" ||
+       base == "BatchMatMulV3");
+  if (!has_fingerprint && !has_lowering_mode &&
+      !has_legacy_matmul_layout) {
+    return std::nullopt;
+  }
+  return base;
+}
+
+std::optional<std::string> rule_structural_symbol(
+    const StructuralSymbolNormalizationRule& rule,
+    const std::string& value) {
   const std::vector<std::string> patterns = split(rule.pattern, '|');
   switch (rule.match) {
     case StructuralSymbolMatch::kExact:
-      return value == rule.pattern;
+      if (value == rule.pattern) return rule.structural_symbol;
+      break;
     case StructuralSymbolMatch::kExactAny:
-      return std::find(patterns.begin(), patterns.end(), value) !=
-             patterns.end();
+      if (std::find(patterns.begin(), patterns.end(), value) != patterns.end())
+        return rule.structural_symbol;
+      break;
     case StructuralSymbolMatch::kContainsCaseInsensitive:
-      return lower_ascii(value).find(lower_ascii(rule.pattern)) !=
-             std::string::npos;
+      if (lower_ascii(value).find(lower_ascii(rule.pattern)) !=
+          std::string::npos)
+        return rule.structural_symbol;
+      break;
     case StructuralSymbolMatch::kContainsAnyCaseInsensitive: {
       const std::string lower_value = lower_ascii(value);
-      return std::any_of(patterns.begin(), patterns.end(),
-                         [&lower_value](const std::string& pattern) {
-                           return lower_value.find(lower_ascii(pattern)) !=
-                                  std::string::npos;
-                         });
+      if (std::any_of(patterns.begin(), patterns.end(),
+                      [&lower_value](const std::string& pattern) {
+                        return lower_value.find(lower_ascii(pattern)) !=
+                               std::string::npos;
+                      }))
+        return rule.structural_symbol;
+      break;
     }
     case StructuralSymbolMatch::kOpaqueNumericInstance:
-      return is_opaque_numeric_instance(value);
+      if (is_opaque_numeric_instance(value)) return rule.structural_symbol;
+      break;
+    case StructuralSymbolMatch::kAscendKernelBaseExactAny: {
+      const auto base = ascend_decorated_kernel_base(value);
+      const std::string& candidate = base.has_value() ? *base : value;
+      if (std::find(patterns.begin(), patterns.end(), candidate) !=
+          patterns.end())
+        return rule.structural_symbol;
+      break;
+    }
+    case StructuralSymbolMatch::kAscendDecoratedKernel: {
+      const auto base = ascend_decorated_kernel_base(value);
+      if (base.has_value()) return *base;
+      break;
+    }
   }
-  return false;
+  return std::nullopt;
 }
 
 ResolvedStructuralSymbol resolve(
@@ -288,8 +361,12 @@ ResolvedStructuralSymbol resolve(
     ObservedSymbol fallback) {
   std::int32_t matched_priority = 0;
   bool saw_match = false;
-  std::vector<std::pair<const StructuralSymbolNormalizationRule*,
-                        ObservedSymbol>> matched_rules;
+  struct MatchedRule {
+    const StructuralSymbolNormalizationRule* rule = nullptr;
+    ObservedSymbol observed;
+    std::string structural_symbol;
+  };
+  std::vector<MatchedRule> matched_rules;
   for (const auto& candidate : candidates) {
     const StructuralSymbolNormalizationRule& rule = *candidate.first;
     // Rules are sorted by descending priority.  Once a higher-priority match
@@ -302,29 +379,31 @@ ResolvedStructuralSymbol resolve(
       continue;
     }
     for (const ObservedSymbol& observed : candidate.second) {
-      if (observed.symbol_id.valid() &&
-          rule_matches(rule, symbol_text(ir, observed.symbol_id))) {
+      if (!observed.symbol_id.valid()) continue;
+      const auto structural_symbol =
+          rule_structural_symbol(rule, symbol_text(ir, observed.symbol_id));
+      if (structural_symbol.has_value()) {
         if (!saw_match) {
           matched_priority = rule.priority;
           saw_match = true;
         }
-        matched_rules.push_back({&rule, observed});
+        matched_rules.push_back({&rule, observed, *structural_symbol});
         break;
       }
     }
   }
   if (matched_rules.size() == 1) {
     const auto& match = matched_rules.front();
-    return {ir.symbols.intern(match.first->structural_symbol),
-            {match.second.symbol_id, match.second.source,
-             match.first->rule_id, match.first->rule_id,
+    return {ir.symbols.intern(match.structural_symbol),
+            {match.observed.symbol_id, match.observed.source,
+             match.rule->rule_id, match.rule->rule_id,
              StructuralSymbolOutcome::kCanonicalized}};
   }
   if (matched_rules.size() > 1) {
     std::string candidate_ids;
     for (const auto& match : matched_rules) {
       if (!candidate_ids.empty()) candidate_ids += "|";
-      candidate_ids += match.first->rule_id;
+      candidate_ids += match.rule->rule_id;
     }
     return {fallback.symbol_id,
             {fallback.symbol_id, fallback.source, "fallback.rule-conflict",
@@ -446,6 +525,8 @@ const char* structural_symbol_match_name(StructuralSymbolMatch match) {
     case StructuralSymbolMatch::kContainsCaseInsensitive: return "contains_ci";
     case StructuralSymbolMatch::kContainsAnyCaseInsensitive: return "contains_any_ci";
     case StructuralSymbolMatch::kOpaqueNumericInstance: return "opaque_numeric_instance";
+    case StructuralSymbolMatch::kAscendKernelBaseExactAny: return "ascend_kernel_base_exact_any";
+    case StructuralSymbolMatch::kAscendDecoratedKernel: return "ascend_decorated_kernel";
   }
   return "exact";
 }

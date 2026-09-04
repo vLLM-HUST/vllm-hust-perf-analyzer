@@ -311,493 +311,493 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures"
   )
 
-  add_executable(traceloom_native_id_tests
+  add_executable(id_tests
     tests/core/id_tests.cpp
   )
-  target_link_libraries(traceloom_native_id_tests PRIVATE traceloom_native_core)
-  add_test(NAME traceloom_native_id_tests COMMAND traceloom_native_id_tests)
+  target_link_libraries(id_tests PRIVATE traceloom_native_core)
+  add_test(NAME id_tests COMMAND id_tests)
 
-  add_executable(traceloom_native_cost_summary_tests
+  add_executable(cost_summary_tests
     tests/cost/cost_summary_lite_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_cost_summary_tests PRIVATE traceloom_native_core
+    cost_summary_tests PRIVATE traceloom_native_core
   )
   add_test(
-    NAME traceloom_native_cost_summary_tests
-    COMMAND traceloom_native_cost_summary_tests
+    NAME cost_summary_tests
+    COMMAND cost_summary_tests
   )
 
-  add_executable(traceloom_native_ir_contract_tests
+  add_executable(ir_contract_tests
     tests/ir/native_ir_contract_tests.cpp
   )
-  target_link_libraries(traceloom_native_ir_contract_tests PRIVATE traceloom_native_core)
+  target_link_libraries(ir_contract_tests PRIVATE traceloom_native_core)
   add_test(
-    NAME traceloom_native_ir_contract_tests
-    COMMAND traceloom_native_ir_contract_tests
+    NAME ir_contract_tests
+    COMMAND ir_contract_tests
   )
 
-  add_executable(traceloom_native_sequence_contract_tests
+  add_executable(sequence_contract_tests
     tests/sequence/sequence_contract_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_sequence_contract_tests PRIVATE traceloom_native_core
+    sequence_contract_tests PRIVATE traceloom_native_core
   )
   add_test(
-    NAME traceloom_native_sequence_contract_tests
-    COMMAND traceloom_native_sequence_contract_tests
+    NAME sequence_contract_tests
+    COMMAND sequence_contract_tests
   )
 
-  add_executable(traceloom_native_thread_pool_tests
+  add_executable(thread_pool_tests
     tests/runtime/thread_pool_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_thread_pool_tests PRIVATE traceloom_native_core
+    thread_pool_tests PRIVATE traceloom_native_core
   )
   add_test(
-    NAME traceloom_native_thread_pool_tests
-    COMMAND traceloom_native_thread_pool_tests
+    NAME thread_pool_tests
+    COMMAND thread_pool_tests
   )
 
-  add_executable(traceloom_native_candidate_scan_tests
+  add_executable(candidate_scan_tests
     tests/pattern/candidate_scan_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_candidate_scan_tests PRIVATE traceloom_native_core
+    candidate_scan_tests PRIVATE traceloom_native_core
   )
   add_test(
-    NAME traceloom_native_candidate_scan_tests
-    COMMAND traceloom_native_candidate_scan_tests
+    NAME candidate_scan_tests
+    COMMAND candidate_scan_tests
   )
 
-  add_executable(traceloom_native_grammar_state_tests
+  add_executable(grammar_state_tests
     tests/pattern/grammar_state_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_grammar_state_tests PRIVATE
+    grammar_state_tests PRIVATE
     traceloom_native_adapters
   )
   add_test(
-    NAME traceloom_native_grammar_state_tests
-    COMMAND traceloom_native_grammar_state_tests
+    NAME grammar_state_tests
+    COMMAND grammar_state_tests
   )
 
-  add_executable(traceloom_native_grammar_snapshot_tests
+  add_executable(grammar_snapshot_tests
     tests/pattern/grammar_snapshot_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_grammar_snapshot_tests PRIVATE
+    grammar_snapshot_tests PRIVATE
     traceloom_native_adapters
   )
   add_test(
-    NAME traceloom_native_grammar_snapshot_tests
-    COMMAND traceloom_native_grammar_snapshot_tests
+    NAME grammar_snapshot_tests
+    COMMAND grammar_snapshot_tests
   )
 
-  add_executable(traceloom_native_grammar_round_tests
+  add_executable(grammar_round_tests
     tests/pattern/grammar_round_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_grammar_round_tests PRIVATE
+    grammar_round_tests PRIVATE
     traceloom_native_adapters
   )
   add_test(
-    NAME traceloom_native_grammar_round_tests
-    COMMAND traceloom_native_grammar_round_tests
+    NAME grammar_round_tests
+    COMMAND grammar_round_tests
   )
 
-  add_executable(traceloom_native_grammar_commit_plan_tests
+  add_executable(grammar_commit_plan_tests
     tests/pattern/grammar_commit_plan_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_grammar_commit_plan_tests PRIVATE
+    grammar_commit_plan_tests PRIVATE
     traceloom_native_adapters
   )
   add_test(
-    NAME traceloom_native_grammar_commit_plan_tests
-    COMMAND traceloom_native_grammar_commit_plan_tests
+    NAME grammar_commit_plan_tests
+    COMMAND grammar_commit_plan_tests
   )
 
-  add_executable(traceloom_native_grammar_apply_tests
+  add_executable(grammar_apply_tests
     tests/pattern/grammar_apply_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_grammar_apply_tests PRIVATE
+    grammar_apply_tests PRIVATE
     traceloom_native_adapters
   )
   add_test(
-    NAME traceloom_native_grammar_apply_tests
-    COMMAND traceloom_native_grammar_apply_tests
+    NAME grammar_apply_tests
+    COMMAND grammar_apply_tests
   )
 
-  add_executable(traceloom_native_grammar_engine_tests
+  add_executable(grammar_engine_tests
     tests/pattern/grammar_engine_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_grammar_engine_tests PRIVATE
+    grammar_engine_tests PRIVATE
     traceloom_native_adapters
   )
   add_test(
-    NAME traceloom_native_grammar_engine_tests
-    COMMAND traceloom_native_grammar_engine_tests
+    NAME grammar_engine_tests
+    COMMAND grammar_engine_tests
   )
 
-  add_executable(traceloom_native_flat_anchor_builder_tests
+  add_executable(flat_anchor_builder_tests
     tests/analysis/flat_anchor_builder_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_flat_anchor_builder_tests PRIVATE traceloom_native_core
+    flat_anchor_builder_tests PRIVATE traceloom_native_core
   )
   add_test(
-    NAME traceloom_native_flat_anchor_builder_tests
-    COMMAND traceloom_native_flat_anchor_builder_tests
+    NAME flat_anchor_builder_tests
+    COMMAND flat_anchor_builder_tests
   )
 
-  add_executable(traceloom_native_clock_calibration_tests
+  add_executable(clock_calibration_tests
     tests/analysis/clock_calibration_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_clock_calibration_tests PRIVATE traceloom_native_core
+    clock_calibration_tests PRIVATE traceloom_native_core
   )
   add_test(
-    NAME traceloom_native_clock_calibration_tests
-    COMMAND traceloom_native_clock_calibration_tests
+    NAME clock_calibration_tests
+    COMMAND clock_calibration_tests
   )
 
-  add_executable(traceloom_native_event_reconciliation_tests
+  add_executable(event_reconciliation_tests
     tests/analysis/event_reconciliation_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_event_reconciliation_tests PRIVATE traceloom_native_core
+    event_reconciliation_tests PRIVATE traceloom_native_core
   )
   add_test(
-    NAME traceloom_native_event_reconciliation_tests
-    COMMAND traceloom_native_event_reconciliation_tests
+    NAME event_reconciliation_tests
+    COMMAND event_reconciliation_tests
   )
 
-  add_executable(traceloom_native_structural_symbol_normalization_tests
+  add_executable(structural_symbol_normalization_tests
     tests/analysis/structural_symbol_normalization_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_structural_symbol_normalization_tests PRIVATE
+    structural_symbol_normalization_tests PRIVATE
     traceloom_native_core
   )
   add_test(
-    NAME traceloom_native_structural_symbol_normalization_tests
-    COMMAND traceloom_native_structural_symbol_normalization_tests
+    NAME structural_symbol_normalization_tests
+    COMMAND structural_symbol_normalization_tests
   )
 
-  add_executable(traceloom_native_signal_classification_rules_tests
+  add_executable(signal_classification_rules_tests
     tests/analysis/signal_classification_rules_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_signal_classification_rules_tests PRIVATE traceloom_native_core
+    signal_classification_rules_tests PRIVATE traceloom_native_core
   )
   add_test(
-    NAME traceloom_native_signal_classification_rules_tests
-    COMMAND traceloom_native_signal_classification_rules_tests
+    NAME signal_classification_rules_tests
+    COMMAND signal_classification_rules_tests
   )
 
-  add_executable(traceloom_native_graph_body_cost_summary_tests
+  add_executable(graph_body_cost_summary_tests
     tests/analysis/graph_body_cost_summary_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_graph_body_cost_summary_tests PRIVATE
+    graph_body_cost_summary_tests PRIVATE
     traceloom_native_core
   )
   add_test(
-    NAME traceloom_native_graph_body_cost_summary_tests
-    COMMAND traceloom_native_graph_body_cost_summary_tests
+    NAME graph_body_cost_summary_tests
+    COMMAND graph_body_cost_summary_tests
   )
 
-  add_executable(traceloom_native_replay_internal_cost_map_tests
+  add_executable(replay_internal_cost_map_tests
     tests/analysis/replay_internal_cost_map_contract_tests.cpp
     tests/analysis/replay_internal_cost_map_happy_path_tests.cpp
     tests/analysis/replay_internal_cost_map_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_replay_internal_cost_map_tests PRIVATE
+    replay_internal_cost_map_tests PRIVATE
     traceloom_native_core
   )
   add_test(
-    NAME traceloom_native_replay_internal_cost_map_tests
-    COMMAND traceloom_native_replay_internal_cost_map_tests
+    NAME replay_internal_cost_map_tests
+    COMMAND replay_internal_cost_map_tests
   )
 
-  add_executable(traceloom_native_replay_body_pattern_tests
+  add_executable(replay_body_pattern_tests
     tests/analysis/replay_body_pattern_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_replay_body_pattern_tests PRIVATE traceloom_native_core
+    replay_body_pattern_tests PRIVATE traceloom_native_core
   )
   add_test(
-    NAME traceloom_native_replay_body_pattern_tests
-    COMMAND traceloom_native_replay_body_pattern_tests
+    NAME replay_body_pattern_tests
+    COMMAND replay_body_pattern_tests
   )
 
-  add_executable(traceloom_native_sha256_tests
+  add_executable(sha256_tests
     tests/core/sha256_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_sha256_tests PRIVATE traceloom_native_core
+    sha256_tests PRIVATE traceloom_native_core
   )
   add_test(
-    NAME traceloom_native_sha256_tests
-    COMMAND traceloom_native_sha256_tests
+    NAME sha256_tests
+    COMMAND sha256_tests
   )
-  add_executable(traceloom_native_pipeline_tests
+  add_executable(pipeline_tests
     tests/analysis/native_pipeline_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_pipeline_tests PRIVATE traceloom_native_core
+    pipeline_tests PRIVATE traceloom_native_core
   )
   add_test(
-    NAME traceloom_native_pipeline_tests
-    COMMAND traceloom_native_pipeline_tests
+    NAME pipeline_tests
+    COMMAND pipeline_tests
   )
 
-  add_executable(traceloom_native_structural_occurrence_builder_tests
+  add_executable(structural_occurrence_builder_tests
     tests/analysis/structural_occurrence_builder_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_structural_occurrence_builder_tests PRIVATE traceloom_native_core
+    structural_occurrence_builder_tests PRIVATE traceloom_native_core
   )
   add_test(
-    NAME traceloom_native_structural_occurrence_builder_tests
-    COMMAND traceloom_native_structural_occurrence_builder_tests
+    NAME structural_occurrence_builder_tests
+    COMMAND structural_occurrence_builder_tests
   )
 
-  add_executable(traceloom_native_structural_position_model_tests
+  add_executable(structural_position_model_tests
     tests/analysis/structural_position_model_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_structural_position_model_tests PRIVATE
+    structural_position_model_tests PRIVATE
     traceloom_native_core
   )
   add_test(
-    NAME traceloom_native_structural_position_model_tests
-    COMMAND traceloom_native_structural_position_model_tests
+    NAME structural_position_model_tests
+    COMMAND structural_position_model_tests
   )
 
-  add_executable(traceloom_native_structural_occurrence_visibility_tests
+  add_executable(structural_occurrence_visibility_tests
     tests/analysis/structural_occurrence_visibility_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_structural_occurrence_visibility_tests PRIVATE traceloom_native_core
+    structural_occurrence_visibility_tests PRIVATE traceloom_native_core
   )
   add_test(
-    NAME traceloom_native_structural_occurrence_visibility_tests
-    COMMAND traceloom_native_structural_occurrence_visibility_tests
+    NAME structural_occurrence_visibility_tests
+    COMMAND structural_occurrence_visibility_tests
   )
 
-  add_executable(traceloom_native_structural_occurrence_graph_boundary_tests
+  add_executable(structural_occurrence_graph_boundary_tests
     tests/analysis/structural_occurrence_graph_boundary_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_structural_occurrence_graph_boundary_tests PRIVATE
+    structural_occurrence_graph_boundary_tests PRIVATE
     traceloom_native_core
   )
   add_test(
-    NAME traceloom_native_structural_occurrence_graph_boundary_tests
-    COMMAND traceloom_native_structural_occurrence_graph_boundary_tests
+    NAME structural_occurrence_graph_boundary_tests
+    COMMAND structural_occurrence_graph_boundary_tests
   )
 
-  add_executable(traceloom_native_structural_cost_handoff_tests
+  add_executable(structural_cost_handoff_tests
     tests/analysis/structural_cost_handoff_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_structural_cost_handoff_tests PRIVATE
+    structural_cost_handoff_tests PRIVATE
     traceloom_native_core
   )
   add_test(
-    NAME traceloom_native_structural_cost_handoff_tests
-    COMMAND traceloom_native_structural_cost_handoff_tests
+    NAME structural_cost_handoff_tests
+    COMMAND structural_cost_handoff_tests
   )
 
-  add_executable(traceloom_native_structural_cost_tree_tests
+  add_executable(structural_cost_tree_tests
     tests/analysis/structural_cost_tree_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_structural_cost_tree_tests PRIVATE traceloom_native_core
+    structural_cost_tree_tests PRIVATE traceloom_native_core
   )
   add_test(
-    NAME traceloom_native_structural_cost_tree_tests
-    COMMAND traceloom_native_structural_cost_tree_tests
+    NAME structural_cost_tree_tests
+    COMMAND structural_cost_tree_tests
   )
 
-  add_executable(traceloom_native_anchor_internal_cost_breakdown_tests
+  add_executable(anchor_internal_cost_breakdown_tests
     tests/analysis/anchor_internal_cost_breakdown_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_anchor_internal_cost_breakdown_tests PRIVATE
+    anchor_internal_cost_breakdown_tests PRIVATE
     traceloom_native_core
   )
   add_test(
-    NAME traceloom_native_anchor_internal_cost_breakdown_tests
-    COMMAND traceloom_native_anchor_internal_cost_breakdown_tests
+    NAME anchor_internal_cost_breakdown_tests
+    COMMAND anchor_internal_cost_breakdown_tests
   )
 
-  add_executable(traceloom_native_anchor_graph_child_cost_tests
+  add_executable(anchor_graph_child_cost_tests
     tests/analysis/anchor_graph_child_cost_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_anchor_graph_child_cost_tests PRIVATE traceloom_native_core
+    anchor_graph_child_cost_tests PRIVATE traceloom_native_core
   )
   add_test(
-    NAME traceloom_native_anchor_graph_child_cost_tests
-    COMMAND traceloom_native_anchor_graph_child_cost_tests
+    NAME anchor_graph_child_cost_tests
+    COMMAND anchor_graph_child_cost_tests
   )
 
-  add_executable(traceloom_native_loop_tree_markdown_tests
+  add_executable(loop_tree_markdown_tests
     tests/materialize/loop_tree_markdown_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_loop_tree_markdown_tests PRIVATE
+    loop_tree_markdown_tests PRIVATE
     traceloom_native_materialize
   )
   add_test(
-    NAME traceloom_native_loop_tree_markdown_tests
-    COMMAND traceloom_native_loop_tree_markdown_tests
+    NAME loop_tree_markdown_tests
+    COMMAND loop_tree_markdown_tests
   )
 
-  add_executable(traceloom_native_anchor_cost_breakdown_rows_tests
+  add_executable(anchor_cost_breakdown_rows_tests
     tests/compat/anchor_cost_breakdown_rows_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_anchor_cost_breakdown_rows_tests PRIVATE
+    anchor_cost_breakdown_rows_tests PRIVATE
     traceloom_native_materialize
   )
   add_test(
-    NAME traceloom_native_anchor_cost_breakdown_rows_tests
-    COMMAND traceloom_native_anchor_cost_breakdown_rows_tests
+    NAME anchor_cost_breakdown_rows_tests
+    COMMAND anchor_cost_breakdown_rows_tests
   )
 
-  add_executable(traceloom_native_anchor_sequence_rows_tests
+  add_executable(anchor_sequence_rows_tests
     tests/compat/anchor_sequence_rows_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_anchor_sequence_rows_tests PRIVATE
+    anchor_sequence_rows_tests PRIVATE
     traceloom_native_materialize
   )
   add_test(
-    NAME traceloom_native_anchor_sequence_rows_tests
-    COMMAND traceloom_native_anchor_sequence_rows_tests
+    NAME anchor_sequence_rows_tests
+    COMMAND anchor_sequence_rows_tests
   )
 
-  add_executable(traceloom_native_symbol_normalization_rows_tests
+  add_executable(symbol_normalization_rows_tests
     tests/compat/symbol_normalization_rows_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_symbol_normalization_rows_tests PRIVATE
+    symbol_normalization_rows_tests PRIVATE
     traceloom_native_materialize
   )
   add_test(
-    NAME traceloom_native_symbol_normalization_rows_tests
-    COMMAND traceloom_native_symbol_normalization_rows_tests
+    NAME symbol_normalization_rows_tests
+    COMMAND symbol_normalization_rows_tests
   )
 
-  add_executable(traceloom_native_aux_attribution_rows_tests
+  add_executable(aux_attribution_rows_tests
     tests/compat/aux_attribution_rows_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_aux_attribution_rows_tests PRIVATE
+    aux_attribution_rows_tests PRIVATE
     traceloom_native_materialize
   )
   add_test(
-    NAME traceloom_native_aux_attribution_rows_tests
-    COMMAND traceloom_native_aux_attribution_rows_tests
+    NAME aux_attribution_rows_tests
+    COMMAND aux_attribution_rows_tests
   )
 
   if(TRACELOOM_NATIVE_SQLITE_ADAPTERS_AVAILABLE)
-    add_executable(traceloom_native_runtime_device_rows_tests
+    add_executable(runtime_device_rows_tests
       tests/compat/runtime_device_rows_tests.cpp
     )
     target_link_libraries(
-      traceloom_native_runtime_device_rows_tests PRIVATE
+      runtime_device_rows_tests PRIVATE
       traceloom_native_materialize
     )
     if(TARGET SQLite::SQLite3)
       target_link_libraries(
-        traceloom_native_runtime_device_rows_tests PRIVATE SQLite::SQLite3
+        runtime_device_rows_tests PRIVATE SQLite::SQLite3
       )
     else()
       target_include_directories(
-        traceloom_native_runtime_device_rows_tests
+        runtime_device_rows_tests
         PRIVATE ${SQLite3_INCLUDE_DIRS}
       )
       target_link_libraries(
-        traceloom_native_runtime_device_rows_tests PRIVATE ${SQLite3_LIBRARIES}
+        runtime_device_rows_tests PRIVATE ${SQLite3_LIBRARIES}
       )
     endif()
     add_test(
-      NAME traceloom_native_runtime_device_rows_tests
-      COMMAND traceloom_native_runtime_device_rows_tests
+      NAME runtime_device_rows_tests
+      COMMAND runtime_device_rows_tests
     )
   endif()
 
-  add_executable(traceloom_native_collective_tag_rows_tests
+  add_executable(collective_tag_rows_tests
     tests/compat/collective_tag_rows_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_collective_tag_rows_tests PRIVATE
+    collective_tag_rows_tests PRIVATE
     traceloom_native_materialize
   )
   add_test(
-    NAME traceloom_native_collective_tag_rows_tests
-    COMMAND traceloom_native_collective_tag_rows_tests
+    NAME collective_tag_rows_tests
+    COMMAND collective_tag_rows_tests
   )
 
-  add_executable(traceloom_native_structural_projection_rows_tests
+  add_executable(structural_projection_rows_tests
     tests/compat/structural_projection_rows_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_structural_projection_rows_tests PRIVATE
+    structural_projection_rows_tests PRIVATE
     traceloom_native_materialize
   )
   add_test(
-    NAME traceloom_native_structural_projection_rows_tests
-    COMMAND traceloom_native_structural_projection_rows_tests
+    NAME structural_projection_rows_tests
+    COMMAND structural_projection_rows_tests
   )
 
-  add_executable(traceloom_native_timeline_rows_tests
+  add_executable(timeline_rows_tests
     tests/compat/timeline_rows_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_timeline_rows_tests PRIVATE
+    timeline_rows_tests PRIVATE
     traceloom_native_materialize
   )
   add_test(
-    NAME traceloom_native_timeline_rows_tests
-    COMMAND traceloom_native_timeline_rows_tests
+    NAME timeline_rows_tests
+    COMMAND timeline_rows_tests
   )
 
-  add_executable(traceloom_native_exact_graph_sql_rows_tests
+  add_executable(exact_graph_sql_rows_tests
     tests/compat/exact_graph_sql_rows_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_exact_graph_sql_rows_tests PRIVATE
+    exact_graph_sql_rows_tests PRIVATE
     traceloom_native_materialize
   )
   add_test(
-    NAME traceloom_native_exact_graph_sql_rows_tests
-    COMMAND traceloom_native_exact_graph_sql_rows_tests
+    NAME exact_graph_sql_rows_tests
+    COMMAND exact_graph_sql_rows_tests
   )
 
-  add_executable(traceloom_native_grammar_debug_json_tests
+  add_executable(grammar_debug_json_tests
     tests/materialize/grammar_debug_json_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_grammar_debug_json_tests PRIVATE
+    grammar_debug_json_tests PRIVATE
     traceloom_native_adapters
     traceloom_native_materialize
   )
   add_test(
-    NAME traceloom_native_grammar_debug_json_tests
-    COMMAND traceloom_native_grammar_debug_json_tests
+    NAME grammar_debug_json_tests
+    COMMAND grammar_debug_json_tests
   )
 
   add_test(
-    NAME traceloom_native_analyze_fixture_grammar_debug_cli
+    NAME analyze_fixture_grammar_debug_cli
     COMMAND traceloom-native-analyze-fixture
       --fixture
       ${TRACELOOM_NATIVE_FIXTURE_ROOT}/protected_sequence/f1_tiny_repeated_pair.json
@@ -805,79 +805,79 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
       --grammar-debug-out -
   )
   set_tests_properties(
-    traceloom_native_analyze_fixture_grammar_debug_cli
+    analyze_fixture_grammar_debug_cli
     PROPERTIES PASS_REGULAR_EXPRESSION "native_grammar_debug_v1"
   )
 
-  add_executable(traceloom_native_fixture_adapter_tests
+  add_executable(fixture_adapter_tests
     tests/adapters/fixture_adapter_tests.cpp
   )
   target_link_libraries(
-    traceloom_native_fixture_adapter_tests PRIVATE traceloom_native_adapters
+    fixture_adapter_tests PRIVATE traceloom_native_adapters
   )
   add_test(
-    NAME traceloom_native_fixture_adapter_tests
-    COMMAND traceloom_native_fixture_adapter_tests
+    NAME fixture_adapter_tests
+    COMMAND fixture_adapter_tests
   )
 
-  add_executable(traceloom_native_aclgraph_fixture_reader_tests
+  add_executable(aclgraph_fixture_reader_tests
     tests/adapters/aclgraph_fixture_reader_tests.cpp
   )
   target_compile_definitions(
-    traceloom_native_aclgraph_fixture_reader_tests PRIVATE
+    aclgraph_fixture_reader_tests PRIVATE
     TRACELOOM_NATIVE_FIXTURE_ROOT="${TRACELOOM_NATIVE_FIXTURE_ROOT}"
   )
   target_link_libraries(
-    traceloom_native_aclgraph_fixture_reader_tests PRIVATE
+    aclgraph_fixture_reader_tests PRIVATE
     traceloom_native_adapters
   )
   add_test(
-    NAME traceloom_native_aclgraph_fixture_reader_tests
-    COMMAND traceloom_native_aclgraph_fixture_reader_tests
+    NAME aclgraph_fixture_reader_tests
+    COMMAND aclgraph_fixture_reader_tests
   )
 
-  add_executable(traceloom_native_aclgraph_fixture_adapter_tests
+  add_executable(aclgraph_fixture_adapter_tests
     tests/adapters/aclgraph_fixture_adapter_tests.cpp
   )
   target_compile_definitions(
-    traceloom_native_aclgraph_fixture_adapter_tests PRIVATE
+    aclgraph_fixture_adapter_tests PRIVATE
     TRACELOOM_NATIVE_FIXTURE_ROOT="${TRACELOOM_NATIVE_FIXTURE_ROOT}"
   )
   target_link_libraries(
-    traceloom_native_aclgraph_fixture_adapter_tests PRIVATE
+    aclgraph_fixture_adapter_tests PRIVATE
     traceloom_native_adapters
   )
   add_test(
-    NAME traceloom_native_aclgraph_fixture_adapter_tests
-    COMMAND traceloom_native_aclgraph_fixture_adapter_tests
+    NAME aclgraph_fixture_adapter_tests
+    COMMAND aclgraph_fixture_adapter_tests
   )
 
-  add_executable(traceloom_native_protected_sequence_fixture_reader_tests
+  add_executable(protected_sequence_fixture_reader_tests
     tests/adapters/protected_sequence_fixture_reader_tests.cpp
   )
   target_compile_definitions(
-    traceloom_native_protected_sequence_fixture_reader_tests PRIVATE
+    protected_sequence_fixture_reader_tests PRIVATE
     TRACELOOM_NATIVE_FIXTURE_ROOT="${TRACELOOM_NATIVE_FIXTURE_ROOT}"
   )
   target_link_libraries(
-    traceloom_native_protected_sequence_fixture_reader_tests PRIVATE
+    protected_sequence_fixture_reader_tests PRIVATE
     traceloom_native_adapters
   )
   add_test(
-    NAME traceloom_native_protected_sequence_fixture_reader_tests
-    COMMAND traceloom_native_protected_sequence_fixture_reader_tests
+    NAME protected_sequence_fixture_reader_tests
+    COMMAND protected_sequence_fixture_reader_tests
   )
 
   if(TRACELOOM_NATIVE_SQLITE_ADAPTERS_AVAILABLE)
     add_test(
-      NAME traceloom_native_rejects_removed_json_option
+      NAME rejects_removed_json_option
       COMMAND ${CMAKE_COMMAND}
         -DTRACELOOM_ANALYZER=$<TARGET_FILE:traceloom>
         -DTRACELOOM_REMOVED_JSON_PATH=${CMAKE_CURRENT_BINARY_DIR}/removed_native_result.json
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/boundary/reject_removed_native_json_option.cmake
     )
 
-    function(traceloom_add_ascend_sqlite_test target source)
+  function(traceloom_add_ascend_sqlite_test target source)
       add_executable(${target}
         ${source}
         tests/support/ascend_sqlite_fixture.cpp
@@ -900,193 +900,193 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
         target_link_libraries(${target} PRIVATE ${SQLite3_LIBRARIES})
       endif()
       add_test(NAME ${target} COMMAND ${target})
-    endfunction()
+  endfunction()
 
     traceloom_add_ascend_sqlite_test(
-      traceloom_native_ascend_sqlite_adapter_tests
+      ascend_sqlite_adapter_tests
       tests/adapters/ascend_sqlite_adapter_tests.cpp
     )
     traceloom_add_ascend_sqlite_test(
-      traceloom_native_ascend_sqlite_graph_tests
+      ascend_sqlite_graph_tests
       tests/adapters/ascend_sqlite_graph_tests.cpp
     )
     traceloom_add_ascend_sqlite_test(
-      traceloom_native_ascend_sqlite_replay_composition_tests
+      ascend_sqlite_replay_composition_tests
       tests/adapters/ascend_sqlite_replay_composition_tests.cpp
     )
 
-    add_executable(traceloom_native_perfetto_exporter_tests
+    add_executable(perfetto_exporter_tests
       tests/compat/perfetto_exporter_tests.cpp
     )
-    add_dependencies(traceloom_native_perfetto_exporter_tests traceloom)
+    add_dependencies(perfetto_exporter_tests traceloom)
     target_compile_definitions(
-      traceloom_native_perfetto_exporter_tests PRIVATE
+      perfetto_exporter_tests PRIVATE
       TRACELOOM_ANALYZER="$<TARGET_FILE:traceloom>"
     )
     target_link_libraries(
-      traceloom_native_perfetto_exporter_tests PRIVATE
+      perfetto_exporter_tests PRIVATE
       traceloom_native_materialize
     )
     if(TARGET SQLite::SQLite3)
       target_link_libraries(
-        traceloom_native_perfetto_exporter_tests PRIVATE SQLite::SQLite3
+        perfetto_exporter_tests PRIVATE SQLite::SQLite3
       )
     else()
       target_include_directories(
-        traceloom_native_perfetto_exporter_tests PRIVATE ${SQLite3_INCLUDE_DIRS}
+        perfetto_exporter_tests PRIVATE ${SQLite3_INCLUDE_DIRS}
       )
       target_link_libraries(
-        traceloom_native_perfetto_exporter_tests PRIVATE ${SQLite3_LIBRARIES}
+        perfetto_exporter_tests PRIVATE ${SQLite3_LIBRARIES}
       )
     endif()
     add_test(
-      NAME traceloom_native_perfetto_exporter_tests
-      COMMAND traceloom_native_perfetto_exporter_tests
+      NAME perfetto_exporter_tests
+      COMMAND perfetto_exporter_tests
     )
 
-    add_executable(traceloom_native_ascend_sqlite_determinism_tests
+    add_executable(ascend_sqlite_determinism_tests
       tests/adapters/ascend_sqlite_determinism_tests.cpp
     )
     target_link_libraries(
-      traceloom_native_ascend_sqlite_determinism_tests PRIVATE
+      ascend_sqlite_determinism_tests PRIVATE
       traceloom_native_adapters
     )
     if(TARGET SQLite::SQLite3)
       target_link_libraries(
-        traceloom_native_ascend_sqlite_determinism_tests PRIVATE
+        ascend_sqlite_determinism_tests PRIVATE
         SQLite::SQLite3
       )
     else()
       target_include_directories(
-        traceloom_native_ascend_sqlite_determinism_tests
+        ascend_sqlite_determinism_tests
         PRIVATE ${SQLite3_INCLUDE_DIRS}
       )
       target_link_libraries(
-        traceloom_native_ascend_sqlite_determinism_tests PRIVATE
+        ascend_sqlite_determinism_tests PRIVATE
         ${SQLite3_LIBRARIES}
       )
     endif()
     add_test(
-      NAME traceloom_native_ascend_sqlite_determinism_tests
-      COMMAND traceloom_native_ascend_sqlite_determinism_tests
+      NAME ascend_sqlite_determinism_tests
+      COMMAND ascend_sqlite_determinism_tests
     )
 
-    add_executable(traceloom_native_hygon_sqlite_adapter_tests
+    add_executable(hygon_sqlite_adapter_tests
       tests/adapters/hygon_sqlite_adapter_tests.cpp
     )
     target_link_libraries(
-      traceloom_native_hygon_sqlite_adapter_tests PRIVATE
+      hygon_sqlite_adapter_tests PRIVATE
       traceloom_native_adapters
     )
     if(TARGET SQLite::SQLite3)
       target_link_libraries(
-        traceloom_native_hygon_sqlite_adapter_tests PRIVATE SQLite::SQLite3
+        hygon_sqlite_adapter_tests PRIVATE SQLite::SQLite3
       )
     else()
       target_include_directories(
-        traceloom_native_hygon_sqlite_adapter_tests
+        hygon_sqlite_adapter_tests
         PRIVATE ${SQLite3_INCLUDE_DIRS}
       )
       target_link_libraries(
-        traceloom_native_hygon_sqlite_adapter_tests
+        hygon_sqlite_adapter_tests
         PRIVATE ${SQLite3_LIBRARIES}
       )
     endif()
     add_test(
-      NAME traceloom_native_hygon_sqlite_adapter_tests
-      COMMAND traceloom_native_hygon_sqlite_adapter_tests
+      NAME hygon_sqlite_adapter_tests
+      COMMAND hygon_sqlite_adapter_tests
     )
 
-    add_executable(traceloom_native_cuda_nsys_sqlite_adapter_tests
+    add_executable(cuda_nsys_sqlite_adapter_tests
       tests/adapters/cuda_nsys_sqlite_adapter_tests.cpp
     )
     target_link_libraries(
-      traceloom_native_cuda_nsys_sqlite_adapter_tests PRIVATE
+      cuda_nsys_sqlite_adapter_tests PRIVATE
       traceloom_native_adapters
     )
     if(TARGET SQLite::SQLite3)
       target_link_libraries(
-        traceloom_native_cuda_nsys_sqlite_adapter_tests PRIVATE SQLite::SQLite3
+        cuda_nsys_sqlite_adapter_tests PRIVATE SQLite::SQLite3
       )
     else()
       target_include_directories(
-        traceloom_native_cuda_nsys_sqlite_adapter_tests
+        cuda_nsys_sqlite_adapter_tests
         PRIVATE ${SQLite3_INCLUDE_DIRS}
       )
       target_link_libraries(
-        traceloom_native_cuda_nsys_sqlite_adapter_tests
+        cuda_nsys_sqlite_adapter_tests
         PRIVATE ${SQLite3_LIBRARIES}
       )
     endif()
     add_test(
-      NAME traceloom_native_cuda_nsys_sqlite_adapter_tests
-      COMMAND traceloom_native_cuda_nsys_sqlite_adapter_tests
+      NAME cuda_nsys_sqlite_adapter_tests
+      COMMAND cuda_nsys_sqlite_adapter_tests
         ${CMAKE_CURRENT_BINARY_DIR}/cuda_nsys_minimal_fixture.sqlite
     )
 
-    add_executable(traceloom_native_sqlite_profile_reader_tests
+    add_executable(sqlite_profile_reader_tests
       tests/adapters/sqlite_profile_reader_tests.cpp
     )
     target_include_directories(
-      traceloom_native_sqlite_profile_reader_tests PRIVATE
+      sqlite_profile_reader_tests PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/src/adapters
     )
     target_link_libraries(
-      traceloom_native_sqlite_profile_reader_tests PRIVATE
+      sqlite_profile_reader_tests PRIVATE
       traceloom_native_adapters
     )
     if(TARGET SQLite::SQLite3)
       target_link_libraries(
-        traceloom_native_sqlite_profile_reader_tests PRIVATE SQLite::SQLite3
+        sqlite_profile_reader_tests PRIVATE SQLite::SQLite3
       )
     else()
       target_include_directories(
-        traceloom_native_sqlite_profile_reader_tests
+        sqlite_profile_reader_tests
         PRIVATE ${SQLite3_INCLUDE_DIRS}
       )
       target_link_libraries(
-        traceloom_native_sqlite_profile_reader_tests
+        sqlite_profile_reader_tests
         PRIVATE ${SQLite3_LIBRARIES}
       )
     endif()
     add_test(
-      NAME traceloom_native_sqlite_profile_reader_tests
-      COMMAND traceloom_native_sqlite_profile_reader_tests
+      NAME sqlite_profile_reader_tests
+      COMMAND sqlite_profile_reader_tests
     )
 
-    add_executable(traceloom_native_sidecar_writer_tests
+    add_executable(sidecar_writer_tests
       tests/compat/sidecar_writer_tests.cpp
       tests/compat/sidecar_writer_graph_projection_tests.cpp
       tests/compat/sidecar_writer_test_support.cpp
     )
     target_compile_definitions(
-      traceloom_native_sidecar_writer_tests PRIVATE
+      sidecar_writer_tests PRIVATE
       TRACELOOM_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/.."
     )
     target_link_libraries(
-      traceloom_native_sidecar_writer_tests PRIVATE
+      sidecar_writer_tests PRIVATE
       traceloom_native_materialize
     )
     if(TARGET SQLite::SQLite3)
       target_link_libraries(
-        traceloom_native_sidecar_writer_tests PRIVATE SQLite::SQLite3
+        sidecar_writer_tests PRIVATE SQLite::SQLite3
       )
     else()
       target_include_directories(
-        traceloom_native_sidecar_writer_tests
+        sidecar_writer_tests
         PRIVATE ${SQLite3_INCLUDE_DIRS}
       )
       target_link_libraries(
-        traceloom_native_sidecar_writer_tests
+        sidecar_writer_tests
         PRIVATE ${SQLite3_LIBRARIES}
       )
     endif()
     add_test(
-      NAME traceloom_native_sidecar_writer_tests
-      COMMAND traceloom_native_sidecar_writer_tests
+      NAME sidecar_writer_tests
+      COMMAND sidecar_writer_tests
     )
 
-    add_executable(traceloom_native_sidecar_materializer_tests
+    add_executable(sidecar_materializer_tests
       tests/compat/native_sidecar_materializer_tests.cpp
       tests/compat/native_sidecar_materializer_graph_tests.cpp
       tests/compat/native_sidecar_materializer_host_window_tests.cpp
@@ -1095,156 +1095,156 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
       tests/compat/native_sidecar_materializer_test_support.cpp
     )
     target_link_libraries(
-      traceloom_native_sidecar_materializer_tests PRIVATE
+      sidecar_materializer_tests PRIVATE
       traceloom_native_materialize
     )
     if(TARGET SQLite::SQLite3)
       target_link_libraries(
-        traceloom_native_sidecar_materializer_tests PRIVATE SQLite::SQLite3
+        sidecar_materializer_tests PRIVATE SQLite::SQLite3
       )
     else()
       target_include_directories(
-        traceloom_native_sidecar_materializer_tests
+        sidecar_materializer_tests
         PRIVATE ${SQLite3_INCLUDE_DIRS}
       )
       target_link_libraries(
-        traceloom_native_sidecar_materializer_tests
+        sidecar_materializer_tests
         PRIVATE ${SQLite3_LIBRARIES}
       )
     endif()
     add_test(
-      NAME traceloom_native_sidecar_materializer_tests
-      COMMAND traceloom_native_sidecar_materializer_tests
+      NAME sidecar_materializer_tests
+      COMMAND sidecar_materializer_tests
     )
 
-    add_executable(traceloom_native_event_reconciliation_rows_tests
+    add_executable(event_reconciliation_rows_tests
       tests/compat/event_reconciliation_rows_tests.cpp
     )
     target_link_libraries(
-      traceloom_native_event_reconciliation_rows_tests PRIVATE
+      event_reconciliation_rows_tests PRIVATE
       traceloom_native_materialize
     )
     if(TARGET SQLite::SQLite3)
       target_link_libraries(
-        traceloom_native_event_reconciliation_rows_tests PRIVATE
+        event_reconciliation_rows_tests PRIVATE
         SQLite::SQLite3
       )
     else()
       target_include_directories(
-        traceloom_native_event_reconciliation_rows_tests PRIVATE
+        event_reconciliation_rows_tests PRIVATE
         ${SQLite3_INCLUDE_DIRS}
       )
       target_link_libraries(
-        traceloom_native_event_reconciliation_rows_tests PRIVATE
+        event_reconciliation_rows_tests PRIVATE
         ${SQLite3_LIBRARIES}
       )
     endif()
     add_test(
-      NAME traceloom_native_event_reconciliation_rows_tests
-      COMMAND traceloom_native_event_reconciliation_rows_tests
+      NAME event_reconciliation_rows_tests
+      COMMAND event_reconciliation_rows_tests
     )
 
-    add_executable(traceloom_native_report_sql_compat_tests
+    add_executable(report_sql_compat_tests
       tests/compat/report_sql_compat_tests.cpp
     )
     target_compile_definitions(
-      traceloom_native_report_sql_compat_tests PRIVATE
+      report_sql_compat_tests PRIVATE
       TRACELOOM_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/.."
     )
     if(TARGET SQLite::SQLite3)
       target_link_libraries(
-        traceloom_native_report_sql_compat_tests PRIVATE SQLite::SQLite3
+        report_sql_compat_tests PRIVATE SQLite::SQLite3
       )
     else()
       target_include_directories(
-        traceloom_native_report_sql_compat_tests
+        report_sql_compat_tests
         PRIVATE ${SQLite3_INCLUDE_DIRS}
       )
       target_link_libraries(
-        traceloom_native_report_sql_compat_tests
+        report_sql_compat_tests
         PRIVATE ${SQLite3_LIBRARIES}
       )
     endif()
     add_test(
-      NAME traceloom_native_report_sql_compat_tests
-      COMMAND traceloom_native_report_sql_compat_tests
+      NAME report_sql_compat_tests
+      COMMAND report_sql_compat_tests
     )
 
-    add_executable(traceloom_native_evidence_role_materialization_tests
+    add_executable(evidence_role_materialization_tests
       tests/compat/evidence_role_materialization_tests.cpp
     )
     target_link_libraries(
-      traceloom_native_evidence_role_materialization_tests PRIVATE
+      evidence_role_materialization_tests PRIVATE
       traceloom_native_materialize
     )
     if(TARGET SQLite::SQLite3)
       target_link_libraries(
-        traceloom_native_evidence_role_materialization_tests
+        evidence_role_materialization_tests
         PRIVATE SQLite::SQLite3
       )
     else()
       target_include_directories(
-        traceloom_native_evidence_role_materialization_tests
+        evidence_role_materialization_tests
         PRIVATE ${SQLite3_INCLUDE_DIRS}
       )
       target_link_libraries(
-        traceloom_native_evidence_role_materialization_tests
+        evidence_role_materialization_tests
         PRIVATE ${SQLite3_LIBRARIES}
       )
     endif()
     add_test(
-      NAME traceloom_native_evidence_role_materialization_tests
-      COMMAND traceloom_native_evidence_role_materialization_tests
+      NAME evidence_role_materialization_tests
+      COMMAND evidence_role_materialization_tests
     )
 
-    add_executable(traceloom_native_generated_sidecar_projection_tests
+    add_executable(generated_sidecar_projection_tests
       tests/compat/generated_sidecar_projection_tests.cpp
     )
     target_compile_definitions(
-      traceloom_native_generated_sidecar_projection_tests PRIVATE
+      generated_sidecar_projection_tests PRIVATE
       TRACELOOM_NATIVE_SOURCE_ROOT="${CMAKE_CURRENT_SOURCE_DIR}"
     )
     target_link_libraries(
-      traceloom_native_generated_sidecar_projection_tests PRIVATE
+      generated_sidecar_projection_tests PRIVATE
       traceloom_native_adapters
       traceloom_native_materialize
     )
     if(TARGET SQLite::SQLite3)
       target_link_libraries(
-        traceloom_native_generated_sidecar_projection_tests PRIVATE SQLite::SQLite3
+        generated_sidecar_projection_tests PRIVATE SQLite::SQLite3
       )
     else()
       target_include_directories(
-        traceloom_native_generated_sidecar_projection_tests
+        generated_sidecar_projection_tests
         PRIVATE ${SQLite3_INCLUDE_DIRS}
       )
       target_link_libraries(
-        traceloom_native_generated_sidecar_projection_tests
+        generated_sidecar_projection_tests
         PRIVATE ${SQLite3_LIBRARIES}
       )
     endif()
     add_test(
-      NAME traceloom_native_generated_sidecar_projection_tests
-      COMMAND traceloom_native_generated_sidecar_projection_tests
+      NAME generated_sidecar_projection_tests
+      COMMAND generated_sidecar_projection_tests
     )
 
-    add_executable(traceloom_native_cli_sidecar_smoke_tests
+    add_executable(cli_sidecar_smoke_tests
       tests/compat/cli_sidecar_smoke_tests.cpp
     )
     target_link_libraries(
-      traceloom_native_cli_sidecar_smoke_tests PRIVATE traceloom_native_core
+      cli_sidecar_smoke_tests PRIVATE traceloom_native_core
     )
     if(TARGET SQLite::SQLite3)
       target_link_libraries(
-        traceloom_native_cli_sidecar_smoke_tests PRIVATE SQLite::SQLite3
+        cli_sidecar_smoke_tests PRIVATE SQLite::SQLite3
       )
     else()
       target_include_directories(
-        traceloom_native_cli_sidecar_smoke_tests
+        cli_sidecar_smoke_tests
         PRIVATE ${SQLite3_INCLUDE_DIRS}
       )
       target_link_libraries(
-        traceloom_native_cli_sidecar_smoke_tests PRIVATE ${SQLite3_LIBRARIES}
+        cli_sidecar_smoke_tests PRIVATE ${SQLite3_LIBRARIES}
       )
     endif()
 
@@ -1253,12 +1253,12 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
       ${CMAKE_CURRENT_BINARY_DIR}/official_ascend_cli_input/ascend_pytorch_profiler_0.db
     )
     add_test(
-      NAME traceloom_native_prepare_official_ascend_cli_input
-      COMMAND traceloom_native_ascend_sqlite_adapter_tests
+      NAME prepare_official_ascend_cli_input
+      COMMAND ascend_sqlite_adapter_tests
         --materialize ${TRACELOOM_OFFICIAL_ASCEND_CLI_INPUT}
     )
     add_test(
-      NAME traceloom_native_analyze_official_ascend_cli_input
+      NAME analyze_official_ascend_cli_input
       COMMAND traceloom
         ${TRACELOOM_OFFICIAL_ASCEND_CLI_INPUT}
         --source-kind ascend_sqlite_hot_path
@@ -1272,20 +1272,20 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
         ${CMAKE_CURRENT_BINARY_DIR}/official_ascend_cli_compact.md
     )
     set_tests_properties(
-      traceloom_native_analyze_official_ascend_cli_input
+      analyze_official_ascend_cli_input
       PROPERTIES
-        DEPENDS traceloom_native_prepare_official_ascend_cli_input
+        DEPENDS prepare_official_ascend_cli_input
         PASS_REGULAR_EXPRESSION "timing source_kind=ascend_sqlite_hot_path"
     )
     add_test(
-      NAME traceloom_native_analyze_official_ascend_cli_sidecar
-      COMMAND traceloom_native_cli_sidecar_smoke_tests
+      NAME analyze_official_ascend_cli_sidecar
+      COMMAND cli_sidecar_smoke_tests
         ${CMAKE_CURRENT_BINARY_DIR}/official_ascend_cli_compat.db ascend
         ${CMAKE_CURRENT_BINARY_DIR}/official_ascend_cli_compact.md
     )
     set_tests_properties(
-      traceloom_native_analyze_official_ascend_cli_sidecar
-      PROPERTIES DEPENDS traceloom_native_analyze_official_ascend_cli_input
+      analyze_official_ascend_cli_sidecar
+      PROPERTIES DEPENDS analyze_official_ascend_cli_input
     )
 
     set(
@@ -1301,79 +1301,79 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
       ${TRACELOOM_OFFICIAL_ASCEND_MULTI_INPUT_ROOT}/rank1_ascend_pt/ASCEND_PROFILER_OUTPUT/ascend_pytorch_profiler_1.db
     )
     add_test(
-      NAME traceloom_native_prepare_official_ascend_multi_input_dirs
+      NAME prepare_official_ascend_multi_input_dirs
       COMMAND ${CMAKE_COMMAND} -E make_directory
         ${TRACELOOM_OFFICIAL_ASCEND_MULTI_INPUT_ROOT}/rank0_ascend_pt/ASCEND_PROFILER_OUTPUT
         ${TRACELOOM_OFFICIAL_ASCEND_MULTI_INPUT_ROOT}/rank1_ascend_pt/ASCEND_PROFILER_OUTPUT
     )
     add_test(
-      NAME traceloom_native_prepare_official_ascend_multi_input_0
-      COMMAND traceloom_native_ascend_sqlite_adapter_tests
+      NAME prepare_official_ascend_multi_input_0
+      COMMAND ascend_sqlite_adapter_tests
         --materialize ${TRACELOOM_OFFICIAL_ASCEND_MULTI_INPUT_0}
     )
     add_test(
-      NAME traceloom_native_prepare_official_ascend_multi_input_1
-      COMMAND traceloom_native_ascend_sqlite_adapter_tests
+      NAME prepare_official_ascend_multi_input_1
+      COMMAND ascend_sqlite_adapter_tests
         --materialize ${TRACELOOM_OFFICIAL_ASCEND_MULTI_INPUT_1}
     )
     set_tests_properties(
-      traceloom_native_prepare_official_ascend_multi_input_0
-      traceloom_native_prepare_official_ascend_multi_input_1
-      PROPERTIES DEPENDS traceloom_native_prepare_official_ascend_multi_input_dirs
+      prepare_official_ascend_multi_input_0
+      prepare_official_ascend_multi_input_1
+      PROPERTIES DEPENDS prepare_official_ascend_multi_input_dirs
     )
     add_test(
-      NAME traceloom_native_analyze_official_ascend_multi_input
+      NAME analyze_official_ascend_multi_input
       COMMAND traceloom
         ${TRACELOOM_OFFICIAL_ASCEND_MULTI_INPUT_ROOT}
         --threads 2
         --timings
     )
     set_tests_properties(
-      traceloom_native_analyze_official_ascend_multi_input
+      analyze_official_ascend_multi_input
       PROPERTIES
         DEPENDS
-          "traceloom_native_prepare_official_ascend_multi_input_0;traceloom_native_prepare_official_ascend_multi_input_1"
+          "prepare_official_ascend_multi_input_0;prepare_official_ascend_multi_input_1"
         PASS_REGULAR_EXPRESSION
           "wrote queryable database timeline: .*official_ascend_cli_multi_input/traceloom/analysis_db0[12].db"
     )
     add_test(
-      NAME traceloom_native_analyze_official_ascend_multi_input_0
-      COMMAND traceloom_native_cli_sidecar_smoke_tests
+      NAME analyze_official_ascend_multi_input_0
+      COMMAND cli_sidecar_smoke_tests
         ${TRACELOOM_OFFICIAL_ASCEND_MULTI_INPUT_ROOT}/traceloom/analysis_db01.db
         ascend-augmented
     )
     add_test(
-      NAME traceloom_native_analyze_official_ascend_multi_input_1
-      COMMAND traceloom_native_cli_sidecar_smoke_tests
+      NAME analyze_official_ascend_multi_input_1
+      COMMAND cli_sidecar_smoke_tests
         ${TRACELOOM_OFFICIAL_ASCEND_MULTI_INPUT_ROOT}/traceloom/analysis_db02.db
         ascend-augmented
     )
     set_tests_properties(
-      traceloom_native_analyze_official_ascend_multi_input_0
-      traceloom_native_analyze_official_ascend_multi_input_1
-      PROPERTIES DEPENDS traceloom_native_analyze_official_ascend_multi_input
+      analyze_official_ascend_multi_input_0
+      analyze_official_ascend_multi_input_1
+      PROPERTIES DEPENDS analyze_official_ascend_multi_input
     )
 
     add_test(
-      NAME traceloom_native_prepare_unrelated_sqlite_input
-      COMMAND traceloom_native_ascend_sqlite_adapter_tests
+      NAME prepare_unrelated_sqlite_input
+      COMMAND ascend_sqlite_adapter_tests
         --materialize-unrelated
         ${CMAKE_CURRENT_BINARY_DIR}/unrelated_profile.db
     )
     add_test(
-      NAME traceloom_native_rejects_unrelated_sqlite_input
+      NAME rejects_unrelated_sqlite_input
       COMMAND ${CMAKE_COMMAND}
         -DTRACELOOM_ANALYZER=$<TARGET_FILE:traceloom>
         -DTRACELOOM_UNRELATED_DB=${CMAKE_CURRENT_BINARY_DIR}/unrelated_profile.db
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/boundary/reject_unrelated_sqlite_input.cmake
     )
     set_tests_properties(
-      traceloom_native_rejects_unrelated_sqlite_input
-      PROPERTIES DEPENDS traceloom_native_prepare_unrelated_sqlite_input
+      rejects_unrelated_sqlite_input
+      PROPERTIES DEPENDS prepare_unrelated_sqlite_input
     )
 
     add_test(
-      NAME traceloom_native_analyze_cuda_nsys_compat_sidecar_cli
+      NAME analyze_cuda_nsys_compat_sidecar_cli
       COMMAND traceloom
         --source-kind cuda_nsys_sqlite
         --source-db ${CMAKE_CURRENT_BINARY_DIR}/cuda_nsys_minimal_fixture.sqlite
@@ -1386,42 +1386,42 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
         --loop-tree-device-id 0
     )
     set_tests_properties(
-      traceloom_native_analyze_cuda_nsys_compat_sidecar_cli
+      analyze_cuda_nsys_compat_sidecar_cli
       PROPERTIES
-        DEPENDS traceloom_native_cuda_nsys_sqlite_adapter_tests
+        DEPENDS cuda_nsys_sqlite_adapter_tests
         PASS_REGULAR_EXPRESSION "timing source_kind=cuda_nsys_sqlite"
     )
     add_test(
-      NAME traceloom_native_analyze_cuda_nsys_compat_sidecar_db
-      COMMAND traceloom_native_cli_sidecar_smoke_tests
+      NAME analyze_cuda_nsys_compat_sidecar_db
+      COMMAND cli_sidecar_smoke_tests
         ${CMAKE_CURRENT_BINARY_DIR}/cuda_nsys_cli_compat.db cuda
         ${CMAKE_CURRENT_BINARY_DIR}/cuda_nsys_loop_tree_v2.md
     )
     set_tests_properties(
-      traceloom_native_analyze_cuda_nsys_compat_sidecar_db
+      analyze_cuda_nsys_compat_sidecar_db
       PROPERTIES
-        DEPENDS traceloom_native_analyze_cuda_nsys_compat_sidecar_cli
+        DEPENDS analyze_cuda_nsys_compat_sidecar_cli
     )
 
     add_test(
-      NAME traceloom_native_prepare_cuda_nsys_default_input_dir
+      NAME prepare_cuda_nsys_default_input_dir
       COMMAND ${CMAKE_COMMAND} -E make_directory
         ${CMAKE_CURRENT_BINARY_DIR}/default_cli_input
     )
     add_test(
-      NAME traceloom_native_prepare_cuda_nsys_default_input
+      NAME prepare_cuda_nsys_default_input
       COMMAND ${CMAKE_COMMAND} -E copy
         ${CMAKE_CURRENT_BINARY_DIR}/cuda_nsys_minimal_fixture.sqlite
         ${CMAKE_CURRENT_BINARY_DIR}/default_cli_input/profile.sqlite
     )
     set_tests_properties(
-      traceloom_native_prepare_cuda_nsys_default_input
+      prepare_cuda_nsys_default_input
       PROPERTIES
         DEPENDS
-          "traceloom_native_cuda_nsys_sqlite_adapter_tests;traceloom_native_prepare_cuda_nsys_default_input_dir"
+          "cuda_nsys_sqlite_adapter_tests;prepare_cuda_nsys_default_input_dir"
     )
     add_test(
-      NAME traceloom_native_analyze_cuda_nsys_default_augmented_db_cli
+      NAME analyze_cuda_nsys_default_augmented_db_cli
       COMMAND traceloom
         ${CMAKE_CURRENT_BINARY_DIR}/default_cli_input/profile.sqlite
         --threads 2
@@ -1429,26 +1429,26 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
         cuda.anchor.task.type.cuda.kernel.51cc7472.priority=96
     )
     set_tests_properties(
-      traceloom_native_analyze_cuda_nsys_default_augmented_db_cli
+      analyze_cuda_nsys_default_augmented_db_cli
       PROPERTIES
-        DEPENDS traceloom_native_prepare_cuda_nsys_default_input
+        DEPENDS prepare_cuda_nsys_default_input
         PASS_REGULAR_EXPRESSION
           "wrote queryable database timeline: .*default_cli_input/traceloom/analysis.db"
     )
     add_test(
-      NAME traceloom_native_analyze_cuda_nsys_default_augmented_db
-      COMMAND traceloom_native_cli_sidecar_smoke_tests
+      NAME analyze_cuda_nsys_default_augmented_db
+      COMMAND cli_sidecar_smoke_tests
         ${CMAKE_CURRENT_BINARY_DIR}/default_cli_input/traceloom/analysis.db
         augmented
     )
     set_tests_properties(
-      traceloom_native_analyze_cuda_nsys_default_augmented_db
+      analyze_cuda_nsys_default_augmented_db
       PROPERTIES
-        DEPENDS traceloom_native_analyze_cuda_nsys_default_augmented_db_cli
+        DEPENDS analyze_cuda_nsys_default_augmented_db_cli
     )
 
     add_test(
-      NAME traceloom_native_analyze_fixture_compat_sidecar_cli
+      NAME analyze_fixture_compat_sidecar_cli
       COMMAND traceloom-native-analyze-fixture
         --fixture
         ${TRACELOOM_NATIVE_FIXTURE_ROOT}/protected_sequence/f1_tiny_repeated_pair.json
@@ -1456,19 +1456,19 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
         --compat-sidecar-out ${CMAKE_CURRENT_BINARY_DIR}/fixture_cli_compat.db
     )
     add_test(
-      NAME traceloom_native_analyze_fixture_compat_sidecar_db
-      COMMAND traceloom_native_cli_sidecar_smoke_tests
+      NAME analyze_fixture_compat_sidecar_db
+      COMMAND cli_sidecar_smoke_tests
         ${CMAKE_CURRENT_BINARY_DIR}/fixture_cli_compat.db fixture
     )
     set_tests_properties(
-      traceloom_native_analyze_fixture_compat_sidecar_db
-      PROPERTIES DEPENDS traceloom_native_analyze_fixture_compat_sidecar_cli
+      analyze_fixture_compat_sidecar_db
+      PROPERTIES DEPENDS analyze_fixture_compat_sidecar_cli
     )
 
   endif()
 
   add_test(
-    NAME traceloom_native_include_boundary_tests
+    NAME include_boundary_tests
     COMMAND ${CMAKE_COMMAND}
       -DTRACELOOM_NATIVE_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
       -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/boundary/include_boundary_tests.cmake

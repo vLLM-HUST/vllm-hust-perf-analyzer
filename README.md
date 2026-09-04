@@ -330,11 +330,17 @@ TraceLoom keeps two operator identities when constructing the anchor sequence:
 
 Only explicit, versioned rules loaded from
 [`native/data/default_structural_symbol_rules.tsv`](native/data/default_structural_symbol_rules.tsv)
-may change the observed label. For example, the current Ascend policy maps the supported `MatMulV1/V2/V3` and
-`BatchMatMulV1/V2/V3` labels to the structural symbol `MatMul`. An unfamiliar
-label follows the typed identity fallback and remains visible rather than
-being fuzzily merged. Equal structural symbols make observations comparable;
-they do not establish a family/position correspondence by name alone.
+may change the structural comparison label. The concrete observed label is
+always retained for audit. For example, the current Ascend policy maps the
+supported bare or CANN-decorated `MatMulV1/V2/V3` and
+`BatchMatMulV1/V2/V3` labels to the structural symbol `MatMul`. It also strips
+a strongly identified CANN fingerprint/layout/mode suffix from other device
+task labels, so a generated `Cast_<fingerprint>_high_performance_<variant>` is
+displayed structurally as `Cast` while the full lowering remains queryable as
+`observed_symbol`. Labels without that syntax follow the typed identity
+fallback and remain visible rather than being fuzzily merged. Equal structural
+symbols make observations comparable; they do not establish a family/position
+correspondence by name alone.
 Use `--symbol-rules PATH` to replace this input for one run or
 `--extend-symbol-rules PATH` to add higher-priority rules. The effective
 manifest identity, SHA-256, catalog, and per-anchor matches are copied into

@@ -172,7 +172,7 @@ Run the focused alignment fixture, then the full suite and non-test build:
 cmake --preset dev-tests
 cmake --build --preset dev-tests -j 48
 ctest --test-dir build/native-tests \
-  -R traceloom_native_perfetto_exporter_tests --output-on-failure
+  -R perfetto_exporter_tests --output-on-failure
 ctest --preset dev-tests --output-on-failure
 cmake --preset dev
 cmake --build --preset dev -j 48

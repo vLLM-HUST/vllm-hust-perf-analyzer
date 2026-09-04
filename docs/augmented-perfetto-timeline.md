@@ -104,7 +104,11 @@ observed time axis:
 3. **Raw provider evidence.** When the embedded Ascend tables are present,
    PyTorch API, CANN API, communication-op, device task, and AICORE-frequency
    tracks are exported from `traceloom_raw_table` mappings. Every raw slice
-   retains its source ID, embedded table, and source rowid.
+   retains its source ID, embedded table, and source rowid. Device-task names
+   on these audit tracks intentionally remain the provider's complete kernel
+   labels. The execution-tree and flat TraceLoom planes use normalized
+   structural labels; seeing a CANN fingerprint only under `Raw provider ·
+   TASK` is therefore expected evidence retention, not semantic-label noise.
 4. **Distributed TraceLoom event lanes.** When distributed timelines are
    supplied, the ordinary single flat event track is replaced by one flat rank
    track from each DB's published atom occurrences. The same TraceLoom event

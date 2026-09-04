@@ -171,7 +171,7 @@ communication anchor, and emits a typed conflict if more than one distinct
 representative anchor exists. A focused SQLite regression constructs distinct
 TASK and COMMUNICATION_OP observations for one execution, checks that the task
 lands on the communication anchor, and rejects an orphan issue. The incremental
-build and `traceloom_native_report_sql_compat_tests` pass.
+build and `report_sql_compat_tests` pass.
 
 **Completed repair.** A shared `EventCostAttributionMask`, built from the
 effective `FlatAnchorBuildConfig`, now gates both auxiliary links and transition

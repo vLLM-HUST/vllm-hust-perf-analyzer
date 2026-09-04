@@ -24,7 +24,7 @@ Golden updates are never automatic. After an intentional query or corpus
 change, build the test executable and run:
 
 ```bash
-build/native-tests/native/traceloom_native_report_sql_compat_tests \
+build/native-tests/native/report_sql_compat_tests \
   --update-goldens
 ```
 

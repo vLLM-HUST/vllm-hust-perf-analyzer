@@ -188,8 +188,15 @@ fields/match modes, duplicate rule IDs, and duplicate equal-precedence match
 keys before analysis. If distinct predicates still overlap on a concrete
 observation at the same highest precedence, the analyzer preserves that
 observation and records a typed conflict rather than choosing silently.
-Unmatched symbols follow an identity fallback. The effective policy, manifest
-hash, rule catalog, and per-anchor decisions are materialized in `analysis.db`.
+The default Ascend policy also recognizes CANN's strongly marked generated
+kernel syntax (a 32-character fingerprint, an explicit
+`high_performance`/`high_precision`/`optional` lowering mode, or the admitted
+legacy MatMul layout suffix). It exposes the kernel base as the structural
+label while retaining the complete generated name as `observed_symbol`.
+Names without that syntax remain untouched; this is not an arbitrary split at
+the first underscore. Unmatched symbols follow an identity fallback. The
+effective policy, manifest hash, rule catalog, and per-anchor decisions are
+materialized in `analysis.db`.
 
 Sparse duplicate-observation reconciliation is independently configured by
 `data/default_event_reconciliation_rules.tsv`. Use

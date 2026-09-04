@@ -30,6 +30,8 @@ enum class StructuralSymbolMatch {
   kContainsCaseInsensitive,
   kContainsAnyCaseInsensitive,
   kOpaqueNumericInstance,
+  kAscendKernelBaseExactAny,
+  kAscendDecoratedKernel,
 };
 
 struct StructuralSymbolNormalizationRule {

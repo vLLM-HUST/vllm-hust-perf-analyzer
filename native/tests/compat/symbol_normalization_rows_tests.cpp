@@ -42,7 +42,7 @@ int main() {
   require(rows.policies.size() == 1);
   require(rows.policies.front().policy_id ==
           "traceloom.default-structural-symbols");
-  require(rows.policies.front().policy_version == "1");
+  require(rows.policies.front().policy_version == "2");
   require(rows.rules.size() >= 10);
   require(std::any_of(rows.rules.begin(), rows.rules.end(),
                       [](const compat::SymbolNormalizationRuleSqlRow& row) {
