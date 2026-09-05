@@ -5,6 +5,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <stdexcept>
 #include <string>
 
@@ -24,7 +25,7 @@ void write_file(const std::filesystem::path& path,
 }
 
 traceloom::NativeIr build_one_task(const std::string& provider,
-                                   const std::string& symbol) {
+                                   const std::string& symbol, bool named = false) {
   using namespace traceloom;
   NativeIr ir;
   const SourceRefId source =
@@ -33,7 +34,7 @@ traceloom::NativeIr build_one_task(const std::string& provider,
   const SymbolId op = ir.symbols.intern(symbol);
   const TraceEventId event =
       ir.trace_events.append(source, 1, 0, 3, 100, 200, op);
-  ir.tasks.append(source, event, 1, 1, -1, ai_core, SymbolId::invalid(), op,
+  ir.tasks.append(source, event, 1, 1, -1, ai_core, named ? op : SymbolId::invalid(), op,
                   SymbolId::invalid(), SymbolId::invalid());
   return ir;
 }
@@ -159,6 +160,28 @@ int main() {
           "NovelFusedKernel");
   require(cuda.anchors.row(AnchorId(0)).symbol_decision.rule_id ==
           "fallback.identity-preserve");
+
+  const auto torch_manifest = std::filesystem::path(__FILE__).parent_path()
+      .parent_path().parent_path() / "data/optional_hygon_torch_family_rules.tsv";
+  const auto torch_families = load_structural_symbol_ruleset(torch_manifest.string());
+  require(torch_families.rules().size() == 10);
+  FlatAnchorBuildConfig torch_config;
+  torch_config.structural_symbol_rules = extend_structural_symbol_ruleset(defaults, torch_families);
+  for (const auto& rule : torch_families.rules()) {
+    const auto name = "void kernel<" + rule.pattern + "float>>(args)";
+    NativeIr hip = build_one_task("hygon_sqlite", name, true);
+    build_flat_anchors(hip, torch_config);
+    const auto actual = hip.symbols.value(hip.anchors.row(AnchorId(0)).symbol_id);
+    if (actual != rule.structural_symbol) std::cerr << rule.rule_id << ": " << actual << " != " << rule.structural_symbol << "\n";
+    require(actual == rule.structural_symbol);
+    NativeIr unrelated = build_one_task("cuda_nsys_sqlite", name, true);
+    build_flat_anchors(unrelated, torch_config);
+    require(unrelated.symbols.value(unrelated.anchors.row(AnchorId(0)).symbol_id) == name);
+  }
+  NativeIr unmatched = build_one_task("hygon_sqlite", "my_unknown_kernel<float>()");
+  build_flat_anchors(unmatched, torch_config);
+  require(unmatched.symbols.value(unmatched.anchors.row(AnchorId(0)).symbol_id) ==
+          "my_unknown_kernel<float>()");
 
   const std::filesystem::path duplicate = temp_manifest("_duplicate");
   write_file(

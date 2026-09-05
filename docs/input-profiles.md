@@ -105,6 +105,27 @@ GDN Q/K preparation is separately labeled `MambaStatePrep`, not folded into
 the recurrent core. Unmatched signatures retain their concrete raw identities.
 
 
+### Optional Torch implementation-family projection
+
+`--extend-symbol-rules native/data/optional_hygon_torch_family_rules.tsv`
+adds opt-in Hygon-only family labels for selected Torch implementation symbols.
+This is **symbol-declared attribution**, not directly correlated eager evidence
+or recovery of Python calls. It can be composed with separately qualified exact
+kernel-name rules; keep their different evidence origins in the manifest notes.
+It deliberately changes the structural alphabet, so preserve the bare analysis
+and compare artifacts by provider event identity, not renumbered node IDs.
+
+Boundaries: `CompareFunctor` stores its predicate at runtime (see PyTorch
+[v2.9 CompareKernels.cu](https://github.com/pytorch/pytorch/blob/v2.9.0/aten/src/ATen/native/cuda/CompareKernels.cu));
+`Compare` must not become LT or GE. Fill values and scalar factors are likewise
+not in symbols. `SoftmaxFamily` does not infer log/masked policy; `ReduceMax`
+is not ArgMax. `Add/Sub` preserves shared lowering rather than guessing an
+original API. `AUnaryFunctor` binds a scalar to the named binary operation
+(`ATen/native/cuda/Loops.cuh`); `MaxOps` returns the value
+(`ATen/native/SharedReduceOps.h`). Requalify after DTK/Torch changes, retain
+literal provider events, and do not treat family-level matches as proof of a
+particular model subroutine. These optional rules are not the default policy.
+
 ## CUDA/Nsight Systems
 
 The native analyzer accepts Nsight Systems SQLite exports containing

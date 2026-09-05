@@ -210,6 +210,7 @@ int main() {
           "distinct small kernels must not collapse to one Pointwise token");
 
   const std::vector<std::pair<std::string, std::string>> native_cases = {
+      {"Cijk_Alik_Bljk_SB_MT16x16x32_SE_AMAS3_BW_ISA936", "MatMul"},
       {"void ck_tile::kentry<256, 1, ck_tile::Smoothquant<ck_tile::SmoothquantPipelineTorch<problem>>>(args)", "SmoothQuant"},
       {"scale_tile(int const*, float const*, float const*, unsigned short*, int)", "Int8GemmEpilogue"},
       {"silu_mul_tile(unsigned short const*, unsigned short const*, unsigned short*, int)", "SiluMul"},
@@ -238,7 +239,7 @@ int main() {
     require(retained_raw_name, "native leaf labeling erased the literal symbol");
     const auto leaf_stats = build_flat_anchors(leaf_ir, anchor_config);
     require(leaf_stats.device_event_anchors == 4 &&
-                count_anchor_label(leaf_ir, entry.second) == 1,
+                count_anchor_label(leaf_ir, entry.second) == (entry.second == "MatMul" ? 2 : 1),
             "native labeling changed event coverage");
   }
 

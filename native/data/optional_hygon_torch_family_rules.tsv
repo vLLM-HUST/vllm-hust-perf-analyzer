@@ -1,0 +1,14 @@
+# policy_id=experimental.hygon.torch-symbol-families
+# policy_version=1
+# Opt-in symbol-declared families, not direct eager attribution or Python-call recovery.
+priority	rule_id	provider_scope	source_domain	field	match	pattern	structural_symbol	note
+120	hygon.torch-family.self-add	hygon	task	op_name	contains_ci	at::native::CUDAFunctorOnSelf_add<	Add/Sub	Scalar/alpha values not recovered
+120	hygon.torch-family.add	hygon	task	op_name	contains_ci	at::native::CUDAFunctor_add<	Add/Sub	Subtraction may share addition lowering
+120	hygon.torch-family.cat	hygon	task	op_name	contains_ci	::CatArrayBatchedCopy<	Concat	Concatenation copy kernel; not general memcpy
+120	hygon.torch-family.index-copy	hygon	task	op_name	contains_ci	at::native::index_copy_kernel_impl<	IndexCopy	Index-copy implementation; no Python callsite inferred
+120	hygon.torch-family.compare	hygon	task	op_name	contains_ci	::CompareFunctor<	Compare	Runtime predicate not visible; do not infer LT/GE
+120	hygon.torch-family.fill	hygon	task	op_name	contains_ci	at::native::FillFunctor<	Fill	Value not visible; do not infer zero
+120	hygon.torch-family.scalar-mul	hygon	task	op_name	contains_ci	at::native::AUnaryFunctor<float, float, float, at::native::binary_internal::MulFunctor<float>	Mul	Scalar-bound multiplication; scalar not visible
+120	hygon.torch-family.softmax	hygon	task	op_name	contains_ci	::softmax_warp_forward<	SoftmaxFamily	Includes log/masked specializations; no policy inferred
+120	hygon.torch-family.max	hygon	task	op_name	contains_ci	at::native::MaxOps<	ReduceMax	Not ArgMax; Python operator not recovered
+120	hygon.torch-family.isneginf	hygon	task	op_name	contains_ci	::isneginf_kernel_impl(	IsNegInf	Named predicate implementation
