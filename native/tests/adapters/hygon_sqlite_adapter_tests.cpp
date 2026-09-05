@@ -59,7 +59,7 @@ void create_minimal_hygon_db(const std::string& path) {
            "INSERT INTO HIPOPS_0(BeginNs, EndNs, dev_id, queue_id, Name, "
            "_Index) VALUES "
            "(100, 200, 0, 7, 1, 10), "
-           "(210, 250, 0, 7, 2, 11), "
+           "(210, 250, 0, 7, 2, 10), "
            "(260, 270, 0, 7, 3, 12), "
            "(280, 300, 0, 7, 4, 13);"
            "CREATE TABLE HIPCOPY_0("
@@ -128,6 +128,10 @@ int main() {
           "adapter did not load HIPOPS/HIPCOPY trace events");
   require(ir.tasks.size() == 5, "adapter did not load HIPOPS/HIPCOPY tasks");
   require(ir.streams.size() == 2, "adapter did not normalize Hygon streams");
+  require(ir.trace_events.rows()[0].source_row_id == 1 &&
+              ir.trace_events.rows()[1].source_row_id == 2 &&
+              ir.trace_events.rows()[4].source_row_id == 1,
+          "raw source locators must be table rowids, not repeated launch indices");
 
   require(has_task_op_type(ir, "FlashAttention"),
           "flash_fwd kernel was not lifted to FlashAttention");
@@ -156,6 +160,19 @@ int main() {
           "auxiliary Hygon kernel became an anchor");
   require(count_anchor_label(ir, "DataMove") == 0,
           "HIPCOPY DataMove became a compute anchor");
+
+  // Dynamic INT8 Tensile uses another operand/type prefix on gfx936.
+  sqlite3* updated_db = nullptr;
+  require(sqlite3_open(db_path.c_str(), &updated_db) == SQLITE_OK,
+          "failed to reopen fixture");
+  exec_sql(updated_db,
+           "UPDATE STR_TABLE SET STR_NAME = "
+           "'Cijk_Ailk_Bljk_I8II_BH_MT128x64x64_SE_AMAS3_BW_ISA936' "
+           "WHERE STR_ID = 2;");
+  sqlite3_close(updated_db);
+  NativeIr int8_ir = adapter.load();
+  require(has_task_op_type(int8_ir, "MatMul"),
+          "INT8 Tensile GEMM must remain a MatMul anchor");
 
   std::remove(db_path.c_str());
   return 0;

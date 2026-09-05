@@ -179,7 +179,8 @@ LiftedKernel lift_hygon_kernel_label(const std::string& raw_label) {
     return lifted_aux("GemmEpilogue", "TensilePostGSU");
   }
   if (low.find("cijk_alik_bljk_bbh") != std::string::npos ||
-      low.find("cijk_alik_bjlk_sb") != std::string::npos) {
+      low.find("cijk_alik_bjlk_sb") != std::string::npos ||
+      low.find("cijk_ailk_bljk_i8ii_") != std::string::npos) {
     std::smatch match;
     const std::regex mt_pattern("_mt([0-9]+x[0-9]+x[0-9]+)");
     const std::string detail = std::regex_search(low, match, mt_pattern)
@@ -328,8 +329,10 @@ void load_hipops_table(
     SqliteDb& db, NativeIr& ir, std::map<StreamKey, StreamId>& streams,
     SourceRefId source_ref, const std::string& table_name,
     const std::unordered_map<std::int64_t, std::string>& strings) {
+  // _Index identifies a launch, not a row: one graph launch owns many
+  // kernel/copy records. Preserve the literal SQLite rowid for raw audit.
   SqliteStmt stmt(db.get(),
-                  "SELECT BeginNs, EndNs, dev_id, queue_id, Name, _Index "
+                  "SELECT BeginNs, EndNs, dev_id, queue_id, Name, _Index, rowid "
                   "FROM \"" +
                       table_name +
                       "\" WHERE BeginNs IS NOT NULL AND EndNs IS NOT NULL "
@@ -349,7 +352,8 @@ void load_hipops_table(
                                  : found->second;
       const LiftedKernel lifted = lift_hygon_kernel_label(raw_label);
       intern_stream(ir, streams, source_ref, device_id, queue_id);
-      append_task_event(ir, source_ref, index, device_id, queue_id, start_ns,
+      append_task_event(ir, source_ref, sqlite_u64(stmt.get(), 6), device_id,
+                        queue_id, start_ns,
                         end_ns, index, static_cast<std::int64_t>(index),
                         raw_label,
                         lifted.anchor ? "HIP_KERNEL" : "HIP_KERNEL_AUX",
@@ -367,9 +371,11 @@ void load_hipops_table(
 void load_hipcopy_table(SqliteDb& db, NativeIr& ir,
                         std::map<StreamKey, StreamId>& streams,
                         SourceRefId source_ref, const std::string& table_name) {
+  // _Index identifies a launch, not a row: one graph launch owns many
+  // kernel/copy records. Preserve the literal SQLite rowid for raw audit.
   SqliteStmt stmt(db.get(),
                   "SELECT BeginNs, EndNs, dev_id, queue_id, Kind, _Index, "
-                  "Bytes, MemoryType "
+                  "Bytes, MemoryType, rowid "
                   "FROM \"" +
                       table_name +
                       "\" WHERE BeginNs IS NOT NULL AND EndNs IS NOT NULL "
@@ -390,7 +396,8 @@ void load_hipcopy_table(SqliteDb& db, NativeIr& ir,
                                 " bytes=" + std::to_string(bytes);
       intern_stream(ir, streams, source_ref, device_id, queue_id);
       const SymbolId comm_symbol = ir.symbols.intern(label);
-      append_task_event(ir, source_ref, index, device_id, queue_id, start_ns,
+      append_task_event(ir, source_ref, sqlite_u64(stmt.get(), 8), device_id,
+                        queue_id, start_ns,
                         end_ns, index, static_cast<std::int64_t>(index), label,
                         "MEMCPY", label, "DataMove", comm_symbol);
       continue;
