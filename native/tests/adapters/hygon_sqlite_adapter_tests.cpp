@@ -174,6 +174,24 @@ int main() {
   require(has_task_op_type(int8_ir, "MatMul"),
           "INT8 Tensile GEMM must remain a MatMul anchor");
 
+  require(sqlite3_open(db_path.c_str(), &updated_db) == SQLITE_OK,
+          "failed to reopen native GDN fixture");
+  exec_sql(updated_db,
+           "UPDATE STR_TABLE SET STR_NAME = "
+           "'void qwen35_gdn_decode_kernel<hip_bfloat16>(...)' WHERE STR_ID=1;"
+           "UPDATE STR_TABLE SET STR_NAME = "
+           "'qwen35_gdn_qk_state_kernel(...)' WHERE STR_ID=3;");
+  sqlite3_close(updated_db);
+  NativeIr gdn_ir = adapter.load();
+  require(has_task_op_type(gdn_ir, "MambaDeltaRule"),
+          "native GDN core must be recognized");
+  require(has_task_op_type(gdn_ir, "HygonAux:MambaStatePrep"),
+          "native QK preparation must stay auxiliary");
+  build_flat_anchors(gdn_ir, anchor_config);
+  require(count_anchor_label(gdn_ir, "MambaDeltaRule") == 1 &&
+              count_anchor_label(gdn_ir, "HygonAux:MambaStatePrep") == 0,
+          "GDN classification must preserve anchor/auxiliary roles");
+
   std::remove(db_path.c_str());
   return 0;
 }

@@ -9,7 +9,18 @@ TraceLoom accepts these production inputs directly:
 <profile>/ASCEND_PROFILER_OUTPUT/ascend_pytorch_profiler_*.db
 <profile>/PROF_*/{host,device_*}/sqlite/*.db
 <capture>/*.sqlite exported by Nsight Systems
+<hipprof-capture>/*.db containing HIPOPS_*/HIPCOPY_* tables
 ```
+
+Hygon/DTK hipprof inputs are recognized by their SQLite schema. Capture-window
+control belongs to the workload: verify the intended launch count before
+analysis. `_Index` is a launch correlation shared by many graph kernels, not a
+unique row identity; raw audit uses table-local SQLite rowid. The current Hygon
+adapter loads device kernels and copies, not host HIP runtime calls. Zero
+runtime-call rows are an adapter limitation, not evidence of zero host work.
+Recognized compute/auxiliary labels recover observed repetition; they do not
+supply model-layer boundaries. Preserve unknown kernels and literal raw labels
+when the workload uses a new native implementation.
 
 Pass one DB when one exact output path is required. Pass a profiler directory
 when TraceLoom should discover all compatible inputs; in that mode omit

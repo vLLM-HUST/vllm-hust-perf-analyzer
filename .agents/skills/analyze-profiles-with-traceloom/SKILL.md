@@ -1,6 +1,6 @@
 ---
 name: analyze-profiles-with-traceloom
-description: Build or install TraceLoom, turn existing Ascend/CANN or CUDA/Nsight profiler databases into self-contained queryable database timelines (AugDBs), and use their structural, statistical, host/device, raw-provenance, Perfetto, and distributed-rank projections. Use when an agent must inspect profiler output with TraceLoom, compare repeated execution occurrences or ranks, diagnose timeline behavior, audit a finding back to provider rows, or produce a reproducible trace-analysis handoff.
+description: Build or install TraceLoom, turn existing Ascend/CANN, Hygon/DTK hipprof, or CUDA/Nsight profiler databases into self-contained queryable database timelines (AugDBs), and use their structural, statistical, host/device, raw-provenance, Perfetto, and distributed-rank projections. Use when an agent must inspect profiler output with TraceLoom, compare repeated execution occurrences or ranks, diagnose timeline behavior, audit a finding back to provider rows, or produce a reproducible trace-analysis handoff.
 ---
 
 # Analyze Profiles with TraceLoom

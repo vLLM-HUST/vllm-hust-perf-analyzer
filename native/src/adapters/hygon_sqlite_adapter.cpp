@@ -189,6 +189,13 @@ LiftedKernel lift_hygon_kernel_label(const std::string& raw_label) {
     return lifted_anchor("MatMul", detail);
   }
 
+  if (low.find("qwen35_gdn_decode_kernel") != std::string::npos) {
+    return lifted_anchor("MambaDeltaRule", "native gated_delta_rule");
+  }
+  if (low.find("qwen35_gdn_qk_state_kernel") != std::string::npos) {
+    return lifted_aux("MambaStatePrep", "native qk state preparation");
+  }
+
   if (low.find("flash_fwd_kernel") != std::string::npos) {
     return lifted_anchor("FlashAttention", "flash_fwd");
   }
