@@ -6,6 +6,8 @@
 #include <filesystem>
 #include <iostream>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "traceloom/adapters/hygon_sqlite_adapter.h"
 #include "traceloom/analysis/flat_anchor_builder.h"
@@ -185,11 +187,11 @@ int main() {
   NativeIr gdn_ir = adapter.load();
   require(has_task_op_type(gdn_ir, "MambaDeltaRule"),
           "native GDN core must be recognized");
-  require(has_task_op_type(gdn_ir, "qwen35_gdn_qk_state_kernel(...)"),
+  require(has_task_op_type(gdn_ir, "MambaStatePrep"),
           "native QK preparation must retain concrete identity");
   build_flat_anchors(gdn_ir, anchor_config);
   require(count_anchor_label(gdn_ir, "MambaDeltaRule") == 1 &&
-              count_anchor_label(gdn_ir, "qwen35_gdn_qk_state_kernel(...)") == 1,
+              count_anchor_label(gdn_ir, "MambaStatePrep") == 1,
           "GDN preparation must participate alongside the core");
 
   require(sqlite3_open(db_path.c_str(), &updated_db) == SQLITE_OK,
@@ -206,6 +208,39 @@ int main() {
   require(count_anchor_label(pointwise_ir, "kernel<MulFunctor<float>>") == 1 &&
               count_anchor_label(pointwise_ir, "kernel<DivFunctor<float>>") == 1,
           "distinct small kernels must not collapse to one Pointwise token");
+
+  const std::vector<std::pair<std::string, std::string>> native_cases = {
+      {"void ck_tile::kentry<256, 1, ck_tile::Smoothquant<ck_tile::SmoothquantPipelineTorch<problem>>>(args)", "SmoothQuant"},
+      {"scale_tile(int const*, float const*, float const*, unsigned short*, int)", "Int8GemmEpilogue"},
+      {"silu_mul_tile(unsigned short const*, unsigned short const*, unsigned short*, int)", "SiluMul"},
+      {"void norm_kernel<256, true>(unsigned short const*, unsigned short const*, unsigned short const*, unsigned short const*, unsigned short*, unsigned short*, int, float, float)", "QwenRmsNorm"},
+      {"void norm_kernel<64, false>(unsigned short const*, unsigned short const*, unsigned short const*, unsigned short const*, unsigned short*, unsigned short*, int, float, float)", "RmsNormOptionalGate"},
+      {"scale_tile(float*, int)", "scale_tile(float*, int)"},
+      {"silu_mul_tile(float*, float*, float*, int)", "silu_mul_tile(float*, float*, float*, int)"},
+      {"void norm_kernel<256, true>(float*)", "void norm_kernel<256, true>(float*)"},
+      {"other::SmoothquantPipelineTorch<float>()", "other::SmoothquantPipelineTorch<float>()"},
+  };
+  for (const auto& entry : native_cases) {
+    require(sqlite3_open(db_path.c_str(), &updated_db) == SQLITE_OK,
+            "failed to reopen native leaf fixture");
+    const std::string sql = "UPDATE STR_TABLE SET STR_NAME='" + entry.first + "' WHERE STR_ID=1;";
+    exec_sql(updated_db, sql.c_str());
+    sqlite3_close(updated_db);
+    NativeIr leaf_ir = adapter.load();
+    require(has_task_op_type(leaf_ir, entry.second), "native leaf label mismatch");
+    bool retained_raw_name = false;
+    for (const auto& task : leaf_ir.tasks.rows()) {
+      if (task.op_name_symbol_id.valid() &&
+          leaf_ir.symbols.value(task.op_name_symbol_id) == entry.first) {
+        retained_raw_name = true;
+      }
+    }
+    require(retained_raw_name, "native leaf labeling erased the literal symbol");
+    const auto leaf_stats = build_flat_anchors(leaf_ir, anchor_config);
+    require(leaf_stats.device_event_anchors == 4 &&
+                count_anchor_label(leaf_ir, entry.second) == 1,
+            "native labeling changed event coverage");
+  }
 
   std::remove(db_path.c_str());
   return 0;

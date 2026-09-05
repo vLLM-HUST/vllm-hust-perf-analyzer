@@ -189,11 +189,33 @@ LiftedKernel lift_hygon_kernel_label(const std::string& raw_label) {
     return lifted_anchor("MatMul", detail);
   }
 
+  // LiveModule's source-owned BF16/INT8 leaves (80440df1). Match the
+  // concrete signatures, not generic words such as "scale" or "norm".
+  if (low.rfind("void ck_tile::kentry<", 0) == 0 &&
+      low.find("ck_tile::smoothquant<ck_tile::smoothquantpipelinetorch<") !=
+          std::string::npos) {
+    return lifted_anchor("SmoothQuant", "native dynamic activation quantization");
+  }
+  if (low == "scale_tile(int const*, float const*, float const*, unsigned short*, int)") {
+    return lifted_anchor("Int8GemmEpilogue", "INT32 row/column scale to BF16");
+  }
+  if (low == "silu_mul_tile(unsigned short const*, unsigned short const*, unsigned short*, int)") {
+    return lifted_anchor("SiluMul", "BF16-rounded SiLU then multiply");
+  }
+  static const std::regex native_norm(
+      R"(^void norm_kernel<(64|256), (true|false)>\(unsigned short const\*, unsigned short const\*, unsigned short const\*, unsigned short const\*, unsigned short\*, unsigned short\*, int, float, float\)$)");
+  std::smatch norm_match;
+  if (std::regex_match(low, norm_match, native_norm)) {
+    // Gate/residual presence is a runtime pointer, absent from the symbol.
+    return lifted_anchor(norm_match.str(2) == "true" ? "QwenRmsNorm" : "RmsNormOptionalGate",
+                         "native RMSNorm; runtime gate/residual not inferred");
+  }
+
   if (low.find("qwen35_gdn_decode_kernel") != std::string::npos) {
     return lifted_anchor("MambaDeltaRule", "native gated_delta_rule");
   }
   if (low.find("qwen35_gdn_qk_state_kernel") != std::string::npos) {
-    return lifted_aux("MambaStatePrep", "native qk state preparation");
+    return lifted_anchor("MambaStatePrep", "native qk state preparation");
   }
 
   if (low.find("flash_fwd_kernel") != std::string::npos) {

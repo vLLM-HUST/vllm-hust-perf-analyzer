@@ -90,6 +90,21 @@ surfaces.
 The same `traceloom <path>` command recognizes supported Hygon `hipprof`
 SQLite exports and normalizes their device activity into the native IR.
 
+The adapter recognizes source-checked LiveModule native leaves: CK
+`SmoothquantPipelineTorch` → `SmoothQuant`, the INT32/two-scale/BF16
+`scale_tile` signature → `Int8GemmEpilogue`, and BF16 `silu_mul_tile` →
+`SiluMul`. Source receipt: LiveModule revision `80440df1`,
+`native/hygon/operators/csrc/{w8a8_kernels,activation_kernels,rmsnorm_kernels}.hpp`.
+These identify operations, not a model-layer callsite or arbitrary similarly
+named kernels. Original symbols and provider rowids remain available.
+
+The exact BF16 `norm_kernel<T, true>` signature identifies `QwenRmsNorm`;
+`false` identifies `RmsNormOptionalGate`. The gate/residual pointers are runtime
+arguments, so a symbol alone cannot prove which optional branch executed.
+GDN Q/K preparation is separately labeled `MambaStatePrep`, not folded into
+the recurrent core. Unmatched signatures retain their concrete raw identities.
+
+
 ## CUDA/Nsight Systems
 
 The native analyzer accepts Nsight Systems SQLite exports containing
