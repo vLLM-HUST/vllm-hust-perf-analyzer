@@ -205,7 +205,7 @@ LiftedKernel lift_hygon_kernel_label(const std::string& raw_label) {
     return lifted_anchor("SiluMul", "BF16-rounded SiLU then multiply");
   }
   static const std::regex native_norm(
-      R"(^void norm_kernel<(64|256), (true|false)>\(unsigned short const\*, unsigned short const\*, unsigned short const\*, unsigned short const\*, unsigned short\*, unsigned short\*, int, float, float\)$)");
+      R"(^void norm_kernel<(64|256), (true|false)>\(unsigned short const\*, unsigned short const\*, unsigned short const\*, unsigned short const\*, unsigned short\*, unsigned short\*, int, float, float(, int)?\)$)");
   std::smatch norm_match;
   if (std::regex_match(low, norm_match, native_norm)) {
     // Gate/residual presence is a runtime pointer, absent from the symbol.

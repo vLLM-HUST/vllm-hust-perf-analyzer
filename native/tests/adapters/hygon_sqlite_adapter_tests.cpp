@@ -216,6 +216,7 @@ int main() {
       {"scale_tile(int const*, float const*, float const*, unsigned short*, int)", "Int8GemmEpilogue"},
       {"silu_mul_tile(unsigned short const*, unsigned short const*, unsigned short*, int)", "SiluMul"},
       {"void norm_kernel<256, true>(unsigned short const*, unsigned short const*, unsigned short const*, unsigned short const*, unsigned short*, unsigned short*, int, float, float)", "QwenRmsNorm"},
+      {"void norm_kernel<256, true>(unsigned short const*, unsigned short const*, unsigned short const*, unsigned short const*, unsigned short*, unsigned short*, int, float, float, int)", "QwenRmsNorm"},
       {"void norm_kernel<64, false>(unsigned short const*, unsigned short const*, unsigned short const*, unsigned short const*, unsigned short*, unsigned short*, int, float, float)", "RmsNormOptionalGate"},
       {"scale_tile(float*, int)", "scale_tile(float*, int)"},
       {"silu_mul_tile(float*, float*, float*, int)", "silu_mul_tile(float*, float*, float*, int)"},
