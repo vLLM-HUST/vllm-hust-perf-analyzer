@@ -204,6 +204,9 @@ LiftedKernel lift_hygon_kernel_label(const std::string& raw_label) {
   if (low == "silu_mul_tile(unsigned short const*, unsigned short const*, unsigned short*, int)") {
     return lifted_anchor("SiluMul", "BF16-rounded SiLU then multiply");
   }
+  if (low == "qwen_rope_bf16_pair(unsigned short const*, unsigned short const*, unsigned short const*, unsigned short const*, unsigned short*, unsigned short*, int, int, int, int)") {
+    return lifted_anchor("QwenRoPE", "native paired Q/K partial RoPE with BF16-rounded products");
+  }
   static const std::regex native_norm(
       R"(^void norm_kernel<(64|256), (true|false)>\(unsigned short const\*, unsigned short const\*, unsigned short const\*, unsigned short const\*, unsigned short\*, unsigned short\*, int, float, float(, int)?\)$)");
   std::smatch norm_match;

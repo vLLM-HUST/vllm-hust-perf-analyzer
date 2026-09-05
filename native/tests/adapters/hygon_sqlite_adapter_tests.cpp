@@ -219,6 +219,8 @@ int main() {
       {"void norm_kernel<256, true>(unsigned short const*, unsigned short const*, unsigned short const*, unsigned short const*, unsigned short*, unsigned short*, int, float, float, int)", "QwenRmsNorm"},
       {"void norm_kernel<64, false>(unsigned short const*, unsigned short const*, unsigned short const*, unsigned short const*, unsigned short*, unsigned short*, int, float, float)", "RmsNormOptionalGate"},
       {"scale_tile(float*, int)", "scale_tile(float*, int)"},
+      {"qwen_rope_bf16_pair(unsigned short const*, unsigned short const*, unsigned short const*, unsigned short const*, unsigned short*, unsigned short*, int, int, int, int)", "QwenRoPE"},
+      {"qwen_rope_bf16_pair(float*)", "qwen_rope_bf16_pair(float*)"},
       {"silu_mul_tile(float*, float*, float*, int)", "silu_mul_tile(float*, float*, float*, int)"},
       {"void norm_kernel<256, true>(float*)", "void norm_kernel<256, true>(float*)"},
       {"other::SmoothquantPipelineTorch<float>()", "other::SmoothquantPipelineTorch<float>()"},
