@@ -18,8 +18,12 @@ analysis. `_Index` is a launch correlation shared by many graph kernels, not a
 unique row identity; raw audit uses table-local SQLite rowid. The current Hygon
 adapter loads device kernels and copies, not host HIP runtime calls. Zero
 runtime-call rows are an adapter limitation, not evidence of zero host work.
-Recognized compute/auxiliary labels recover observed repetition; they do not
-supply model-layer boundaries. Preserve unknown kernels and literal raw labels
+All executable HIPOPS rows participate as structural anchors under evidence-role
+policy v2, including casts, pointwise work, reductions and kernel-based copies.
+Former helper kernels use concrete raw kernel identities so unrelated small
+operations do not collapse into one Pointwise symbol. Hardware HIPCOPY records
+remain attribution/raw evidence rather than compute anchors. The recovered
+repetition does not supply model-layer boundaries. Preserve unknown kernels and literal raw labels
 when the workload uses a new native implementation.
 
 Pass one DB when one exact output path is required. Pass a profiler directory

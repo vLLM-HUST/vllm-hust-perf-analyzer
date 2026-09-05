@@ -44,7 +44,7 @@ int main() {
           "traceloom.evidence-role-policy/v1");
   require(defaults.metadata().policy_id ==
           "traceloom.default.accelerator-task-projection");
-  require(defaults.metadata().policy_version == "1");
+  require(defaults.metadata().policy_version == "2");
   require(defaults.metadata().provider_scopes == "ascend,cuda,hygon");
   require(defaults.metadata().manifest_sha256.size() == 64);
 

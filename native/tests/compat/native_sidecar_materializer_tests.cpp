@@ -210,7 +210,7 @@ int main() {
           "traceloom.default.accelerator-task-projection");
   require(run_scalar_text(db_path,
                           "SELECT value FROM traceloom_metadata WHERE key = "
-                          "'evidence_role_policy_version'") == "1");
+                          "'evidence_role_policy_version'") == "2");
   require(run_scalar_int(
               db_path,
               "SELECT length(value) FROM traceloom_metadata WHERE key = "

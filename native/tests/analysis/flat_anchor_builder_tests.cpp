@@ -141,7 +141,7 @@ int main() {
   require(filtered_stats.preserved_unclassified_task_events == 1);
   require(filtered_stats.classification_policy_id ==
           "traceloom.default.accelerator-task-projection");
-  require(filtered_stats.classification_policy_version == "1");
+  require(filtered_stats.classification_policy_version == "2");
   require(filtered_stats.classification_manifest_sha256.size() == 64);
   require(filtered_stats.device_event_anchors == 2);
   require(filtered_stats.communication_anchors == 1);

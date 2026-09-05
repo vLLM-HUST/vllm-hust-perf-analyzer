@@ -363,8 +363,11 @@ void load_hipops_table(
                         queue_id, start_ns,
                         end_ns, index, static_cast<std::int64_t>(index),
                         raw_label,
-                        lifted.anchor ? "HIP_KERNEL" : "HIP_KERNEL_AUX",
-                        raw_label, lifted.label);
+                        "HIP_KERNEL", raw_label,
+                        // Small kernels are executable structure, not noise.
+                        // Keep their exact identity instead of collapsing every
+                        // cast/multiply/reduction into one generic family.
+                        lifted.anchor ? lifted.label : raw_label);
       continue;
     }
     if (rc == SQLITE_DONE) {

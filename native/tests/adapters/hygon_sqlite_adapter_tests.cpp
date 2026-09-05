@@ -139,25 +139,25 @@ int main() {
           "Tensile GEMM kernel was not lifted to MatMul");
   require(has_task_op_type(ir, "MambaScan"),
           "Mamba scan kernel was not lifted to MambaScan");
-  require(has_task_op_type(ir, "HygonAux:GemmEpilogue"),
-          "Tensile PostGSU kernel was not classified as Hygon auxiliary");
+  require(has_task_op_type(ir, "Cijk_B_PostGSU"),
+          "Tensile epilogue must retain its concrete identity");
   require(has_task_op_type(ir, "DataMove"),
           "HIPCOPY row was not classified as DataMove");
-  require(has_task_type(ir, "HIP_KERNEL_AUX"),
-          "auxiliary Hygon kernels did not receive HIP_KERNEL_AUX task type");
+  require(has_task_type(ir, "HIP_KERNEL"),
+          "executable Hygon kernels must use HIP_KERNEL");
 
   FlatAnchorBuildConfig anchor_config;
   anchor_config.filter_auxiliary_task_anchors = true;
   const FlatAnchorBuildStats stats = build_flat_anchors(ir, anchor_config);
-  require(stats.device_event_anchors == 3,
-          "semantic anchor filtering should keep only compute Hygon anchors");
-  require(ir.anchors.size() == 3, "unexpected Hygon anchor count");
+  require(stats.device_event_anchors == 4,
+          "all HIPOPS kernels must participate in structure");
+  require(ir.anchors.size() == 4, "unexpected Hygon anchor count");
   require(count_anchor_label(ir, "FlashAttention") == 1,
           "FlashAttention anchor missing");
   require(count_anchor_label(ir, "MatMul") == 1, "MatMul anchor missing");
   require(count_anchor_label(ir, "MambaScan") == 1, "MambaScan anchor missing");
-  require(count_anchor_label(ir, "HygonAux:GemmEpilogue") == 0,
-          "auxiliary Hygon kernel became an anchor");
+  require(count_anchor_label(ir, "Cijk_B_PostGSU") == 1,
+          "GEMM epilogue must be a structural anchor");
   require(count_anchor_label(ir, "DataMove") == 0,
           "HIPCOPY DataMove became a compute anchor");
 
@@ -185,12 +185,27 @@ int main() {
   NativeIr gdn_ir = adapter.load();
   require(has_task_op_type(gdn_ir, "MambaDeltaRule"),
           "native GDN core must be recognized");
-  require(has_task_op_type(gdn_ir, "HygonAux:MambaStatePrep"),
-          "native QK preparation must stay auxiliary");
+  require(has_task_op_type(gdn_ir, "qwen35_gdn_qk_state_kernel(...)"),
+          "native QK preparation must retain concrete identity");
   build_flat_anchors(gdn_ir, anchor_config);
   require(count_anchor_label(gdn_ir, "MambaDeltaRule") == 1 &&
-              count_anchor_label(gdn_ir, "HygonAux:MambaStatePrep") == 0,
-          "GDN classification must preserve anchor/auxiliary roles");
+              count_anchor_label(gdn_ir, "qwen35_gdn_qk_state_kernel(...)") == 1,
+          "GDN preparation must participate alongside the core");
+
+  require(sqlite3_open(db_path.c_str(), &updated_db) == SQLITE_OK,
+          "failed to reopen pointwise fixture");
+  exec_sql(updated_db,
+           "UPDATE STR_TABLE SET STR_NAME='kernel<MulFunctor<float>>' WHERE STR_ID=3;"
+           "UPDATE STR_TABLE SET STR_NAME='kernel<DivFunctor<float>>' WHERE STR_ID=4;");
+  sqlite3_close(updated_db);
+  NativeIr pointwise_ir = adapter.load();
+  const auto pointwise_stats = build_flat_anchors(pointwise_ir, anchor_config);
+  require(pointwise_stats.device_event_anchors == 4 &&
+              pointwise_stats.unknown_anchor_task_events == 0,
+          "small HIP kernels must be explicit anchors, not unknown fallback");
+  require(count_anchor_label(pointwise_ir, "kernel<MulFunctor<float>>") == 1 &&
+              count_anchor_label(pointwise_ir, "kernel<DivFunctor<float>>") == 1,
+          "distinct small kernels must not collapse to one Pointwise token");
 
   std::remove(db_path.c_str());
   return 0;

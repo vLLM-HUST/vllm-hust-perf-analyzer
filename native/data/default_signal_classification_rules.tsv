@@ -1,6 +1,6 @@
 # manifest_schema=traceloom.evidence-role-policy/v1
 # policy_id=traceloom.default.accelerator-task-projection
-# policy_version=1
+# policy_version=2
 # provider_scopes=ascend,cuda,hygon
 # fallback_identity_role=unknown_anchor
 # fallback_cost_treatment=retained_for_attribution
@@ -16,6 +16,7 @@ cuda.aux.task.type.cuda.runtime.aux.2f99050d	100	cuda	task	task_type	exact	CUDA_
 cuda.aux.task.type.cuda.memcpy.aux.3fd99cc0	100	cuda	task	task_type	exact	CUDA_MEMCPY_AUX	auxiliary	task_type	excluded	retained_for_attribution	retained	retained	continue_or_fallback	apply	CUDA memcpy bookkeeping row
 cuda.aux.task.type.cuda.sync.aux.91b696b9	100	cuda	task	task_type	exact	CUDA_SYNC_AUX	auxiliary	task_type	excluded	retained_for_attribution	retained	retained	continue_or_fallback	apply	CUDA synchronization observation
 cuda.aux.task.type.cuda.event.aux.d6c4be5a	100	cuda	task	task_type	exact	CUDA_EVENT_AUX	auxiliary	task_type	excluded	retained_for_attribution	retained	retained	continue_or_fallback	apply	CUDA event identity observation
+hygon.anchor.task.type.hip.kernel	95	hygon	task	task_type	exact	HIP_KERNEL	anchor	task_type	identity	retained_for_attribution	retained	retained	continue_or_fallback	apply	Preserve all executable HIP kernels including small elementwise and reduction work
 cuda.anchor.task.type.cuda.kernel.51cc7472	95	cuda	task	task_type	exact	CUDA_KERNEL	anchor	task_type	identity	retained_for_attribution	retained	retained	continue_or_fallback	apply	Preserve unknown CUDA kernels as execution anchors
 cuda.anchor.task.type.cuda.collective.kernel.d758d32a	95	cuda	task	task_type	exact	CUDA_COLLECTIVE_KERNEL	anchor	task_type	identity	retained_for_attribution	retained	retained	continue_or_fallback	apply	Preserve CUDA collective kernels as anchors
 ascend.aux.blob.hccl.aiv.sync.002d332c	90	ascend	task	blob	contains	hccl_aiv_sync	auxiliary	blob	excluded	retained_for_attribution	retained	retained	continue_or_fallback	apply	HCCL synchronization helper
