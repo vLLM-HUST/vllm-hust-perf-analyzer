@@ -164,7 +164,7 @@ int main() {
   const auto torch_manifest = std::filesystem::path(__FILE__).parent_path()
       .parent_path().parent_path() / "data/optional_hygon_torch_family_rules.tsv";
   const auto torch_families = load_structural_symbol_ruleset(torch_manifest.string());
-  require(torch_families.rules().size() == 18);
+  require(torch_families.rules().size() == 24);
   FlatAnchorBuildConfig torch_config;
   torch_config.structural_symbol_rules = extend_structural_symbol_ruleset(defaults, torch_families);
   for (const auto& rule : torch_families.rules()) {

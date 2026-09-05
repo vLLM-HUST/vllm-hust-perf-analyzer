@@ -1,5 +1,5 @@
 # policy_id=experimental.hygon.torch-symbol-families
-# policy_version=2
+# policy_version=3
 # Opt-in symbol-declared families, not direct eager attribution or Python-call recovery.
 priority	rule_id	provider_scope	source_domain	field	match	pattern	structural_symbol	note
 120	hygon.torch-family.self-add	hygon	task	op_name	contains_ci	at::native::CUDAFunctorOnSelf_add<	Add/Sub	Scalar/alpha values not recovered
@@ -20,3 +20,9 @@ priority	rule_id	provider_scope	source_domain	field	match	pattern	structural_sym
 120	hygon.torch-family.sin	hygon	task	op_name	contains_ci	at::native::sin_kernel_cuda(	Sin	Symbol-declared family; runtime values and Python callsite not inferred
 120	hygon.torch-family.index-select	hygon	task	op_name	contains_ci	::indexSelectSmallIndex<	IndexSelect	Symbol-declared family; runtime values and Python callsite not inferred
 120	hygon.torch-family.cat-contiguous	hygon	task	op_name	contains_ci	::CatArrayBatchedCopy_contig<	Concat	Symbol-declared family; runtime values and Python callsite not inferred
+125	hygon.torch-family.mul	hygon	task	op_name	contains_ci	at::native::binary_internal::MulFunctor<	Mul	Canonical family spelling shared with sampled attribution; not a Python callsite
+125	hygon.torch-family.neg	hygon	task	op_name	contains_ci	at::native::neg_kernel_cuda(	Neg	Canonical family spelling shared with sampled attribution; not a Python callsite
+125	hygon.torch-family.where	hygon	task	op_name	contains_ci	::where_kernel_impl(	Where	Canonical family spelling shared with sampled attribution; not a Python callsite
+125	hygon.torch-family.mean	hygon	task	op_name	contains_ci	at::native::MeanOps<	Mean	Canonical family spelling shared with sampled attribution; not a Python callsite
+125	hygon.torch-family.pow	hygon	task	op_name	contains_ci	::pow_tensor_scalar_kernel_impl<	Pow	Canonical family spelling shared with sampled attribution; not a Python callsite
+125	hygon.torch-family.rsqrt	hygon	task	op_name	contains_ci	at::native::rsqrt_kernel_cuda(	Rsqrt	Canonical family spelling shared with sampled attribution; not a Python callsite

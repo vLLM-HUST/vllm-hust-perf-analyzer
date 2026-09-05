@@ -127,8 +127,10 @@ literal provider events, and do not treat family-level matches as proof of a
 particular model subroutine. These optional rules are not the default policy. Version 2 also covers named
 Sigmoid, Arange, ArgMax, Sin/Cos, IndexSelect and contiguous concat kernels.
 `TriangularMask` intentionally leaves the upper/lower/diagonal policy
-uninterpreted. Already readable `aten::mul`-style labels from sampled exact
-rules are recognized operators, not missing kernel names.
+uninterpreted. Version 3 uses the same concise names (`Mul`, `Neg`, `Where`, `Mean`,
+`Pow`, `Rsqrt`) for these sampled and symbol-declared families, avoiding
+`aten::` API spelling in the structural display. Literal symbols and rule
+provenance remain available; the family name does not claim a Python callsite.
 
 ## CUDA/Nsight Systems
 
