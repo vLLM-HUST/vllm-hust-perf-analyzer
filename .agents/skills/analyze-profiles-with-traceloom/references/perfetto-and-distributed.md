@@ -22,6 +22,14 @@ depths, a separate compressed timeline-event lane, and raw provider evidence.
 Isomorphic subtrees share motif identity/color. Event labels and slice args
 retain query coordinates for returning to AugDB.
 
+Hygon exports include embedded `HIP_*`, `HIPOPS_*`, and `HIPCOPY_*` records
+beside the recovered structure. Each raw slice carries its source table,
+rowid, and launch `_Index`; repeated launch indices must not collapse rows.
+HIP host API numeric IDs remain literal unless provider evidence supplies a
+name. These raw host tracks do not imply normalized runtime/device relations.
+Check `raw_slices` and source-row coverage before claiming a combined export;
+older Hygon-capable analyzer builds embedded raw tables but did not export them.
+
 Do not interpret absent compressed events as absent raw evidence. Display rules
 may suppress annotation/envelope events such as `KERNEL_MIX_AIC/AIV` while the
 raw-provider tracks and source locators remain auditable.

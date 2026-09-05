@@ -305,6 +305,40 @@ int main() {
   require_contains(read_gzip(cli_path), "collective_end_affine_clock_model");
 #endif
 
+  // Embedded HIP data must appear beside recovered structure, not merely
+  // remain queryable in the AugDB. Repeated launch indices retain both rows.
+  sqlite3* hip_db = nullptr;
+  require(sqlite3_open(db_path.c_str(), &hip_db) == SQLITE_OK);
+  exec_sql(hip_db,
+      "INSERT INTO traceloom_raw_table VALUES"
+      "('hip','hip.db','STR_TABLE','hip_strings'),"
+      "('hip','hip.db','HIP_123','hip_host'),"
+      "('hip','hip.db','HIPOPS_123','hip_ops'),"
+      "('hip','hip.db','HIPCOPY_123','hip_copy');"
+      "CREATE TABLE hip_strings(PID,STR_ID,STR_NAME);"
+      "INSERT INTO hip_strings VALUES(7,1,'native_gdn'),(8,1,'other_process');"
+      "CREATE TABLE hip_host(BeginNs,EndNs,pid,tid,Name,_Index,args);"
+      "INSERT INTO hip_host VALUES(50,70,7,9,123,42,'opaque args');"
+      "CREATE TABLE hip_ops(BeginNs,EndNs,pid,dev_id,queue_id,Name,_Index,PARS);"
+      "INSERT INTO hip_ops VALUES(100,200,7,0,'queue',1,42,''),"
+      "(150,250,7,0,'queue',1,42,'');"
+      "CREATE TABLE hip_copy(BeginNs,EndNs,pid,dev_id,queue_id,Kind,_Index,Bytes,MemoryType);"
+      "INSERT INTO hip_copy VALUES(250,300,7,0,'queue',2,42,8,3);");
+  sqlite3_close(hip_db);
+  const auto hip_receipt = traceloom::compat::write_perfetto_trace(
+      db_path.string(), json_path.string());
+  require(hip_receipt.raw_slices == 5);
+  require(hip_receipt.structural_slices == 2);
+  const auto hip_json = read_plain(json_path);
+  require(count_occurrences(hip_json, "\"cat\":\"raw.HIPOPS\"") == 2);
+  require_contains(hip_json, "native_gdn");
+  require_contains(hip_json, "HIP Name=123");
+  require_contains(hip_json, "\"cat\":\"raw.HIPCOPY\"");
+  require_contains(hip_json, "\"source_rowid\":2");
+  require_contains(hip_json, "\"_Index\":42");
+  require_contains(hip_json, "queue_id queue · lane 1");
+  require_contains(hip_json, "\"ts\":0.000");
+
   std::remove(db_path.c_str());
   std::remove(rank0_path.c_str());
   std::remove(rank1_path.c_str());

@@ -97,10 +97,13 @@ std::int64_t raw_timeline_origin(sqlite3* db, std::int64_t current) {
   auto tables =
       prepare(db,
               "SELECT source_table,embedded_table_name FROM traceloom_raw_table WHERE source_table "
-              "IN ('PYTORCH_API','CANN_API','TASK','COMMUNICATION_OP','AICORE_FREQ')");
+              "IN ('PYTORCH_API','CANN_API','TASK','COMMUNICATION_OP','AICORE_FREQ') "
+              "OR source_table GLOB 'HIP_[0-9]*' OR source_table GLOB 'HIPOPS_*' "
+              "OR source_table GLOB 'HIPCOPY_*'");
   while (sqlite3_step(tables.get()) == SQLITE_ROW) {
     const auto source = text(tables.get(), 0), table = text(tables.get(), 1);
-    const auto column = source == "AICORE_FREQ" ? "timestampNs" : "startNs";
+    const auto column = source.rfind("HIP", 0) == 0 ? "BeginNs"
+                        : source == "AICORE_FREQ" ? "timestampNs" : "startNs";
     auto stmt = prepare(db, "SELECT MIN(CAST(" + quote_identifier(column) + " AS INTEGER)) FROM " +
                                 quote_identifier(table));
     if (sqlite3_step(stmt.get()) == SQLITE_ROW && sqlite3_column_type(stmt.get(), 0) != SQLITE_NULL)
@@ -159,9 +162,75 @@ std::string raw_args(const RawTable& table, sqlite3_stmt* stmt, int rowid_col,
   return out.str() + '}';
 }
 
+// Export literal HIP records even when the semantic adapter cannot interpret
+// a host API id. No version-dependent HIP enum names or causal edges are guessed.
+void export_raw_hip(sqlite3* db, RawTraceWriter& writer,
+                    PerfettoExportReceipt& receipt,
+                    const std::vector<RawTable>& tables) {
+  int next_pid = 10000;
+  for (const auto& t : tables) {
+    const bool kernel = t.name.rfind("HIPOPS_", 0) == 0;
+    const bool copy = t.name.rfind("HIPCOPY_", 0) == 0;
+    const bool host = t.name.rfind("HIP_", 0) == 0;
+    if (!kernel && !copy && !host) continue;
+    std::map<std::pair<std::string, std::string>, std::string> names;
+    if (kernel) {
+      for (const auto& st : tables) {
+        if (st.source_id != t.source_id || st.name != "STR_TABLE") continue;
+        auto q = prepare(db, "SELECT PID,STR_ID,STR_NAME FROM " + quote_identifier(st.table));
+        while (sqlite3_step(q.get()) == SQLITE_ROW)
+          names[{text(q.get(), 0), text(q.get(), 1)}] = text(q.get(), 2);
+      }
+    }
+    const std::string kind = kernel ? "HIPOPS" : copy ? "HIPCOPY" : "HIP";
+    const std::string group1 = host ? "pid" : "dev_id";
+    const std::string group2 = host ? "tid" : "queue_id";
+    const std::string label_col = copy ? "Kind" : "Name";
+    const std::string extra = copy ? "Bytes,MemoryType" : host ? "args" : "PARS";
+    auto q = prepare(db, "SELECT rowid,BeginNs,EndNs,pid," + group1 + "," +
+                            group2 + "," + label_col + ",_Index," + extra +
+                            " FROM " + quote_identifier(t.table) +
+                            " WHERE EndNs >= BeginNs ORDER BY BeginNs,EndNs,rowid");
+    const int pid = next_pid++;
+    writer.process(pid, "Raw provider · " + kind + " · " + t.source_id, pid);
+    // Separate crossing intervals rather than implying nesting on one lane.
+    using Lane = std::pair<std::int64_t, int>;
+    std::map<std::string, std::vector<Lane>> lanes;
+    int next_tid = 1;
+    while (sqlite3_step(q.get()) == SQLITE_ROW) {
+      const auto start = sqlite3_column_int64(q.get(), 1);
+      const auto end = sqlite3_column_int64(q.get(), 2);
+      const auto group = "pid " + text(q.get(), 3) + " · " + group1 + " " +
+                         text(q.get(), 4) + " · " + group2 + " " + text(q.get(), 5);
+      auto& available = lanes[group];
+      auto lane = std::find_if(available.begin(), available.end(),
+                               [&](const Lane& value) { return value.first <= start; });
+      if (lane == available.end()) {
+        available.emplace_back(end, next_tid++);
+        lane = available.end() - 1;
+        writer.thread(pid, lane->second, group + " · lane " +
+                          std::to_string(available.size() - 1), lane->second);
+      }
+      lane->first = end;
+      const auto raw_name = text(q.get(), 6);
+      const auto found = names.find({text(q.get(), 3), raw_name});
+      const auto label = kernel ? (found == names.end() ? raw_name : found->second)
+                               : kind + " " + label_col + "=" + raw_name;
+      std::vector<std::pair<std::string, int>> fields = {
+          {"source_pid", 3}, {group1, 4}, {group2, 5}, {label_col, 6}, {"_Index", 7},
+          {copy ? "Bytes" : host ? "args" : "PARS", 8}};
+      if (copy) fields.emplace_back("MemoryType", 9);
+      writer.slice(pid, lane->second, label, start, end, "raw." + kind,
+                   raw_args(t, q.get(), 0, fields));
+      ++receipt.raw_slices;
+    }
+  }
+}
+
 void export_raw_provider_timeline(sqlite3* db, RawTraceWriter& writer,
                                   PerfettoExportReceipt& receipt) {
   const auto tables = raw_tables(db);
+  export_raw_hip(db, writer, receipt, tables);
   std::map<std::pair<std::string, std::string>, RawTable> by_source;
   for (const auto& t : tables) by_source[{t.source_id, t.name}] = t;
   std::map<std::string, int> source_order;
