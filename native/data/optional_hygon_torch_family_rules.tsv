@@ -1,5 +1,5 @@
 # policy_id=experimental.hygon.torch-symbol-families
-# policy_version=1
+# policy_version=2
 # Opt-in symbol-declared families, not direct eager attribution or Python-call recovery.
 priority	rule_id	provider_scope	source_domain	field	match	pattern	structural_symbol	note
 120	hygon.torch-family.self-add	hygon	task	op_name	contains_ci	at::native::CUDAFunctorOnSelf_add<	Add/Sub	Scalar/alpha values not recovered
@@ -12,3 +12,11 @@ priority	rule_id	provider_scope	source_domain	field	match	pattern	structural_sym
 120	hygon.torch-family.softmax	hygon	task	op_name	contains_ci	::softmax_warp_forward<	SoftmaxFamily	Includes log/masked specializations; no policy inferred
 120	hygon.torch-family.max	hygon	task	op_name	contains_ci	at::native::MaxOps<	ReduceMax	Not ArgMax; Python operator not recovered
 120	hygon.torch-family.isneginf	hygon	task	op_name	contains_ci	::isneginf_kernel_impl(	IsNegInf	Named predicate implementation
+120	hygon.torch-family.sigmoid	hygon	task	op_name	contains_ci	at::native::sigmoid_kernel_cuda(	Sigmoid	Symbol-declared family; runtime values and Python callsite not inferred
+120	hygon.torch-family.arange	hygon	task	op_name	contains_ci	at::native::arange_cuda_out(	Arange	Symbol-declared family; runtime values and Python callsite not inferred
+120	hygon.torch-family.argmax	hygon	task	op_name	contains_ci	at::native::ArgMaxOps<	ArgMax	Symbol-declared family; runtime values and Python callsite not inferred
+120	hygon.torch-family.triangular	hygon	task	op_name	contains_ci	at::native::triu_tril_kernel<	TriangularMask	Symbol-declared family; runtime values and Python callsite not inferred
+120	hygon.torch-family.cos	hygon	task	op_name	contains_ci	at::native::cos_kernel_cuda(	Cos	Symbol-declared family; runtime values and Python callsite not inferred
+120	hygon.torch-family.sin	hygon	task	op_name	contains_ci	at::native::sin_kernel_cuda(	Sin	Symbol-declared family; runtime values and Python callsite not inferred
+120	hygon.torch-family.index-select	hygon	task	op_name	contains_ci	::indexSelectSmallIndex<	IndexSelect	Symbol-declared family; runtime values and Python callsite not inferred
+120	hygon.torch-family.cat-contiguous	hygon	task	op_name	contains_ci	::CatArrayBatchedCopy_contig<	Concat	Symbol-declared family; runtime values and Python callsite not inferred

@@ -211,6 +211,7 @@ int main() {
 
   const std::vector<std::pair<std::string, std::string>> native_cases = {
       {"Cijk_Alik_Bljk_SB_MT16x16x32_SE_AMAS3_BW_ISA936", "MatMul"},
+      {"Cijk_Ailk_Bljk_SB_MT32x16x16_SE_AMAS3_BW_ISA936", "MatMul"},
       {"void ck_tile::kentry<256, 1, ck_tile::Smoothquant<ck_tile::SmoothquantPipelineTorch<problem>>>(args)", "SmoothQuant"},
       {"scale_tile(int const*, float const*, float const*, unsigned short*, int)", "Int8GemmEpilogue"},
       {"silu_mul_tile(unsigned short const*, unsigned short const*, unsigned short*, int)", "SiluMul"},

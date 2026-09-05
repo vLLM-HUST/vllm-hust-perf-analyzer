@@ -181,6 +181,7 @@ LiftedKernel lift_hygon_kernel_label(const std::string& raw_label) {
   if (low.find("cijk_alik_bljk_bbh") != std::string::npos ||
       low.find("cijk_alik_bjlk_sb") != std::string::npos ||
       low.find("cijk_alik_bljk_sb_") != std::string::npos ||
+      low.find("cijk_ailk_bljk_sb_") != std::string::npos ||
       low.find("cijk_ailk_bljk_i8ii_") != std::string::npos) {
     std::smatch match;
     const std::regex mt_pattern("_mt([0-9]+x[0-9]+x[0-9]+)");

@@ -124,7 +124,11 @@ original API. `AUnaryFunctor` binds a scalar to the named binary operation
 (`ATen/native/cuda/Loops.cuh`); `MaxOps` returns the value
 (`ATen/native/SharedReduceOps.h`). Requalify after DTK/Torch changes, retain
 literal provider events, and do not treat family-level matches as proof of a
-particular model subroutine. These optional rules are not the default policy.
+particular model subroutine. These optional rules are not the default policy. Version 2 also covers named
+Sigmoid, Arange, ArgMax, Sin/Cos, IndexSelect and contiguous concat kernels.
+`TriangularMask` intentionally leaves the upper/lower/diagonal policy
+uninterpreted. Already readable `aten::mul`-style labels from sampled exact
+rules are recognized operators, not missing kernel names.
 
 ## CUDA/Nsight Systems
 
