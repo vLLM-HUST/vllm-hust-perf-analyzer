@@ -32,6 +32,9 @@ void print_usage(const char* argv0) {
             << "Views overlap: filter args.projection_plane before summing durations; --no-raw-provider hides audit copies.\n"
             << "For collective comparison, explicitly opt into an auditable end-affine "
                "display with '--distributed-clock-model MODELS.jsonl'.\n"
+            << "Import observable inference NDJSON with '" << argv0
+            << " import-inference events.ndjson --html-out view.html'.\n"
+            << "Use 'import-inference --help' for live snapshots and inference exports.\n"
             << "Use --help-advanced for compatibility and debug options.\n";
 }
 

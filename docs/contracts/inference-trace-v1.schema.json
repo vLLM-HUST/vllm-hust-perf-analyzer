@@ -1,0 +1,215 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TraceLoom observable inference event v1",
+  "description": "Producer validation schema. Importer additionally enforces UTF-8 byte limits, lifecycle, clocks and DAG rules. Unknown attributes are discarded by importer but prohibited at producer validation. No raw content or hidden reasoning.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    },
+    "event_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+    },
+    "trace_id": {
+      "type": "string",
+      "pattern": "^(?!0{32}$)[0-9a-f]{32}$"
+    },
+    "span_id": {
+      "type": "string",
+      "pattern": "^(?!0{16}$)[0-9a-f]{16}$"
+    },
+    "parent_span_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^(?!0{16}$)[0-9a-f]{16}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "producer_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+    },
+    "clock_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9223372036854775807
+    },
+    "event_type": {
+      "enum": [
+        "span_start",
+        "span_end",
+        "span_event",
+        "trace_end",
+        "metrics"
+      ]
+    },
+    "wall_time_ns": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9223372036854775807
+    },
+    "monotonic_ns": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9223372036854775807
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+    },
+    "kind": {
+      "enum": [
+        "pipeline",
+        "model",
+        "retrieval",
+        "tool",
+        "data",
+        "step"
+      ]
+    },
+    "status": {
+      "enum": [
+        "ok",
+        "error",
+        "cancelled"
+      ]
+    },
+    "decision_summary": {
+      "type": "string",
+      "maxLength": 256
+    },
+    "evidence_refs": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+      },
+      "uniqueItems": true
+    },
+    "links": {
+      "type": "array",
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^(?!0{16}$)[0-9a-f]{16}$"
+      }
+    },
+    "attributes": {
+      "type": "object",
+      "maxProperties": 32,
+      "properties": {
+        "operation": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+        },
+        "model": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*//)[A-Za-z0-9_.:/-]{1,128}$"
+        },
+        "provider": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+        },
+        "error_type": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "input_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "output_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "input_tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "output_tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "retrieved_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "dropped_events": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema_version",
+    "event_id",
+    "trace_id",
+    "span_id",
+    "producer_id",
+    "clock_id",
+    "sequence",
+    "event_type",
+    "wall_time_ns",
+    "monotonic_ns"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "span_start"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "name",
+          "kind"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "enum": [
+              "span_end",
+              "trace_end"
+            ]
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "status"
+        ]
+      }
+    }
+  ]
+}
