@@ -192,6 +192,35 @@ endif()
 if(TRACELOOM_NATIVE_ENABLE_SQLITE_ADAPTERS)
   find_package(SQLite3 QUIET)
   if(SQLite3_FOUND)
+    add_library(traceloom_native_inference
+      src/inference/schema.cpp
+      src/inference/parser.cpp
+      src/inference/import.cpp
+      src/inference/model.cpp
+      src/inference/export.cpp
+    )
+    target_include_directories(traceloom_native_inference PUBLIC include PRIVATE ${SQLite3_INCLUDE_DIRS})
+    target_link_libraries(traceloom_native_inference PUBLIC traceloom_native_core PRIVATE ${SQLite3_LIBRARIES})
+    if(NOT MSVC)
+      target_compile_options(traceloom_native_inference PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+    if(TRACELOOM_NATIVE_BUILD_TESTS)
+      add_executable(inference_trace_tests tests/inference/inference_trace_tests.cpp)
+      target_include_directories(inference_trace_tests PRIVATE ${SQLite3_INCLUDE_DIRS})
+      target_link_libraries(inference_trace_tests PRIVATE traceloom_native_inference ${SQLite3_LIBRARIES})
+      target_compile_definitions(inference_trace_tests PRIVATE
+        TRACELOOM_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/.."
+        TRACELOOM_TEST_OUTPUT="${CMAKE_CURRENT_BINARY_DIR}")
+      add_test(NAME inference_trace_tests COMMAND inference_trace_tests)
+      find_package(Python3 COMPONENTS Interpreter QUIET)
+      if(Python3_Interpreter_FOUND)
+        add_test(NAME inference_cli_tests COMMAND ${Python3_EXECUTABLE}
+          ${CMAKE_CURRENT_SOURCE_DIR}/tests/inference/cli_tests.py
+          $<TARGET_FILE:traceloom>
+          ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/inference/observable.ndjson
+          ${CMAKE_CURRENT_BINARY_DIR})
+      endif()
+    endif()
     target_sources(traceloom_native_adapters
       PRIVATE
         src/adapters/ascend_sqlite_adapter.cpp
@@ -261,12 +290,14 @@ if(TRACELOOM_NATIVE_SQLITE_ADAPTERS_AVAILABLE)
 
   add_executable(traceloom
     src/tools/analyze_db_main.cpp
+    src/tools/inference_cli.cpp
     src/tools/analyze_db_usage.cpp
     src/tools/perfetto_cli_args.cpp
     src/tools/profile_input_discovery.cpp
   )
   target_link_libraries(
     traceloom PRIVATE
+    traceloom_native_inference
     traceloom_native_adapters
     traceloom_native_materialize
   )
