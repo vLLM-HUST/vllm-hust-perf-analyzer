@@ -392,6 +392,21 @@ ctest --preset dev-tests
 - [递归 Replay-Body Pattern](docs/replay-body-patterns.md)
 - [Queryable DB timeline 阅读指南](docs/db-timeline-guide.zh.md)
 
+
+## 可观察的推理执行 trace
+
+TraceLoom 也支持通用 inference span 契约，可展示模型调用、检索、工具、数据流和执行步骤：
+
+```bash
+traceloom import-inference events.ndjson --output analysis.db --html-out inference.html
+# 持续观察本地追加文件；推理本身不依赖观察器。
+traceloom import-inference events.ndjson --output analysis.db --html-out inference.html --follow
+```
+
+[v1 契约](docs/contracts/inference-trace-v1.md) 说明脱敏元数据、SQL 查询、重复导入、
+不完整 span 与 Perfetto 导出。原始 prompt、token 和模型隐藏推理不属于契约；
+公开摘要需显式开启。不同 monotonic 时钟域保持独立，不推断全局关键路径。
+
 ## License
 
 TraceLoom 使用 [MIT License](LICENSE)。

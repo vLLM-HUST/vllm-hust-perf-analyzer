@@ -560,6 +560,23 @@ still run.
 - [Native architecture](docs/architecture.md)
 - [Queryable database timeline guide (Chinese)](docs/db-timeline-guide.zh.md)
 
+
+## Observable inference traces
+
+TraceLoom can also import producer-neutral inference lifecycle observations
+(model, retrieval, tool, data and execution spans):
+
+```bash
+traceloom import-inference events.ndjson --output analysis.db --html-out inference.html
+# Watch a growing local file; inference does not depend on this observer.
+traceloom import-inference events.ndjson --output analysis.db --html-out inference.html --follow
+```
+
+The [v1 contract](docs/contracts/inference-trace-v1.md) defines sanitized metadata,
+SQL relations, idempotency, incomplete spans and Perfetto export. Raw prompts,
+tokens and model-private reasoning are outside the contract; optional public
+summaries require explicit opt-in. Clock groups remain independent.
+
 ## License
 
 TraceLoom is released under the [MIT License](LICENSE).

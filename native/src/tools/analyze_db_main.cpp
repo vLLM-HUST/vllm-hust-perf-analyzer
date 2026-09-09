@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "profile_input_discovery.h"
+#include "inference_cli.h"
 #include "analyze_db_usage.h"
 #include "perfetto_cli_args.h"
 
@@ -749,6 +750,9 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
 
 int main(int argc, char** argv) {
   try {
+    if (argc > 1 && (std::string(argv[1]) == "import-inference" ||
+                     std::string(argv[1]) == "export-inference"))
+      return traceloom::tools::run_inference_cli(argc, argv);
     const CliOptions cli = parse_args(argc, argv);
     if (cli.perfetto_export_only) {
       const std::string output =
