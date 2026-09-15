@@ -335,6 +335,20 @@ void write_grammar_debug_json(std::ostream& out,
     }
     out << "],\n";
   }
+  out << "    \"pair_min_occurrences\": 2,\n";
+  if (!state.metadata.match_rules.suffix_markers.empty()) {
+    out << "    \"suffix_marker_semantics\": \"expanded_suffix_v1\",\n";
+    out << "    \"suffix_markers\": [";
+    bool first = true;
+    for (const auto& rule : state.metadata.match_rules.suffix_markers) {
+      if (!first) out << ',';
+      first = false;
+      out << "{\"id\":"; write_json_string(out, rule.id);
+      out << ",\"marker\":"; write_json_string(out, rule.marker);
+      out << '}';
+    }
+    out << "],\n";
+  }
   out << "    \"known_deltas\": ";
   write_string_array(out, state.metadata.known_deltas, "      ", "    ");
   out << "\n";

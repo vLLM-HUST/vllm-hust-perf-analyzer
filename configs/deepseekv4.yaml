@@ -6,3 +6,35 @@ macro_matching:
     - id: hc_pre_post
       before: HcPre
       after: HcPost
+  suffix_markers:
+    - id: slot_mapping_cycle_end
+      marker: _compute_slot_mapping_kernel
+classification:
+  mode: extend
+  metadata:
+    manifest_schema: "traceloom.evidence-role-policy/v1"
+    policy_id: "traceloom.deepseekv4.structure"
+    policy_version: "1"
+    provider_scopes: "ascend"
+    fallback_identity_role: "unknown_anchor"
+    fallback_cost_treatment: "retained_for_attribution"
+    fallback_context_treatment: "retained"
+    fallback_provenance_treatment: "retained"
+    missing_evidence_behavior: "continue_or_fallback"
+  rules:
+    - rule_id: deepseekv4.tensormove-aux
+      priority: 110
+      provider_scope: ascend
+      source_domain: task
+      field: operator
+      match: exact
+      pattern: TensorMove
+      role: auxiliary
+      required_fields: operator
+      structural_participation: excluded
+      cost_treatment: retained_for_attribution
+      context_treatment: retained
+      provenance_treatment: retained
+      missing_evidence_behavior: continue_or_fallback
+      concrete_identity_behavior: apply
+      note: Keep data movement as evidence and cost, outside model structural matching

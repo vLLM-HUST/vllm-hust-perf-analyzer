@@ -162,3 +162,33 @@ retained evidence or overinterpret marker-only evaluation boundaries as truth.
 No scheduler-step discovery claim follows from these layer-alignment results.
 Report/reproducer:
 `/root/my-ascend-workspace/runs/traceloom-ordering-study/yaml-rules/REPORT.md`.
+
+
+## Suffix boundaries and pair acceptance (2026-09-15)
+
+Follow-up donor artifacts are under the same ordering-study root in
+`tensormove-aux`, `slot-suffix`, `global-slot-suffix`, and `pair-two` (each has a
+REPORT.md and executable audit). TensorMove was an unknown-anchor fallback;
+model-scoped auxiliary exclusion retained 330 source events/cost evidence and
+improved exact Hc-defined layer nodes 251→269/276. Independent cycle analysis
+lost shared frequencies and regressed to 220/276: do not implement suffix rules
+by invoking a separate grammar per segment.
+
+Global expanded-suffix constraints on `_compute_slot_mapping_kernel` retained
+269/276 layers and removed all six run-end crossings, at 727→731 structural
+slots. Pair frequency>=4 was then the actual stopping gate: all remaining
+within-cycle pairs were allowed but had frequency<=3. Fletcher confirmed the
+original gate represented his compression-length criterion. Allowing frequency
+>=2 while retaining all constraints produced 710 slots, 23 root nodes, and
+4/5 complete marker-cycle macros (two exact variants); the exceptional first
+cycle remains 13 nodes. Four ordinary cycles share a 3314-event body with
+81/91-event prefixes; do not erase genuine variants to claim one exact template.
+
+Full native rank-3 validation in `pair-two/rank3.db` and exported Perfetto trace
+reproduced 710 slots, preserving events, anchors, costs, and structural ordering
+from the auxiliary baseline. All eight filtered fixture sequences were equal,
+but this was only one new full profiler analysis. Marker-cycle macros are NOT
+scheduler-step ground truth or a complete step-boundary discovery feature.
+Production settings now use the staged DeepSeek overlay (suffix + TensorMove)
+and minimum-two pair acceptance; the old experiment environment flags are not
+public interfaces. See configs/README.md for exact semantics and provenance.

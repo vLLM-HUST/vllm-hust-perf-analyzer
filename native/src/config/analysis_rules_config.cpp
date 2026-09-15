@@ -77,17 +77,29 @@ AnalysisRulesConfig load_analysis_rules_config(const std::string& path,
     }
   }
   if (auto p = root.find("macro_matching"); p != root.end()) {
-    auto fields = document.fields(p->second, {"ordered_markers"});
+    auto fields = document.fields(p->second, {"ordered_markers", "suffix_markers"});
     std::set<std::string> ids;
-    for (auto node : document.sequence(YamlDocument::required(fields, "ordered_markers"))) {
-      auto rule = document.fields(node, {"id", "before", "after"});
-      OrderedMarkerRule marker{YamlDocument::scalar(YamlDocument::required(rule, "id")),
-          YamlDocument::scalar(YamlDocument::required(rule, "before")),
-          YamlDocument::scalar(YamlDocument::required(rule, "after"))};
-      if (marker.id.empty() || marker.before.empty() || marker.after.empty() ||
-          marker.before == marker.after || !ids.insert(marker.id).second)
-        throw std::invalid_argument("invalid or duplicate ordered marker rule");
-      out.macro_matching.ordered_markers.push_back(std::move(marker));
+    if (auto list = fields.find("ordered_markers"); list != fields.end()) {
+      for (auto node : document.sequence(list->second)) {
+        auto rule = document.fields(node, {"id", "before", "after"});
+        OrderedMarkerRule marker{YamlDocument::scalar(YamlDocument::required(rule, "id")),
+            YamlDocument::scalar(YamlDocument::required(rule, "before")),
+            YamlDocument::scalar(YamlDocument::required(rule, "after"))};
+        if (marker.id.empty() || marker.before.empty() || marker.after.empty() ||
+            marker.before == marker.after || !ids.insert(marker.id).second)
+          throw std::invalid_argument("invalid or duplicate ordered marker rule");
+        out.macro_matching.ordered_markers.push_back(std::move(marker));
+      }
+    }
+    if (auto list = fields.find("suffix_markers"); list != fields.end()) {
+      for (auto node : document.sequence(list->second)) {
+        auto rule = document.fields(node, {"id", "marker"});
+        SuffixMarkerRule marker{YamlDocument::scalar(YamlDocument::required(rule, "id")),
+            YamlDocument::scalar(YamlDocument::required(rule, "marker"))};
+        if (marker.id.empty() || marker.marker.empty() || !ids.insert(marker.id).second)
+          throw std::invalid_argument("invalid or duplicate suffix marker rule");
+        out.macro_matching.suffix_markers.push_back(std::move(marker));
+      }
     }
     out.macro_matching.source_path = path;
     out.macro_matching.source_yaml = out.source_yaml;

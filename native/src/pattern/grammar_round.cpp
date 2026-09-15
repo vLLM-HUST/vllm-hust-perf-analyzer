@@ -236,7 +236,7 @@ GrammarRoundResult run_adjacent_run_readonly_round(
       ++end;
     }
     const std::size_t run_len = end - begin;
-    if (run_len >= 2) {
+    if (run_len >= 2 && macro_match_allowed(snapshot, begin, end)) {
       const GrammarSnapshotNode& begin_node = snapshot.nodes[begin];
       const GrammarSnapshotNode& last_node = snapshot.nodes[end - 1];
       if (!begin_node.owner_chunk_id.valid() ||
@@ -367,8 +367,9 @@ GrammarRoundResult run_pair_grammar_readonly_round(
          const GrammarCandidateStats& rhs) {
         return pair_stats_better(rhs, lhs);
       });
-  if (best == result.candidate_stats.end() || best->gain == 0 ||
-      best->occurrence_count < 4) {
+  // Frequency ranks pairs. Permit nonshrinking intermediate rules so repeated
+  // longer structures can emerge; the legacy gain estimate is diagnostic only.
+  if (best == result.candidate_stats.end() || best->occurrence_count < 2) {
     return result;
   }
 
@@ -419,7 +420,7 @@ GrammarRoundResult run_native_macro_run_readonly_round(
       ++end;
     }
     const std::size_t run_len = end - begin;
-    if (run_len >= 2 &&
+    if (run_len >= 2 && macro_match_allowed(snapshot, begin, end) &&
         eligible_symbols.find(dense.symbols[begin]) != eligible_symbols.end()) {
       const GrammarSnapshotNode& begin_node = snapshot.nodes[begin];
       const GrammarSnapshotNode& last_node = snapshot.nodes[end - 1];

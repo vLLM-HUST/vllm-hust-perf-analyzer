@@ -39,6 +39,42 @@ int main() {
   nested.nodes[0].symbol_id=SymbolId(1000);nested.nodes[0].macro_def_id=MacroDefId(0);
   require(macro_match_allowed(freeze_grammar_snapshot(nested),0,2));
 
+  GrammarStateConfig suffix;
+  suffix.match_rules.suffix_markers.push_back({"end", "S"});
+  for (auto names : {std::initializer_list<const char*>{"A","B"}, {"A","S"}, {"S","S"}, {"A","S","S"}}) {
+    auto state=build_initial_grammar_state(input(names),suffix);
+    require(macro_match_allowed(freeze_grammar_snapshot(state),0,names.size()));
+  }
+  for (auto names : {std::initializer_list<const char*>{"S","A"}, {"A","S","B"}}) {
+    auto state=build_initial_grammar_state(input(names),suffix);
+    require(!macro_match_allowed(freeze_grammar_snapshot(state),0,names.size()));
+  }
+  auto suffix_ir=input({"A","S","A","S"});
+  auto suffix_state=build_initial_grammar_state(suffix_ir,suffix);
+  const auto a=suffix_ir.tokens.row(TokenId(0)).symbol_id;
+  const auto end=suffix_ir.tokens.row(TokenId(1)).symbol_id;
+  suffix_state.macro_defs.push_back({MacroDefId(0),SymbolId(1000),MacroLevel::kRP,{a,end},2,2,0,0,""});
+  suffix_state.nodes[0].symbol_id=SymbolId(1000);
+  suffix_state.nodes[1].symbol_id=SymbolId(1000);
+  require(!macro_match_allowed(freeze_grammar_snapshot(suffix_state),0,2));
+  // Repeating marker-bearing mixed macros must be filtered by both run producers.
+  suffix_state.nodes[0].macro_def_id=MacroDefId(0);
+  suffix_state.nodes[1].macro_def_id=MacroDefId(0);
+  require(run_adjacent_run_readonly_round(suffix_state).status==GrammarRoundStatus::kStop);
+  require(run_native_macro_run_readonly_round(suffix_state).status==GrammarRoundStatus::kStop);
+  auto plain_suffix=build_initial_grammar_state(input({"S","A","S","A"}));
+  auto pair=run_pair_grammar_readonly_round(plain_suffix);
+  auto guarded=build_initial_grammar_state(input({"S","A","S","A"}),suffix);
+  require(!build_pair_grammar_commit_plan(freeze_grammar_snapshot(guarded),pair.action).valid());
+  // Two occurrences now suffice; a single occurrence is never promoted.
+  auto twice=build_initial_grammar_state(input({"A","B","A","B"}));
+  auto two=run_pair_grammar_readonly_round(twice);
+  require(two.status==GrammarRoundStatus::kActionSelected && two.action.replace_count==2);
+  require(two.action.gain==0); // retained legacy estimate, not an acceptance gate
+  require(run_grammar_state_machine(twice).ok());
+  require(twice.live_node_count==2);
+  require(run_pair_grammar_readonly_round(build_initial_grammar_state(input({"A","B"}))).status==GrammarRoundStatus::kStop);
+
   const auto path=std::filesystem::temp_directory_path()/"traceloom-match-rules-test.yaml";
   const std::string good="schema: traceloom-match-rules-v1\nordered_markers:\n - id: hc\n   before: 'HcPre' # comment\n   after: HcPost\n";
   {std::ofstream out(path);out<<good;}
@@ -49,5 +85,7 @@ int main() {
     {std::ofstream out(path);out<<bad;}
     bool failed=false;try{(void)load_macro_match_rules(path.string());}catch(const std::invalid_argument&){failed=true;}require(failed);
   }
+  {std::ofstream out(path);out<<"schema: traceloom-match-rules-v1\nsuffix_markers: [{id: end, marker: S}]\n";}
+  require(load_macro_match_rules(path.string()).suffix_markers.size()==1);
   std::filesystem::remove(path);
 }

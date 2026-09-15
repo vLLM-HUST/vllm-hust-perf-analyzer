@@ -411,6 +411,8 @@ void write_basic_native_compatibility_sidecar(
       {"native_compatibility_materializer", "basic_native_ir_v1"},
       {"match_rules_yaml", options.match_rules.source_yaml},
       {"match_rules_semantics", "unmatched_marker_order_v1"},
+      {"suffix_marker_semantics", "expanded_suffix_v1"},
+      {"pair_min_occurrences", "2"},
       {"source_kind", options.source_kind},
       {"input_format", options.input_format},
       {"source_path", options.source_path},

@@ -153,9 +153,11 @@ int main() {
   require(pair_one_worker.action.first_dense_index ==
           pair.action.first_dense_index);
 
-  const GrammarRoundResult pair_stop =
+  const GrammarRoundResult pair_three =
       pair_round_for({"A", "B", "A", "B", "A", "B"}, 3, 2);
-  require(pair_stop.status == GrammarRoundStatus::kStop);
+  require(pair_three.status == GrammarRoundStatus::kActionSelected);
+  require(pair_three.action.replace_count == 3);
+  require(pair_three.action.gain == 0);
 
   const GrammarRoundResult pair_tie =
       pair_round_for({"A", "B", "C", "D", "A", "B", "C", "D",

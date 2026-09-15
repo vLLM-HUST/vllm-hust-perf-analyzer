@@ -138,10 +138,53 @@ YAML fail explicitly. No scripts, includes or arbitrary expressions are executed
 
 The AugDB metadata keys `match_rules_yaml` and `match_rules_semantics` retain the
 exact supplied document and interpretation. Grammar debug JSON includes resolved
-rules under `algorithm.ordered_markers` when enabled. Pair matching still uses
-its existing frequency/gain criterion: a permitted candidate is not guaranteed
-to be selected. Compare with the no-rule baseline to judge the hint's effects.
+rules under `algorithm.ordered_markers` when enabled. Pair matching uses frequency ranking and the minimum-two acceptance criterion
+below: a permitted candidate is not guaranteed to be selected. Compare with the no-rule baseline to judge the hint's effects.
 
 Hints are user-supplied prior knowledge. Report them with the result; do not
 present constrained recovery as discovering layer/step boundaries from timing
 alone. The sample is installed under `share/traceloom/models/deepseekv4.yaml`.
+
+## `expanded_suffix_v1`
+
+`macro_matching.suffix_markers` accepts `{id, marker}` records over normalized
+structural symbols. A candidate containing that marker is allowed only if its
+expanded marker occurrences form a terminal contiguous suffix. `A B S`, `A S S`,
+`S S`, and marker-free `A B` are allowed; `S A` and `A S B` are not. Summaries
+propagate through all grammar macro levels: repeating a mixed `macro(A S)` is
+also forbidden. Unlike the ordered-marker rule, completed units are NOT sealed
+or exempted. Exact externally protected replay units remain opaque; this rule
+neither inspects their bodies nor changes their protection.
+
+```yaml
+macro_matching:
+  suffix_markers:
+    - id: slot_mapping_cycle_end
+      marker: _compute_slot_mapping_kernel
+```
+
+Both lists are optional and can be combined; rule IDs must be unique across
+lists. The macro-only legacy document also supports top-level `suffix_markers`.
+All candidate producers filter before ranking, and commits recheck constraints.
+This is a candidate restriction, not automatic region/step annotation; a marker
+run is not evidence of a scheduler boundary. No fixed run length is assumed.
+
+The shipped DeepSeek overlay additionally classifies exact operator `TensorMove`
+as auxiliary while retaining raw evidence, timing, and cost attribution. This
+is model-scoped, not a global change to unknown-event handling.
+
+## Pair discovery and compression cost
+
+Pair discovery now accepts two or more occurrences, ranked by frequency and
+then the existing deterministic tie-breaks. Singletons remain excluded. The old
+minimum-four gate could prevent locally nonshrinking intermediate pairs from
+forming larger repeated structures. The diagnostic `gain` remains the legacy
+clipped `max(occurrences - 3, 0)` estimate, but no longer gates pair acceptance;
+it is neither measured byte savings nor the root-plus-dictionary-RHS slot delta.
+This change does not guarantee better compression on every input.
+
+AugDB metadata records `pair_min_occurrences=2` and
+`suffix_marker_semantics=expanded_suffix_v1`; grammar debug JSON also exposes
+the threshold and configured suffix rules. Full YAML remains in the existing
+provenance fields. No generic multi-node repeated-block discovery or semantic
+step-boundary projection is added by these changes.

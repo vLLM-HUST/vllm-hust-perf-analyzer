@@ -173,7 +173,7 @@ int main() {
               "WHERE member_kind='terminal_token'") == "event-0");
 
   require(run_scalar_int(db_path,
-                         "SELECT COUNT(*) FROM traceloom_metadata") == 47);
+                         "SELECT COUNT(*) FROM traceloom_metadata") == 49);
   require(run_scalar_text(db_path,
                           "SELECT value FROM traceloom_metadata WHERE key = "
                           "'input_format'") == "unknown");

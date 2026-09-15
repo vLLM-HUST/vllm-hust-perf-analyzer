@@ -8,6 +8,15 @@
 namespace traceloom {
 namespace {
 
+SuffixMarkerSummary concatenate_suffix(SuffixMarkerSummary left, SuffixMarkerSummary right) {
+  return {left.has_marker || right.has_marker, left.has_other || right.has_other,
+          left.valid && right.valid && !(left.has_marker && right.has_other)};
+}
+SuffixMarkerSummary suffix_of(const std::map<SymbolId, SuffixMarkerSummary>& summaries, SymbolId id) {
+  auto it = summaries.find(id);
+  return it == summaries.end() ? SuffixMarkerSummary{false, true, true} : it->second;
+}
+
 std::size_t require_node_index(GrammarNodeId node_id, std::size_t size) {
   if (!node_id.valid() || node_id.value() >= size) {
     throw std::invalid_argument("grammar snapshot references invalid node id");
@@ -48,6 +57,19 @@ GrammarSnapshot freeze_grammar_snapshot(const GlobalGrammarState& state) {
         }
       balances[macro.symbol_id] = net;
     }
+  }
+  for (const auto& seeds : state.suffix_marker_seeds) {
+    std::map<SymbolId, SuffixMarkerSummary> summaries;
+    for (const auto& [symbol, marker] : seeds) summaries[symbol] = {marker, !marker, true};
+    for (const auto& macro : state.macro_defs) {
+      SuffixMarkerSummary summary;
+      // Exact replay units remain opaque; their separate body grammar is unchanged.
+      if (macro.level == MacroLevel::kSemantic) summary.has_other = true;
+      else for (auto child : macro.rhs_symbols)
+        summary = concatenate_suffix(summary, suffix_of(summaries, child));
+      summaries[macro.symbol_id] = summary;
+    }
+    snapshot.suffix_markers.push_back(std::move(summaries));
   }
   snapshot.stage = state.stage;
   snapshot.generation = state.generation;
@@ -170,6 +192,13 @@ std::size_t dense_index_of_node(const DenseGrammarView& view,
 }
 
 bool macro_match_allowed(const GrammarSnapshot& snapshot, std::size_t begin, std::size_t end) {
+  for (const auto& summaries : snapshot.suffix_markers) {
+    SuffixMarkerSummary summary;
+    for (auto i = begin; i < end; ++i) {
+      summary = concatenate_suffix(summary, suffix_of(summaries, snapshot.nodes.at(i).symbol_id));
+      if (!summary.valid) return false;
+    }
+  }
   for (const auto& balances : snapshot.marker_balances) {
     std::int64_t net = 0;
     for (auto i = begin; i < end; ++i) {

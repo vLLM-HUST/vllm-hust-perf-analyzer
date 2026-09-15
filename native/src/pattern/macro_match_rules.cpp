@@ -53,19 +53,32 @@ MacroMatchRules load_macro_match_rules(const std::string& path) {
     if (!yaml_parser_load(&parser,&doc))
       throw std::invalid_argument("match rules YAML: "+std::string(parser.problem ? parser.problem : "parse error"));
     loaded=true;
-    auto root=fields(doc,yaml_document_get_root_node(&doc),{"schema","ordered_markers"});
+    auto root=fields(doc,yaml_document_get_root_node(&doc),{"schema","ordered_markers","suffix_markers"});
     if (required(root,"schema")!="traceloom-match-rules-v1")
       throw std::invalid_argument("unsupported match rules schema");
     auto list=root.find("ordered_markers");
-    if (list==root.end() || list->second->type!=YAML_SEQUENCE_NODE)
+    if (list!=root.end() && list->second->type!=YAML_SEQUENCE_NODE)
       throw std::invalid_argument("match rules: ordered_markers must be a sequence");
     std::set<std::string> ids;
+    if (list!=root.end())
     for (auto i=list->second->data.sequence.items.start; i!=list->second->data.sequence.items.top; ++i) {
       auto f=fields(doc,yaml_document_get_node(&doc,*i),{"id","before","after"});
       OrderedMarkerRule rule{required(f,"id"),required(f,"before"),required(f,"after")};
       if (rule.before==rule.after || !ids.insert(rule.id).second)
         throw std::invalid_argument("match rules: identical markers or duplicate rule id");
       rules.ordered_markers.push_back(std::move(rule));
+    }
+    auto suffix=root.find("suffix_markers");
+    if (suffix!=root.end()) {
+      if (suffix->second->type!=YAML_SEQUENCE_NODE)
+        throw std::invalid_argument("match rules: suffix_markers must be a sequence");
+      for (auto i=suffix->second->data.sequence.items.start; i!=suffix->second->data.sequence.items.top; ++i) {
+        auto f=fields(doc,yaml_document_get_node(&doc,*i),{"id","marker"});
+        SuffixMarkerRule rule{required(f,"id"),required(f,"marker")};
+        if (!ids.insert(rule.id).second)
+          throw std::invalid_argument("match rules: duplicate rule id");
+        rules.suffix_markers.push_back(std::move(rule));
+      }
     }
     yaml_document_delete(&doc); loaded=false;
     if (!yaml_parser_load(&parser,&doc))

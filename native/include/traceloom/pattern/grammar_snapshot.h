@@ -23,8 +23,15 @@ struct GrammarSnapshotNode {
   std::size_t dense_index = 0;
 };
 
+struct SuffixMarkerSummary {
+  bool has_marker = false;
+  bool has_other = false;
+  bool valid = true;
+};
+
 struct GrammarSnapshot {
   std::vector<std::map<SymbolId, std::int64_t>> marker_balances;
+  std::vector<std::map<SymbolId, SuffixMarkerSummary>> suffix_markers;
   GrammarAlgorithmMetadata metadata;
   GrammarStage stage = GrammarStage::kInit;
   std::uint64_t generation = 0;

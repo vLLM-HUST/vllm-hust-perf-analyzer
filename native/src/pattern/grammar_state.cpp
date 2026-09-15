@@ -170,6 +170,12 @@ GlobalGrammarState build_initial_grammar_state(
     }
     state.marker_seeds.push_back(std::move(seeds));
   }
+  for (const auto& rule : config.match_rules.suffix_markers) {
+    std::map<SymbolId, bool> seeds;
+    for (const auto& t : ir.tokens.rows())
+      if (t.symbol_id.valid()) seeds[t.symbol_id] = ir.symbols.value(t.symbol_id) == rule.marker;
+    state.suffix_marker_seeds.push_back(std::move(seeds));
+  }
   state.stage = GrammarStage::kRunFold;
   state.generation = 0;
   state.target_nodes_per_chunk = config.target_nodes_per_chunk;

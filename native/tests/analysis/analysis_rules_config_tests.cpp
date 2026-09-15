@@ -118,6 +118,15 @@ int main() {
   auto hinted = load_analysis_rules_config(write("hints.yaml", macros));
   require(hinted.macro_matching.ordered_markers.size() == 1);
   require(hinted.macro_matching.source_yaml == macros);
+  auto suffix = load_analysis_rules_config(write("suffix.yaml", schema +
+      "macro_matching: {suffix_markers: [{id: end, marker: S}]}\n"));
+  require(suffix.macro_matching.suffix_markers.size() == 1);
+  require(suffix.macro_matching.suffix_markers[0].marker == "S");
+  for (auto bad : {"suffix_markers: {}", "suffix_markers: [{id: end}]",
+                  "suffix_markers: [{id: end, marker: S}, {id: end, marker: T}]",
+                  "ordered_markers: [{id: x, before: P, after: Q}], suffix_markers: [{id: x, marker: S}]"})
+    rejected([&] { load_analysis_rules_config(write("suffix-invalid.yaml",
+        schema + "macro_matching: {" + bad + "}\n")); });
   for (auto invalid : {schema + "unknown: {}\n", schema + "macro_matching: []\n",
       schema + "macro_matching: {ordered_markers: [{id: x, before: P, after: P}]}\n",
       schema + "schema: traceloom-analysis-rules-v1\n", schema + "---\n{}\n",

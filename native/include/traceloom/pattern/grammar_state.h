@@ -91,6 +91,7 @@ struct BoundarySummary {
 struct GlobalGrammarState {
   // Net unmatched marker counts; balanced macros are opaque to higher matching.
   std::vector<std::map<SymbolId, std::int64_t>> marker_seeds;
+  std::vector<std::map<SymbolId, bool>> suffix_marker_seeds;
   GrammarAlgorithmMetadata metadata;
   GrammarStage stage = GrammarStage::kInit;
   std::uint64_t generation = 0;
