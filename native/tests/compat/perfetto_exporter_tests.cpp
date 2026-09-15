@@ -95,6 +95,8 @@ void create_fixture(const std::filesystem::path& path) {
              "INSERT INTO raw_pytorch VALUES(900,1050,42,7);");
     add_device(db, 0, 1000);
     add_device(db, 1, 3000);
+    exec_sql(db, "UPDATE traceloom_v_tree_node SET label='layer',category='model_rule' "
+                 "WHERE device_id=1 AND local_node_id='N001';");
     sqlite3_close(db);
   } catch (...) {
     sqlite3_close(db);
@@ -228,13 +230,14 @@ int main() {
   require(receipt.motif_classes == 1);
 
   const std::string json = read_plain(json_path);
-  require(count_occurrences(json, "N001 · root") == 2);
+  require(count_occurrences(json, "N001 · root") == 1);
   require(count_occurrences(json, "N002 · motif A · body 1/2") == 2);
   require(count_occurrences(json, "N002 · motif A · body 2/2") == 2);
   require_contains(json, "\"repeat_node_id\":\"node-N002\"");
   require_contains(json, "\"repeat_context\":\"N002#1\"");
   require_contains(json, "\"database_index\":0,\"device_id\":1");
   require_contains(json, "\"view_name\":\"expanded\"");
+  require_contains(json, "layer · N001");
   require_contains(json, "torch.matmul");
   require_contains(json, "timeline events · rank 0");
   require_contains(json, "timeline events · rank 1");

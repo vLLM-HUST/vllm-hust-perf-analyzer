@@ -483,7 +483,10 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
       sidecar_options.input_missing_components = evidence.missing_components;
     }
     sidecar_options.match_rules = cli.match_rules;
-    if (cli.rules_config) sidecar_options.analysis_rules_yaml = cli.rules_config->source_yaml;
+    if (cli.rules_config) {
+      sidecar_options.analysis_rules_yaml = cli.rules_config->source_yaml;
+      sidecar_options.marked_structure = cli.rules_config->structure;
+    }
     sidecar_options.grammar_worker_count = cli.threads;
     sidecar_options.grammar_target_nodes_per_chunk =
         kGrammarTargetNodesPerChunk;

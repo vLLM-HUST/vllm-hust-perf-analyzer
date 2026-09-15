@@ -43,7 +43,7 @@ AnalysisRulesConfig load_analysis_rules_config(const std::string& path,
   out.source_yaml = read_config_file(path);
   YamlDocument document(out.source_yaml);
   const auto root = document.fields(document.root(),
-      {"schema", "classification", "symbol_normalization", "event_reconciliation", "macro_matching"});
+      {"schema", "classification", "symbol_normalization", "event_reconciliation", "macro_matching", "structure"});
   if (YamlDocument::scalar(YamlDocument::required(root, "schema")) != "traceloom-analysis-rules-v1")
     throw std::invalid_argument("unsupported analysis rules schema");
   for (const auto& kind : {"classification", "symbol_normalization", "event_reconciliation"}) {
@@ -103,6 +103,52 @@ AnalysisRulesConfig load_analysis_rules_config(const std::string& path,
     }
     out.macro_matching.source_path = path;
     out.macro_matching.source_yaml = out.source_yaml;
+  }
+  if (auto p = root.find("structure"); p != root.end()) {
+    auto fields = document.fields(p->second, {"unit", "compositions"});
+    auto unit = document.fields(YamlDocument::required(fields,"unit"), {"id","begin","end","labels"});
+    auto required_string = [](const auto& f,const std::string& key) {
+      auto value=YamlDocument::scalar(YamlDocument::required(f,key));
+      if(value.empty()) throw std::invalid_argument("empty structure field: "+key);
+      return value;
+    };
+    out.structure.id=required_string(unit,"id");
+    out.structure.begin=required_string(unit,"begin");
+    out.structure.end=required_string(unit,"end");
+    if(out.structure.begin==out.structure.end) throw std::invalid_argument("identical unit markers");
+    std::set<std::string> labels;
+    for(auto node:document.sequence(YamlDocument::required(unit,"labels"))) {
+      auto f=document.fields(node,{"label","contains_any"});
+      UnitLabelRule rule;rule.label=required_string(f,"label");
+      if(rule.label=="ambiguous" || rule.label=="unclassified" || !labels.insert(rule.label).second)
+        throw std::invalid_argument("reserved or duplicate unit label");
+      for(auto symbol:document.sequence(YamlDocument::required(f,"contains_any"))) {
+        auto name=YamlDocument::scalar(symbol);
+        if(name.empty()) throw std::invalid_argument("empty unit classifier symbol");
+        rule.contains_any.push_back(name);
+      }
+      if(rule.contains_any.empty()) throw std::invalid_argument("empty unit classifier");
+      out.structure.labels.push_back(std::move(rule));
+    }
+    if(labels.empty()) throw std::invalid_argument("unit labels must not be empty");
+    std::set<std::string> composition_labels;
+    std::set<std::vector<std::string>> signatures;
+    if(auto p=fields.find("compositions");p!=fields.end())
+    for(auto node:document.sequence(p->second)) {
+      auto f=document.fields(node,{"label","sequence"});
+      UnitCompositionRule rule;rule.label=required_string(f,"label");
+      if(labels.count(rule.label) || rule.label=="ambiguous" || rule.label=="unclassified" ||
+         !composition_labels.insert(rule.label).second)
+        throw std::invalid_argument("conflicting composition label");
+      for(auto member:document.sequence(YamlDocument::required(f,"sequence"))) {
+        auto label=YamlDocument::scalar(member);
+        if(!labels.count(label)) throw std::invalid_argument("composition references unknown unit label");
+        rule.sequence.push_back(label);
+      }
+      if(rule.sequence.size()<2 || !signatures.insert(rule.sequence).second)
+        throw std::invalid_argument("short or duplicate composition sequence");
+      out.structure.compositions.push_back(std::move(rule));
+    }
   }
   if (!out.classification) out.classification = load_default_signal_classification_ruleset(executable_path);
   if (!out.symbols) out.symbols = load_default_structural_symbol_ruleset(executable_path);

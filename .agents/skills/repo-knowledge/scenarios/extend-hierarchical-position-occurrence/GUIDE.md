@@ -228,3 +228,30 @@ Before handoff, run the full native test preset, a release build, the
 repository-knowledge validator, `git diff --check`, and inspect file sizes so a
 new feature has not silently enlarged a legacy file beyond the 800-line yellow
 boundary.
+
+## Project explicitly marked model units
+
+`configs/README.md` owns the optional `structure` YAML contract. The small
+`analysis/marked_structure` builder lowers typed marker-pair units and adjacent
+compositions directly to the SAME structural graph/HPO model, independently of
+compact grammar success. Do not add another ownership model or use semantic
+labels as structural equivalence: contextual definitions share only exact
+ordered token signatures. Child edge orders are **one-based and dense** (the
+basic graph validator alone does not check the HPO sequence-slot contract).
+
+When adding visible semantic units, inspect actual exported slices: the ordinary
+Perfetto sequence renderer historically showed only `N… · seq`, ignoring the
+Position label. Model-rule categories now show `label · N…`; grammar rendering
+is unchanged. Protected replay is not reinterpreted by model rules; it retains
+normal recovery and a typed unsupported status. `--loop-tree-no-grammar` does
+not turn off the explicit structure projection.
+
+Bounded donor observation (2026-09-15, rank 3 profiler capture
+`rank-3_4365_20260912154430905_ascend_pt`): host-launch ordering, TensorMove as
+auxiliary, HcPre/HcPost units classified by SparseAttnSharedkv/MoeInitRoutingV3,
+and adjacent attention→moe composition produce 552 sublayers and 276 layers,
+including the seven layers absent from the earlier grammar tree. Six exact
+layer variants remain separate definitions. This establishes model-hint-based
+recognition on this capture, not unsupervised semantic discovery, cross-model
+coverage, or scheduler-step boundaries. Local evidence and verification helper:
+`runs/traceloom-ordering-study/marked-structure/` in the surrounding workspace.

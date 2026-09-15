@@ -134,6 +134,15 @@ int main() {
       schema + "macro_matching: &x {ordered_markers: [*x]}\n"}) {
     rejected([&] { load_analysis_rules_config(write("invalid.yaml", invalid)); });
   }
+  const std::string unit="unit: {id: hc, begin: P, end: Q, labels: [{label: attention, contains_any: [A]}, {label: moe, contains_any: [M]}]}";
+  auto structured=load_analysis_rules_config(write("structure.yaml",schema+
+      "structure: {"+unit+", compositions: [{label: layer, sequence: [attention, moe]}]}\n"));
+  require(structured.structure.enabled() && structured.structure.labels.size()==2 && structured.structure.compositions.size()==1);
+  for(auto extra:{", typo: true",", compositions: [{label: layer, sequence: [attention, missing]}]",
+                 ", compositions: [{label: layer, sequence: [attention]}]"})
+    rejected([&] {load_analysis_rules_config(write("structure-invalid.yaml",schema+"structure: {"+unit+extra+"}\n"));});
+  rejected([&] {load_analysis_rules_config(write("structure-same.yaml",schema+
+      "structure: {unit: {id: x, begin: P, end: P, labels: []}}\n"));});
   rejected([&] { load_structural_symbol_ruleset(c.metadata().manifest_source_path); });
   rejected([&] { YamlDocument huge(std::string(1024 * 1024 + 1, 'x')); });
   // Temp directory contains only these tests' explicitly-created files.

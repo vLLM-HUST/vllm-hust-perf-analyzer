@@ -188,3 +188,64 @@ AugDB metadata records `pair_min_occurrences=2` and
 the threshold and configured suffix rules. Full YAML remains in the existing
 provenance fields. No generic multi-node repeated-block discovery or semantic
 step-boundary projection is added by these changes.
+
+## Explicit model structure: typed units and compositions
+
+`structure` supplies semantic boundaries directly, independently of macro
+compression. This optional projection uses the existing Position/Occurrence
+model and standard tree/Perfetto export; it does not invent a parallel ownership
+model or reinterpret grammar Patterns as semantic types.
+
+```yaml
+structure:
+  unit:
+    id: hc_sublayer
+    begin: HcPre
+    end: HcPost
+    labels:
+      - label: attention
+        contains_any: [SparseAttnSharedkv]
+      - label: moe
+        contains_any: [MoeInitRoutingV3]
+  compositions:
+    - label: layer
+      sequence: [attention, moe]
+```
+
+A complete, non-nested begin/end pair includes both markers. Matching uses exact
+normalized structural symbols, in the selected structural order (host-launch
+when requested). A classifier matches if ANY listed symbol occurs inside that
+unit. Exactly one matching classifier assigns its label; zero or multiple
+matches retain an `unclassified` or `ambiguous` unit. Those reserved labels never
+participate in compositions. A composition requires adjacent, contiguous units
+in exactly the configured type order. Intervening raw events, unknown units,
+and reversed type order are barriers. There is no silent skipping or fixed
+model layer count. Multiple applicable compositions remain uncombined.
+
+One marker-pair unit rule and one level of composition are supported in this
+version. Invalid/duplicate labels, unknown composition members, identical
+markers, empty classifier lists, and unknown configuration fields fail at load.
+Nested or unmatched runtime markers remain ordinary event evidence rather than
+fabricated units. No complete matches or incomplete/ambiguous recognition is
+reported as `model_rules_partial` in the tree header's discovery status; normal
+configured recognition is `model_rules_explicit`. Devices with exact protected
+replay intervals retain the ordinary protected recovery path and report
+`model_rules_unsupported_protected_replay` instead of applying marker semantics.
+
+With structure enabled, the semantic tree contains named `layer`, `attention`,
+and `moe` sequence Positions (or the configured labels) and original atom
+members. Identical ordered structures share contextual Position definitions;
+the same semantic label with different contents has separate definitions.
+Use `traceloom_v_position`, Position refinements/occurrences/members and the
+ordinary tree node/occurrence views to query definitions, instances and source
+anchors. The `native_report_tree` subtree tracks in Perfetto display the named
+units and compositions directly. Auxiliary evidence/cost remains attributable;
+raw event rows, structural ordering and anchor cost records are unchanged.
+
+The compact grammar remains separately queryable but no longer decides these
+semantic boundaries. `--loop-tree-no-grammar` therefore does not disable explicit
+model structure. Omit `structure` to retain the previous grammar-derived tree.
+AugDB records the full supplied YAML plus `model_structure_semantics` and
+`model_structure_rule_id`. These are user-supplied model hints, NOT independent
+layer discovery or scheduler-step ground truth. This release does not compose
+or annotate steps.

@@ -396,5 +396,39 @@ int main() {
               "JOIN traceloom_anchor a ON a.anchor_id = na.anchor_id "
               "WHERE na.device_id != a.device_id") == 0);
   std::remove(multi_db_path.c_str());
+  // Explicit semantic units survive grammar being disabled, and protected
+  // replay remains opaque even when a caller supplies model marker rules.
+  NativeIr marked_ir;
+  const auto marked_source = marked_ir.source_refs.append("fixture", "marked", "TASK", 0);
+  for (const auto* name : {"P", "A", "Q", "P", "M", "Q"}) {
+    const auto symbol = marked_ir.symbols.intern(name);
+    const auto start = static_cast<std::int64_t>(marked_ir.tokens.size()) * 100;
+    const auto event = marked_ir.trace_events.append(marked_source, start, 0, 1, start, start + 150, symbol);
+    const auto anchor = marked_ir.anchors.append(marked_source, event, ReplayUnitId::invalid(),
+        AnchorKind::kDeviceEvent, symbol, 0, 1, start, start + 150);
+    marked_ir.tokens.append(anchor, symbol, 0, marked_ir.tokens.size(), start, start + 150);
+  }
+  compat::NativeCompatibilitySidecarOptions marked_options;
+  marked_options.materialize_grammar_structural_projection = false;
+  marked_options.marked_structure = {"test", "P", "Q",
+      {{"attention", {"A"}}, {"moe", {"M"}}}, {{"layer", {"attention", "moe"}}}};
+  const auto marked_path = temp_db_path();
+  compat::write_basic_native_compatibility_sidecar(marked_path, marked_ir, marked_options);
+  require(run_scalar_int(marked_path,
+      "SELECT SUM(occurrence_count) FROM traceloom_v_position WHERE label='layer'") == 1);
+  require(run_scalar_text(marked_path,
+      "SELECT macro_discovery FROM traceloom_semantic_tree") == "model_rules_explicit");
+  require(run_scalar_int(marked_path,
+      "SELECT COUNT(*) FROM traceloom_position_member WHERE member_order=1") >= 6);
+  std::remove(marked_path.c_str());
+  const auto protected_path = temp_db_path();
+  marked_options.materialize_grammar_structural_projection = true;
+  compat::write_basic_native_compatibility_sidecar(
+      protected_path, build_exact_cuda_graph_replay_ir(), marked_options);
+  require(run_scalar_text(protected_path,
+      "SELECT macro_discovery FROM traceloom_semantic_tree") == "model_rules_unsupported_protected_replay");
+  require(run_scalar_int(protected_path,
+      "SELECT COUNT(*) FROM traceloom_v_position WHERE category='model_rule'") == 0);
+  std::remove(protected_path.c_str());
   return 0;
 }

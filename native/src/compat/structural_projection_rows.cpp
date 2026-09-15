@@ -124,6 +124,15 @@ std::uint32_t primary_device_id(const std::vector<StructuralProjectionToken>& to
 }
 
 std::string macro_discovery_status(const StructuralOccurrenceGraph& tree) {
+  bool model_rules=false, model_partial=false;
+  for (const auto& diagnostic : tree.diagnostics) {
+    model_rules = model_rules || diagnostic.code=="model_structure_explicit";
+    model_partial = model_partial || diagnostic.code.rfind("model_unit_",0)==0 ||
+        diagnostic.code.rfind("model_composition_",0)==0;
+    if(diagnostic.code=="model_structure_protected_replay_unsupported")
+      return "model_rules_unsupported_protected_replay";
+  }
+  if(model_rules) return model_partial?"model_rules_partial":"model_rules_explicit";
   for (const Diagnostic& diagnostic : tree.diagnostics) {
     if (diagnostic.code ==
         "grammar_partial_sequence_too_large_for_full_pair_discovery") {

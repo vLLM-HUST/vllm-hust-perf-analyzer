@@ -2,6 +2,7 @@
 #include "traceloom/analysis/flat_anchor_builder.h"
 #include "traceloom/pattern/macro_match_rules.h"
 #include <optional>
+#include "traceloom/analysis/marked_structure.h"
 
 namespace traceloom::config {
 // A model document resolves on top of built-in (or environment-selected) policies.
@@ -12,6 +13,7 @@ struct AnalysisRulesConfig {
   std::optional<StructuralSymbolNormalizationRuleset> symbols;
   std::optional<EventReconciliationRuleset> reconciliation;
   MacroMatchRules macro_matching;
+  MarkedStructureRules structure;
   std::string source_path;
   std::string source_yaml;
   void apply(FlatAnchorBuildConfig& config) const;

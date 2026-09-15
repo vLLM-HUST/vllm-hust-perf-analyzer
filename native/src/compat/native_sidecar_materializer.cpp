@@ -1,3 +1,4 @@
+#include <optional>
 #include "traceloom/compat/native_sidecar_materializer.h"
 
 #include "augmented_catalog_materializer.h"
@@ -110,11 +111,25 @@ StructuralOccurrenceGraph recover_structural_occurrence_graph(
     compact_grammar->source_token_count = structural_tokens.size();
     compact_grammar->stop_reason = "disabled";
   }
+  if (options.marked_structure.enabled() && !ir.protected_intervals.empty()) {
+    auto without_rules = options;
+    without_rules.marked_structure = {};
+    auto fallback = recover_structural_occurrence_graph(ir, without_rules, structural_tokens, compact_grammar);
+    fallback.diagnostics.push_back({DiagnosticSeverity::kWarning,
+        "model_structure_protected_replay_unsupported",
+        "Model marker rules cannot reinterpret exact protected replay units"});
+    return fallback;
+  }
   if (!options.materialize_grammar_structural_projection ||
       structural_tokens.empty()) {
+    if (options.marked_structure.enabled())
+      return build_marked_structural_graph(structural_tokens, options.marked_structure);
     return build_structural_occurrence_graph_from_tokens(structural_tokens);
   }
 
+  std::optional<StructuralOccurrenceGraph> marked_graph;
+  if (options.marked_structure.enabled())
+    marked_graph = build_marked_structural_graph(structural_tokens, options.marked_structure);
   try {
     GrammarStateConfig grammar_state_config;
     grammar_state_config.match_rules = options.match_rules;
@@ -158,6 +173,8 @@ StructuralOccurrenceGraph recover_structural_occurrence_graph(
                   << last_step.replace_count << "\n";
       }
     }
+    // Explicit rules define the semantic tree independently of grammar success.
+    if (marked_graph) return std::move(*marked_graph);
     if (!grammar_result.ok() || grammar_state.stage != GrammarStage::kDone) {
       StructuralOccurrenceGraph fallback =
           build_structural_occurrence_graph_from_tokens(structural_tokens);
@@ -187,6 +204,7 @@ StructuralOccurrenceGraph recover_structural_occurrence_graph(
       compact_grammar->available = false;
       compact_grammar->stop_reason = "exception";
     }
+    if (marked_graph) return std::move(*marked_graph);
     StructuralOccurrenceGraph fallback =
         build_structural_occurrence_graph_from_tokens(structural_tokens);
     fallback.diagnostics.push_back(Diagnostic{
@@ -464,6 +482,10 @@ void write_basic_native_compatibility_sidecar(
       {"evidence_role_manifest_sha256",
        evidence_role_policy.manifest_sha256},
   };
+  if (options.marked_structure.enabled()) {
+    metadata.push_back({"model_structure_semantics", "marked_units_and_adjacent_compositions_v1"});
+    metadata.push_back({"model_structure_rule_id", options.marked_structure.id});
+  }
   if (!options.analysis_rules_yaml.empty()) {
     metadata.push_back({"analysis_rules_yaml", options.analysis_rules_yaml});
     metadata.push_back({"analysis_rules_semantics", "traceloom-analysis-rules-v1"});

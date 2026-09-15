@@ -29,6 +29,7 @@ add_library(traceloom_native_core
   src/analysis/graph_body_cost_summary.cpp
   src/analysis/signal_classification_rules.cpp
   src/analysis/signal_classification_rules_io.cpp
+  src/analysis/marked_structure.cpp
   src/analysis/structural_occurrence_builder.cpp
   src/analysis/structural_occurrence_graph.cpp
   src/analysis/structural_occurrence_validation.cpp
@@ -328,6 +329,10 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     TRACELOOM_NATIVE_FIXTURE_ROOT
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures"
   )
+
+  add_executable(marked_structure_tests tests/analysis/marked_structure_tests.cpp)
+  target_link_libraries(marked_structure_tests PRIVATE traceloom_native_core)
+  add_test(NAME marked_structure_tests COMMAND marked_structure_tests)
 
   add_executable(analysis_rules_config_tests tests/analysis/analysis_rules_config_tests.cpp)
   target_link_libraries(analysis_rules_config_tests PRIVATE traceloom_native_core)

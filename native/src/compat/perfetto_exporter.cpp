@@ -617,6 +617,8 @@ PerfettoExportReceipt write_perfetto_trace(const std::string& analysis_db_path,
     if (value.repeat_body)
       name = value.node->local + " · motif " + value.node->motif + " · body " +
              std::to_string(value.body) + "/" + std::to_string(value.node->repeat);
+    else if (value.node->category == "model_rule")
+      name = value.node->label + " · " + value.node->local;
     else
       name = value.node->local +
              (value.node->parent_id.empty() ? " · root" : " · " + value.node->kind);

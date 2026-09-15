@@ -38,3 +38,16 @@ classification:
       missing_evidence_behavior: continue_or_fallback
       concrete_identity_behavior: apply
       note: Keep data movement as evidence and cost, outside model structural matching
+structure:
+  unit:
+    id: hc_sublayer
+    begin: HcPre
+    end: HcPost
+    labels:
+      - label: attention
+        contains_any: [SparseAttnSharedkv]
+      - label: moe
+        contains_any: [MoeInitRoutingV3]
+  compositions:
+    - label: layer
+      sequence: [attention, moe]
