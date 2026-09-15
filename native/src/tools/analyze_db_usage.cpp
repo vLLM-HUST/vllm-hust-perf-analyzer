@@ -51,6 +51,8 @@ void print_advanced_usage(const char* argv0) {
                " [--classification-rules PATH]"
                " [--extend-classification-rules PATH]"
                " [--classification-rule-override RULE_ID.FIELD=VALUE]"
+               " [--match-rules MODEL.yaml]"
+               " [--structural-order device|host-launch]"
                " [--symbol-rules PATH]"
                " [--extend-symbol-rules PATH]"
                " [--event-reconciliation-rules PATH]"

@@ -159,6 +159,17 @@ GlobalGrammarState build_initial_grammar_state(
   GlobalGrammarState state;
   state.metadata = default_grammar_metadata(config.mode);
   state.metadata.full_discovery_cap = config.full_discovery_cap;
+  state.metadata.match_rules = config.match_rules;
+  for (const auto& rule : config.match_rules.ordered_markers) {
+    std::map<SymbolId, std::int64_t> seeds;
+    for (const auto& t : ir.tokens.rows()) {
+      if (!t.symbol_id.valid()) continue;
+      const auto& name = ir.symbols.value(t.symbol_id);
+      if (name == rule.before) seeds[t.symbol_id] = 1;
+      if (name == rule.after) seeds[t.symbol_id] = -1;
+    }
+    state.marker_seeds.push_back(std::move(seeds));
+  }
   state.stage = GrammarStage::kRunFold;
   state.generation = 0;
   state.target_nodes_per_chunk = config.target_nodes_per_chunk;

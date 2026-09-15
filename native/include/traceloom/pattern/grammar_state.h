@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <vector>
+#include <map>
 
 #include "traceloom/core/ids.h"
 #include "traceloom/ir/native_ir.h"
@@ -31,6 +32,7 @@ struct GrammarStateConfig {
   std::size_t target_nodes_per_chunk = 4096;
   std::size_t worker_count = 1;
   std::size_t full_discovery_cap = 50000;
+  MacroMatchRules match_rules;
 };
 
 struct GrammarNode {
@@ -87,6 +89,8 @@ struct BoundarySummary {
 };
 
 struct GlobalGrammarState {
+  // Net unmatched marker counts; balanced macros are opaque to higher matching.
+  std::vector<std::map<SymbolId, std::int64_t>> marker_seeds;
   GrammarAlgorithmMetadata metadata;
   GrammarStage stage = GrammarStage::kInit;
   std::uint64_t generation = 0;

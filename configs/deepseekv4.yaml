@@ -1,0 +1,6 @@
+# Optional model hints, not evidence that a region is a layer or scheduler step.
+schema: traceloom-match-rules-v1
+ordered_markers:
+  - id: hc_pre_post
+    before: HcPre
+    after: HcPost

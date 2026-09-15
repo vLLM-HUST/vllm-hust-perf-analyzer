@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "traceloom/analysis/event_reconciliation.h"
+#include "traceloom/analysis/host_launch_order.h"
 #include "traceloom/analysis/structural_symbol_normalization.h"
 
 namespace traceloom {
@@ -693,6 +694,9 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
           span.first_token_id, span.last_token_id, span.first_anchor_id,
           span.last_anchor_id, replay.source_ref_id);
     }
+  }
+  if (config.host_launch_order) {
+    apply_host_launch_order(ir);
   }
   stats.tokens = ir.tokens.size();
   return stats;

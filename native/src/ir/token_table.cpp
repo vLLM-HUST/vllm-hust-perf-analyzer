@@ -9,11 +9,12 @@ TokenId TokenTable::append(AnchorId anchor_id,
                            std::uint32_t device_id,
                            std::uint32_t sequence_index,
                            std::int64_t start_ns,
-                           std::int64_t end_ns) {
+                           std::int64_t end_ns,
+                           RuntimeCallId order_runtime_call_id) {
   const auto id = checked_next_id<TokenId>(rows_.size());
   rows_.push_back(
       TokenRow{id, anchor_id, symbol_id, device_id, sequence_index, start_ns,
-               end_ns});
+               end_ns, order_runtime_call_id});
   return id;
 }
 

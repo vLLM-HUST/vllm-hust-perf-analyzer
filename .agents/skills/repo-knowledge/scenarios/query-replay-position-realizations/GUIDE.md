@@ -217,3 +217,11 @@ latency or placement guarantees.
    nested stream; require the causal same-stream wait and capture-backed
    record, then assert occurrence/body/replay counts independently.
 8. Run the complete native test preset and the release build before handoff.
+
+## Evaluate ordering under concurrent device activity
+
+Before replacing device-time sorting with host launch/capture order, read the
+[bounded DeepSeek ordering observation](concurrent-ordering-observation.md).
+It records a real cross-rank grammar-normalization success, the matched-only
+filtering failure on remote-KV, and why structure order must remain separate
+from instance membership and overlap cost accounting.

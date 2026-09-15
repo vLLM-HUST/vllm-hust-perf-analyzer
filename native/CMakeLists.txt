@@ -12,6 +12,12 @@ option(
 )
 set(TRACELOOM_NATIVE_SQLITE_ADAPTERS_AVAILABLE OFF)
 
+find_path(LIBYAML_INCLUDE_DIR yaml.h)
+find_library(LIBYAML_LIBRARY yaml)
+if(NOT LIBYAML_INCLUDE_DIR OR NOT LIBYAML_LIBRARY)
+  message(FATAL_ERROR "libyaml development files required (libyaml-dev / libyaml-devel)")
+endif()
+
 add_library(traceloom_native_core
   src/analysis/clock_calibration.cpp
   src/analysis/event_cost_attribution.cpp
@@ -19,6 +25,7 @@ add_library(traceloom_native_core
   src/analysis/event_reconciliation_task_communication.cpp
   src/analysis/exact_periodic_suffix.cpp
   src/analysis/flat_anchor_builder.cpp
+  src/analysis/host_launch_order.cpp
   src/analysis/graph_body_cost_summary.cpp
   src/analysis/signal_classification_rules.cpp
   src/analysis/signal_classification_rules_io.cpp
@@ -62,6 +69,7 @@ add_library(traceloom_native_core
   src/pattern/grammar_round.cpp
   src/pattern/grammar_snapshot.cpp
   src/pattern/grammar_state.cpp
+  src/pattern/macro_match_rules.cpp
   src/pattern/pattern_candidate_table.cpp
   src/pattern/pattern_candidate_summary.cpp
   src/analysis/anchor_graph_child_cost.cpp
@@ -92,6 +100,9 @@ target_compile_definitions(
     TRACELOOM_INSTALL_DEFAULT_EVENT_RECONCILIATION_RULESET_PATH="${CMAKE_INSTALL_FULL_DATADIR}/traceloom/default_event_reconciliation_rules.tsv"
 )
 
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../configs/deepseekv4.yaml
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/traceloom/models)
+
 install(
   FILES data/default_signal_classification_rules.tsv
   DESTINATION ${CMAKE_INSTALL_DATADIR}/traceloom
@@ -110,6 +121,9 @@ if(MSVC)
 else()
   target_compile_options(traceloom_native_core PRIVATE -Wall -Wextra -Wpedantic)
 endif()
+
+target_include_directories(traceloom_native_core PRIVATE ${LIBYAML_INCLUDE_DIR})
+target_link_libraries(traceloom_native_core PUBLIC ${LIBYAML_LIBRARY})
 
 add_library(traceloom_native_adapters
   src/adapters/aclgraph_fixture_adapter.cpp
@@ -288,7 +302,7 @@ if(TRACELOOM_NATIVE_SQLITE_ADAPTERS_AVAILABLE)
       "Native TraceLoom analyzer for profiler SQLite databases")
   set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
   set(CPACK_DEBIAN_PACKAGE_MAINTAINER "vLLM-HUST")
-  set(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6, libstdc++6, libsqlite3-0, gzip")
+  set(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6, libstdc++6, libsqlite3-0, libyaml-0-2, gzip")
   set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
   set(CPACK_PACKAGING_INSTALL_PREFIX "/usr")
   include(CPack)
@@ -310,6 +324,14 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     TRACELOOM_NATIVE_FIXTURE_ROOT
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures"
   )
+
+  add_executable(macro_match_rules_tests tests/pattern/macro_match_rules_tests.cpp)
+  target_link_libraries(macro_match_rules_tests PRIVATE traceloom_native_core)
+  add_test(NAME macro_match_rules_tests COMMAND macro_match_rules_tests)
+
+  add_executable(host_launch_order_tests tests/analysis/host_launch_order_tests.cpp)
+  target_link_libraries(host_launch_order_tests PRIVATE traceloom_native_materialize)
+  add_test(NAME host_launch_order_tests COMMAND host_launch_order_tests)
 
   add_executable(id_tests
     tests/core/id_tests.cpp

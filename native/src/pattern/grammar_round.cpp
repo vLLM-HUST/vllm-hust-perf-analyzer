@@ -323,6 +323,7 @@ GrammarRoundResult run_pair_grammar_readonly_round(
     return result;
   }
   for (std::size_t begin = 0; begin + 1 < dense.size(); ++begin) {
+    if (!macro_match_allowed(snapshot, begin, begin + 2)) continue;
     if (dense.symbols[begin] == dense.symbols[begin + 1]) {
       continue;
     }

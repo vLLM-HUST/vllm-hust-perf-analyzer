@@ -117,6 +117,7 @@ StructuralOccurrenceGraph recover_structural_occurrence_graph(
 
   try {
     GrammarStateConfig grammar_state_config;
+    grammar_state_config.match_rules = options.match_rules;
     grammar_state_config.target_nodes_per_chunk =
         options.grammar_target_nodes_per_chunk;
     grammar_state_config.worker_count = options.grammar_worker_count;
@@ -408,6 +409,8 @@ void write_basic_native_compatibility_sidecar(
   std::vector<MetadataSqlRow> metadata{
       {"traceloom_schema_version", "augmented_db_v1"},
       {"native_compatibility_materializer", "basic_native_ir_v1"},
+      {"match_rules_yaml", options.match_rules.source_yaml},
+      {"match_rules_semantics", "unmatched_marker_order_v1"},
       {"source_kind", options.source_kind},
       {"input_format", options.input_format},
       {"source_path", options.source_path},
@@ -692,6 +695,8 @@ void write_basic_native_compatibility_sidecar(
                                    options.timing_diagnostics);
   }
   emit_timing(options, "sidecar_evidence_role_ms", evidence_role_watch);
+  write_anchor_structural_order(sqlite_path, ir,
+                                options.evidence_role_config.host_launch_order);
 }
 
 void write_queryable_database_timeline(

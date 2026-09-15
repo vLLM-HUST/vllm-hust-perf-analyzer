@@ -5,6 +5,7 @@
 #include <utility>
 
 #include "traceloom/compat/timeline_rows.h"
+#include "sqlite_support.h"
 
 namespace traceloom::compat {
 namespace {
@@ -78,6 +79,44 @@ std::vector<AnchorSqlRow> build_anchor_sequence_sql_rows(
   }
 
   return rows;
+}
+
+void write_anchor_structural_order(const std::string& sqlite_path,
+                                   const NativeIr& ir, bool requested) {
+#if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
+  materialize_compatibility_schema(sqlite_path, {structural_order_table_schema()});
+  SqliteDb db(sqlite_path);
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_structural_order_position "
+          "ON traceloom_structural_order(structural_idx)");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_structural_order_anchor "
+          "ON traceloom_structural_order(anchor_id)");
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.exec("DELETE FROM traceloom_structural_order");
+    SqliteStmt stmt(db.get(), "INSERT INTO traceloom_structural_order VALUES(?,?,?,?,?,?,?)");
+    for (const auto& token : ir.tokens.rows()) {
+      bind_int64(stmt, 1, token.sequence_index + 1);
+      bind_text(stmt, 2, anchor_compat_id(token.anchor_id));
+      bind_text(stmt, 3, token.order_runtime_call_id.valid() ? "host_launch_single_thread"
+                           : requested ? "device_fallback" : "device");
+      if (token.order_runtime_call_id.valid()) {
+        const auto& call = ir.runtime_calls.row(token.order_runtime_call_id);
+        const auto& source = ir.source_refs.row(call.source_ref_id);
+        bind_text(stmt, 4, source.source_path);
+        bind_text(stmt, 5, source.table_name);
+        bind_int64(stmt, 6, call.source_row_id);
+        bind_int64(stmt, 7, call.start_ns);
+      }
+      if (sqlite3_step(stmt.get()) != SQLITE_DONE)
+        throw std::runtime_error(sqlite3_errmsg(db.get()));
+      sqlite3_reset(stmt.get());
+      sqlite3_clear_bindings(stmt.get());
+    }
+    db.exec("COMMIT");
+  } catch (...) { db.exec("ROLLBACK"); throw; }
+#else
+  (void)sqlite_path; (void)ir; (void)requested;
+#endif
 }
 
 }  // namespace traceloom::compat

@@ -20,6 +20,7 @@
 namespace {
 
 struct CliOptions {
+  traceloom::MacroMatchRules match_rules;
   std::string fixture_path;
   std::string grammar_debug_out_path;
   std::string compat_sidecar_out_path;
@@ -38,6 +39,7 @@ void print_usage(const char* argv0) {
   std::cerr << "usage: " << argv0
             << " --fixture <protected-sequence-fixture.json> [--threads N]"
                " [--grammar-debug-out PATH|-]"
+               " [--match-rules MODEL.yaml]"
                " [--compat-sidecar-out PATH]\n";
 }
 
@@ -64,6 +66,8 @@ CliOptions parse_args(int argc, char** argv) {
 
     if (arg == "--fixture") {
       options.fixture_path = require_value(arg);
+    } else if (arg == "--match-rules") {
+      options.match_rules = traceloom::load_macro_match_rules(require_value(arg));
     } else if (arg == "--threads") {
       options.threads = parse_size(require_value(arg), arg);
     } else if (arg == "--grammar-debug-out") {
@@ -120,6 +124,7 @@ int main(int argc, char** argv) {
       traceloom::compat::NativeCompatibilitySidecarOptions sidecar_options;
       sidecar_options.source_kind = "protected_sequence_fixture";
       sidecar_options.source_path = cli.fixture_path;
+      sidecar_options.match_rules = cli.match_rules;
       sidecar_options.grammar_worker_count = cli.threads;
       sidecar_options.grammar_target_nodes_per_chunk =
           fixture.partition_config.target_tokens_per_partition;
@@ -129,6 +134,7 @@ int main(int argc, char** argv) {
 
     if (!cli.grammar_debug_out_path.empty()) {
       traceloom::GrammarStateConfig grammar_state_config;
+      grammar_state_config.match_rules = cli.match_rules;
       grammar_state_config.target_nodes_per_chunk =
           fixture.partition_config.target_tokens_per_partition;
       grammar_state_config.worker_count = cli.threads;

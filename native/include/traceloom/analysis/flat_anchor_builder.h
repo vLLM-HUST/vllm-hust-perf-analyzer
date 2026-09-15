@@ -17,6 +17,8 @@ struct FlatAnchorBuildConfig {
   bool skip_tasks_covered_by_replay_units = false;
   bool skip_events_covered_by_replay_units = false;
   bool filter_auxiliary_task_anchors = false;
+  // Opt-in audited Ascend launch order; anchors retain device-time order.
+  bool host_launch_order = false;
   SignalClassificationRuleset classification_rules;
   std::vector<SignalClassificationOverride> classification_overrides;
   StructuralSymbolNormalizationRuleset structural_symbol_rules;

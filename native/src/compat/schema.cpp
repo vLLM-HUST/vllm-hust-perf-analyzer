@@ -257,6 +257,20 @@ const CompatTableSchema& anchor_host_api_summary_table_schema() {
   return schema;
 }
 
+const CompatTableSchema& structural_order_table_schema() {
+  static const CompatTableSchema schema{
+      "traceloom_structural_order", {
+          {"structural_idx", CompatColumnType::kInteger, false},
+          {"anchor_id", CompatColumnType::kText, false},
+          {"order_basis", CompatColumnType::kText, false},
+          {"runtime_source_path", CompatColumnType::kText, true},
+          {"runtime_source_table", CompatColumnType::kText, true},
+          {"runtime_source_row", CompatColumnType::kInteger, true},
+          {"host_launch_start_ns", CompatColumnType::kInteger, true},
+      }};
+  return schema;
+}
+
 const CompatTableSchema& anchor_table_schema() {
   static const CompatTableSchema schema{
       "traceloom_anchor",
@@ -665,6 +679,7 @@ std::vector<CompatTableSchema> compatibility_table_schemas() {
       anchor_host_activity_table_schema(),
       anchor_host_api_summary_table_schema(),
       anchor_table_schema(),
+      structural_order_table_schema(),
       event_reconciliation_policy_table_schema(),
       event_reconciliation_rule_table_schema(),
       event_reconciliation_decision_table_schema(),

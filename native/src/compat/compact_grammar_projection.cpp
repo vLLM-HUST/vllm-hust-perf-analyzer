@@ -53,6 +53,18 @@ std::uint32_t anchor_idx_at(
   return tokens[token_index].anchor_id.value() + 1;
 }
 
+std::pair<std::uint32_t, std::uint32_t> anchor_envelope(
+    const std::vector<StructuralProjectionToken>& tokens,
+    std::size_t begin, std::size_t end) {
+  std::uint32_t low = 0, high = 0;
+  for (auto i = begin; i < end; ++i) {
+    auto anchor = anchor_idx_at(tokens, i);
+    if (anchor != 0 && (low == 0 || anchor < low)) low = anchor;
+    high = std::max(high, anchor);
+  }
+  return {low, high};
+}
+
 }  // namespace
 
 NativeCompactGrammarProjection summarize_compact_grammar(
@@ -98,10 +110,10 @@ NativeCompactGrammarProjection summarize_compact_grammar(
     row.source_begin_token_index = node.source_begin_token_index;
     row.source_end_token_index_exclusive =
         node.source_end_token_index_exclusive;
-    row.first_anchor_idx =
-        anchor_idx_at(tokens, node.source_begin_token_index);
-    row.last_anchor_idx = anchor_idx_at(
-        tokens, node.source_end_token_index_exclusive - 1);
+    const auto envelope = anchor_envelope(tokens, node.source_begin_token_index,
+                                          node.source_end_token_index_exclusive);
+    row.first_anchor_idx = envelope.first;
+    row.last_anchor_idx = envelope.second;
     row.span_us = static_cast<double>(node.end_ns - node.start_ns) / 1000.0;
     summary.live_nodes.push_back(std::move(row));
   }
@@ -139,10 +151,10 @@ NativeCompactGrammarProjection summarize_compact_grammar(
     NativeGrammarMacroSummary& row =
         summary.macro_defs[node.macro_def_id.value()];
     ++row.occurrence_count;
-    const std::uint32_t first_anchor =
-        anchor_idx_at(tokens, node.source_begin_token_index);
-    const std::uint32_t last_anchor = anchor_idx_at(
-        tokens, node.source_end_token_index_exclusive - 1);
+    const auto envelope = anchor_envelope(tokens, node.source_begin_token_index,
+                                          node.source_end_token_index_exclusive);
+    const auto first_anchor = envelope.first;
+    const auto last_anchor = envelope.second;
     if (row.first_anchor_idx == 0 ||
         (first_anchor != 0 && first_anchor < row.first_anchor_idx)) {
       row.first_anchor_idx = first_anchor;

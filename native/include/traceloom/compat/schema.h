@@ -36,6 +36,7 @@ const CompatTableSchema& anchor_host_interval_table_schema();
 const CompatTableSchema& anchor_host_activity_table_schema();
 const CompatTableSchema& anchor_host_api_summary_table_schema();
 const CompatTableSchema& anchor_table_schema();
+const CompatTableSchema& structural_order_table_schema();
 const CompatTableSchema& event_reconciliation_policy_table_schema();
 const CompatTableSchema& event_reconciliation_rule_table_schema();
 const CompatTableSchema& event_reconciliation_decision_table_schema();

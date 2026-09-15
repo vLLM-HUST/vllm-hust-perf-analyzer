@@ -289,14 +289,19 @@ std::vector<double> compute_timeline_anchor_costs(
               [](const Boundary& lhs, const Boundary& rhs) {
                 return lhs.time_ns < rhs.time_ns;
               });
-    std::set<std::size_t> active_compute;
-    std::set<std::size_t> active_comm;
+    const auto observed_less = [&tokens](std::size_t a, std::size_t b) {
+      if (tokens[a].anchor_id != tokens[b].anchor_id)
+        return tokens[a].anchor_id < tokens[b].anchor_id;
+      return a < b;
+    };
+    std::set<std::size_t, decltype(observed_less)> active_compute(observed_less);
+    std::set<std::size_t, decltype(observed_less)> active_comm(observed_less);
     std::int64_t cursor_ns =
         boundaries.empty() ? 0 : boundaries.front().time_ns;
     std::size_t boundary_index = 0;
     while (boundary_index < boundaries.size()) {
       const std::int64_t boundary_ns = boundaries[boundary_index].time_ns;
-      const std::set<std::size_t>& owners =
+      const auto& owners =
           active_comm.empty() ? active_compute : active_comm;
       if (!owners.empty()) {
         out[*owners.begin()] += ns_to_us(boundary_ns - cursor_ns);
@@ -304,7 +309,7 @@ std::vector<double> compute_timeline_anchor_costs(
       while (boundary_index < boundaries.size() &&
              boundaries[boundary_index].time_ns == boundary_ns) {
         const Boundary& boundary = boundaries[boundary_index];
-        std::set<std::size_t>& active =
+        auto& active =
             is_comm_token(tokens[boundary.token_index]) ? active_comm
                                                         : active_compute;
         if (boundary.starts) {
@@ -351,6 +356,8 @@ std::vector<PreludeCost> compute_prelude_costs(
                 if (tokens[lhs].end_ns != tokens[rhs].end_ns) {
                   return tokens[lhs].end_ns < tokens[rhs].end_ns;
                 }
+                if (tokens[lhs].anchor_id != tokens[rhs].anchor_id)
+                  return tokens[lhs].anchor_id < tokens[rhs].anchor_id;
                 return lhs < rhs;
               });
     const auto event_index_found = event_indexes.find(item.first);

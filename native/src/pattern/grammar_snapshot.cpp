@@ -36,6 +36,19 @@ void append_snapshot_node(GrammarSnapshot& snapshot,
 GrammarSnapshot freeze_grammar_snapshot(const GlobalGrammarState& state) {
   GrammarSnapshot snapshot;
   snapshot.metadata = state.metadata;
+  snapshot.marker_balances = state.marker_seeds;
+  for (auto& balances : snapshot.marker_balances) {
+    for (const auto& macro : state.macro_defs) {
+      std::int64_t net = 0;
+      // Existing exact replay units retain their externally established protection.
+      if (macro.level != MacroLevel::kSemantic)
+        for (auto child : macro.rhs_symbols) {
+          auto i = balances.find(child);
+          if (i != balances.end()) net += i->second;
+        }
+      balances[macro.symbol_id] = net;
+    }
+  }
   snapshot.stage = state.stage;
   snapshot.generation = state.generation;
   snapshot.chunks = state.chunks;
@@ -154,6 +167,19 @@ std::size_t dense_index_of_node(const DenseGrammarView& view,
     throw std::invalid_argument("grammar node is not live in dense view");
   }
   return dense_index;
+}
+
+bool macro_match_allowed(const GrammarSnapshot& snapshot, std::size_t begin, std::size_t end) {
+  for (const auto& balances : snapshot.marker_balances) {
+    std::int64_t net = 0;
+    for (auto i = begin; i < end; ++i) {
+      auto entry = balances.find(snapshot.nodes.at(i).symbol_id);
+      const auto next = entry == balances.end() ? 0 : entry->second;
+      if (net < 0 && next > 0) return false;
+      net += next;
+    }
+  }
+  return true;
 }
 
 }  // namespace traceloom

@@ -80,7 +80,7 @@ traceloom --version
 traceloom --help
 ```
 
-运行时依赖为 `libc6`、`libstdc++6`、`libsqlite3-0` 和 `gzip`。
+运行时依赖为 `libc6`、`libstdc++6`、`libsqlite3-0`、`libyaml-0-2` 和 `gzip`。
 
 卸载：
 
@@ -89,6 +89,9 @@ sudo apt remove traceloom-native
 ```
 
 ## 从源码安装
+
+需要 C++17、CMake、SQLite 开发文件和 libyaml 开发文件；后者在 Debian/Ubuntu
+为 `libyaml-dev`，在 RPM 系统通常为 `libyaml-devel`。
 
 ```bash
 cmake --preset dev
@@ -143,6 +146,36 @@ evidence 放在同一时间轴上。同构 repeat subtree 共用简短 motif 标
 每个 slice 仍保留 raw timestamp；`candidate_only` 模型不会被冒充为全局校准时间。
 详细契约见
 [AugDB to Perfetto Timeline](docs/augmented-perfetto-timeline.md)。
+
+#### 通过 YAML 输入模型匹配规则
+
+```bash
+traceloom profile.db --structural-order host-launch \
+  --match-rules configs/deepseekv4.yaml --output analysis.db
+```
+
+规则默认不启用。参见[匹配规则契约](configs/README.md)：允许单侧标记继续
+生长，完整配对封装后仍可参与高级匹配。它是结构 grammar 的辅助约束，
+不是 layer／step 的真实标签，也不删除事件。安装后的示例位于
+`share/traceloom/models/`。
+
+#### 显式启用有源证据的 host launch 排序
+
+```bash
+traceloom profile.db --structural-order host-launch --output analysis.db
+```
+
+默认仍为 `--structural-order device`。新选项只重排 grammar token，保留
+anchor ID、stream 和真实 device 时间。仅接纳 Ascend monolithic 数据中
+唯一对应的 `CANN_API` launch 记录，并要求排序段属于同一线程、同一设备。
+缺失、歧义或复用记录保留为重排屏障；多线程、时间戳并列或逐流顺序矛盾
+回退到 device 顺序。已有 exact replay／protected 输入不重排，也不会
+用 capture 时间冒充每次执行的 launch 时间。
+
+查询 `traceloom_structural_order ORDER BY structural_idx` 可看到排列、
+`order_basis` 和源 launch 行；通过 `anchor_id` 关联 `traceloom_anchor`
+读取真实时间。anchor 范围摘要只是包络，精确结构成员须走直接 membership／
+token 坐标。排序本身不证明依赖关系，也不等于识别了 layer／step 边界。
 
 ### 2. 分析 profiler 目录
 

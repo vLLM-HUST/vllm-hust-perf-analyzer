@@ -50,6 +50,11 @@ void materialize_projection_catalog(
        "rank and compare overlap-safe cost lenses by structural node",
        "SELECT * FROM traceloom_v_node_cost ORDER BY total_us DESC, "
        "db_idx, device_id, view_name, node_id;"},
+      {"structural_order", "traceloom_structural_order", "one structural token",
+       "inspect structural order separately from device-time anchors; host launch "
+       "order is source evidence, not cross-stream dependency",
+       "SELECT o.*, a.start_ns, a.end_ns FROM traceloom_structural_order o "
+       "JOIN traceloom_anchor a USING(anchor_id) ORDER BY o.structural_idx;"},
       {"normalized_event", "traceloom_event", "one normalized event",
        "inspect fine-grained timing and operator evidence",
        "SELECT * FROM traceloom_event ORDER BY db_idx, device_id, step_idx;"},

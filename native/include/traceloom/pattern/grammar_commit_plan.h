@@ -19,6 +19,7 @@ enum class GrammarCommitDiagnosticCode {
   kReplacementSpanMismatch,
   kOverlappingReplacementSpan,
   kProtectedIntervalViolation,
+  kMatchRuleViolation,
 };
 
 struct GrammarCommitDiagnostic {

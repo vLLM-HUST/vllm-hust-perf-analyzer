@@ -57,6 +57,7 @@ class Stopwatch {
 };
 
 struct CliOptions {
+  traceloom::MacroMatchRules match_rules;
   std::string executable_path;
   std::string source_input;
   std::string source_kind = "auto";
@@ -83,6 +84,7 @@ struct CliOptions {
   std::string classification_rules_path;
   std::string extend_classification_rules_path;
   std::vector<std::string> classification_rule_overrides;
+  std::string structural_order = "device";
   std::string symbol_rules_path;
   std::string extend_symbol_rules_path;
   std::string event_reconciliation_rules_path;
@@ -128,6 +130,8 @@ CliOptions parse_args(int argc, char** argv) {
       options.source_input = require_value(arg);
     } else if (arg == "--source-kind") {
       options.source_kind = require_value(arg);
+    } else if (arg == "--match-rules") {
+      options.match_rules = traceloom::load_macro_match_rules(require_value(arg));
     } else if (arg == "--threads") {
       options.threads = parse_size(require_value(arg), arg);
     } else if (arg == "--grammar-debug-out") {
@@ -181,6 +185,12 @@ CliOptions parse_args(int argc, char** argv) {
       options.extend_classification_rules_path = require_value(arg);
     } else if (arg == "--classification-rule-override") {
       options.classification_rule_overrides.push_back(require_value(arg));
+    } else if (arg == "--structural-order") {
+      options.structural_order = require_value(arg);
+      if (options.structural_order != "device" &&
+          options.structural_order != "host-launch") {
+        throw std::invalid_argument("--structural-order expects device or host-launch");
+      }
     } else if (arg == "--symbol-rules") {
       options.symbol_rules_path = require_value(arg);
     } else if (arg == "--extend-symbol-rules") {
@@ -448,6 +458,7 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
 
     constexpr std::size_t kGrammarTargetNodesPerChunk = 4096;
     traceloom::FlatAnchorBuildConfig anchor_config;
+    anchor_config.host_launch_order = cli.structural_order == "host-launch";
     anchor_config.skip_tasks_covered_by_communication_ops = true;
     anchor_config.skip_events_covered_by_replay_units = true;
     anchor_config.filter_auxiliary_task_anchors = true;
@@ -522,6 +533,7 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
       sidecar_options.input_evidence_state = evidence.evidence_state;
       sidecar_options.input_missing_components = evidence.missing_components;
     }
+    sidecar_options.match_rules = cli.match_rules;
     sidecar_options.grammar_worker_count = cli.threads;
     sidecar_options.grammar_target_nodes_per_chunk =
         kGrammarTargetNodesPerChunk;
@@ -719,6 +731,7 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
     }
     if (!cli.grammar_debug_out_path.empty()) {
       traceloom::GrammarStateConfig grammar_state_config;
+      grammar_state_config.match_rules = cli.match_rules;
       grammar_state_config.target_nodes_per_chunk =
           kGrammarTargetNodesPerChunk;
       grammar_state_config.worker_count = cli.threads;

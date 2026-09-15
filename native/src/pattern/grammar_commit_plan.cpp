@@ -126,6 +126,13 @@ GrammarReplacementSpan make_replacement_span(
       snapshot.nodes[occurrence.begin_dense_index];
   const GrammarSnapshotNode& last =
       snapshot.nodes[occurrence.end_dense_index_exclusive - 1];
+  // Grammar adjacency is not timestamp adjacency (cross-stream launches).
+  std::int64_t start_ns = first.start_ns, end_ns = first.end_ns;
+  for (std::size_t i = occurrence.begin_dense_index;
+       i < occurrence.end_dense_index_exclusive; ++i) {
+    start_ns = std::min(start_ns, snapshot.nodes[i].start_ns);
+    end_ns = std::max(end_ns, snapshot.nodes[i].end_ns);
+  }
   return GrammarReplacementSpan{
       occurrence.begin_node_id,
       occurrence.last_node_id,
@@ -133,8 +140,8 @@ GrammarReplacementSpan make_replacement_span(
       occurrence.end_dense_index_exclusive,
       first.source_begin_token_index,
       last.source_end_token_index_exclusive,
-      first.start_ns,
-      last.end_ns,
+      start_ns,
+      end_ns,
       occurrence.owner_chunk_id,
       occurrence.owner_worker_id};
 }
@@ -194,6 +201,12 @@ GrammarCommitPlan build_commit_plan_for_action(
                        BoundaryViolationKind::kNone});
       continue;
     }
+    if (!macro_match_allowed(snapshot, occurrence.begin_dense_index,
+                             occurrence.end_dense_index_exclusive)) {
+      reject(plan, GrammarCommitDiagnostic{GrammarCommitDiagnosticCode::kMatchRuleViolation,
+          index, ProtectedIntervalId::invalid(), BoundaryViolationKind::kNone});
+      continue;
+    }
     if (has_previous && occurrence.begin_dense_index < previous_end) {
       reject(plan, GrammarCommitDiagnostic{
                        GrammarCommitDiagnosticCode::kOverlappingReplacementSpan,
@@ -237,6 +250,8 @@ const char* grammar_commit_diagnostic_code_name(
       return "replacement_span_mismatch";
     case GrammarCommitDiagnosticCode::kOverlappingReplacementSpan:
       return "overlapping_replacement_span";
+    case GrammarCommitDiagnosticCode::kMatchRuleViolation:
+      return "match_rule_violation";
     case GrammarCommitDiagnosticCode::kProtectedIntervalViolation:
       return "protected_interval_violation";
   }

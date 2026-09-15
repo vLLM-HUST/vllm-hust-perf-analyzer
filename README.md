@@ -106,8 +106,8 @@ traceloom --version
 traceloom --help
 ```
 
-Runtime package dependencies are `libc6`, `libstdc++6`, `libsqlite3-0`, and
-`gzip`.
+Runtime package dependencies are `libc6`, `libstdc++6`, `libsqlite3-0`,
+`libyaml-0-2`, and `gzip`.
 
 To uninstall:
 
@@ -116,6 +116,9 @@ sudo apt remove traceloom-native
 ```
 
 ## Install From Source
+
+Install a C++17 toolchain, CMake, SQLite development files, and libyaml development
+files first (`libyaml-dev` on Debian/Ubuntu, `libyaml-devel` on RPM-based systems).
 
 ```bash
 cmake --preset dev
@@ -175,6 +178,39 @@ option is the recommended collective-comparison view when an auditable
 end-affine receipt is available; every slice retains its raw timestamp and a
 candidate model remains display-only. See
 [AugDB to Perfetto Timeline](docs/augmented-perfetto-timeline.md).
+
+#### Model-specific matching hints (YAML)
+
+```bash
+traceloom profile.db --structural-order host-launch \
+  --match-rules configs/deepseekv4.yaml --output analysis.db
+```
+
+Rules are opt-in. See [the matching-rule contract](configs/README.md) for
+partial-marker growth, sealed complete pairs, higher-level matching, and audit
+metadata. These hints constrain the structural grammar; they do not label true
+layers/steps or discard events. Installed examples are under
+`share/traceloom/models/`.
+
+#### Opt into source-backed host launch order
+
+```bash
+traceloom profile.db --structural-order host-launch --output analysis.db
+```
+
+The default remains `--structural-order device`. The opt-in reorders **grammar
+tokens only**, not observed anchor IDs, streams or device timestamps. It admits
+unique Ascend monolithic `CANN_API` launch records within a single-thread,
+single-device run. Missing, ambiguous or reused records remain barriers;
+multi-thread runs, timestamp ties and per-stream inversions fall back to device
+order. Exact replay/protected inputs are left unchanged. Capture timestamps are
+not substituted for fresh launches.
+
+Query `traceloom_structural_order ORDER BY structural_idx` for the permutation,
+`order_basis`, and source launch rows; join `anchor_id` to `traceloom_anchor`
+for measured geometry. Anchor-range summaries are envelopes, not exact
+membership. Use direct membership/token coordinates for structural scopes.
+Ordering does not establish dependencies or semantic layer/step boundaries.
 
 ### 2. Analyze A Profiler Directory
 

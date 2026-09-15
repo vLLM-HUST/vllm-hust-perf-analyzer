@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <string>
 #include <vector>
+#include "traceloom/pattern/macro_match_rules.h"
 
 namespace traceloom {
 
@@ -17,6 +18,7 @@ struct GrammarAlgorithmMetadata {
   std::size_t full_discovery_cap = 50000;
   std::vector<std::string> producer_sequence;
   std::vector<std::string> known_deltas;
+  MacroMatchRules match_rules;
 };
 
 const char* grammar_algorithm_mode_name(GrammarAlgorithmMode mode);

@@ -91,6 +91,7 @@ int main() {
               "traceloom_semantic_edge",
               "traceloom_semantic_node",
               "traceloom_semantic_tree",
+              "traceloom_structural_order",
               "traceloom_symbol_normalization_policy",
               "traceloom_symbol_normalization_rule",
               "traceloom_viz_edge",

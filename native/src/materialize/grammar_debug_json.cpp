@@ -321,6 +321,20 @@ void write_grammar_debug_json(std::ostream& out,
   out << "    \"producer_sequence\": ";
   write_string_array(out, state.metadata.producer_sequence, "      ", "    ");
   out << ",\n";
+  if (!state.metadata.match_rules.ordered_markers.empty()) {
+    out << "    \"match_rules_semantics\": \"unmatched_marker_order_v1\",\n";
+    out << "    \"ordered_markers\": [";
+    bool first_rule = true;
+    for (const auto& rule : state.metadata.match_rules.ordered_markers) {
+      if (!first_rule) out << ',';
+      first_rule = false;
+      out << "{\"id\":"; write_json_string(out, rule.id);
+      out << ",\"before\":"; write_json_string(out, rule.before);
+      out << ",\"after\":"; write_json_string(out, rule.after);
+      out << '}';
+    }
+    out << "],\n";
+  }
   out << "    \"known_deltas\": ";
   write_string_array(out, state.metadata.known_deltas, "      ", "    ");
   out << "\n";

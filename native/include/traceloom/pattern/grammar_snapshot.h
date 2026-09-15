@@ -24,6 +24,7 @@ struct GrammarSnapshotNode {
 };
 
 struct GrammarSnapshot {
+  std::vector<std::map<SymbolId, std::int64_t>> marker_balances;
   GrammarAlgorithmMetadata metadata;
   GrammarStage stage = GrammarStage::kInit;
   std::uint64_t generation = 0;
@@ -55,6 +56,8 @@ struct DenseGrammarView {
 
 constexpr std::size_t kInvalidDenseIndex =
     static_cast<std::size_t>(-1);
+
+bool macro_match_allowed(const GrammarSnapshot& snapshot, std::size_t begin, std::size_t end);
 
 GrammarSnapshot freeze_grammar_snapshot(const GlobalGrammarState& state);
 

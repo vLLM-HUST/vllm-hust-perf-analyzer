@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include "traceloom/pattern/macro_match_rules.h"
 
 #include "traceloom/analysis/flat_anchor_builder.h"
 #include "traceloom/analysis/structural_occurrence_graph.h"
@@ -28,6 +29,7 @@ struct NativeCompatibilitySidecarOptions {
   std::string collective_db_name;
   std::uint32_t collective_expected_world_size = 0;
   bool materialize_grammar_structural_projection = true;
+  MacroMatchRules match_rules;
   std::size_t grammar_worker_count = 1;
   std::size_t grammar_target_nodes_per_chunk = 4096;
   std::size_t grammar_full_discovery_cap = 50000;
