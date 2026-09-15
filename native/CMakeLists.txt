@@ -69,6 +69,9 @@ add_library(traceloom_native_core
   src/pattern/grammar_round.cpp
   src/pattern/grammar_snapshot.cpp
   src/pattern/grammar_state.cpp
+  src/config/yaml_document.cpp
+  src/config/rule_manifest.cpp
+  src/config/analysis_rules_config.cpp
   src/pattern/macro_match_rules.cpp
   src/pattern/pattern_candidate_table.cpp
   src/pattern/pattern_candidate_summary.cpp
@@ -92,27 +95,27 @@ target_compile_features(traceloom_native_core PUBLIC cxx_std_17)
 target_compile_definitions(
   traceloom_native_core
   PRIVATE
-    TRACELOOM_SOURCE_DEFAULT_RULESET_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/default_signal_classification_rules.tsv"
-    TRACELOOM_INSTALL_DEFAULT_RULESET_PATH="${CMAKE_INSTALL_FULL_DATADIR}/traceloom/default_signal_classification_rules.tsv"
-    TRACELOOM_SOURCE_DEFAULT_SYMBOL_RULESET_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/default_structural_symbol_rules.tsv"
-    TRACELOOM_INSTALL_DEFAULT_SYMBOL_RULESET_PATH="${CMAKE_INSTALL_FULL_DATADIR}/traceloom/default_structural_symbol_rules.tsv"
-    TRACELOOM_SOURCE_DEFAULT_EVENT_RECONCILIATION_RULESET_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/default_event_reconciliation_rules.tsv"
-    TRACELOOM_INSTALL_DEFAULT_EVENT_RECONCILIATION_RULESET_PATH="${CMAKE_INSTALL_FULL_DATADIR}/traceloom/default_event_reconciliation_rules.tsv"
+    TRACELOOM_SOURCE_DEFAULT_RULESET_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/default_signal_classification_rules.yaml"
+    TRACELOOM_INSTALL_DEFAULT_RULESET_PATH="${CMAKE_INSTALL_FULL_DATADIR}/traceloom/default_signal_classification_rules.yaml"
+    TRACELOOM_SOURCE_DEFAULT_SYMBOL_RULESET_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/default_structural_symbol_rules.yaml"
+    TRACELOOM_INSTALL_DEFAULT_SYMBOL_RULESET_PATH="${CMAKE_INSTALL_FULL_DATADIR}/traceloom/default_structural_symbol_rules.yaml"
+    TRACELOOM_SOURCE_DEFAULT_EVENT_RECONCILIATION_RULESET_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/default_event_reconciliation_rules.yaml"
+    TRACELOOM_INSTALL_DEFAULT_EVENT_RECONCILIATION_RULESET_PATH="${CMAKE_INSTALL_FULL_DATADIR}/traceloom/default_event_reconciliation_rules.yaml"
 )
 
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../configs/deepseekv4.yaml
         DESTINATION ${CMAKE_INSTALL_DATADIR}/traceloom/models)
 
 install(
-  FILES data/default_signal_classification_rules.tsv
+  FILES data/default_signal_classification_rules.yaml
   DESTINATION ${CMAKE_INSTALL_DATADIR}/traceloom
 )
 install(
-  FILES data/default_structural_symbol_rules.tsv
+  FILES data/default_structural_symbol_rules.yaml
   DESTINATION ${CMAKE_INSTALL_DATADIR}/traceloom
 )
 install(
-  FILES data/default_event_reconciliation_rules.tsv
+  FILES data/default_event_reconciliation_rules.yaml
   DESTINATION ${CMAKE_INSTALL_DATADIR}/traceloom
 )
 
@@ -122,7 +125,7 @@ else()
   target_compile_options(traceloom_native_core PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
-target_include_directories(traceloom_native_core PRIVATE ${LIBYAML_INCLUDE_DIR})
+target_include_directories(traceloom_native_core PUBLIC ${LIBYAML_INCLUDE_DIR})
 target_link_libraries(traceloom_native_core PUBLIC ${LIBYAML_LIBRARY})
 
 add_library(traceloom_native_adapters
@@ -275,6 +278,7 @@ if(TRACELOOM_NATIVE_SQLITE_ADAPTERS_AVAILABLE)
 
   add_executable(traceloom
     src/tools/analyze_db_main.cpp
+    src/tools/analyze_db_rules.cpp
     src/tools/analyze_db_usage.cpp
     src/tools/perfetto_cli_args.cpp
     src/tools/profile_input_discovery.cpp
@@ -324,6 +328,10 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     TRACELOOM_NATIVE_FIXTURE_ROOT
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures"
   )
+
+  add_executable(analysis_rules_config_tests tests/analysis/analysis_rules_config_tests.cpp)
+  target_link_libraries(analysis_rules_config_tests PRIVATE traceloom_native_core)
+  add_test(NAME analysis_rules_config_tests COMMAND analysis_rules_config_tests)
 
   add_executable(macro_match_rules_tests tests/pattern/macro_match_rules_tests.cpp)
   target_link_libraries(macro_match_rules_tests PRIVATE traceloom_native_core)
@@ -1309,6 +1317,17 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
       analyze_official_ascend_cli_sidecar
       PROPERTIES DEPENDS analyze_official_ascend_cli_input
     )
+
+    add_test(NAME analysis_rules_config_cli
+      COMMAND ${CMAKE_COMMAND}
+        -DANALYZER=$<TARGET_FILE:traceloom>
+        -DCHECKER=$<TARGET_FILE:cli_sidecar_smoke_tests>
+        -DPROFILE=${TRACELOOM_OFFICIAL_ASCEND_CLI_INPUT}
+        -DCONFIG=${CMAKE_CURRENT_SOURCE_DIR}/../configs/deepseekv4.yaml
+        -DEMPTY_CONFIG=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/analysis_rules/empty-classification.yaml
+        -DOUTPUT=${CMAKE_CURRENT_BINARY_DIR}/rules_config_cli.db
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/boundary/analysis_rules_config_cli.cmake)
+    set_tests_properties(analysis_rules_config_cli PROPERTIES DEPENDS prepare_official_ascend_cli_input)
 
     set(
       TRACELOOM_OFFICIAL_ASCEND_MULTI_INPUT_ROOT

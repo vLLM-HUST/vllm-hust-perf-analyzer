@@ -1,3 +1,4 @@
+#include "traceloom/config/rule_manifest.h"
 #include "traceloom/analysis/structural_symbol_normalization.h"
 
 #include <algorithm>
@@ -533,19 +534,21 @@ const char* structural_symbol_match_name(StructuralSymbolMatch match) {
 
 StructuralSymbolNormalizationRuleset load_structural_symbol_ruleset(
     const std::string& path) {
-  std::ifstream stream(path);
-  if (!stream) {
-    throw std::invalid_argument(
-        "cannot open structural-symbol normalization manifest: " + path);
-  }
+  return parse_structural_symbol_ruleset(config::load_rule_manifest(path, "symbol_normalization"));
+}
+
+StructuralSymbolNormalizationRuleset parse_structural_symbol_ruleset(const config::RuleManifest& manifest) {
+  const auto& path = manifest.path;
+  const auto& lines = manifest.lines;
   std::string policy_id;
   std::string policy_version;
   std::vector<StructuralSymbolNormalizationRule> rules;
   std::string line;
   std::size_t line_number = 0;
   bool saw_header = false;
-  while (std::getline(stream, line)) {
-    ++line_number;
+  for (std::size_t index = 0; index < lines.size(); ++index) {
+    line = lines[index];
+    line_number = manifest.source_lines.at(index);
     const std::string stripped = trim(line);
     if (stripped.empty()) continue;
     if (stripped.front() == '#') {
@@ -590,7 +593,7 @@ StructuralSymbolNormalizationRuleset load_structural_symbol_ruleset(
     throw std::invalid_argument(
         "structural-symbol normalization manifest is empty: " + path);
   }
-  const std::string manifest_sha256 = sha256_file_hex(path);
+  const std::string manifest_sha256 = manifest.digest;
   for (auto& rule : rules) rule.rule_origin_sha256 = manifest_sha256;
   return {policy_id, policy_version, path, manifest_sha256, std::move(rules)};
 }
@@ -606,12 +609,12 @@ StructuralSymbolNormalizationRuleset load_default_structural_symbol_ruleset(
     const auto executable = std::filesystem::absolute(executable_path);
     candidates.push_back((executable.parent_path().parent_path() / "share" /
                           "traceloom" /
-                          "default_structural_symbol_rules.tsv").string());
+                          "default_structural_symbol_rules.yaml").string());
   }
   candidates.push_back(TRACELOOM_SOURCE_DEFAULT_SYMBOL_RULESET_PATH);
   candidates.push_back(TRACELOOM_INSTALL_DEFAULT_SYMBOL_RULESET_PATH);
-  candidates.push_back("/usr/share/traceloom/default_structural_symbol_rules.tsv");
-  candidates.push_back("/usr/local/share/traceloom/default_structural_symbol_rules.tsv");
+  candidates.push_back("/usr/share/traceloom/default_structural_symbol_rules.yaml");
+  candidates.push_back("/usr/local/share/traceloom/default_structural_symbol_rules.yaml");
   for (const std::string& candidate : candidates) {
     if (candidate.empty()) continue;
     std::ifstream probe(candidate);

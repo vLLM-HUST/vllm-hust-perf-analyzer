@@ -137,7 +137,7 @@ identity fallback; they are not guessed into a known class. Each decision also
 retains `source_path`, `source_table`, and `source_key` for raw-evidence
 drill-down.
 
-The default input is `native/data/default_structural_symbol_rules.tsv`.
+The default input is `native/data/default_structural_symbol_rules.yaml`.
 `--symbol-rules` replaces it and `--extend-symbol-rules` composes a
 higher-priority extension. `source_manifest`, `manifest_sha256`, `rule_origin`,
 `rule_origin_sha256`, and `source_line` record the exact effective input in the

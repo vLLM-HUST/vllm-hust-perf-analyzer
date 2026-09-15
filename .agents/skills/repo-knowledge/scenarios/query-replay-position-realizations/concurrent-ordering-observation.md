@@ -138,7 +138,9 @@ boundary discovery, or attribute these remaining issues to sort nondeterminism.
 
 ## Optional YAML hints (2026-09-15)
 
-`--match-rules configs/deepseekv4.yaml` now supplies loose ordered-marker hints.
+`--rules-config configs/deepseekv4.yaml` supplies loose ordered-marker hints.
+The original experiment used the legacy `--match-rules` macro-only schema;
+current configuration and compatibility details live in `configs/README.md`.
 Read `configs/README.md` for `unmatched_marker_order_v1`: single-sided fragments
 can grow; unmatched Post→Pre is rejected before ranking, including partial
 macro wrappers; already balanced macros remain sealed and can combine at higher

@@ -88,7 +88,7 @@ bool EventCostAttributionMask::includes(TraceEventId event_id) const {
 
 EventCostAttributionMask build_event_cost_attribution_mask(
     const NativeIr& ir, FlatAnchorBuildConfig config) {
-  if (config.classification_rules.rules().empty()) {
+  if (config.classification_rules.metadata().policy_id.empty()) {
     config.classification_rules = load_default_signal_classification_ruleset();
   }
   if (!config.classification_overrides.empty()) {

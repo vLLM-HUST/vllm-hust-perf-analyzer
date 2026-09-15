@@ -1,3 +1,4 @@
+#include "traceloom/config/rule_manifest.h"
 #include "traceloom/analysis/signal_classification_rules.h"
 
 #include "signal_classification_rules_internal.h"
@@ -354,18 +355,13 @@ void apply_override(SignalClassificationRule& rule,
 
 SignalClassificationRuleset load_signal_classification_ruleset(
     const std::string& path) {
-  std::ifstream stream(path);
-  if (!stream) {
-    throw std::invalid_argument("cannot open signal classification ruleset: " +
-                                path);
-  }
+  return parse_signal_classification_ruleset(config::load_rule_manifest(path, "classification"));
+}
 
-  std::vector<std::string> lines;
-  std::string line;
-  while (std::getline(stream, line)) {
-    lines.push_back(line);
-  }
-  const std::string manifest_sha256 = sha256_file_hex(path);
+SignalClassificationRuleset parse_signal_classification_ruleset(const config::RuleManifest& manifest) {
+  const auto& path = manifest.path;
+  const auto& lines = manifest.lines;
+  const auto& manifest_sha256 = manifest.digest;
 
   const std::vector<std::string> legacy_header{
       "priority", "source_domain", "field", "match", "pattern", "role",
@@ -381,7 +377,7 @@ SignalClassificationRuleset load_signal_classification_ruleset(
   std::vector<std::string> header;
   std::size_t declaration_order = 0;
   for (std::size_t index = 0; index < lines.size(); ++index) {
-    const std::size_t line_number = index + 1;
+    const std::size_t line_number = manifest.source_lines.at(index);
     const std::string stripped = signal_classification_detail::trim(lines[index]);
     if (stripped.empty() || stripped.front() == '#') {
       continue;
@@ -418,6 +414,7 @@ SignalClassificationRuleset load_signal_classification_ruleset(
       header == legacy_header
           ? legacy_metadata(manifest_sha256)
           : parse_policy_metadata(lines, manifest_sha256);
+  metadata.manifest_format = manifest.format;
   metadata.manifest_source_path =
       std::filesystem::absolute(path).lexically_normal().string();
   return SignalClassificationRuleset(std::move(metadata), std::move(rules));
@@ -435,15 +432,15 @@ SignalClassificationRuleset load_default_signal_classification_ruleset(
         std::filesystem::absolute(executable_path);
     candidates.push_back(
         (executable.parent_path().parent_path() / "share" / "traceloom" /
-         "default_signal_classification_rules.tsv")
+         "default_signal_classification_rules.yaml")
             .string());
   }
   candidates.push_back(TRACELOOM_SOURCE_DEFAULT_RULESET_PATH);
   candidates.push_back(TRACELOOM_INSTALL_DEFAULT_RULESET_PATH);
   candidates.push_back(
-      "/usr/share/traceloom/default_signal_classification_rules.tsv");
+      "/usr/share/traceloom/default_signal_classification_rules.yaml");
   candidates.push_back(
-      "/usr/local/share/traceloom/default_signal_classification_rules.tsv");
+      "/usr/local/share/traceloom/default_signal_classification_rules.yaml");
   for (const std::string& path : candidates) {
     if (path.empty()) {
       continue;
@@ -476,7 +473,8 @@ SignalClassificationRuleset extend_signal_classification_ruleset(
                              extension.metadata().provider_scopes;
   metadata.manifest_sha256 = composite_manifest_digest(base, extension);
   metadata.effective_config_sha256 = metadata.manifest_sha256;
-  metadata.manifest_format = "flat_tsv";
+  metadata.manifest_format = base.metadata().manifest_format == extension.metadata().manifest_format
+      ? base.metadata().manifest_format : "composite";
   metadata.manifest_source_path = base.metadata().manifest_source_path + ";" +
                                   extension.metadata().manifest_source_path;
   return SignalClassificationRuleset(std::move(metadata), std::move(merged));

@@ -30,6 +30,7 @@ struct NativeCompatibilitySidecarOptions {
   std::uint32_t collective_expected_world_size = 0;
   bool materialize_grammar_structural_projection = true;
   MacroMatchRules match_rules;
+  std::string analysis_rules_yaml;
   std::size_t grammar_worker_count = 1;
   std::size_t grammar_target_nodes_per_chunk = 4096;
   std::size_t grammar_full_discovery_cap = 50000;

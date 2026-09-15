@@ -7,6 +7,7 @@
 #include "traceloom/ir/event_reconciliation.h"
 
 namespace traceloom {
+namespace config { struct RuleManifest; }
 
 struct NativeIr;
 
@@ -72,6 +73,7 @@ class EventReconciliationRuleset {
   std::vector<EventReconciliationRule> rules_;
 };
 
+EventReconciliationRuleset parse_event_reconciliation_ruleset(const config::RuleManifest& manifest);
 EventReconciliationRuleset load_event_reconciliation_ruleset(
     const std::string& path);
 EventReconciliationRuleset load_default_event_reconciliation_ruleset(

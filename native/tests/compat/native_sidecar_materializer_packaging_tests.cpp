@@ -228,7 +228,7 @@ void run_packaging_materializer_tests() {
   require(run_scalar_int(
               augmented_path,
               "SELECT COUNT(*) FROM traceloom_evidence_role_policy WHERE "
-              "input_format = 'flat_tsv' AND length(manifest_sha256) = 64") ==
+              "input_format = 'yaml' AND length(manifest_sha256) = 64") ==
           1);
   require(run_scalar_int(augmented_path,
                          "SELECT COUNT(*) FROM "

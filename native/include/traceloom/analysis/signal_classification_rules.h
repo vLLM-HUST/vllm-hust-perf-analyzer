@@ -6,6 +6,7 @@
 #include <vector>
 
 namespace traceloom {
+namespace config { struct RuleManifest; }
 
 // Evidence roles describe participation in structural identity recovery. They
 // do not classify workload phases or claim that omitted observations are
@@ -70,7 +71,7 @@ struct SignalClassificationPolicyMetadata {
   SignalMissingEvidenceBehavior missing_evidence_behavior =
       SignalMissingEvidenceBehavior::kContinueOrFallback;
   std::string manifest_sha256;
-  // The policy is intentionally a flat delimiter-separated input table.  The
+  // The policy can be YAML or a legacy delimiter-separated table. The
   // source path is provenance only; the digest remains the stable content
   // identity and composite policies list their base/extension paths in order.
   std::string manifest_format = "flat_tsv";
@@ -193,6 +194,7 @@ const char* signal_missing_evidence_behavior_name(
 const char* signal_concrete_identity_behavior_name(
     SignalConcreteIdentityBehavior behavior) noexcept;
 
+SignalClassificationRuleset parse_signal_classification_ruleset(const config::RuleManifest& manifest);
 SignalClassificationRuleset load_signal_classification_ruleset(
     const std::string& path);
 SignalClassificationRuleset load_default_signal_classification_ruleset(

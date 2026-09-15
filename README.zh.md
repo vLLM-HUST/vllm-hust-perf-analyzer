@@ -151,7 +151,7 @@ evidence 放在同一时间轴上。同构 repeat subtree 共用简短 motif 标
 
 ```bash
 traceloom profile.db --structural-order host-launch \
-  --match-rules configs/deepseekv4.yaml --output analysis.db
+  --rules-config configs/deepseekv4.yaml --output analysis.db
 ```
 
 规则默认不启用。参见[匹配规则契约](configs/README.md)：允许单侧标记继续
@@ -298,7 +298,7 @@ ORDER BY member_order;
 ```
 
 默认规则位于
-[`native/data/default_event_reconciliation_rules.tsv`](native/data/default_event_reconciliation_rules.tsv)。
+[`native/data/default_event_reconciliation_rules.yaml`](native/data/default_event_reconciliation_rules.yaml)。
 `--event-reconciliation-rules PATH` 完整替换默认策略；
 `--extend-event-reconciliation-rules PATH` 按稳定 `rule_id` 叠加规则，同名 ID 覆盖
 默认项。无论采用哪种方式，effective policy、规则来源、每次决定和成员贡献都会写回

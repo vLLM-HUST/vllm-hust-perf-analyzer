@@ -1,3 +1,4 @@
+#include "traceloom/config/rule_manifest.h"
 #include "traceloom/analysis/event_reconciliation.h"
 
 #include <algorithm>
@@ -363,15 +364,12 @@ EventReconciliationPolicySnapshot EventReconciliationRuleset::snapshot()
 
 EventReconciliationRuleset load_event_reconciliation_ruleset(
     const std::string& path) {
-  std::ifstream stream(path);
-  if (!stream) {
-    throw std::invalid_argument(
-        "cannot open event-reconciliation manifest: " + path);
-  }
-  std::vector<std::string> lines;
-  std::string line;
-  while (std::getline(stream, line)) lines.push_back(line);
+  return parse_event_reconciliation_ruleset(config::load_rule_manifest(path, "event_reconciliation"));
+}
 
+EventReconciliationRuleset parse_event_reconciliation_ruleset(const config::RuleManifest& manifest) {
+  const auto& path = manifest.path;
+  const auto& lines = manifest.lines;
   const std::string manifest_schema =
       metadata_value(lines, "manifest_schema");
   const std::vector<std::string> expected_v1{
@@ -411,7 +409,7 @@ EventReconciliationRuleset load_event_reconciliation_ruleset(
           "event-reconciliation rule has the wrong field count at line " +
           std::to_string(index + 1));
     }
-    const auto source_line = static_cast<std::uint64_t>(index + 1);
+    const auto source_line = static_cast<std::uint64_t>(manifest.source_lines.at(index));
     EventReconciliationRule rule;
     rule.priority = parse_priority(fields[0], source_line);
     rule.rule_id = fields[1];
@@ -439,7 +437,7 @@ EventReconciliationRuleset load_event_reconciliation_ruleset(
     throw std::invalid_argument(
         "event-reconciliation manifest is empty: " + path);
   }
-  const std::string sha = sha256_file_hex(path);
+  const std::string sha = manifest.digest;
   for (auto& rule : rules) rule.rule_origin_sha256 = sha;
   return {manifest_schema,
           metadata_value(lines, "policy_id"),
@@ -461,7 +459,7 @@ EventReconciliationRuleset load_default_event_reconciliation_ruleset(
     const auto executable = std::filesystem::absolute(executable_path);
     candidates.push_back(
         (executable.parent_path().parent_path() / "share" / "traceloom" /
-         "default_event_reconciliation_rules.tsv")
+         "default_event_reconciliation_rules.yaml")
             .string());
   }
   candidates.push_back(
@@ -469,9 +467,9 @@ EventReconciliationRuleset load_default_event_reconciliation_ruleset(
   candidates.push_back(
       TRACELOOM_INSTALL_DEFAULT_EVENT_RECONCILIATION_RULESET_PATH);
   candidates.push_back(
-      "/usr/share/traceloom/default_event_reconciliation_rules.tsv");
+      "/usr/share/traceloom/default_event_reconciliation_rules.yaml");
   candidates.push_back(
-      "/usr/local/share/traceloom/default_event_reconciliation_rules.tsv");
+      "/usr/local/share/traceloom/default_event_reconciliation_rules.yaml");
   for (const std::string& candidate : candidates) {
     if (candidate.empty()) continue;
     std::ifstream probe(candidate);

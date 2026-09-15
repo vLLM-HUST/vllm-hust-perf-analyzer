@@ -58,7 +58,7 @@ void require_basic_sidecar(const std::string& path) {
                                   path,
                                   "SELECT COUNT(*) FROM "
                                   "traceloom_evidence_role_policy WHERE "
-                                  "input_format = 'flat_tsv'") == 1);
+                                  "input_format = 'yaml'") == 1);
   traceloom::testing::require(run_scalar_int(
                                   path,
                                   "SELECT COUNT(*) FROM "
@@ -361,6 +361,29 @@ int main(int argc, char** argv) {
       "usage: cli_sidecar_smoke_tests DB MODE [LOOP_TREE_MD]");
   const std::string path = argv[1];
   const std::string mode = argv[2];
+  if (mode == "empty-classification") {
+    traceloom::testing::require(run_scalar_int(path,
+        "SELECT COUNT(*) FROM traceloom_evidence_role_policy "
+        "WHERE policy_id = 'test.empty-classification'") == 1);
+    traceloom::testing::require(run_scalar_int(path,
+        "SELECT COUNT(*) FROM traceloom_evidence_role_rule "
+        "WHERE rule_id NOT LIKE 'system.%' AND rule_id NOT LIKE 'fallback.%'") == 0);
+    traceloom::testing::require(run_scalar_int(path, "SELECT COUNT(*) FROM traceloom_event") > 0);
+    return 0;
+  }
+  if (mode == "rules-config") {
+    traceloom::testing::require(run_scalar_int(path,
+        "SELECT COUNT(*) FROM traceloom_metadata WHERE key = 'analysis_rules_semantics' "
+        "AND value = 'traceloom-analysis-rules-v1'") == 1);
+    traceloom::testing::require(run_scalar_int(path,
+        "SELECT COUNT(*) FROM traceloom_metadata WHERE key = 'analysis_rules_yaml' "
+        "AND value LIKE '%hc_pre_post%'") == 1);
+    traceloom::testing::require(run_scalar_int(path,
+        "SELECT COUNT(*) FROM traceloom_metadata WHERE key = 'match_rules_yaml' "
+        "AND value LIKE '%hc_pre_post%'") == 1);
+    require_basic_sidecar(path);
+    return 0;
+  }
   require_basic_sidecar(path);
   if (mode == "cuda") {
     traceloom::testing::require(

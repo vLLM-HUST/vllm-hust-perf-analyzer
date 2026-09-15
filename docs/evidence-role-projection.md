@@ -9,10 +9,8 @@ intervals, context, and source-row provenance remain available in the native
 IR and the self-contained queryable database timeline.
 
 The public contract is provider-neutral. Provider-specific predicates and
-their stable identities live in the installed machine-readable **flat TSV
-table** (a delimiter-separated table suitable for version review and
-spreadsheet editing),
-[`native/data/default_signal_classification_rules.tsv`](../native/data/default_signal_classification_rules.tsv).
+their stable identities live in the installed machine-readable **YAML policy**, with legacy TSV input compatibility,
+[`native/data/default_signal_classification_rules.yaml`](../native/data/default_signal_classification_rules.yaml).
 
 ## Roles and boundaries
 
@@ -90,7 +88,10 @@ Complete replacement manifests can be selected with
 be extended with `--extend-classification-rules PATH`; the composite policy ID,
 version, and digest include both inputs. Legacy seven-column rule files remain
 loadable for compatibility, but receive a content-addressed legacy policy
-version and deterministic synthetic rule IDs. New policies should use v1.
+version and deterministic synthetic rule IDs. New policies should use the YAML wrapper shown in the bundled file.
+For a model-specific staged overlay, prefer `--rules-config MODEL.yaml`;
+see [staged configuration](../configs/README.md). The legacy flag precedence
+below applies only when that unified entry point is not used.
 
 The final per-analysis override is explicit and stable-ID keyed:
 
@@ -115,7 +116,7 @@ bundled/install default or TRACELOOM_CLASSIFICATION_RULES
 ```
 
 `--classification-rules` therefore explicitly supersedes the environment
-selection. The database keeps both the exact flat-table digest and a separate
+selection. The database keeps both the exact input-manifest digest and a separate
 effective-config digest plus canonical override list; an override never
 pretends to be a different input table.
 

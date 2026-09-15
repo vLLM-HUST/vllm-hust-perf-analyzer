@@ -82,7 +82,7 @@ std::string basename_or_default(const std::string& path,
 
 FlatAnchorBuildConfig effective_evidence_role_config(
     FlatAnchorBuildConfig config) {
-  if (config.classification_rules.rules().empty()) {
+  if (config.classification_rules.metadata().policy_id.empty()) {
     config.classification_rules = load_default_signal_classification_ruleset();
   }
   if (!config.classification_overrides.empty()) {
@@ -462,6 +462,11 @@ void write_basic_native_compatibility_sidecar(
       {"evidence_role_manifest_sha256",
        evidence_role_policy.manifest_sha256},
   };
+  if (!options.analysis_rules_yaml.empty()) {
+    metadata.push_back({"analysis_rules_yaml", options.analysis_rules_yaml});
+    metadata.push_back({"analysis_rules_semantics", "traceloom-analysis-rules-v1"});
+  }
+
   const Stopwatch symbol_rows_watch;
   const SymbolNormalizationSqlRows symbol_normalization_rows =
       build_symbol_normalization_sql_rows(ir, options.db_idx);

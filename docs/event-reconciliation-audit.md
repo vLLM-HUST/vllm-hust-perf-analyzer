@@ -204,8 +204,10 @@ table name dynamically, so inspect `embedded_table_name` and
 ## Replacing or extending policy
 
 The bundled manifest is
-[`native/data/default_event_reconciliation_rules.tsv`](../native/data/default_event_reconciliation_rules.tsv).
-Use it as the schema example.
+[`native/data/default_event_reconciliation_rules.yaml`](../native/data/default_event_reconciliation_rules.yaml).
+Use it as the schema example. Legacy TSV inputs remain supported.
+For the unified model configuration and explicit extend/override/replace modes,
+see [staged configuration](../configs/README.md).
 
 ```bash
 # Replace the bundled policy for this analysis.

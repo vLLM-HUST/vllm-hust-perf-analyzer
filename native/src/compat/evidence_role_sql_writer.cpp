@@ -206,10 +206,11 @@ void insert_policy_and_rules(Db& db,
   policy.text(i++, metadata.effective_config_sha256);
   policy.text(i++, metadata.config_overrides);
   policy.text(i++,
-              "explicit --classification-rules replaces environment/default; "
+              "legacy flags: explicit --classification-rules replaces environment/default; "
               "--extend-classification-rules is applied afterward; repeatable "
               "--classification-rule-override entries overwrite typed rule "
-              "fields last");
+              "fields last; alternatively --rules-config uses explicit staged "
+              "extend/override/replace modes and cannot be mixed with legacy flags");
   policy.run();
 
   Stmt rule(db.get(),

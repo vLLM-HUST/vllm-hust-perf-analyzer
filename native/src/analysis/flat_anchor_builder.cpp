@@ -391,7 +391,7 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
   candidates.reserve(ir.tasks.size() + ir.communication_ops.size() +
                      ir.replay_units.size());
   FlatAnchorBuildStats stats;
-  if (config.classification_rules.rules().empty()) {
+  if (config.classification_rules.metadata().policy_id.empty()) {
     config.classification_rules = load_default_signal_classification_ruleset();
   }
   if (!config.classification_overrides.empty()) {

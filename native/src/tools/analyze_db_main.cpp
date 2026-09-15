@@ -1,3 +1,4 @@
+#include "analyze_db_rules.h"
 #include <algorithm>
 #include <chrono>
 #include <cstddef>
@@ -56,8 +57,7 @@ class Stopwatch {
   Clock::time_point start_;
 };
 
-struct CliOptions {
-  traceloom::MacroMatchRules match_rules;
+struct CliOptions : traceloom::tools::AnalysisRuleOptions {
   std::string executable_path;
   std::string source_input;
   std::string source_kind = "auto";
@@ -81,14 +81,7 @@ struct CliOptions {
   bool sidecar_only = false;
   bool timings = false;
   std::size_t threads = 0;
-  std::string classification_rules_path;
-  std::string extend_classification_rules_path;
-  std::vector<std::string> classification_rule_overrides;
   std::string structural_order = "device";
-  std::string symbol_rules_path;
-  std::string extend_symbol_rules_path;
-  std::string event_reconciliation_rules_path;
-  std::string extend_event_reconciliation_rules_path;
 };
 
 std::size_t default_thread_count() {
@@ -130,6 +123,9 @@ CliOptions parse_args(int argc, char** argv) {
       options.source_input = require_value(arg);
     } else if (arg == "--source-kind") {
       options.source_kind = require_value(arg);
+    } else if (arg == "--rules-config") {
+      if (!options.rules_config_path.empty()) throw std::invalid_argument("--rules-config may be supplied only once");
+      options.rules_config_path = require_value(arg);
     } else if (arg == "--match-rules") {
       options.match_rules = traceloom::load_macro_match_rules(require_value(arg));
     } else if (arg == "--threads") {
@@ -238,6 +234,9 @@ CliOptions parse_args(int argc, char** argv) {
     throw std::invalid_argument(
         "unsupported --loop-tree-view: " + options.loop_tree_view);
   }
+  if (options.perfetto_export_only && !options.rules_config_path.empty())
+    throw std::invalid_argument("--rules-config is not applicable to export-perfetto");
+  traceloom::tools::resolve_analysis_rule_options(options, options.executable_path);
   if (options.perfetto_export_only) {
     if (!traceloom::compat::is_queryable_database_timeline(
             options.source_input)) {
@@ -462,57 +461,7 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
     anchor_config.skip_tasks_covered_by_communication_ops = true;
     anchor_config.skip_events_covered_by_replay_units = true;
     anchor_config.filter_auxiliary_task_anchors = true;
-    anchor_config.classification_rules =
-        cli.classification_rules_path.empty()
-            ? traceloom::load_default_signal_classification_ruleset(
-                  cli.executable_path)
-            : traceloom::load_signal_classification_ruleset(
-                  cli.classification_rules_path);
-    if (!cli.extend_classification_rules_path.empty()) {
-      anchor_config.classification_rules =
-          traceloom::extend_signal_classification_ruleset(
-              anchor_config.classification_rules,
-              traceloom::load_signal_classification_ruleset(
-                  cli.extend_classification_rules_path));
-    }
-    for (const std::string& specification :
-         cli.classification_rule_overrides) {
-      anchor_config.classification_overrides.push_back(
-          traceloom::parse_signal_classification_override(specification));
-    }
-    if (!anchor_config.classification_overrides.empty()) {
-      anchor_config.classification_rules =
-          traceloom::override_signal_classification_ruleset(
-              anchor_config.classification_rules,
-              anchor_config.classification_overrides);
-      anchor_config.classification_overrides.clear();
-    }
-    anchor_config.structural_symbol_rules =
-        cli.symbol_rules_path.empty()
-            ? traceloom::load_default_structural_symbol_ruleset(
-                  cli.executable_path)
-            : traceloom::load_structural_symbol_ruleset(
-                  cli.symbol_rules_path);
-    if (!cli.extend_symbol_rules_path.empty()) {
-      anchor_config.structural_symbol_rules =
-          traceloom::extend_structural_symbol_ruleset(
-              anchor_config.structural_symbol_rules,
-              traceloom::load_structural_symbol_ruleset(
-                  cli.extend_symbol_rules_path));
-    }
-    anchor_config.event_reconciliation_rules =
-        cli.event_reconciliation_rules_path.empty()
-            ? traceloom::load_default_event_reconciliation_ruleset(
-                  cli.executable_path)
-            : traceloom::load_event_reconciliation_ruleset(
-                  cli.event_reconciliation_rules_path);
-    if (!cli.extend_event_reconciliation_rules_path.empty()) {
-      anchor_config.event_reconciliation_rules =
-          traceloom::overlay_event_reconciliation_ruleset(
-              anchor_config.event_reconciliation_rules,
-              traceloom::load_event_reconciliation_ruleset(
-                  cli.extend_event_reconciliation_rules_path));
-    }
+    traceloom::tools::apply_analysis_rule_options(cli, cli.executable_path, anchor_config);
 
     const Stopwatch anchor_watch;
     traceloom::build_flat_anchors(ir, anchor_config);
@@ -534,6 +483,7 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
       sidecar_options.input_missing_components = evidence.missing_components;
     }
     sidecar_options.match_rules = cli.match_rules;
+    if (cli.rules_config) sidecar_options.analysis_rules_yaml = cli.rules_config->source_yaml;
     sidecar_options.grammar_worker_count = cli.threads;
     sidecar_options.grammar_target_nodes_per_chunk =
         kGrammarTargetNodesPerChunk;

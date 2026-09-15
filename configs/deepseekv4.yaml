@@ -1,6 +1,8 @@
 # Optional model hints, not evidence that a region is a layer or scheduler step.
-schema: traceloom-match-rules-v1
-ordered_markers:
-  - id: hc_pre_post
-    before: HcPre
-    after: HcPost
+# Omitted stages retain built-in (or environment-selected) provider policies.
+schema: traceloom-analysis-rules-v1
+macro_matching:
+  ordered_markers:
+    - id: hc_pre_post
+      before: HcPre
+      after: HcPost

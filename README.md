@@ -183,7 +183,7 @@ candidate model remains display-only. See
 
 ```bash
 traceloom profile.db --structural-order host-launch \
-  --match-rules configs/deepseekv4.yaml --output analysis.db
+  --rules-config configs/deepseekv4.yaml --output analysis.db
 ```
 
 Rules are opt-in. See [the matching-rule contract](configs/README.md) for
@@ -327,7 +327,7 @@ canonical anchor contributes the interval, symbol, and union cost exactly
 once. Missing, ambiguous, or conflicting peers stay independent.
 
 The default policy is the small, versioned table
-[`native/data/default_event_reconciliation_rules.tsv`](native/data/default_event_reconciliation_rules.tsv).
+[`native/data/default_event_reconciliation_rules.yaml`](native/data/default_event_reconciliation_rules.yaml).
 `--event-reconciliation-rules PATH` replaces it for one analysis and
 `--extend-event-reconciliation-rules PATH` overlays rules by stable `rule_id`
 (a repeated ID overwrites the default rule). The effective files and digests,
@@ -365,7 +365,7 @@ TraceLoom keeps two operator identities when constructing the anchor sequence:
 - `structural_symbol` is the comparison key used by pattern discovery.
 
 Only explicit, versioned rules loaded from
-[`native/data/default_structural_symbol_rules.tsv`](native/data/default_structural_symbol_rules.tsv)
+[`native/data/default_structural_symbol_rules.yaml`](native/data/default_structural_symbol_rules.yaml)
 may change the structural comparison label. The concrete observed label is
 always retained for audit. For example, the current Ascend policy maps the
 supported bare or CANN-decorated `MatMulV1/V2/V3` and

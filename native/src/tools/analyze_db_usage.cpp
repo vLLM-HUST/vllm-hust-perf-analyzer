@@ -48,6 +48,7 @@ void print_advanced_usage(const char* argv0) {
                " [--loop-tree-grammar|--loop-tree-no-grammar]"
                " [--loop-tree-full-discovery-cap N]"
                " [--loop-tree-aux|--loop-tree-no-aux]"
+               " [--rules-config MODEL.yaml]"
                " [--classification-rules PATH]"
                " [--extend-classification-rules PATH]"
                " [--classification-rule-override RULE_ID.FIELD=VALUE]"

@@ -9,6 +9,7 @@
 #include "traceloom/ir/task_table.h"
 
 namespace traceloom {
+namespace config { struct RuleManifest; }
 
 struct NativeIr;
 
@@ -96,6 +97,7 @@ const char* structural_symbol_reason_code(StructuralSymbolOutcome outcome);
 const char* structural_symbol_field_name(StructuralSymbolField field);
 const char* structural_symbol_match_name(StructuralSymbolMatch match);
 
+StructuralSymbolNormalizationRuleset parse_structural_symbol_ruleset(const config::RuleManifest& manifest);
 StructuralSymbolNormalizationRuleset load_structural_symbol_ruleset(
     const std::string& path);
 StructuralSymbolNormalizationRuleset load_default_structural_symbol_ruleset(

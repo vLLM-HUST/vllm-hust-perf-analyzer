@@ -1,0 +1,14 @@
+schema: traceloom-analysis-rules-v1
+classification:
+  mode: replace
+  metadata:
+    manifest_schema: traceloom.evidence-role-policy/v1
+    policy_id: test.empty-classification
+    policy_version: "1"
+    provider_scopes: any
+    fallback_identity_role: unknown_anchor
+    fallback_cost_treatment: retained_for_attribution
+    fallback_context_treatment: retained
+    fallback_provenance_treatment: retained
+    missing_evidence_behavior: continue_or_fallback
+  rules: []

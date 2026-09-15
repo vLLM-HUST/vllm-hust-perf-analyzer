@@ -19,7 +19,7 @@ void replace_evidence_role_sql_rows_impl(
     const AuxAttributionSqlRows* prebuilt_aux_attribution,
     bool timing_diagnostics) {
 #if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
-  if (config.classification_rules.rules().empty()) {
+  if (config.classification_rules.metadata().policy_id.empty()) {
     config.classification_rules = load_default_signal_classification_ruleset();
   }
   if (!config.classification_overrides.empty()) {
