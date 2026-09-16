@@ -1,0 +1,36 @@
+[build-system]
+requires = ["scikit-build-core>=0.10,<2"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "traceloom"
+version = "0.1.0"
+description = "Native inference timeline analysis with a Python API and vLLM runtime observer"
+readme = "python/README.md"
+requires-python = ">=3.10"
+license = {file = "LICENSE"}
+authors = [{name = "TraceLoom contributors"}]
+dependencies = ["traceloom-vllm-context==0.1.0"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: C++",
+  "Operating System :: POSIX :: Linux",
+]
+
+[project.urls]
+Homepage = "https://github.com/vLLM-HUST/vllm-hust-perf-analyzer"
+Documentation = "https://github.com/vLLM-HUST/vllm-hust-perf-analyzer/blob/main/python/README.md"
+Issues = "https://github.com/vLLM-HUST/vllm-hust-perf-analyzer/issues"
+
+[project.scripts]
+traceloom = "traceloom._cli:main"
+
+[tool.scikit-build]
+cmake.source-dir = "packaging/python"
+cmake.build-type = "Release"
+wheel.packages = ["python/traceloom"]
+wheel.py-api = "py3"
+build.targets = ["traceloom"]
+sdist.include = ["native/**", "configs/**", "packaging/python/**", "python/**", "LICENSE", "pyproject.toml"]
+sdist.exclude = [".agents/**", ".github/**", "build/**", "examples/**", "notes/**", "docs/**", "reproduce/**", "integrations/**", "runs/**", "*.db", "*.sqlite", "*.sqlite3"]

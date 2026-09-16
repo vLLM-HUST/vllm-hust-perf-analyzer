@@ -115,6 +115,18 @@ To uninstall:
 sudo apt remove traceloom-native
 ```
 
+## Python package and runtime plugin
+
+```bash
+python -m pip install traceloom==0.1.0
+```
+
+The package includes the native analyzer, the `traceloom` CLI, a Python analysis
+API, bundled YAML rules, and the runtime observer dependency. No separate native
+installation is needed for a supported Linux wheel. See the
+[Python interface and collection guide](python/README.md) for platform/source-build
+requirements, `traceloom.analyze`, read-only queries and Perfetto export.
+
 ## Install From Source
 
 Install a C++17 toolchain, CMake, SQLite development files, and libyaml development

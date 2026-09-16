@@ -88,6 +88,16 @@ traceloom --help
 sudo apt remove traceloom-native
 ```
 
+## Python 包与运行时插件
+
+```bash
+python -m pip install traceloom==0.1.0
+```
+
+此包包含原生分析器、`traceloom` CLI、Python 分析接口、YAML 规则及运行时观测依赖。
+支持的 Linux wheel 无需另装原生分析器。`traceloom.analyze`、只读查询、Perfetto
+导出和平台/源码构建要求见 [Python 使用指南](python/README.md)。
+
 ## 从源码安装
 
 需要 C++17、CMake、SQLite 开发文件和 libyaml 开发文件；后者在 Debian/Ubuntu
