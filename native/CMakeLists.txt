@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.16)
 project(traceloom_native VERSION 0.1.0 LANGUAGES CXX)
 
 include(GNUInstallDirs)
+find_package(Threads REQUIRED)
 
 option(TRACELOOM_NATIVE_BUILD_TESTS "Build TraceLoom native tests" ON)
 option(
@@ -127,7 +128,7 @@ else()
 endif()
 
 target_include_directories(traceloom_native_core PUBLIC ${LIBYAML_INCLUDE_DIR})
-target_link_libraries(traceloom_native_core PUBLIC ${LIBYAML_LIBRARY})
+target_link_libraries(traceloom_native_core PUBLIC ${LIBYAML_LIBRARY} Threads::Threads)
 
 add_library(traceloom_native_adapters
   src/adapters/aclgraph_fixture_adapter.cpp
