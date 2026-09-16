@@ -80,6 +80,7 @@ struct DistributedClockModelSet {
   std::map<int, ClockCalibrationModel> models;
 };
 
+void export_context_timeline(sqlite3* db, RawTraceWriter& writer);
 std::int64_t raw_timeline_origin(sqlite3* db, std::int64_t current);
 void export_raw_provider_timeline(sqlite3* db, RawTraceWriter& writer,
                                   PerfettoExportReceipt& receipt);

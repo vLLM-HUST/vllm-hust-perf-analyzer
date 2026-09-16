@@ -32,6 +32,8 @@ struct RawPackagingResult {
   std::vector<RawTableCopy> tables;
 };
 
+void materialize_raw_source_catalog(const std::string& path, const RawPackagingResult& packaging);
+
 void materialize_augmented_catalog(const std::string& path,
                                    const RawPackagingResult& packaging,
                                    const NativeIr& ir);

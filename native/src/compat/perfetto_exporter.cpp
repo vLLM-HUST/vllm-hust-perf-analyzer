@@ -321,6 +321,7 @@ std::string node_key(int db, int device, const std::string& view, const std::str
 struct Occurrence {
   std::string node, context;
   int index = 0;
+  int parent_index = -1, member_order = 0;
   std::int64_t start = 0, end = 0;
   std::int64_t anchor_start = 0, anchor_end = 0, anchor_count = 0;
   double compute = 0, comm = 0, idle = 0, total = 0, self = 0, aux_us = 0;
@@ -463,6 +464,35 @@ std::map<std::string, std::vector<Occurrence>> load_occurrences(sqlite3* db) {
     o.aux_us = sqlite3_column_double(stmt.get(), 17);
     out[node_key(db_index, device, view, o.node)].push_back(std::move(o));
   }
+  // Repeat labels describe a definition path, not a concrete parent instance.
+  // Carry canonical HPO membership into the compatibility cost projection.
+  if (has_object(db, "traceloom_position_member")) {
+    auto members = prepare(db,
+        "SELECT c.position_id,c.db_idx,c.device_id,t.semantic_projection,"
+        "c.occurrence_idx,p.occurrence_idx,m.member_order "
+        "FROM traceloom_position_member m "
+        "JOIN traceloom_position_occurrence c ON c.occurrence_id=m.child_occurrence_id "
+        "AND c.db_idx=m.db_idx AND c.device_id=m.device_id "
+        "AND c.tree_id=m.tree_id AND c.view_name=m.view_name "
+        "JOIN traceloom_position_occurrence p ON p.occurrence_id=m.parent_occurrence_id "
+        "AND p.db_idx=m.db_idx AND p.device_id=m.device_id "
+        "AND p.tree_id=m.tree_id AND p.view_name=m.view_name "
+        "JOIN traceloom_semantic_tree t ON t.tree_id=m.tree_id "
+        "AND t.db_idx=m.db_idx AND t.device_id=m.device_id AND t.view_name=m.view_name "
+        "WHERE m.member_kind='child_occurrence'");
+    std::map<std::pair<std::string, int>, Occurrence*> indexed;
+    for (auto& [key, occurrences] : out)
+      for (auto& occurrence : occurrences) indexed[{key, occurrence.index}] = &occurrence;
+    while (sqlite3_step(members.get()) == SQLITE_ROW) {
+      const auto key = node_key(sqlite3_column_int(members.get(), 1),
+                                sqlite3_column_int(members.get(), 2), text(members.get(), 3),
+                                text(members.get(), 0));
+      auto found = indexed.find({key, sqlite3_column_int(members.get(), 4)});
+      if (found == indexed.end()) continue;
+      found->second->parent_index = sqlite3_column_int(members.get(), 5);
+      found->second->member_order = sqlite3_column_int(members.get(), 6);
+    }
+  }
   return out;
 }
 
@@ -478,11 +508,24 @@ std::vector<Interval> build_intervals(const std::map<std::string, Node>& nodes,
   for (const auto& [id, n] : nodes)
     if (n.kind == "repeat") {
       using Bodies = std::map<int, std::vector<const Occurrence*>>;
-      std::map<std::string, Bodies> grouped;
+      std::map<int, Bodies> grouped;
+      auto aggregates = occs.find(id);
+      if (aggregates == occs.end()) continue;
+      // Older AugDBs have no HPO membership. Their context is usable only when
+      // it identifies exactly one parent; never combine ambiguous instances.
+      std::map<std::string, int> legacy_parents;
+      for (const auto& aggregate : aggregates->second) {
+        if (!legacy_parents.emplace(aggregate.context, aggregate.index).second)
+          legacy_parents[aggregate.context] = -1;
+      }
       for (const auto& child : n.children) {
         auto it = occs.find(child);
         if (it == occs.end()) continue;
         for (const auto& o : it->second) {
+          if (o.parent_index >= 0) {
+            grouped[o.parent_index][o.member_order].push_back(&o);
+            continue;
+          }
           const auto slash = o.context.rfind('/');
           const std::string component =
               slash == std::string::npos ? o.context : o.context.substr(slash + 1);
@@ -492,14 +535,15 @@ std::vector<Interval> build_intervals(const std::map<std::string, Node>& nodes,
           if (digits.empty() || !std::all_of(digits.begin(), digits.end(),
                                              [](unsigned char c) { return std::isdigit(c); }))
             continue;
-          grouped[slash == std::string::npos ? "" : o.context.substr(0, slash)][std::stoi(digits)]
-              .push_back(&o);
+          const auto parent = legacy_parents.find(
+              slash == std::string::npos ? "" : o.context.substr(0, slash));
+          if (parent == legacy_parents.end() || parent->second < 0)
+            throw std::runtime_error("ambiguous repeat parent without HPO membership for " + child);
+          grouped[parent->second][std::stoi(digits)].push_back(&o);
         }
       }
-      auto aggregates = occs.find(id);
-      if (aggregates == occs.end()) continue;
       for (const auto& aggregate : aggregates->second) {
-        auto found = grouped.find(aggregate.context);
+        auto found = grouped.find(aggregate.index);
         if (found == grouped.end() || static_cast<int>(found->second.size()) != n.repeat)
           throw std::runtime_error("incomplete repeat-body projection for " + id + " occurrence " +
                                    std::to_string(aggregate.index));
@@ -661,6 +705,7 @@ PerfettoExportReceipt write_perfetto_trace(const std::string& analysis_db_path,
   receipt.motif_classes = motifs.size();
   if (options.include_raw_provider_timeline)
     perfetto_internal::export_raw_provider_timeline(db.get(), writer, receipt);
+  perfetto_internal::export_context_timeline(db.get(), writer);
   perfetto_internal::export_distributed_flat_timeline(distributed, writer, receipt);
   receipt.distributed_alignment = distributed.alignment;
   receipt.distributed_clock_model_sha256 = distributed.clock_model_sha256;

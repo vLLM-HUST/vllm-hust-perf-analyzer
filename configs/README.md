@@ -249,3 +249,40 @@ AugDB records the full supplied YAML plus `model_structure_semantics` and
 `model_structure_rule_id`. These are user-supplied model hints, NOT independent
 layer discovery or scheduler-step ground truth. This release does not compose
 or annotate steps.
+
+## Keep macro candidates inside supplied scheduler steps
+
+Opt in with the standalone model document in scheduler-step.yaml:
+
+```yaml
+schema: traceloom-analysis-rules-v1
+macro_matching:
+  partition_by: scheduler_step
+```
+
+Supply execution-linked scheduler/worker JSONL through --context. This is a
+candidate-occurrence constraint, not a timestamp cut or an inferred step count.
+Partition membership comes from supported step/device event identities with
+closed, lossless scheduler and worker producers. Every source token in a macro
+instance must occupy one contiguous known partition; unknown tokens are isolated
+barriers. A known step that reappears after another partition does not bridge it.
+
+The identity is NOT included in the macro-definition key: identical bodies
+within different steps can still share definitions. Both run producers split at
+partition boundaries, pair candidates are filtered, and the commit planner
+rechecks the source-token span, including already merged macros. The synthetic
+whole-trace root is a container and intentionally spans steps; it is not a
+candidate macro.
+
+This first route supports eager grammar-based AugDB analysis and Perfetto
+export. It rejects missing supported context, grammar-disabled mode, protected
+replay, explicit marked-structure projection and independent legacy/debug
+outputs rather than silently ignoring the constraint. Other marker matching
+rules can be combined with partition_by. Omit the field to retain unconstrained
+recovery; importing context alone does not enable it. The macro-only legacy
+rules document also accepts top-level partition_by: scheduler_step.
+
+The state-to-HPO display projection honors the same boundary: it cannot fold
+equal adjacent live macros back into a cross-partition Repeat. Nonuniform
+top-level macros remain visible Seq instances; identical instances reuse the
+same structural template without merging their event membership.

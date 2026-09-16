@@ -151,6 +151,7 @@ add_library(traceloom_native_materialize
   src/compat/compact_grammar_projection.cpp
   src/compat/exact_graph_sql_rows.cpp
   src/compat/native_graph_replay_rows.cpp
+  src/compat/scheduler_context.cpp
   src/compat/native_sidecar_materializer.cpp
   src/compat/native_sidecar_packaging.cpp
   src/compat/structural_projection_rows.cpp
@@ -231,6 +232,7 @@ if(TRACELOOM_NATIVE_ENABLE_SQLITE_ADAPTERS)
         src/compat/perfetto_distributed_clock_model.cpp
         src/compat/perfetto_distributed_export.cpp
         src/compat/perfetto_raw_export.cpp
+        src/compat/perfetto_context_export.cpp
     )
     if(TARGET SQLite::SQLite3)
       target_link_libraries(traceloom_native_adapters PRIVATE SQLite::SQLite3)
@@ -324,6 +326,9 @@ target_link_libraries(
 
 if(TRACELOOM_NATIVE_BUILD_TESTS)
   enable_testing()
+  if(SQLite3_FOUND)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/../integrations/vllm/tests/register.cmake)
+  endif()
 
   set(
     TRACELOOM_NATIVE_FIXTURE_ROOT

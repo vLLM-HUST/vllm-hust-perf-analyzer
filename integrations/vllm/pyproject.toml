@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "traceloom-vllm-context"
+version = "0.1.0"
+description = "Opt-in vLLM scheduling-context export for TraceLoom AugDB"
+requires-python = ">=3.10"
+
+[tool.setuptools]
+py-modules = ["traceloom_vllm_context", "traceloom_vllm_scheduler"]

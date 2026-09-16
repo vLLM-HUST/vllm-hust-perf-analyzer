@@ -45,6 +45,7 @@ void append_snapshot_node(GrammarSnapshot& snapshot,
 GrammarSnapshot freeze_grammar_snapshot(const GlobalGrammarState& state) {
   GrammarSnapshot snapshot;
   snapshot.metadata = state.metadata;
+  snapshot.token_partition_runs = state.token_partition_runs;
   snapshot.marker_balances = state.marker_seeds;
   for (auto& balances : snapshot.marker_balances) {
     for (const auto& macro : state.macro_defs) {
@@ -191,7 +192,17 @@ std::size_t dense_index_of_node(const DenseGrammarView& view,
   return dense_index;
 }
 
+bool macro_partition_allowed(const GrammarSnapshot& snapshot, std::size_t begin, std::size_t end) {
+  if (snapshot.token_partition_runs.empty()) return true;
+  if (begin >= end || end > snapshot.nodes.size()) return false;
+  const auto first = snapshot.nodes[begin].source_begin_token_index;
+  const auto last = snapshot.nodes[end-1].source_end_token_index_exclusive;
+  return first < last && last <= snapshot.token_partition_runs.size() &&
+      snapshot.token_partition_runs[first] == snapshot.token_partition_runs[last-1];
+}
+
 bool macro_match_allowed(const GrammarSnapshot& snapshot, std::size_t begin, std::size_t end) {
+  if (!macro_partition_allowed(snapshot, begin, end)) return false;
   for (const auto& summaries : snapshot.suffix_markers) {
     SuffixMarkerSummary summary;
     for (auto i = begin; i < end; ++i) {

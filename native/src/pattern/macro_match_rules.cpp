@@ -53,9 +53,14 @@ MacroMatchRules load_macro_match_rules(const std::string& path) {
     if (!yaml_parser_load(&parser,&doc))
       throw std::invalid_argument("match rules YAML: "+std::string(parser.problem ? parser.problem : "parse error"));
     loaded=true;
-    auto root=fields(doc,yaml_document_get_root_node(&doc),{"schema","ordered_markers","suffix_markers"});
+    auto root=fields(doc,yaml_document_get_root_node(&doc),{"schema","ordered_markers","suffix_markers","partition_by"});
     if (required(root,"schema")!="traceloom-match-rules-v1")
       throw std::invalid_argument("unsupported match rules schema");
+    if (root.count("partition_by")) {
+      rules.partition_by=required(root,"partition_by");
+      if (rules.partition_by!="scheduler_step")
+        throw std::invalid_argument("match rules: partition_by must be scheduler_step");
+    }
     auto list=root.find("ordered_markers");
     if (list!=root.end() && list->second->type!=YAML_SEQUENCE_NODE)
       throw std::invalid_argument("match rules: ordered_markers must be a sequence");

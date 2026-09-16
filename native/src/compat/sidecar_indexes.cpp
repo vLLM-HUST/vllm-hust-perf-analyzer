@@ -6,7 +6,7 @@ namespace traceloom::compat {
 
 #if defined(TRACELOOM_NATIVE_HAS_SQLITE_COMPAT)
 
-void materialize_structural_compatibility_indexes(SqliteDb& db) {
+void materialize_runtime_device_indexes(SqliteDb& db) {
   db.exec(
       "CREATE UNIQUE INDEX IF NOT EXISTS idx_traceloom_runtime_call_id "
       "ON traceloom_runtime_call(runtime_call_id)");
@@ -16,6 +16,19 @@ void materialize_structural_compatibility_indexes(SqliteDb& db) {
   db.exec(
       "CREATE UNIQUE INDEX IF NOT EXISTS idx_traceloom_runtime_relation_id "
       "ON traceloom_runtime_device_relation(relation_id)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_runtime_call_correlation "
+      "ON traceloom_runtime_call(provider, correlation_id)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_runtime_relation_call "
+      "ON traceloom_runtime_device_relation(runtime_call_id, support_state)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_runtime_relation_work "
+      "ON traceloom_runtime_device_relation(device_work_id, support_state)");
+}
+
+void materialize_structural_compatibility_indexes(SqliteDb& db) {
+  materialize_runtime_device_indexes(db);
   db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_event_device_step "
       "ON traceloom_event(db_idx, device_id, step_idx)");
@@ -33,20 +46,11 @@ void materialize_structural_compatibility_indexes(SqliteDb& db) {
       "ON traceloom_runtime_call(db_idx, provider, clock_domain, start_ns, "
       "end_ns)");
   db.exec(
-      "CREATE INDEX IF NOT EXISTS idx_traceloom_runtime_call_correlation "
-      "ON traceloom_runtime_call(provider, correlation_id)");
-  db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_device_work_event "
       "ON traceloom_device_work(event_id)");
   db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_device_work_graph "
       "ON traceloom_device_work(graph_launch_occurrence_id)");
-  db.exec(
-      "CREATE INDEX IF NOT EXISTS idx_traceloom_runtime_relation_call "
-      "ON traceloom_runtime_device_relation(runtime_call_id, support_state)");
-  db.exec(
-      "CREATE INDEX IF NOT EXISTS idx_traceloom_runtime_relation_work "
-      "ON traceloom_runtime_device_relation(device_work_id, support_state)");
   db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_anchor_runtime_anchor "
       "ON traceloom_anchor_runtime_relation(anchor_id, relation_id)");

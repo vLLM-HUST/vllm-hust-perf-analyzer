@@ -1,4 +1,5 @@
 #include "traceloom/pattern/grammar_engine.h"
+#include "traceloom/analysis/structural_occurrence_builder.h"
 #include "traceloom/pattern/grammar_commit_plan.h"
 #include "traceloom/pattern/grammar_snapshot.h"
 #include "traceloom/testing/test_util.h"
@@ -10,6 +11,21 @@ NativeIr input(std::initializer_list<const char*> names) {
   NativeIr ir;
   for(auto name:names) {auto i=ir.tokens.size();ir.tokens.append(AnchorId(i),ir.symbols.intern(name),0,i,i*10,i*10+10);}
   return ir;
+}
+std::vector<StructuralProjectionToken> projection(const NativeIr& ir) {
+  std::vector<StructuralProjectionToken> out;
+  for (const auto& token : ir.tokens.rows()) {
+    StructuralProjectionToken p;
+    p.ordinal = out.size();
+    p.symbol_id = token.symbol_id;
+    p.display_op = ir.symbols.value(token.symbol_id);
+    p.anchor_id = token.anchor_id;
+    p.anchor_kind = StructuralAnchorKind::kExec;
+    p.start_ns = token.start_ns;
+    p.end_ns = token.end_ns;
+    out.push_back(p);
+  }
+  return out;
 }
 int main() {
   GrammarStateConfig config;
@@ -75,6 +91,53 @@ int main() {
   require(twice.live_node_count==2);
   require(run_pair_grammar_readonly_round(build_initial_grammar_state(input({"A","B"}))).status==GrammarRoundStatus::kStop);
 
+
+  // Partition identities gate occurrences, never the shared definition key.
+  GrammarStateConfig partition;
+  partition.match_rules.partition_by = "scheduler_step";
+  partition.token_partitions = {"s0","s0","s1","s1"};
+  auto partitioned = build_initial_grammar_state(input({"A","B","A","B"}), partition);
+  require(!macro_match_allowed(freeze_grammar_snapshot(partitioned),1,3));
+  require(run_grammar_state_machine(partitioned).ok());
+  require(partitioned.live_node_count==2);
+  auto frozen = freeze_grammar_snapshot(partitioned);
+  require(frozen.nodes[0].symbol_id==frozen.nodes[1].symbol_id);
+  require(!macro_match_allowed(frozen,0,2)); // nested macro cannot cross either
+  partition.token_partitions = {"s0","s0","s0","s1","s1","s1"};
+  auto runs = build_initial_grammar_state(input({"A","A","A","A","A","A"}), partition);
+  require(run_grammar_state_machine(runs).ok());
+  require(runs.live_node_count==2); // retain both legal local runs
+  auto unguarded = build_initial_grammar_state(input({"A","A","A","A","A","A"}));
+  auto illegal = run_adjacent_run_readonly_round(unguarded);
+  auto guarded_runs = build_initial_grammar_state(input({"A","A","A","A","A","A"}), partition);
+  require(!build_adjacent_run_commit_plan(freeze_grammar_snapshot(guarded_runs),illegal.action).valid());
+  partition.token_partitions = {"s0","s0","","s0","s0"};
+  auto unknown = build_initial_grammar_state(input({"A","A","A","A","A"}), partition);
+  require(run_grammar_state_machine(unknown).ok());
+  require(unknown.live_node_count==3); // unknown cannot bridge same step on both sides
+  for(const auto& node : freeze_grammar_snapshot(unknown).nodes)
+    require(node.source_end_token_index_exclusive-node.source_begin_token_index<=2);
+
+
+  // Rendering/lowering must not re-fold legal instances across the partition,
+  // even if their symbols match. Empty-grammar fallback is also bounded.
+  auto repeated_ir = input({"A","B","A","B"});
+  partition.token_partitions = {"s0","s0","s1","s1"};
+  auto repeated_state = build_initial_grammar_state(repeated_ir, partition);
+  require(run_grammar_state_machine(repeated_state).ok());
+  auto tree = build_structural_occurrence_graph_from_grammar_state(projection(repeated_ir), repeated_state);
+  for (const auto& o : tree.occurrences)
+    if (o.parent_occurrence_id.valid())
+      require(o.token_end_ordinal-o.token_start_ordinal<=2);
+  auto singleton_ir = input({"A","A","A"});
+  partition.token_partitions = {"s0","","s1"};
+  auto singleton_state = build_initial_grammar_state(singleton_ir, partition);
+  require(run_grammar_state_machine(singleton_state).ok());
+  tree = build_structural_occurrence_graph_from_grammar_state(projection(singleton_ir), singleton_state);
+  for (const auto& o : tree.occurrences)
+    if (o.parent_occurrence_id.valid())
+      require(o.token_end_ordinal-o.token_start_ordinal==1);
+
   const auto path=std::filesystem::temp_directory_path()/"traceloom-match-rules-test.yaml";
   const std::string good="schema: traceloom-match-rules-v1\nordered_markers:\n - id: hc\n   before: 'HcPre' # comment\n   after: HcPost\n";
   {std::ofstream out(path);out<<good;}
@@ -87,5 +150,12 @@ int main() {
   }
   {std::ofstream out(path);out<<"schema: traceloom-match-rules-v1\nsuffix_markers: [{id: end, marker: S}]\n";}
   require(load_macro_match_rules(path.string()).suffix_markers.size()==1);
+  {std::ofstream out(path);out<<"schema: traceloom-match-rules-v1\npartition_by: scheduler_step\n";}
+  require(load_macro_match_rules(path.string()).partition_by=="scheduler_step");
+  {std::ofstream out(path);out<<"schema: traceloom-match-rules-v1\npartition_by: timestamp\n";}
+  bool invalid_partition=false;
+  try {(void)load_macro_match_rules(path.string());}
+  catch (const std::invalid_argument&) { invalid_partition=true; }
+  require(invalid_partition);
   std::filesystem::remove(path);
 }

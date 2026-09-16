@@ -192,9 +192,75 @@ std::size_t count_occurrences(const std::string& haystack, const std::string& ne
   return count;
 }
 
+// Two realizations of a shared Seq contain the SAME Repeat definition and
+// repeat_context strings. Only concrete HPO membership separates their bodies.
+void check_shared_parent_repeat_projection() {
+  using traceloom::testing::require;
+  const auto db_path = temp_path(".shared-parent.db");
+  const auto json_path = temp_path(".shared-parent.json");
+  create_fixture(db_path);
+  sqlite3* db = nullptr;
+  require(sqlite3_open(db_path.c_str(), &db) == SQLITE_OK);
+  exec_sql(db,
+      "INSERT INTO traceloom_tree_node_occurrence "
+      "SELECT node_id,db_idx,device_id,view_name,"
+      "occurrence_idx+CASE WHEN node_id='node-N003' THEN 2 ELSE 1 END,"
+      "repeat_context,anchor_start_idx+2,anchor_end_idx+2,anchor_count,"
+      "start_ns+10000,end_ns+10000,compute_us,comm_us,idle_us,total_us,self_us,"
+      "aux_events,aux_us FROM traceloom_tree_node_occurrence WHERE device_id=0;"
+      "CREATE TABLE traceloom_position_occurrence(occurrence_id TEXT,position_id TEXT,"
+      "db_idx INTEGER,device_id INTEGER,tree_id TEXT,view_name TEXT,occurrence_idx INTEGER);"
+      "CREATE TABLE traceloom_position_member(child_occurrence_id TEXT,"
+      "parent_occurrence_id TEXT,db_idx INTEGER,device_id INTEGER,tree_id TEXT,"
+      "view_name TEXT,member_order INTEGER,member_kind TEXT);"
+      "CREATE TABLE traceloom_semantic_tree(tree_id TEXT,db_idx INTEGER,device_id INTEGER,"
+      "view_name TEXT,semantic_projection TEXT);"
+      "INSERT INTO traceloom_semantic_tree VALUES('tree',0,0,'anchor_tree','expanded');"
+      "INSERT INTO traceloom_position_occurrence VALUES"
+      "('r0','node-N002',0,0,'tree','anchor_tree',0),"
+      "('r1','node-N002',0,0,'tree','anchor_tree',1),"
+      "('a0','node-N003',0,0,'tree','anchor_tree',0),"
+      "('a1','node-N003',0,0,'tree','anchor_tree',1),"
+      "('a2','node-N003',0,0,'tree','anchor_tree',2),"
+      "('a3','node-N003',0,0,'tree','anchor_tree',3);"
+      "INSERT INTO traceloom_position_member VALUES"
+      "('a0','r0',0,0,'tree','anchor_tree',1,'child_occurrence'),"
+      "('a1','r0',0,0,'tree','anchor_tree',2,'child_occurrence'),"
+      "('a2','r1',0,0,'tree','anchor_tree',1,'child_occurrence'),"
+      "('a3','r1',0,0,'tree','anchor_tree',2,'child_occurrence');");
+  const auto receipt = traceloom::compat::write_perfetto_trace(db_path.string(), json_path.string());
+  require(receipt.repeat_body_slices == 6);
+  const auto json = read_plain(json_path);
+  std::size_t at = 0, bodies = 0;
+  while ((at = json.find("\"cat\":\"traceloom.repeat_body_window\"", at)) != std::string::npos) {
+    const auto end = json.find("}}", at);
+    const auto body = json.substr(at, end - at);
+    require_contains(body, "\"anchor_count\":1,");
+    const bool first = body.find("\"body_ordinal\":1,") != std::string::npos;
+    require_contains(body, first ? "\"dur\":0.400," : "\"dur\":0.500,");
+    require_contains(body, first ? "\"compute_us\":4.000," : "\"compute_us\":5.000,");
+    ++bodies;
+    at = end;
+  }
+  require(bodies == 6);
+  // A legacy projection cannot disambiguate these reused instances: fail closed.
+  exec_sql(db, "DROP TABLE traceloom_position_member;");
+  bool rejected = false;
+  try {
+    traceloom::compat::write_perfetto_trace(db_path.string(), json_path.string());
+  } catch (const std::runtime_error& error) {
+    rejected = std::string(error.what()).find("ambiguous repeat parent") != std::string::npos;
+  }
+  require(rejected);
+  sqlite3_close(db);
+  std::filesystem::remove(db_path);
+  std::filesystem::remove(json_path);
+}
+
 }  // namespace
 
 int main() {
+  check_shared_parent_repeat_projection();
   using traceloom::testing::require;
 
   const auto db_path = temp_path(".db");

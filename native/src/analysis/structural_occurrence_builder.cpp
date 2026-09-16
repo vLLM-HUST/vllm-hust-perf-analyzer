@@ -891,6 +891,9 @@ StructuralOccurrenceGraph build_structural_occurrence_graph_from_grammar_state(
         "StructuralOccurrenceBuildConfig min_run_length is zero");
   }
   validate_tokens_for_structural_anchors(tokens);
+  if (!state.token_partition_runs.empty() &&
+      (state.stage != GrammarStage::kDone || state.live_node_count == 0 || state.macro_defs.empty()))
+    config.fold_adjacent_runs = false;
   if (state.stage != GrammarStage::kDone || state.live_node_count == 0) {
     return build_structural_occurrence_graph_from_tokens(tokens, config);
   }
@@ -923,6 +926,9 @@ StructuralOccurrenceGraph build_structural_occurrence_graph_from_grammar_state(
                   static_cast<std::uint32_t>(tokens.size()),
                   StructuralCoverageKind::kDirectBody);
 
+  // Partition-aware top-level templates stay visible and share definitions,
+  // without a display-only Repeat swallowing adjacent partition instances.
+  std::map<SymbolId, GrammarSubtreeTemplate> partition_templates;
   std::uint32_t edge_order = 1;
   for (std::size_t index = 0; index < snapshot.nodes.size();) {
     const GrammarSnapshotNode& node = snapshot.nodes[index];
@@ -940,7 +946,8 @@ StructuralOccurrenceGraph build_structural_occurrence_graph_from_grammar_state(
         throw std::invalid_argument("grammar node source span is out of range");
       }
       const GrammarSnapshotNode& previous = snapshot.nodes[run_end - 1];
-      if (next.symbol_id != node.symbol_id ||
+      if (!macro_partition_allowed(snapshot, index, run_end + 1) ||
+          next.symbol_id != node.symbol_id ||
           previous.source_end_token_index_exclusive !=
               next.source_begin_token_index) {
         break;
@@ -961,8 +968,23 @@ StructuralOccurrenceGraph build_structural_occurrence_graph_from_grammar_state(
       continue;
     }
 
-    const GrammarSubtreeTemplate subtree =
-        build_grammar_template(tree, lowering, node.symbol_id, 1, 0);
+    GrammarSubtreeTemplate subtree;
+    const auto macro = lowering.macro_by_symbol.find(node.symbol_id.value());
+    if (!snapshot.token_partition_runs.empty() &&
+        macro != lowering.macro_by_symbol.end() &&
+        macro->second->level != MacroLevel::kSemantic && !lp_macro_is_uniform(*macro->second)) {
+      auto found = partition_templates.find(node.symbol_id);
+      if (found == partition_templates.end()) {
+        auto value = build_grammar_template(tree, lowering, node.symbol_id, 2, 0);
+        value.transparent = false;
+        value.def_id = append_def(tree, StructuralNodeKind::kSeq, "Macro", "partition_macro",
+                                 node.symbol_id, 0, 1, 0, "partition_bounded_macro");
+        found = partition_templates.emplace(node.symbol_id, std::move(value)).first;
+      }
+      subtree = found->second;
+    } else {
+      subtree = build_grammar_template(tree, lowering, node.symbol_id, 1, 0);
+    }
     edge_order = append_grammar_template_occurrence(
         tree, lowering, subtree, root_occurrence, edge_order,
         static_cast<std::uint32_t>(node.source_begin_token_index),

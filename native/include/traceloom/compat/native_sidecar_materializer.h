@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <map>
 #include "traceloom/pattern/macro_match_rules.h"
 #include "traceloom/analysis/marked_structure.h"
 
@@ -33,6 +34,8 @@ struct NativeCompatibilitySidecarOptions {
   MacroMatchRules match_rules;
   MarkedStructureRules marked_structure;
   std::string analysis_rules_yaml;
+  std::vector<std::string> context_paths;
+  std::map<std::string, std::string> event_partitions;
   std::size_t grammar_worker_count = 1;
   std::size_t grammar_target_nodes_per_chunk = 4096;
   std::size_t grammar_full_discovery_cap = 50000;

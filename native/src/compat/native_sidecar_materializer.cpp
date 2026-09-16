@@ -1,4 +1,5 @@
 #include <optional>
+#include "traceloom/compat/scheduler_context.h"
 #include "traceloom/compat/native_sidecar_materializer.h"
 
 #include "augmented_catalog_materializer.h"
@@ -107,10 +108,16 @@ StructuralOccurrenceGraph recover_structural_occurrence_graph(
     const NativeCompatibilitySidecarOptions& options,
     const std::vector<StructuralProjectionToken>& structural_tokens,
     NativeCompactGrammarProjection* compact_grammar) {
+  StructuralOccurrenceBuildConfig fallback_config;
+  fallback_config.fold_adjacent_runs = options.match_rules.partition_by.empty();
   if (compact_grammar != nullptr) {
     compact_grammar->source_token_count = structural_tokens.size();
     compact_grammar->stop_reason = "disabled";
   }
+  if (!options.match_rules.partition_by.empty() &&
+      (options.event_partitions.empty() || options.marked_structure.enabled() ||
+       !options.materialize_grammar_structural_projection || !ir.protected_intervals.empty()))
+    throw std::invalid_argument("scheduler_step partition requires linked eager grammar projection; marked structure/replay are not yet supported");
   if (options.marked_structure.enabled() && !ir.protected_intervals.empty()) {
     auto without_rules = options;
     without_rules.marked_structure = {};
@@ -124,7 +131,7 @@ StructuralOccurrenceGraph recover_structural_occurrence_graph(
       structural_tokens.empty()) {
     if (options.marked_structure.enabled())
       return build_marked_structural_graph(structural_tokens, options.marked_structure);
-    return build_structural_occurrence_graph_from_tokens(structural_tokens);
+    return build_structural_occurrence_graph_from_tokens(structural_tokens, fallback_config);
   }
 
   std::optional<StructuralOccurrenceGraph> marked_graph;
@@ -133,6 +140,15 @@ StructuralOccurrenceGraph recover_structural_occurrence_graph(
   try {
     GrammarStateConfig grammar_state_config;
     grammar_state_config.match_rules = options.match_rules;
+    if (!options.match_rules.partition_by.empty()) {
+      for (const auto& token : ir.tokens.rows()) {
+        const auto& anchor = ir.anchors.row(token.anchor_id);
+        const auto event = "event-" + std::to_string(anchor.trace_event_id.value());
+        const auto found = options.event_partitions.find(event);
+        grammar_state_config.token_partitions.push_back(
+            found == options.event_partitions.end() ? "" : found->second);
+      }
+    }
     grammar_state_config.target_nodes_per_chunk =
         options.grammar_target_nodes_per_chunk;
     grammar_state_config.worker_count = options.grammar_worker_count;
@@ -177,7 +193,7 @@ StructuralOccurrenceGraph recover_structural_occurrence_graph(
     if (marked_graph) return std::move(*marked_graph);
     if (!grammar_result.ok() || grammar_state.stage != GrammarStage::kDone) {
       StructuralOccurrenceGraph fallback =
-          build_structural_occurrence_graph_from_tokens(structural_tokens);
+          build_structural_occurrence_graph_from_tokens(structural_tokens, fallback_config);
       fallback.diagnostics.push_back(Diagnostic{
           DiagnosticSeverity::kWarning, "grammar_recovery_rejected",
           "recursive grammar recovery failed closed with stop reason " +
@@ -187,7 +203,7 @@ StructuralOccurrenceGraph recover_structural_occurrence_graph(
     }
     StructuralOccurrenceGraph tree =
         grammar_state.macro_defs.empty()
-            ? build_structural_occurrence_graph_from_tokens(structural_tokens)
+            ? build_structural_occurrence_graph_from_tokens(structural_tokens, fallback_config)
             : build_structural_occurrence_graph_from_grammar_state(
                   structural_tokens, grammar_state);
     if (grammar_result.stop_reason ==
@@ -206,7 +222,7 @@ StructuralOccurrenceGraph recover_structural_occurrence_graph(
     }
     if (marked_graph) return std::move(*marked_graph);
     StructuralOccurrenceGraph fallback =
-        build_structural_occurrence_graph_from_tokens(structural_tokens);
+        build_structural_occurrence_graph_from_tokens(structural_tokens, fallback_config);
     fallback.diagnostics.push_back(Diagnostic{
         DiagnosticSeverity::kWarning, "grammar_recovery_exception",
         std::string("recursive grammar recovery failed closed: ") + ex.what()});
@@ -482,6 +498,8 @@ void write_basic_native_compatibility_sidecar(
       {"evidence_role_manifest_sha256",
        evidence_role_policy.manifest_sha256},
   };
+  if (!options.match_rules.partition_by.empty())
+    metadata.push_back({"candidate_partition_by", options.match_rules.partition_by});
   if (options.marked_structure.enabled()) {
     metadata.push_back({"model_structure_semantics", "marked_units_and_adjacent_compositions_v1"});
     metadata.push_back({"model_structure_rule_id", options.marked_structure.id});
@@ -597,6 +615,15 @@ void write_basic_native_compatibility_sidecar(
 
   NativeCompatibilitySidecarOptions projection_options = options;
   projection_options.evidence_role_config = evidence_role_config;
+  if (options.source_embedded) {
+    import_scheduler_context(sqlite_path, options.context_paths);
+    if (!options.match_rules.partition_by.empty()) {
+      projection_options.event_partitions = scheduler_event_partitions(sqlite_path);
+      if (projection_options.event_partitions.empty())
+        throw std::invalid_argument("scheduler_step partition requires supported, closed step/device evidence");
+    }
+  }
+
   const Stopwatch structural_rows_watch;
   const std::vector<NativeDeviceStructuralProjection> device_trees =
       build_native_device_structural_projections(ir, projection_options);
@@ -772,6 +799,13 @@ void write_queryable_database_timeline(
           "augmented DB output must differ from every input profiler DB");
     }
   }
+  for (const std::string& context_path : options.context_paths) {
+    const fs::path context = fs::absolute(context_path).lexically_normal();
+    if (context == output || (fs::exists(output) && fs::exists(context) &&
+                             fs::equivalent(context, output))) {
+      throw std::invalid_argument("augmented DB output must differ from context input");
+    }
+  }
   if (output.has_parent_path()) {
     fs::create_directories(output.parent_path());
   }
@@ -782,6 +816,7 @@ void write_queryable_database_timeline(
     const Stopwatch packaging_watch;
     const RawPackagingResult packaging =
         package_sqlite_sources(sources, temporary.string());
+    detail::materialize_raw_source_catalog(temporary.string(), packaging);
     emit_timing(options, "augmented_packaging_ms", packaging_watch);
     NativeCompatibilitySidecarOptions augmented_options = options;
     if (augmented_options.source_path.empty()) {
@@ -809,6 +844,7 @@ void write_queryable_database_timeline(
 
     const Stopwatch catalog_watch;
     materialize_augmented_catalog(temporary.string(), packaging, ir);
+    register_scheduler_context_catalog(temporary.string(), options.context_paths);
     emit_timing(options, "augmented_catalog_ms", catalog_watch);
     std::error_code ec;
     fs::rename(temporary, output, ec);

@@ -183,3 +183,23 @@ named rank before export. After export, require `gzip -t` to pass, check the
 receipt rank/slice counts, and preserve an artifact SHA-256. Generated
 Perfetto, sidecar, and preview files belong with experiment evidence and must
 not be committed to this repository.
+
+### Repeat bodies belong to concrete occurrences
+
+`repeat_context` is a definition-path label, not a unique instance key. A
+shared Seq instantiated in several scheduler steps can contain a Repeat whose
+children reuse the exact same `N…#1` labels in every step. Grouping only by
+those labels makes each displayed body span all parent instances and multiplies
+its cost. On the bounded Qwen scheduler capture (2026-09-16), N057's 30 separate
+repeat occurrences were incorrectly projected as 60 full-span bodies even
+though the canonical HPO step partitions were correct.
+
+The exporter now resolves child → parent occurrence index and body member order
+through canonical HPO membership, mapping `anchor_tree` to the semantic tree's
+cost projection. Legacy databases without membership may use repeat context
+only when it uniquely identifies a parent; ambiguous legacy projection fails
+closed. Do not substitute timestamp containment: device execution can overlap.
+Regression coverage must reuse a Seq/Repeat definition across instances, and
+check each body's actual duration, anchor count, and costs—not merely the
+number of slices or correctness of HPO intervals. Real-export auditing should
+compare every derived body to its concrete direct members.

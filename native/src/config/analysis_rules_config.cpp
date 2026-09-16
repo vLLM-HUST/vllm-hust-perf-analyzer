@@ -77,7 +77,12 @@ AnalysisRulesConfig load_analysis_rules_config(const std::string& path,
     }
   }
   if (auto p = root.find("macro_matching"); p != root.end()) {
-    auto fields = document.fields(p->second, {"ordered_markers", "suffix_markers"});
+    auto fields = document.fields(p->second, {"ordered_markers", "suffix_markers", "partition_by"});
+    if (auto partition = fields.find("partition_by"); partition != fields.end()) {
+      out.macro_matching.partition_by = YamlDocument::scalar(partition->second);
+      if (out.macro_matching.partition_by != "scheduler_step")
+        throw std::invalid_argument("macro_matching.partition_by must be scheduler_step");
+    }
     std::set<std::string> ids;
     if (auto list = fields.find("ordered_markers"); list != fields.end()) {
       for (auto node : document.sequence(list->second)) {

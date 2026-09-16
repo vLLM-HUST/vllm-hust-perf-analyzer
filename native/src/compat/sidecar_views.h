@@ -11,6 +11,7 @@ void materialize_exact_graph_views(SqliteDb& db);
 void materialize_global_collective_indexes(SqliteDb& db);
 void materialize_node_cost_views(SqliteDb& db);
 void materialize_replay_cost_views(SqliteDb& db);
+void materialize_runtime_device_indexes(SqliteDb& db);
 void materialize_structural_compatibility_indexes(SqliteDb& db);
 void materialize_runtime_device_views(SqliteDb& db);
 void materialize_structure_bubble_views(SqliteDb& db);

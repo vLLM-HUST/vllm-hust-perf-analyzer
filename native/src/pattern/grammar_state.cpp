@@ -160,6 +160,19 @@ GlobalGrammarState build_initial_grammar_state(
   state.metadata = default_grammar_metadata(config.mode);
   state.metadata.full_discovery_cap = config.full_discovery_cap;
   state.metadata.match_rules = config.match_rules;
+  if (!config.token_partitions.empty()) {
+    if (config.token_partitions.size() != ir.tokens.size())
+      throw std::invalid_argument("token partition count differs from token count");
+    std::size_t run = 0;
+    for (std::size_t i = 0; i < config.token_partitions.size(); ++i) {
+      if (i == 0 || config.token_partitions[i].empty() ||
+          config.token_partitions[i] != config.token_partitions[i-1]) ++run;
+      state.token_partition_runs.push_back(run);
+    }
+  }
+  if (!config.match_rules.partition_by.empty() && config.token_partitions.empty())
+    throw std::invalid_argument("partition rule requires token identities");
+
   for (const auto& rule : config.match_rules.ordered_markers) {
     std::map<SymbolId, std::int64_t> seeds;
     for (const auto& t : ir.tokens.rows()) {

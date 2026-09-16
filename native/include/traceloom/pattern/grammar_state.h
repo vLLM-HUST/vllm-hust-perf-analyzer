@@ -33,6 +33,7 @@ struct GrammarStateConfig {
   std::size_t worker_count = 1;
   std::size_t full_discovery_cap = 50000;
   MacroMatchRules match_rules;
+  std::vector<std::string> token_partitions;
 };
 
 struct GrammarNode {
@@ -89,6 +90,7 @@ struct BoundarySummary {
 };
 
 struct GlobalGrammarState {
+  std::vector<std::size_t> token_partition_runs;
   // Net unmatched marker counts; balanced macros are opaque to higher matching.
   std::vector<std::map<SymbolId, std::int64_t>> marker_seeds;
   std::vector<std::map<SymbolId, bool>> suffix_marker_seeds;

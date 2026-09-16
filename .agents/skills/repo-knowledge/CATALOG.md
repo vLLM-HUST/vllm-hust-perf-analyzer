@@ -35,3 +35,7 @@ and inquiry, not individual assets, lifecycle state, or chronology.
   alignment, or deciding what a compressed rank texture does and does not
   establish. Read
   [`scenarios/export-distributed-perfetto/GUIDE.md`](scenarios/export-distributed-perfetto/GUIDE.md).
+
+- **Import or query runtime scheduling context:** use when changing the vLLM
+  hook, importing step/cache context, or interpreting a context-associated event.
+  Read [`scenarios/import-runtime-context/GUIDE.md`](scenarios/import-runtime-context/GUIDE.md).

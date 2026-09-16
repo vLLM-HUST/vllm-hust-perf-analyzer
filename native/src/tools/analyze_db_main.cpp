@@ -65,6 +65,7 @@ struct CliOptions : traceloom::tools::AnalysisRuleOptions {
   std::string perfetto_out_path;
   traceloom::compat::PerfettoExportOptions perfetto_options;
   std::vector<std::string> source_dbs;
+  std::vector<std::string> context_paths;
   std::string grammar_debug_out_path;
   std::string compat_sidecar_out_path;
   std::string augmented_db_out_path;
@@ -123,6 +124,8 @@ CliOptions parse_args(int argc, char** argv) {
       options.source_input = require_value(arg);
     } else if (arg == "--source-kind") {
       options.source_kind = require_value(arg);
+    } else if (arg == "--context") {
+      options.context_paths.push_back(require_value(arg));
     } else if (arg == "--rules-config") {
       if (!options.rules_config_path.empty()) throw std::invalid_argument("--rules-config may be supplied only once");
       options.rules_config_path = require_value(arg);
@@ -215,6 +218,10 @@ CliOptions parse_args(int argc, char** argv) {
     }
   }
 
+  if (!options.context_paths.empty() &&
+      (options.perfetto_export_only || !options.augmented_db_enabled || options.sidecar_only)) {
+    throw std::invalid_argument("--context requires augmented database analysis");
+  }
   if (options.source_input.empty()) {
     throw std::invalid_argument(
         "input path is required: pass an Ascend profiler SQLite DB, Hygon "
@@ -483,6 +490,7 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
       sidecar_options.input_missing_components = evidence.missing_components;
     }
     sidecar_options.match_rules = cli.match_rules;
+    sidecar_options.context_paths = cli.context_paths;
     if (cli.rules_config) {
       sidecar_options.analysis_rules_yaml = cli.rules_config->source_yaml;
       sidecar_options.marked_structure = cli.rules_config->structure;
@@ -503,6 +511,11 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
         anchor_config.classification_rules.metadata().manifest_sha256;
     sidecar_options.evidence_role_config = anchor_config;
 
+    if (!cli.match_rules.partition_by.empty() &&
+        (cli.context_paths.empty() || !cli.augmented_db_enabled ||
+         !cli.compat_sidecar_out_path.empty() || cli.loop_tree_out_path_set ||
+         !cli.grammar_debug_out_path.empty()))
+      throw std::invalid_argument("scheduler_step partition requires --context and AugDB output only (Perfetto supported)");
     if (!cli.compat_sidecar_out_path.empty()) {
       const Stopwatch sidecar_watch;
       traceloom::compat::write_basic_native_compatibility_sidecar(

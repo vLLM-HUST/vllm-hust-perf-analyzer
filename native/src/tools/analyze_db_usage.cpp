@@ -8,6 +8,7 @@ void print_usage(const char* argv0) {
   std::cerr << "usage: " << argv0
             << " <profile.db-or-profile-dir> [--threads N]"
                " [--output ANALYSIS.db]"
+               " [--context SCHEDULER.jsonl ...]"
                " [--perfetto-out TIMELINE.json[.gz]]"
                " [--loop-tree-out PATH|-]"
                " [--timings]\n\n"
@@ -17,6 +18,7 @@ void print_usage(const char* argv0) {
                "scope and compose analytical projections.\n"
             << "Use traceloom_analysis_surface to discover the underlying "
                "hierarchy, cost, replay, and evidence relations.\n"
+            << "Repeat --context FILE to import runtime scheduling context and exact profiler markers.\n"
             << "Use --loop-tree-out only when a Markdown projection is "
                "needed for a human reader. It defaults to a compact grammar "
                "summary; select the exact expanded tree with "
@@ -48,6 +50,7 @@ void print_advanced_usage(const char* argv0) {
                " [--loop-tree-grammar|--loop-tree-no-grammar]"
                " [--loop-tree-full-discovery-cap N]"
                " [--loop-tree-aux|--loop-tree-no-aux]"
+               " [--context FILE]"
                " [--rules-config MODEL.yaml]"
                " [--classification-rules PATH]"
                " [--extend-classification-rules PATH]"

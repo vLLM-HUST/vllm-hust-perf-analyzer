@@ -30,6 +30,7 @@ struct SuffixMarkerSummary {
 };
 
 struct GrammarSnapshot {
+  std::vector<std::size_t> token_partition_runs;
   std::vector<std::map<SymbolId, std::int64_t>> marker_balances;
   std::vector<std::map<SymbolId, SuffixMarkerSummary>> suffix_markers;
   GrammarAlgorithmMetadata metadata;
@@ -63,6 +64,8 @@ struct DenseGrammarView {
 
 constexpr std::size_t kInvalidDenseIndex =
     static_cast<std::size_t>(-1);
+
+bool macro_partition_allowed(const GrammarSnapshot& snapshot, std::size_t begin, std::size_t end);
 
 bool macro_match_allowed(const GrammarSnapshot& snapshot, std::size_t begin, std::size_t end);
 

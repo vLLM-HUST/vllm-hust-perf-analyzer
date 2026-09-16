@@ -1,0 +1,4 @@
+# Runtime identity, not an inferred time boundary. Requires linked --context.
+schema: traceloom-analysis-rules-v1
+macro_matching:
+  partition_by: scheduler_step

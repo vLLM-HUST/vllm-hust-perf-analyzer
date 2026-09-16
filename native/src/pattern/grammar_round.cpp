@@ -232,7 +232,8 @@ GrammarRoundResult run_adjacent_run_readonly_round(
   std::size_t begin = 0;
   while (begin < dense.size()) {
     std::size_t end = begin + 1;
-    while (end < dense.size() && dense.symbols[end] == dense.symbols[begin]) {
+    while (end < dense.size() && dense.symbols[end] == dense.symbols[begin] &&
+           macro_partition_allowed(snapshot, begin, end + 1)) {
       ++end;
     }
     const std::size_t run_len = end - begin;
@@ -416,7 +417,8 @@ GrammarRoundResult run_native_macro_run_readonly_round(
   std::size_t begin = 0;
   while (begin < dense.size()) {
     std::size_t end = begin + 1;
-    while (end < dense.size() && dense.symbols[end] == dense.symbols[begin]) {
+    while (end < dense.size() && dense.symbols[end] == dense.symbols[begin] &&
+           macro_partition_allowed(snapshot, begin, end + 1)) {
       ++end;
     }
     const std::size_t run_len = end - begin;

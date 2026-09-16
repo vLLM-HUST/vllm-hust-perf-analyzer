@@ -428,3 +428,15 @@ ctest --preset dev-tests
 ## License
 
 TraceLoom 使用 [MIT License](LICENSE)。
+
+## 运行时调度上下文
+
+可用 `--context FILE.jsonl`（可重复）把显式调度决策与缓存计数导入 AugDB，
+通过唯一 profiler 标记和受支持的 host/device 关系关联执行。
+这是上下文导入，不是自动 step 识别；缺失、歧义与采集丢失保持可查。
+详见 [接口与查询](docs/runtime-context.md) 和 [vLLM 导出接点](integrations/vllm/README.md)。
+
+可选 vLLM 包还支持通过
+`--scheduler-cls traceloom_vllm_scheduler.TracingAsyncScheduler` 注入采集，
+同步调度对应 `TracingScheduler`。此模式无需源码补丁，保留原调度逻辑和返回对象；
+只记录调度上下文，不宣称已经建立 worker 或设备事件归属。

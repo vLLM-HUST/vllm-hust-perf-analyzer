@@ -255,3 +255,21 @@ layer variants remain separate definitions. This establishes model-hint-based
 recognition on this capture, not unsupervised semantic discovery, cross-model
 coverage, or scheduler-step boundaries. Local evidence and verification helper:
 `runs/traceloom-ordering-study/marked-structure/` in the surrounding workspace.
+
+### Joining runtime context without inventing a step tree
+
+The optional runtime-context branch already exposes device `event_id` and
+`device_id` in `traceloom_v_context_device_work`; HPO terminal members expose
+those same coordinates in `traceloom_v_position_member`. Walk concrete child
+Occurrences (not definition labels), deduplicate event/step links, and report
+linked versus total structural anchors. Preserve artifact/db identity when
+joining across databases. Do not infer full unit ownership from one linked
+anchor or complete semantic step membership from complete structural coverage.
+
+CPU-only bridge probe on 2026-09-15, main `94c3a02` plus the uncommitted
+runtime-context implementation: one synthetic six-anchor Hc attention/MoE layer
+joined to one recorded step with 6/6 links. Removing one host launch preserved
+the same layer but reduced coverage to 5/6. Device intervals overlapped and
+extended beyond the profiler execution marker. Local reproducer and SQL:
+`runs/traceloom-ordering-study/context-bridge/`. This proves query composability,
+not live Ascend coverage, sampling dispatch coverage, or DP-rank synchronization.

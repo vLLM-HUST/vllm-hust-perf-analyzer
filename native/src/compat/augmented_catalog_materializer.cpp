@@ -210,12 +210,11 @@ void validate_embedded_source_locators(
 
 }  // namespace
 
-void materialize_augmented_catalog(const std::string& path,
-                                   const RawPackagingResult& packaging,
-                                   const NativeIr& ir) {
+void materialize_raw_source_catalog(const std::string& path,
+                                    const RawPackagingResult& packaging) {
   sqlite3* db = open_sqlite_readwrite(path);
   try {
-    sqlite_exec(db, "BEGIN IMMEDIATE", "failed to begin catalog transaction");
+    sqlite_exec(db, "BEGIN IMMEDIATE", "begin raw catalog");
     sqlite_exec(
         db,
         "CREATE TABLE traceloom_raw_source_database("
@@ -262,6 +261,22 @@ void materialize_augmented_catalog(const std::string& path,
         "CREATE INDEX traceloom_raw_table_source_locator_idx ON "
         "traceloom_raw_table(source_path, source_table)",
         "failed to index raw table catalog");
+
+    sqlite_exec(db, "COMMIT", "commit raw catalog");
+    sqlite3_close(db);
+  } catch (...) {
+    sqlite3_exec(db, "ROLLBACK", nullptr, nullptr, nullptr);
+    sqlite3_close(db);
+    throw;
+  }
+}
+
+void materialize_augmented_catalog(const std::string& path,
+                                   const RawPackagingResult& packaging,
+                                   const NativeIr& ir) {
+  sqlite3* db = open_sqlite_readwrite(path);
+  try {
+    sqlite_exec(db, "BEGIN IMMEDIATE", "failed to begin catalog transaction");
     // `embedded_raw` is a row-level promise, not merely evidence that the
     // named provider table was copied. Validate every literal event/runtime/
     // device-work key before publishing locator views so a stale source key

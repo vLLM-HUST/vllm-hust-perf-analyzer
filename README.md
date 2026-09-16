@@ -599,3 +599,16 @@ still run.
 ## License
 
 TraceLoom is released under the [MIT License](LICENSE).
+
+## Runtime scheduling context
+
+Use repeatable `--context FILE.jsonl` inputs to retain scheduling decisions,
+after-schedule cache counters, and explicit execution-marker associations in
+AugDB. Missing, ambiguous and incomplete capture states remain queryable; this
+is not automatic step recovery or complete step membership. See the
+[contract and SQL](docs/runtime-context.md) and [vLLM adapter](integrations/vllm/README.md).
+
+The optional vLLM package also supports patch-free scheduler-only capture via
+`--scheduler-cls traceloom_vllm_scheduler.TracingAsyncScheduler` (or
+`TracingScheduler` for synchronous mode). It preserves the selected scheduling
+logic and returned output; worker identity transport is a separate capability.
