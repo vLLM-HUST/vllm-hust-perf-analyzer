@@ -7,6 +7,20 @@ name = "traceloom-vllm-context"
 version = "0.1.0"
 description = "Opt-in vLLM scheduling-context export for TraceLoom AugDB"
 requires-python = ">=3.10"
+readme = "PACKAGE.md"
+license = {file = "LICENSE"}
+authors = [{name = "TraceLoom contributors"}]
+keywords = ["vllm", "profiling", "traceloom", "scheduler", "ascend"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Programming Language :: Python :: 3",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[project.urls]
+Homepage = "https://github.com/vLLM-HUST/vllm-hust-perf-analyzer"
+Documentation = "https://github.com/vLLM-HUST/vllm-hust-perf-analyzer/blob/main/integrations/vllm/README.md"
+Issues = "https://github.com/vLLM-HUST/vllm-hust-perf-analyzer/issues"
 
 [tool.setuptools]
 py-modules = ["traceloom_vllm_context", "traceloom_vllm_scheduler"]

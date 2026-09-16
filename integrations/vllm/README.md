@@ -5,13 +5,19 @@ recommended route is scheduler-class injection: no source patch, worker change,
 global monkey patch or auto-loaded plugin is required. The native TraceLoom
 analyzer remains a separate offline tool.
 
+The runtime observer is distributed as
+[`traceloom-vllm-context`](https://pypi.org/project/traceloom-vllm-context/).
+For source development, use `python -m pip install /path/to/traceloom/integrations/vllm`
+instead. The package does not include the native analyzer or the optional vLLM
+source patch; those remain in this repository.
+
 ## Scheduler plugin: enable through launch arguments
 
 Install into the environment that already runs the intended vLLM version. The
 package deliberately does not install vLLM, torch or a hardware-specific runtime:
 
 ```bash
-python -m pip install /path/to/traceloom/integrations/vllm
+python -m pip install traceloom-vllm-context==0.1.0
 export TRACELOOM_CONTEXT_DIR=/explicit/capture/context
 export TRACELOOM_RUN_ID=inference-study-001
 vllm serve /path/to/model --async-scheduling \
