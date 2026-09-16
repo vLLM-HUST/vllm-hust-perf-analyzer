@@ -39,3 +39,7 @@ and inquiry, not individual assets, lifecycle state, or chronology.
 - **Import or query runtime scheduling context:** use when changing the vLLM
   hook, importing step/cache context, or interpreting a context-associated event.
   Read [`scenarios/import-runtime-context/GUIDE.md`](scenarios/import-runtime-context/GUIDE.md).
+
+- **Build or publish the Python package:** use when changing wheel contents,
+  Python APIs, runtime packaging, or release portability. Read
+  [`scenarios/publish-python-package/GUIDE.md`](scenarios/publish-python-package/GUIDE.md).
