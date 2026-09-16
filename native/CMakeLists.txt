@@ -235,6 +235,7 @@ if(TRACELOOM_NATIVE_ENABLE_SQLITE_ADAPTERS)
         src/compat/perfetto_distributed_export.cpp
         src/compat/perfetto_raw_export.cpp
         src/compat/perfetto_context_export.cpp
+        src/compat/perfetto_replay_export.cpp
     )
     if(TARGET SQLite::SQLite3)
       target_link_libraries(traceloom_native_adapters PRIVATE SQLite::SQLite3)

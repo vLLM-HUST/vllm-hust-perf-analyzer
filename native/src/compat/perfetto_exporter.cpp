@@ -705,6 +705,7 @@ PerfettoExportReceipt write_perfetto_trace(const std::string& analysis_db_path,
   receipt.motif_classes = motifs.size();
   if (options.include_raw_provider_timeline)
     perfetto_internal::export_raw_provider_timeline(db.get(), writer, receipt);
+  perfetto_internal::export_replay_timeline(db.get(), writer, receipt);
   perfetto_internal::export_context_timeline(db.get(), writer);
   perfetto_internal::export_distributed_flat_timeline(distributed, writer, receipt);
   receipt.distributed_alignment = distributed.alignment;
@@ -713,6 +714,8 @@ PerfettoExportReceipt write_perfetto_trace(const std::string& analysis_db_path,
       "{\"format\":\"TraceLoom queryable database timeline Perfetto export\",\"analysis_db\":" +
       json_quote(analysis_db_path) + ",\"time_origin_ns\":" + std::to_string(origin) +
       ",\"repeat_body_slices\":" + std::to_string(receipt.repeat_body_slices) +
+      ",\"replay_structure_slices\":" + std::to_string(receipt.replay_structure_slices) +
+      ",\"replay_member_slices\":" + std::to_string(receipt.replay_member_slices) +
       ",\"motif_classes\":" + std::to_string(receipt.motif_classes) +
       ",\"distributed_alignment\":" +
       json_quote(distributed.alignment) +

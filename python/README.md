@@ -6,7 +6,7 @@ analyzer, default rule manifests, and model/step YAML configurations. It is not
 just a launcher for a separately installed executable.
 
 ```sh
-python -m pip install traceloom==0.1.1
+python -m pip install traceloom==0.1.2
 traceloom /path/to/profile.db --output analysis.db
 ```
 
@@ -129,3 +129,12 @@ members = result.query(
 Do not sum launch envelopes and member durations together. The replay cost
 surfaces retain separate observations, and parallel member intervals can overlap.
 See [runtime-context.md](../docs/runtime-context.md) for the identity contract.
+
+
+Perfetto exports include replay-internal structure in the primary TraceLoom
+process: `replay … depth …` tracks show concrete pattern and repeat-body
+instances, and `replay … operators` tracks show exact members. Each launch uses
+its own member timestamps; parallel streams and overlaps occupy separate lanes.
+The outer ACLG boundary remains visible. These nested envelopes are not additive
+costs. Version 0.1.1 exposed the SQL relations but omitted these internal tracks;
+use 0.1.2 or later and re-export the existing analysis DB (no recapture needed).

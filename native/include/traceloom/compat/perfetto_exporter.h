@@ -24,6 +24,8 @@ struct PerfettoExportReceipt {
   std::uint64_t structural_slices = 0;
   std::uint64_t atomic_slices = 0;
   std::uint64_t raw_slices = 0;
+  std::uint64_t replay_structure_slices = 0;
+  std::uint64_t replay_member_slices = 0;
   std::uint64_t distributed_timeline_slices = 0;
   std::uint64_t distributed_rank_tracks = 0;
   std::uint64_t counter_samples = 0;

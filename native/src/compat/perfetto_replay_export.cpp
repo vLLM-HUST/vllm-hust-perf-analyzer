@@ -1,0 +1,187 @@
+#include "perfetto_export_internal.h"
+
+#include <sqlite3.h>
+#include <algorithm>
+#include <map>
+#include <memory>
+#include <set>
+#include <stdexcept>
+#include <string>
+#include <tuple>
+#include <vector>
+
+namespace traceloom::compat::perfetto_internal {
+namespace {
+using Statement = std::unique_ptr<sqlite3_stmt, decltype(&sqlite3_finalize)>;
+Statement query(sqlite3* db, const char* sql) {
+  sqlite3_stmt* stmt = nullptr;
+  if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+    throw std::runtime_error("replay timeline query: " + std::string(sqlite3_errmsg(db)));
+  return Statement(stmt, sqlite3_finalize);
+}
+std::string text(sqlite3_stmt* stmt, int column) {
+  const auto* value = sqlite3_column_text(stmt, column);
+  return value ? reinterpret_cast<const char*>(value) : "";
+}
+bool next(sqlite3_stmt* stmt) {
+  const int rc = sqlite3_step(stmt);
+  if (rc == SQLITE_ROW) return true;
+  if (rc != SQLITE_DONE) throw std::runtime_error("replay timeline read failed");
+  return false;
+}
+std::string merge_args(const std::string& a, const std::string& b) {
+  return a.substr(0, a.size() - 1) + "," + b.substr(1);
+}
+struct Pattern {
+  int first, end, depth;
+  std::string name, category, args;
+};
+struct Member {
+  int ordinal, count, db, device;
+  std::int64_t stream, start, end;
+  std::string id, name, args, launch_args;
+};
+struct Slice {
+  int db, device, depth;
+  std::int64_t stream, start, end;
+  std::string domain, name, category, args;
+};
+}  // namespace
+
+void export_replay_timeline(sqlite3* db, RawTraceWriter& writer,
+                            PerfettoExportReceipt& receipt) {
+  auto exists = query(db, "SELECT 1 FROM sqlite_master WHERE name='traceloom_v_replay_body_position_occurrence'");
+  if (!next(exists.get())) return;  // Older/eager-only artifacts remain supported.
+
+  using Domain = std::tuple<std::string, int, int>;
+  std::map<Domain, std::vector<Pattern>> patterns;
+  auto occurrences = query(db, R"SQL(
+SELECT o.domain_id,o.position_start,o.position_end_exclusive,d.display_depth,
+       d.local_position_id||' · '||d.label,
+       json_object('position_id',o.position_id,'template_occurrence_id',o.occurrence_id,
+                   'parent_template_occurrence_id',o.parent_occurrence_id,
+                   'position_start',o.position_start,'position_end_exclusive',o.position_end_exclusive),
+       o.db_idx,o.device_id
+FROM traceloom_v_replay_body_position_occurrence o
+JOIN traceloom_v_replay_body_position_definition d USING(position_id,domain_id,db_idx,device_id)
+WHERE d.position_kind<>'atom'
+)SQL");
+  while (next(occurrences.get())) {
+    auto* s = occurrences.get();
+    patterns[{text(s,0),sqlite3_column_int(s,6),sqlite3_column_int(s,7)}].push_back({sqlite3_column_int(s,1),sqlite3_column_int(s,2),
+        sqlite3_column_int(s,3)*2,"Replay " + text(s,4),
+        "traceloom.replay.structure",text(s,5)});
+  }
+  // Repeat iteration geometry comes from canonical direct child occurrences,
+  // not repeat labels, median costs, or an envelope shared by all launches.
+  auto bodies = query(db, R"SQL(
+SELECT p.domain_id,MIN(COALESCE(c.position_start,m.terminal_position_ordinal)),
+ MAX(COALESCE(c.position_end_exclusive,m.terminal_position_ordinal+1)),d.display_depth,
+ d.local_position_id||' · body '||m.member_order||'/'||d.repeat_count,
+ json_object('position_id',p.position_id,'template_occurrence_id',p.occurrence_id,
+             'repeat_iteration',m.member_order,
+             'position_start',MIN(COALESCE(c.position_start,m.terminal_position_ordinal)),
+             'position_end_exclusive',MAX(COALESCE(c.position_end_exclusive,m.terminal_position_ordinal+1))),
+ p.db_idx,p.device_id
+FROM traceloom_v_replay_body_position_occurrence p
+JOIN traceloom_v_replay_body_position_definition d USING(position_id,domain_id,db_idx,device_id)
+JOIN traceloom_v_replay_body_position_direct_member m
+ ON m.parent_occurrence_id=p.occurrence_id AND m.domain_id=p.domain_id
+ AND m.db_idx=p.db_idx AND m.device_id=p.device_id
+LEFT JOIN traceloom_v_replay_body_position_occurrence c
+ ON c.occurrence_id=m.child_occurrence_id AND c.domain_id=m.domain_id
+ AND c.db_idx=m.db_idx AND c.device_id=m.device_id
+WHERE d.position_kind='repeat'
+ AND (m.member_kind='child_occurrence' OR m.member_kind='terminal_token')
+GROUP BY p.domain_id,p.db_idx,p.device_id,p.occurrence_id,m.member_order
+)SQL");
+  while (next(bodies.get())) {
+    auto* s = bodies.get();
+    patterns[{text(s,0),sqlite3_column_int(s,6),sqlite3_column_int(s,7)}].push_back({sqlite3_column_int(s,1),sqlite3_column_int(s,2),
+        sqlite3_column_int(s,3)*2+1,"Replay " + text(s,4),
+        "traceloom.replay.repeat_body",text(s,5)});
+  }
+
+  using Realization = std::tuple<std::string,std::string,int,int>;
+  std::map<Realization,std::vector<Member>> realizations;
+  auto members = query(db, R"SQL(
+SELECT p.domain_id,m.launch_id,p.db_idx,p.device_id,p.position_ordinal,d.position_count,
+       m.stream_id,m.start_ns,m.end_ns,m.member_id,m.identity,
+ json_object('member_id',m.member_id,'event_id',m.event_id,
+             'lane_ordinal',m.lane_ordinal,'task_ordinal',m.task_ordinal,
+             'position_ordinal',p.position_ordinal,'aggregate_id',p.aggregate_id),
+ json_object('launch_id',m.launch_id,'domain_id',p.domain_id,'db_idx',p.db_idx,
+             'device_id',p.device_id,'stream_id',m.stream_id,'anchor_id',g.anchor_id,
+             'replay_unit_id',g.replay_unit_id,
+             'geometry','exact_launch_members; envelopes_include_gaps; non_additive')
+FROM traceloom_replay_body_position p
+JOIN traceloom_replay_body_pattern_domain d USING(domain_id,db_idx,device_id)
+CROSS JOIN traceloom_replay_cost_aggregate_member a
+ ON a.aggregate_id=p.aggregate_id AND a.db_idx=p.db_idx AND a.device_id=p.device_id
+CROSS JOIN traceloom_replay_cost_member m
+ ON m.member_id=a.member_id AND m.db_idx=a.db_idx AND m.device_id=a.device_id
+JOIN traceloom_graph_body_member b
+ ON b.launch_id=m.launch_id AND b.member_id=m.member_id AND b.db_idx=m.db_idx AND b.device_id=m.device_id
+JOIN traceloom_graph_launch g
+ ON g.launch_id=b.launch_id AND g.db_idx=b.db_idx AND g.device_id=b.device_id
+WHERE d.support_status='supported'
+ORDER BY p.domain_id,m.launch_id,p.db_idx,p.device_id,p.position_ordinal
+)SQL");
+  while (next(members.get())) {
+    auto* s=members.get();
+    const int db_index=sqlite3_column_int(s,2), device=sqlite3_column_int(s,3);
+    realizations[{text(s,0),text(s,1),db_index,device}].push_back({
+      sqlite3_column_int(s,4),sqlite3_column_int(s,5),db_index,device,
+      sqlite3_column_int64(s,6),sqlite3_column_int64(s,7),sqlite3_column_int64(s,8),
+      text(s,9),text(s,10),text(s,11),text(s,12)});
+  }
+  std::vector<Slice> slices;
+  for (const auto& [key, rows] : realizations) {
+    if (rows.empty()) continue;
+    const std::string& domain=std::get<0>(key);
+    bool complete=rows.front().count>0 && rows.size()==static_cast<std::size_t>(rows.front().count);
+    std::set<std::string> ids;
+    for (std::size_t i=0;i<rows.size();++i)
+      complete = complete && rows[i].ordinal==static_cast<int>(i) &&
+          rows[i].stream==rows.front().stream && rows[i].end>=rows[i].start && ids.insert(rows[i].id).second;
+    if (!complete) continue; // Never fill a missing position with another launch.
+    for (const auto& p : patterns[{domain,std::get<2>(key),std::get<3>(key)}]) {
+      if (p.first<0 || p.end<=p.first || p.end>static_cast<int>(rows.size()))
+        throw std::runtime_error("replay timeline pattern has invalid member coordinates");
+      auto start=rows[p.first].start, end=rows[p.first].end;
+      for (int i=p.first+1;i<p.end;++i) {
+        start=std::min(start,rows[i].start); end=std::max(end,rows[i].end);
+      }
+      slices.push_back({rows.front().db,rows.front().device,p.depth,rows.front().stream,
+        start,end,domain,p.name,p.category,merge_args(rows.front().launch_args,p.args)});
+    }
+    for (const auto& m:rows)
+      slices.push_back({m.db,m.device,100000,m.stream,m.start,m.end,domain,m.name,
+          "traceloom.replay.member",merge_args(m.launch_args,m.args)});
+  }
+  std::sort(slices.begin(),slices.end(),[](const Slice& a,const Slice& b) {
+    return std::tie(a.start,a.end,a.domain,a.depth,a.name,a.args)<
+           std::tie(b.start,b.end,b.domain,b.depth,b.name,b.args);
+  });
+  // Same primary analysis process as the outer ACLG boundary. Separate stream
+  // and overlap lanes prevent an accidental cross-stream nesting/dependency.
+  using Group=std::tuple<int,int,std::int64_t,std::string,int>;
+  std::map<Group,std::vector<std::pair<std::int64_t,int>>> lanes;
+  int next_tid=1000000;
+  for (const auto& s:slices) {
+    auto& tracks=lanes[{s.db,s.device,s.stream,s.domain,s.depth}];
+    auto lane=std::find_if(tracks.begin(),tracks.end(),[&](const auto& t){return t.first<=s.start;});
+    if (lane==tracks.end()) {
+      const int tid=next_tid++;
+      writer.thread(110,tid,"replay · db " + std::to_string(s.db)+" · device "+
+          std::to_string(s.device)+" · stream "+std::to_string(s.stream)+" · "+s.domain+
+          (s.depth==100000 ? " · operators" : " · depth "+std::to_string(s.depth))+
+          " · lane "+std::to_string(tracks.size()),1000000+s.depth);
+      tracks.push_back({s.end,tid}); lane=tracks.end()-1;
+    } else lane->first=s.end;
+    writer.slice(110,lane->second,s.name,s.start,s.end,s.category,s.args);
+    if (s.category=="traceloom.replay.member") ++receipt.replay_member_slices;
+    else ++receipt.replay_structure_slices;
+  }
+}
+}  // namespace traceloom::compat::perfetto_internal

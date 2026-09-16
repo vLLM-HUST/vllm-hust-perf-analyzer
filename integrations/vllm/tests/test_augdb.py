@@ -608,6 +608,95 @@ class AugDbTests(unittest.TestCase):
             )
         self.assertTrue(self.rows("SELECT * FROM traceloom_v_context_anchor"))
 
+    def test_replay_timeline_realizes_each_launch_and_parallel_lane(self):
+        self.exact_replay_profile()
+        self.run_cli()
+        destination = self.root / "replay.json"
+
+        def export():
+            subprocess.run(
+                [
+                    BINARY,
+                    "export-perfetto",
+                    str(self.out),
+                    "--output",
+                    str(destination),
+                ],
+                check=True,
+                capture_output=True,
+                timeout=30,
+            )
+            return json.loads(destination.read_text())
+
+        trace = export()
+        members = [
+            e for e in trace["traceEvents"] if e.get("cat") == "traceloom.replay.member"
+        ]
+        expected = self.rows(
+            "SELECT launch_id,member_id,start_ns,end_ns,stream_id FROM traceloom_replay_cost_member"
+        )
+        self.assertEqual(len(members), len(expected))
+        by_identity = {
+            (e["args"]["launch_id"], e["args"]["member_id"]): e for e in members
+        }
+        self.assertEqual(len(by_identity), len(expected))
+        # Two parallel streams must not be accidentally stacked on one lane.
+        streams = {}
+        for launch, member, start, end, stream in expected:
+            e = by_identity[launch, member]
+            self.assertEqual(e["pid"], 110)  # primary analysis track, not raw/context
+            self.assertAlmostEqual(e["dur"], (end - start) / 1000, places=3)
+            streams.setdefault(stream, set()).add(e["tid"])
+        tids = [tid for lanes in streams.values() for tid in lanes]
+        self.assertEqual(len(tids), len(set(tids)))
+        # Missing realization evidence must not borrow another launch's member.
+        lost = expected[0][1]
+        with sqlite3.connect(self.out) as db:
+            db.execute(
+                "DELETE FROM traceloom_replay_cost_aggregate_member WHERE member_id=?",
+                (lost,),
+            )
+        remaining = [
+            e
+            for e in export()["traceEvents"]
+            if e.get("cat") == "traceloom.replay.member"
+        ]
+        self.assertLess(len(remaining), len(members))
+        self.assertNotIn(lost, [e["args"]["member_id"] for e in remaining])
+
+    def test_replay_repeat_iteration_geometry(self):
+        self.exact_replay_profile()
+        with sqlite3.connect(self.raw) as db:
+            db.executescript("""
+            UPDATE TASK SET startNs=startNs*100,endNs=endNs*100;
+            UPDATE CANN_API SET startNs=startNs*100,endNs=endNs*100;
+            UPDATE PYTORCH_API SET startNs=startNs*100,endNs=endNs*100;
+            INSERT INTO TASK
+            SELECT startNs+10,endNs+10,deviceId,connectionId,globalTaskId,
+                   globalPid,taskType,contextId,streamId,taskId+10000,modelId
+            FROM TASK WHERE taskType=30;
+            """)
+        self.run_cli()
+        destination = self.root / "repeat-replay.json"
+        subprocess.run(
+            [BINARY, "export-perfetto", str(self.out), "--output", str(destination)],
+            check=True,
+            capture_output=True,
+            timeout=30,
+        )
+        events = json.loads(destination.read_text())["traceEvents"]
+        bodies = [e for e in events if e.get("cat") == "traceloom.replay.repeat_body"]
+        self.assertTrue(
+            bodies
+        )  # atomic repeat bodies must also have iteration tracks
+        for event in bodies:
+            self.assertEqual(
+                event["args"]["position_end_exclusive"]
+                - event["args"]["position_start"],
+                1,
+            )
+            self.assertAlmostEqual(event["dur"], 0.1, places=6)
+
     def test_replay_tp1_control_rows_do_not_require_communication_table(self):
         self.exact_replay_profile()
         with sqlite3.connect(self.raw) as db:

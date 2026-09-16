@@ -225,3 +225,30 @@ Before replacing device-time sorting with host launch/capture order, read the
 It records a real cross-rank grammar-normalization success, the matched-only
 filtering failure on remote-KV, and why structure order must remain separate
 from instance membership and overlap cost accounting.
+
+
+## Project internal replay structure into Perfetto
+
+SQL body recovery alone does not make replay internals visible in the exported
+trace. Version 0.1.1 stopped at the outer ACLG tree boundary; the dedicated
+`perfetto_replay_export.cpp` now realizes body Positions separately for every
+exact `(domain, launch, db, device)` population. Keep these tracks in the primary
+TraceLoom process (110), not only in raw/context projections. Preserve the outer
+protected unit and use separate stream/depth/overlap lanes beneath it.
+
+Use each concrete launch's members to compute pattern and repeat-iteration
+bounds; never use aggregate median duration or the template's example timestamps.
+Repeat bounds come from all canonical direct members (child occurrences or
+terminal positions). Missing/duplicate/non-dense member coordinates withhold the
+whole lane realization rather than borrowing another launch's member. Include
+launch/anchor/member/domain coordinates in slice arguments for reverse audit.
+
+Bounded Qwen graph export (same 2026-09-16 capture referenced by runtime-context
+knowledge): 30 visible `Rep x27` instances, 900 internal structure slices,
+2,490 repeat-body slices, 10,170 exact member slices across six replay tracks.
+Every slice's time was compared with concrete member timestamps; every pattern
+was contained in its own launch, and overlap packing was checked. Reproducer:
+/root/my-ascend-workspace/runs/traceloom-qwen-graph-step/20260916T0444Z-device1/
+verify-replay-projection.py, verification-replay-projection.json,
+replay-expanded.perfetto.json.gz. This is projection correctness, not new model
+capture, complete semantic layer identification, or additive cost attribution.
