@@ -624,39 +624,60 @@ PerfettoExportReceipt write_perfetto_trace(const std::string& analysis_db_path,
   TraceWriter writer(output_path, origin);
   PerfettoExportReceipt receipt;
   writer.process(110, "TraceLoom · execution tree + flat timeline events", 0);
-  using Group = std::tuple<int, int, std::string, int>;
-  std::map<Group, std::priority_queue<std::pair<std::int64_t, int>,
-                                      std::vector<std::pair<std::int64_t, int>>,
-                                      std::greater<std::pair<std::int64_t, int>>>>
-      active;
-  std::map<Group, std::priority_queue<int, std::vector<int>, std::greater<int>>> free;
-  std::map<Group, int> lane_count;
-  std::map<std::pair<Group, int>, int> tree_tids;
-  int next_tree_tid = 1;
+  using perfetto_internal::TimelineSlice;
+  using perfetto_internal::AnchorCoordinate;
+  auto replay = perfetto_internal::load_replay_timeline(db.get());
+  struct AnchorInfo { std::string event_id; std::int64_t stream = -1; };
+  std::map<AnchorCoordinate, AnchorInfo> anchors;
+  if (has_object(db.get(), "traceloom_anchor") && has_object(db.get(), "traceloom_event")) {
+    auto stmt = prepare(db.get(), "SELECT a.db_idx,a.device_id,a.anchor_idx,a.event_id,e.stream_id "
+        "FROM traceloom_anchor a LEFT JOIN traceloom_event e ON e.event_id=a.event_id "
+        "AND e.db_idx=a.db_idx AND e.device_id=a.device_id");
+    while (sqlite3_step(stmt.get()) == SQLITE_ROW)
+      anchors[{sqlite3_column_int(stmt.get(),0),sqlite3_column_int(stmt.get(),1),sqlite3_column_int64(stmt.get(),2)}] =
+          {text(stmt.get(),3),sqlite3_column_type(stmt.get(),4)==SQLITE_NULL ? -1 : sqlite3_column_int64(stmt.get(),4)};
+  }
+  std::vector<const Interval*> hidden_graph_units;
   for (const auto& value : intervals) {
-    const Group group = {value.node->db, value.node->device, value.node->view, value.node->depth};
-    auto& a = active[group];
-    auto& f = free[group];
-    while (!a.empty() && a.top().first <= value.occurrence.start) {
-      f.push(a.top().second);
-      a.pop();
+    if (value.node->category!="graph_unit" || value.repeat_body) continue;
+    bool complete=value.occurrence.anchor_count>0;
+    for (auto index=value.occurrence.anchor_start; complete && index<=value.occurrence.anchor_end; ++index)
+      complete=replay.expanded_anchors.count({value.node->db,value.node->device,index})!=0;
+    if (complete) hidden_graph_units.push_back(&value);
+  }
+  const auto visible_depth = [&](const Node& node, const Occurrence& occurrence) {
+    int depth=node.depth;
+    for (const auto* hidden : hidden_graph_units)
+      if (node.db==hidden->node->db && node.device==hidden->node->device && node.view==hidden->node->view &&
+          node.depth>hidden->node->depth && occurrence.anchor_start>=hidden->occurrence.anchor_start &&
+          occurrence.anchor_end<=hidden->occurrence.anchor_end) --depth;
+    return depth;
+  };
+  // Splice complete launch realizations at the old terminal's display depth.
+  // The graph container is not another display layer or another device event.
+  std::map<AnchorCoordinate, std::vector<std::pair<std::string,int>>> placements;
+  for (const auto& [id,node] : nodes) {
+    if (node.kind != "atom") continue;
+    const auto found = occurrences.find(id);
+    if (found == occurrences.end()) continue;
+    for (const auto& o : found->second)
+      if (o.anchor_count==1 && replay.expanded_anchors.count({node.db,node.device,o.anchor_start}))
+        placements[{node.db,node.device,o.anchor_start}].push_back({node.view,visible_depth(node,o)});
+  }
+  std::set<std::tuple<int,int,std::string,std::string>> replay_events;
+  std::vector<TimelineSlice> slices;
+  for (const auto& value : replay.slices) {
+    const auto found = placements.find({value.db,value.device,value.anchor_index});
+    if (found == placements.end()) continue;
+    for (const auto& [view,depth] : found->second) {
+      if (value.event && !distributed.ranks.empty()) continue;
+      if (value.event && !replay_events.insert({value.db,value.device,view,value.event_id}).second) continue;
+      auto slice=value; slice.view=view; slice.depth+=depth;
+      slices.push_back(std::move(slice));
     }
-    int lane;
-    if (f.empty()) {
-      lane = lane_count[group]++;
-      const int tid = next_tree_tid++;
-      tree_tids[{group, lane}] = tid;
-      writer.thread(110, tid,
-                    "subtree db " + std::to_string(value.node->db) + " · device " +
-                        std::to_string(value.node->device) + " · " + value.node->view +
-                        " · depth " + std::to_string(value.node->depth) + " · lane " +
-                        std::to_string(lane),
-                    tid);
-    } else {
-      lane = f.top();
-      f.pop();
-    }
-    const int tid = tree_tids.at({group, lane});
+  }
+  for (const auto& value : intervals) {
+    if (std::find(hidden_graph_units.begin(),hidden_graph_units.end(),&value)!=hidden_graph_units.end()) continue;
     std::string name;
     if (value.repeat_body)
       name = value.node->local + " · motif " + value.node->motif + " · body " +
@@ -666,46 +687,45 @@ PerfettoExportReceipt write_perfetto_trace(const std::string& analysis_db_path,
     else
       name = value.node->local +
              (value.node->parent_id.empty() ? " · root" : " · " + value.node->kind);
-    writer.slice(
-        110, tid, name, value.occurrence.start, value.occurrence.end,
-        value.repeat_body ? "traceloom.repeat_body_window" : "traceloom.structural_interval",
-        args_for_interval(value));
-    a.push({value.occurrence.end, lane});
-    if (value.repeat_body)
-      ++receipt.repeat_body_slices;
-    else
-      ++receipt.structural_slices;
+    TimelineSlice slice;
+    slice.db=value.node->db; slice.device=value.node->device; slice.view=value.node->view;
+    slice.depth=visible_depth(*value.node,value.occurrence); slice.start=value.occurrence.start; slice.end=value.occurrence.end;
+    slice.name=name; slice.category=value.repeat_body ? "traceloom.repeat_body_window" : "traceloom.structural_interval";
+    slice.args=args_for_interval(value); slice.repeat_body=value.repeat_body;
+    slices.push_back(std::move(slice));
   }
   if (distributed.ranks.empty()) {
-    std::map<std::tuple<int, int, std::string>, int> atom_tids;
-    for (const auto& [id, node] : nodes)
-      if (node.kind == "atom") {
-        const auto key = std::make_tuple(node.db, node.device, node.view);
-        if (!atom_tids.count(key)) {
-          const int tid = 900000 + static_cast<int>(atom_tids.size());
-          atom_tids[key] = tid;
-          writer.thread(110, tid,
-                        "timeline events · db " + std::to_string(node.db) + " · device " +
-                            std::to_string(node.device) + " · " + node.view,
-                        tid);
+    for (const auto& [id,node] : nodes) {
+      if (node.kind != "atom") continue;
+      const auto found=occurrences.find(id);
+      if (found==occurrences.end()) continue;
+      for (const auto& o : found->second) {
+        const AnchorCoordinate coordinate{node.db,node.device,o.anchor_start};
+        if (o.anchor_count==1 && placements.count(coordinate)) continue;
+        const auto info=anchors.find(coordinate);
+        const std::string event_id=info==anchors.end() ? "" : info->second.event_id;
+        if (!event_id.empty() && replay_events.count({node.db,node.device,node.view,event_id})) continue;
+        TimelineSlice slice;
+        slice.db=node.db; slice.device=node.device; slice.view=node.view;
+        slice.start=o.start; slice.end=o.end; slice.name=node.label; slice.event=true;
+        slice.stream=info==anchors.end() ? -1 : info->second.stream;
+        slice.event_id=event_id; slice.category="traceloom.timeline_event";
+        slice.args=args_for_interval({&node,o,false,0});
+        if (!event_id.empty()) {
+          slice.args.pop_back();
+          slice.args+=",\"event_id\":"+json_quote(event_id)+",\"stream_id\":"+std::to_string(slice.stream)+"}";
         }
-        auto it = occurrences.find(id);
-        if (it == occurrences.end()) continue;
-        for (const auto& o : it->second) {
-          Interval value{&node, o, false, 0};
-          writer.slice(110, atom_tids[key], node.label, o.start, o.end,
-                       "traceloom.timeline_event", args_for_interval(value));
-          ++receipt.atomic_slices;
-        }
+        slices.push_back(std::move(slice));
       }
+    }
   }
+  perfetto_internal::write_common_timeline(writer,std::move(slices),receipt);
   std::set<std::string> motifs;
   for (const auto& [id, n] : nodes)
     if (n.kind == "repeat") motifs.insert(n.topology_sha);
   receipt.motif_classes = motifs.size();
   if (options.include_raw_provider_timeline)
     perfetto_internal::export_raw_provider_timeline(db.get(), writer, receipt);
-  perfetto_internal::export_replay_timeline(db.get(), writer, receipt);
   perfetto_internal::export_context_timeline(db.get(), writer);
   perfetto_internal::export_distributed_flat_timeline(distributed, writer, receipt);
   receipt.distributed_alignment = distributed.alignment;

@@ -2,6 +2,8 @@
 
 #include <cstdint>
 #include <map>
+#include <set>
+#include <tuple>
 #include <limits>
 #include <string>
 #include <vector>
@@ -80,7 +82,21 @@ struct DistributedClockModelSet {
   std::map<int, ClockCalibrationModel> models;
 };
 
-void export_replay_timeline(sqlite3* db, RawTraceWriter& writer, PerfettoExportReceipt& receipt);
+// One display plane and lane allocator for ordinary and replay-derived slices.
+struct TimelineSlice {
+  int db = 0, device = 0, depth = 0;
+  std::int64_t stream = -1, start = 0, end = 0, anchor_index = 0;
+  std::string view, name, category, args, event_id;
+  bool event = false, replay = false, repeat_body = false;
+};
+using AnchorCoordinate = std::tuple<int, int, std::int64_t>;
+struct ReplayTimelineProjection {
+  std::vector<TimelineSlice> slices;
+  std::set<AnchorCoordinate> expanded_anchors;
+};
+ReplayTimelineProjection load_replay_timeline(sqlite3* db);
+void write_common_timeline(RawTraceWriter& writer, std::vector<TimelineSlice> slices,
+                           PerfettoExportReceipt& receipt);
 void export_context_timeline(sqlite3* db, RawTraceWriter& writer);
 std::int64_t raw_timeline_origin(sqlite3* db, std::int64_t current);
 void export_raw_provider_timeline(sqlite3* db, RawTraceWriter& writer,

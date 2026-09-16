@@ -6,7 +6,7 @@ analyzer, default rule manifests, and model/step YAML configurations. It is not
 just a launcher for a separately installed executable.
 
 ```sh
-python -m pip install traceloom==0.1.2
+python -m pip install traceloom==0.1.3
 traceloom /path/to/profile.db --output analysis.db
 ```
 
@@ -131,10 +131,17 @@ surfaces retain separate observations, and parallel member intervals can overlap
 See [runtime-context.md](../docs/runtime-context.md) for the identity contract.
 
 
-Perfetto exports include replay-internal structure in the primary TraceLoom
-process: `replay … depth …` tracks show concrete pattern and repeat-body
-instances, and `replay … operators` tracks show exact members. Each launch uses
-its own member timestamps; parallel streams and overlaps occupy separate lanes.
-The outer ACLG boundary remains visible. These nested envelopes are not additive
-costs. Version 0.1.1 exposed the SQL relations but omitted these internal tracks;
-use 0.1.2 or later and re-export the existing analysis DB (no recapture needed).
+Perfetto exports use common **device-event and structural-node planes** for
+ordinary work and replay members. Streams and real overlap determine event
+lanes; structural depth and overlap determine node lanes. Replay identity is
+retained in attributes (`launch_id`, `replay_unit_id`, exact member coordinates),
+not a separate track or extra container. Repeats use the same iteration-window
+projection as ordinary structure.
+
+A fully realized replay replaces its opaque ACLG event in the display; its
+packaging-only containers are removed from visible depth. Incomplete evidence
+retains the opaque fallback rather than claiming a full expansion. Algorithmic
+replay protection and all SQL evidence remain unchanged. Version 0.1.2 exposed
+internals on separate replay tracks; 0.1.3 unifies them with the ordinary planes.
+Re-export an existing analysis DB; no recapture is needed. Structural envelopes
+and overlapping device intervals remain non-additive.

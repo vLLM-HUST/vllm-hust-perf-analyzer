@@ -233,8 +233,8 @@ SQL body recovery alone does not make replay internals visible in the exported
 trace. Version 0.1.1 stopped at the outer ACLG tree boundary; the dedicated
 `perfetto_replay_export.cpp` now realizes body Positions separately for every
 exact `(domain, launch, db, device)` population. Keep these tracks in the primary
-TraceLoom process (110), not only in raw/context projections. Preserve the outer
-protected unit and use separate stream/depth/overlap lanes beneath it.
+TraceLoom process (110), not only in raw/context projections. Keep the protected unit in the analytical model. The current display contract
+is the common-plane projection below; do not reintroduce dedicated replay lanes.
 
 Use each concrete launch's members to compute pattern and repeat-iteration
 bounds; never use aggregate median duration or the template's example timestamps.
@@ -243,7 +243,7 @@ terminal positions). Missing/duplicate/non-dense member coordinates withhold the
 whole lane realization rather than borrowing another launch's member. Include
 launch/anchor/member/domain coordinates in slice arguments for reverse audit.
 
-Bounded Qwen graph export (same 2026-09-16 capture referenced by runtime-context
+The 0.1.2 dedicated-lane Qwen export (same 2026-09-16 capture referenced by runtime-context
 knowledge): 30 visible `Rep x27` instances, 900 internal structure slices,
 2,490 repeat-body slices, 10,170 exact member slices across six replay tracks.
 Every slice's time was compared with concrete member timestamps; every pattern
@@ -252,3 +252,33 @@ was contained in its own launch, and overlap packing was checked. Reproducer:
 verify-replay-projection.py, verification-replay-projection.json,
 replay-expanded.perfetto.json.gz. This is projection correctness, not new model
 capture, complete semantic layer identification, or additive cost attribution.
+
+
+### Common display planes supersede dedicated replay tracks (0.1.3)
+
+Replay is evidence/identity, not a display partition. `load_replay_timeline`
+prepares exact realizations; `write_common_timeline` packs both ordinary and
+replay-derived slices in one allocator. Event keys are db/device/view/stream;
+structural keys are db/device/view/display-depth. Only overlap allocates another
+lane. Categories are shared (`traceloom.timeline_event`, structural_interval,
+repeat_body_window); use `args.replay_derived` and launch/member attributes to
+select replay evidence. Never key a lane by replay/domain/launch identity.
+
+Replace a launch anchor only when all its exact members are realized, across
+all lanes. Missing/non-dense/duplicate membership withholds that launch's
+expansion and preserves its opaque anchor. Admission also consumes the canonical
+annotated-anchor guard: unsupported/ambiguous protected-region geometry cannot
+be bypassed by the renderer. Suppress duplicate ordinary events
+by retained event identity, not temporal containment. Remove the body-domain
+Seq packaging and fully expanded `graph_unit` display containers, adjusting
+visible depth while retaining original SQL/HPO identities. Repeat projection
+uses iteration windows like ordinary repeats, not a separate aggregate track.
+The matcher still protects replay atomically: changing display is not permission
+to rewrite analysis membership or infer cross-stream dependencies.
+
+The synthetic integration regression puts eager and graph-member work on the
+same stream and requires shared track IDs, no replay-named tracks, unique
+primary-plane events, preserved parallel streams, hidden expanded graph
+wrappers, and fail-closed missing evidence. Real Qwen export/audit:
+/root/my-ascend-workspace/runs/traceloom-qwen-graph-step/20260916T0444Z-device1/
+common-plane.perfetto.json.gz and verify-common-plane.py.

@@ -135,7 +135,12 @@ class PythonApiTests(unittest.TestCase):
         result.export_perfetto(self.root / "replay.json.gz", timeout=30)
         with gzip.open(self.root / "replay.json.gz", "rt") as source:
             events = json.load(source)["traceEvents"]
-        projected = [e for e in events if e.get("cat") == "traceloom.replay.member"]
+        projected = [
+            e
+            for e in events
+            if e.get("cat") == "traceloom.timeline_event"
+            and "member_id" in e.get("args", {})
+        ]
         self.assertEqual(len(projected), members)
         self.assertTrue(all(e["pid"] == 110 for e in projected))
 

@@ -610,6 +610,9 @@ class AugDbTests(unittest.TestCase):
 
     def test_replay_timeline_realizes_each_launch_and_parallel_lane(self):
         self.exact_replay_profile()
+        with sqlite3.connect(self.raw) as db:
+            # Ordinary work on a later graph's stream, outside its launch.
+            db.execute("INSERT INTO TASK VALUES(350,351,0,9090,100,1,30,0,36,999,7)")
         self.run_cli()
         destination = self.root / "replay.json"
 
@@ -630,12 +633,73 @@ class AugDbTests(unittest.TestCase):
 
         trace = export()
         members = [
-            e for e in trace["traceEvents"] if e.get("cat") == "traceloom.replay.member"
+            e
+            for e in trace["traceEvents"]
+            if e.get("cat") == "traceloom.timeline_event"
+            and "member_id" in e.get("args", {})
         ]
         expected = self.rows(
             "SELECT launch_id,member_id,start_ns,end_ns,stream_id FROM traceloom_replay_cost_member"
         )
         self.assertEqual(len(members), len(expected))
+        tracks = {
+            e["tid"]: e["args"]["name"]
+            for e in trace["traceEvents"]
+            if e.get("ph") == "M"
+            and e.get("name") == "thread_name"
+            and e.get("pid") == 110
+        }
+        self.assertFalse(any("replay" in name for name in tracks.values()))
+        wrappers = {
+            row[0]
+            for row in self.rows(
+                "SELECT node_id FROM traceloom_v_tree_node WHERE category='graph_unit'"
+            )
+        }
+        self.assertFalse(
+            [
+                e
+                for e in trace["traceEvents"]
+                if e.get("cat") == "traceloom.structural_interval"
+                and e.get("args", {}).get("node_id") in wrappers
+            ]
+        )
+        self.assertTrue(
+            all(e["args"].get("projection_plane") == "device_events" for e in members)
+        )
+        identities = [
+            (e["args"]["event_id"], e["args"].get("view_name", "native_report_tree"))
+            for e in trace["traceEvents"]
+            if e.get("cat") == "traceloom.timeline_event"
+            and e.get("args", {}).get("event_id")
+        ]
+        self.assertEqual(len(identities), len(set(identities)))
+        ordinary = [
+            e
+            for e in trace["traceEvents"]
+            if e.get("cat") == "traceloom.timeline_event"
+            and "member_id" not in e.get("args", {})
+            and e.get("args", {}).get("stream_id") == 36
+        ]
+        self.assertTrue(ordinary)
+        self.assertTrue(
+            {e["tid"] for e in ordinary}
+            & {e["tid"] for e in members if e["args"]["stream_id"] == 36}
+        )
+        graph_anchors = {
+            a[0]
+            for a in self.rows(
+                "SELECT a.anchor_idx FROM traceloom_anchor a JOIN traceloom_graph_launch g USING(anchor_id,db_idx,device_id)"
+            )
+        }
+        self.assertFalse(
+            [
+                e
+                for e in trace["traceEvents"]
+                if e.get("cat") == "traceloom.timeline_event"
+                and e.get("args", {}).get("anchor_start_idx") in graph_anchors
+            ]
+        )
         by_identity = {
             (e["args"]["launch_id"], e["args"]["member_id"]): e for e in members
         }
@@ -659,10 +723,29 @@ class AugDbTests(unittest.TestCase):
         remaining = [
             e
             for e in export()["traceEvents"]
-            if e.get("cat") == "traceloom.replay.member"
+            if e.get("cat") == "traceloom.timeline_event"
+            and "member_id" in e.get("args", {})
         ]
         self.assertLess(len(remaining), len(members))
         self.assertNotIn(lost, [e["args"]["member_id"] for e in remaining])
+        # Reuse the canonical region-admission guard: unsupported region
+        # geometry must retain opaque anchors, not silently flatten them.
+        with sqlite3.connect(self.out) as db:
+            db.execute(
+                "UPDATE traceloom_protected_interval SET support_state='unsupported'"
+            )
+        fallback = export()["traceEvents"]
+        self.assertFalse(
+            [e for e in fallback if e.get("args", {}).get("replay_derived")]
+        )
+        self.assertTrue(
+            [
+                e
+                for e in fallback
+                if e.get("cat") == "traceloom.timeline_event"
+                and e.get("args", {}).get("anchor_start_idx") in graph_anchors
+            ]
+        )
 
     def test_replay_repeat_iteration_geometry(self):
         self.exact_replay_profile()
@@ -685,10 +768,13 @@ class AugDbTests(unittest.TestCase):
             timeout=30,
         )
         events = json.loads(destination.read_text())["traceEvents"]
-        bodies = [e for e in events if e.get("cat") == "traceloom.replay.repeat_body"]
-        self.assertTrue(
-            bodies
-        )  # atomic repeat bodies must also have iteration tracks
+        bodies = [
+            e
+            for e in events
+            if e.get("cat") == "traceloom.repeat_body_window"
+            and "launch_id" in e.get("args", {})
+        ]
+        self.assertTrue(bodies)  # atomic repeat bodies must also have iteration tracks
         for event in bodies:
             self.assertEqual(
                 event["args"]["position_end_exclusive"]
