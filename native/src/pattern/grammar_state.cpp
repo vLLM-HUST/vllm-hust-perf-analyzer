@@ -173,6 +173,18 @@ GlobalGrammarState build_initial_grammar_state(
   if (!config.match_rules.partition_by.empty() && config.token_partitions.empty())
     throw std::invalid_argument("partition rule requires token identities");
 
+  // Already atomic replay units cannot be reinterpreted as crossing a supplied
+  // step. Refuse missing/conflicting identity rather than hiding it in a macro.
+  if (!config.match_rules.partition_by.empty()) {
+    for (const auto& span : boundary_index.intervals()) {
+      if (config.token_partitions[span.first_token_index].empty() ||
+          state.token_partition_runs[span.first_token_index] !=
+              state.token_partition_runs[span.last_token_index])
+        throw std::invalid_argument(
+            "scheduler_step protected replay has missing or conflicting step identity");
+    }
+  }
+
   for (const auto& rule : config.match_rules.ordered_markers) {
     std::map<SymbolId, std::int64_t> seeds;
     for (const auto& t : ir.tokens.rows()) {

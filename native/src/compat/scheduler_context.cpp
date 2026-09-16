@@ -1,6 +1,7 @@
 #include "traceloom/compat/scheduler_context.h"
 #include "sidecar_sqlite_utils.h"
 #include "sidecar_views.h"
+#include "scheduler_replay_context.h"
 #include "traceloom/core/sha256.h"
 
 #include <algorithm>
@@ -409,7 +410,7 @@ CREATE TABLE traceloom_context_runtime_call AS
        FROM traceloom_context_runtime_candidate GROUP BY execution_id,runtime_call_id);
 CREATE UNIQUE INDEX idx_context_runtime ON traceloom_context_runtime_call(execution_id,runtime_call_id);
 CREATE INDEX idx_context_runtime_reverse ON traceloom_context_runtime_call(runtime_call_id);
-CREATE VIEW traceloom_v_context_device_candidate AS
+CREATE VIEW traceloom_v_context_direct_device_candidate AS
  SELECT e.run_id,e.step_id,e.execution_id,e.worker_rank,e.phase,c.runtime_call_id,
  d.device_work_id,d.device_id,d.event_id,d.start_ns,d.end_ns,d.dur_us,d.symbol,
  r.support_state AS provider_support_state,
@@ -419,6 +420,9 @@ CREATE VIEW traceloom_v_context_device_candidate AS
  JOIN traceloom_device_work d USING(device_work_id)
  WHERE c.support_state='supported_host_scope'
  AND r.support_state IN ('supported_exact','supported_deterministic');
+)SQL");
+  bind_scheduler_replay_context(db);
+  exec(db, R"SQL(
 CREATE TABLE traceloom_context_device_assignment AS
  SELECT device_work_id,COUNT(*) AS step_count FROM
  (SELECT DISTINCT run_id,step_id,device_work_id FROM traceloom_v_context_device_candidate)
@@ -474,6 +478,12 @@ void catalog(sqlite3 *db) {
             "ownership"},
            {"context_device_coverage", "traceloom_v_context_device_coverage",
             "device work", "Global device denominator and unsupported step attribution"},
+           {"context_replay_launch", "traceloom_v_context_replay_launch",
+            "execution/launch", "Exact launch identity associated with a supplied step"},
+           {"context_replay_member", "traceloom_v_context_replay_member",
+            "execution/launch/member", "Exact replay body members; parallel lanes may overlap"},
+           {"context_anchor", "traceloom_v_context_anchor",
+            "anchor/step/device work", "Ordinary and exact replay anchor identities, not time containment"},
            {"context_queue_runtime", "traceloom_context_queue_runtime",
             "execution/runtime/queue", "Explicit task queue source-row identity audit"},
            {"context_sources", "traceloom_context_source", "source",
@@ -589,6 +599,20 @@ GROUP BY w.event_id HAVING COUNT(DISTINCT json_array(w.run_id,w.step_id))=1
 )SQL");
   std::map<std::string, std::string> result;
   while (sqlite3_step(stmt.get()) == SQLITE_ROW) result.emplace(text(stmt.get(),0),text(stmt.get(),1));
+  auto launches = prepare(db.get(), R"SQL(
+SELECT 'graph-launch-occurrence-'||d.graph_launch_occurrence_id,
+       json_array(w.run_id,w.step_id)
+FROM traceloom_v_context_device_work w
+JOIN traceloom_device_work d USING(device_work_id)
+JOIN traceloom_context_execution e USING(execution_id)
+JOIN traceloom_context_source f ON f.source_id=e.source_id
+JOIN traceloom_v_scheduler_step_context s ON s.run_id=w.run_id AND s.step_id=w.step_id
+WHERE d.work_kind='graph_launch' AND f.capture_state='closed' AND s.capture_state='closed'
+GROUP BY d.graph_launch_occurrence_id
+HAVING COUNT(DISTINCT json_array(w.run_id,w.step_id))=1
+)SQL");
+  while (sqlite3_step(launches.get()) == SQLITE_ROW)
+    result.emplace(text(launches.get(),0),text(launches.get(),1));
   return result;
 }
 } // namespace traceloom::compat

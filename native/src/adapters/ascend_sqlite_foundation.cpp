@@ -163,7 +163,8 @@ bool graph_body_excluded_task_key(const std::string& key) {
 bool graph_body_infrastructure_task_key(const std::string& key) {
   static const std::unordered_set<std::string> kKeys{
       "CAPTURE_RECORD",    "CAPTURE_WAIT",      "EVENT_RECORD",
-      "EVENT_WAIT",       "MEM_WRITE_VALUE",   "MODEL_MAINTAINCE",
+      "EVENT_WAIT",       "MEM_WRITE_VALUE",   "MEM_WAIT_VALUE",
+      "NOP",              "MODEL_MAINTAINCE",
       "MODEL_MAINTENANCE", "PROFILING_DISABLE", "PROFILING_ENABLE",
       "TASK_TIMEOUT_SET"};
   return kKeys.find(key) != kKeys.end();

@@ -153,6 +153,7 @@ add_library(traceloom_native_materialize
   src/compat/exact_graph_sql_rows.cpp
   src/compat/native_graph_replay_rows.cpp
   src/compat/scheduler_context.cpp
+  src/compat/scheduler_replay_context.cpp
   src/compat/native_sidecar_materializer.cpp
   src/compat/native_sidecar_packaging.cpp
   src/compat/structural_projection_rows.cpp

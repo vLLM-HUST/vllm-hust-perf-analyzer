@@ -92,10 +92,18 @@ scheduler producer, not cross-run or global request identities.
    A device event with competing step identities is excluded from the supported
    work view and remains `ambiguous_step` in global device coverage.
 
+7. A provider-supported graph launch retains its exact launch occurrence ID.
+   When replay reconstruction supplies an exact body, that identity extends to
+   `(launch_id, member_id, db_idx, device_id)` and the member's retained event.
+   Capture-time operator calls and replay-time timestamps are **not** used as
+   substitutes for this relation. Conflicts with direct event assignments remain
+   ambiguous. Incomplete replay waves and best-effort overlap bodies do not gain
+   exact membership just because their launch is inside a marker.
+
 This first adapter deliberately requires same-source Ascend host evidence.
 Other provider marker layouts, cross-file host clocks, work submitted by another
-thread without explicit queue evidence, unwrapped later dispatch and hidden graph
-members are not silently covered. A missing or unsupported layout produces `marker_not_found`; an exporter
+thread without explicit queue evidence, unwrapped later dispatch and graph
+members without exact reconstructed launch membership are not silently covered. A missing or unsupported layout produces `marker_not_found`; an exporter
 marker failure produces `marker_unavailable`; absent scheduling records and
 multiple matching marker rows produce `missing_step` and `ambiguous_marker`.
 
@@ -248,3 +256,57 @@ import. With the rule, structure is deliberately recovered differently;
 timestamps, event IDs, anchors, ordering and measured costs are not rewritten.
 Auxiliary attribution remains its existing separate lens, not newly certified
 step ownership. Step identity is keyed by run/step rather than local ordinal.
+
+## Scheduler steps and reconstructed replay
+
+`traceloom_v_context_replay_launch` exposes supported step/launch associations;
+`traceloom_v_context_replay_member` extends them to exact body members, retaining
+lane/task order and the launch runtime endpoint. `traceloom_v_context_anchor`
+provides the corresponding ordinary/replay terminal-anchor join for HPO queries.
+These are evidence relations, not inferred cross-stream dependencies.
+
+With `scheduler-step.yaml`, exact replay anchors take their partition from the
+launch occurrence, not a synthetic graph event ID. Every protected replay unit
+must have one known, closed/lossless step identity across its tokens. Missing or
+conflicting identities reject constrained analysis atomically; omit the rule to
+inspect incomplete evidence without claiming step-bounded structure. The rule
+does not split atomic replay units or rewrite their internal reconstruction.
+Definitions may be reused across steps, but candidate occurrences cannot cross
+the supplied boundary. Marked-structure projection remains unsupported with this
+partition rule.
+
+```sql
+SELECT s.ordinal, r.launch_id, r.replay_unit_id, r.runtime_call_id
+FROM traceloom_v_context_replay_launch r
+JOIN traceloom_scheduler_step s USING(run_id, step_id)
+ORDER BY s.ordinal, r.start_ns;
+
+SELECT m.*, b.kind, b.source_table, b.source_row_id
+FROM traceloom_v_context_replay_member m
+JOIN traceloom_graph_body_member b
+USING(launch_id, member_id, db_idx, device_id)
+WHERE m.run_id=:run_id AND m.step_id=:step_id;
+```
+
+Graph-launch envelopes and body events are different observation resolutions.
+Do not add their durations as if they were disjoint work. For replay costs use
+the dedicated replay cost surfaces; for step costs select one resolution and
+compute per-device interval union. A summed device-work duration is an
+observation sum, not accelerator busy time or step latency.
+
+### Bounded graph acceptance (2026-09-16)
+
+The same pinned Qwen3-0.6B runtime, TP1 on physical device 1, default
+FULL_AND_PIECEWISE graph mode and capture sizes [1,2], produced 30 decode
+replays. All 30 launches map to distinct supplied steps, and all 10,170 exact
+operator members (339 per launch) have the same step identity as their launch.
+The 369 recovered internal pattern occurrences and exact body/cost rows equal
+the context-free reconstruction. No non-root HPO occurrence crosses steps;
+34 exported step envelopes match linked event geometry. Known controls remain
+raw evidence, not invented operator members. This does not qualify distributed
+runs, universal capture completeness or recording overhead.
+
+Keep the original rank capture layout. Parse the exact raw PROF container with
+`msprof --parse=on --output=/absolute/path/to/PROF_container` if its host SQLite
+mapping has not been generated. The loader admits one sibling container next
+to `ASCEND_PROFILER_OUTPUT`; it never selects the first of several candidates.

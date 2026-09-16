@@ -90,6 +90,7 @@ SELECT 'device '||d.device_id,'Step '||s.ordinal||' · '||s.total_scheduled_toke
  json_object('run_id',s.run_id,'step_id',s.step_id,'ordinal',s.ordinal,
              'device_id',d.device_id,'linked_device_work',COUNT(*),
              'summed_device_work_us',SUM(d.dur_us),
+             'duration_semantics','observation sum; graph envelopes and members may overlap',
              'boundary','linked device envelope; not busy time or complete membership')
 FROM work d JOIN traceloom_scheduler_step s USING(run_id,step_id)
 GROUP BY s.run_id,s.step_id,d.device_id ORDER BY MIN(d.start_ns)

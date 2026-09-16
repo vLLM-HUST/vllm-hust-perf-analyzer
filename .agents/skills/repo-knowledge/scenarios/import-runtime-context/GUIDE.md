@@ -152,7 +152,7 @@ traversal). Native context export packs overlaps into independent display lanes.
 ## Candidate partitioning by supplied step (2026-09-16)
 
 Use configs/scheduler-step.yaml (macro_matching.partition_by: scheduler_step)
-with linked context for eager grammar recovery. Binding must happen BEFORE
+with linked context for eager or exactly launch-linked replay grammar recovery. Binding must happen BEFORE
 grammar, after raw-source catalog and runtime rows exist. Register context
 recipes only after the ordinary catalog. Materialize shared runtime/device
 indexes before binding: moving the join ahead of the old structural-index
@@ -181,8 +181,9 @@ links compare equal. Artifact/reproducer:
  /root/my-ascend-workspace/runs/traceloom-step-partitions/
 (analysis.db, timeline.perfetto.json.gz, verify.py, verification.json).
 
-The supported route deliberately rejects protected replay, marked-structure
-projection, disabled grammar and standalone legacy/debug outputs; do not
+The supported route rejects marked-structure projection, disabled grammar and
+standalone legacy/debug outputs; protected replay now requires one known step
+per atomic unit (see the graph acceptance below). do not
 silently apply the rule only to a hidden grammar while showing an unconstrained
 alternative tree. Partial captured membership is still not full semantic step
 ownership, especially for auxiliary attribution.
@@ -193,3 +194,50 @@ tests with unittest.TestLoader.discover rather than AST method counts. The
 earlier handoff's 45-test claim counted definitions, not discovered tests; the
 corrected suite now discovers and executes all 47 cases, including the new
 partition integration tests.
+
+
+## Real graph replay bridge (2026-09-16)
+
+Same pinned Qwen/runtime as above, physical device 1, TP1, non-eager default
+FULL_AND_PIECEWISE, capture sizes [1,2], two 16-token requests. Warmup/capture
+stayed outside profiling. Official start/stop + offline Db export produced 34
+steps / 66 supported markers. Exact native reconstruction recovered 30 full
+replays (one per decode step), 339 members each; all 10,170 members acquired
+step identity through their launch. 369 internal replay-pattern occurrences
+remain unchanged by context/outer partitioning. No non-root HPO occurrence
+crosses supplied steps; 34 exported step envelopes match linked geometry.
+This is functional captured-evidence acceptance, not complete membership or
+instrumentation-overhead acceptance. 10,952 raw infrastructure/other work rows
+remain without supported provider relations; 32 outside-scope rows remain
+unassigned. Do not sweep those into a step by temporal proximity.
+
+Two real prerequisites were missing in the earlier DB-only path:
+
+- Official torch-npu keeps capture identity in raw PROF host data, not the
+  exported monolithic DB. `msprof --parse=on --output=<exact PROF directory>`
+  (without `--clear`, which parse rejects) produces host/sqlite/stream_info.db.
+  The loader now resolves exactly ONE sibling PROF container beside
+  ASCEND_PROFILER_OUTPUT; multiple containers fail closed. Retain raw evidence;
+  do not copy a disconnected DB and claim equivalent replay capability.
+- TP1 can omit COMMUNICATION_TASK_INFO altogether. NOP and MEM_WAIT_VALUE
+  controls lack operator identities but are known infrastructure. The body
+  capability gate now admits those controls without admitting unknown executable
+  tasks; negative regression still withholds a wave containing unknown work.
+
+The bridge extends provider graph DeviceWork through exact launch occurrence
+and launch/body/member coordinates in scheduler_replay_context.cpp. It never
+matches members to capture-time host calls. Direct/member conflicts remain
+ambiguous. Synthetic replay anchors use launch identity for partitioning;
+protected units with missing/cross-step identities reject atomic publication,
+not a silent unconstrained fallback. Unconstrained analysis still retains such
+incomplete evidence. HPO consumers should join terminal_anchor_id through
+traceloom_v_context_anchor, not synthetic graph event IDs.
+
+Artifacts and verification (local):
+/root/my-ascend-workspace/runs/traceloom-qwen-graph-step/20260916T0444Z-device1/
+exact-step.db, exact-step.perfetto.json.gz, verify-replay-step.py,
+verification-replay-step.json, protocol.json and exact-step-command.json.
+Earlier sibling attempts preserve the device-0 collision/aborted admission;
+only this completed device-1 run is acceptance. A fresh real eager reanalysis
+also preserves exact HPO, anchors and context rows in
+/root/my-ascend-workspace/runs/traceloom-replay-step-validation/eager.db.

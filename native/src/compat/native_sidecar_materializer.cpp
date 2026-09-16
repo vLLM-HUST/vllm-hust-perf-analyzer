@@ -116,8 +116,8 @@ StructuralOccurrenceGraph recover_structural_occurrence_graph(
   }
   if (!options.match_rules.partition_by.empty() &&
       (options.event_partitions.empty() || options.marked_structure.enabled() ||
-       !options.materialize_grammar_structural_projection || !ir.protected_intervals.empty()))
-    throw std::invalid_argument("scheduler_step partition requires linked eager grammar projection; marked structure/replay are not yet supported");
+       !options.materialize_grammar_structural_projection))
+    throw std::invalid_argument("scheduler_step partition requires linked grammar projection; marked structure is not supported");
   if (options.marked_structure.enabled() && !ir.protected_intervals.empty()) {
     auto without_rules = options;
     without_rules.marked_structure = {};
@@ -143,7 +143,11 @@ StructuralOccurrenceGraph recover_structural_occurrence_graph(
     if (!options.match_rules.partition_by.empty()) {
       for (const auto& token : ir.tokens.rows()) {
         const auto& anchor = ir.anchors.row(token.anchor_id);
-        const auto event = "event-" + std::to_string(anchor.trace_event_id.value());
+        std::string event = "event-" + std::to_string(anchor.trace_event_id.value());
+        if (anchor.replay_unit_launch_member_id.valid()) {
+          const auto& member = ir.replay_unit_launch_members.row(anchor.replay_unit_launch_member_id);
+          event = "graph-launch-occurrence-" + std::to_string(member.graph_launch_occurrence_id.value());
+        }
         const auto found = options.event_partitions.find(event);
         grammar_state_config.token_partitions.push_back(
             found == options.event_partitions.end() ? "" : found->second);
@@ -216,6 +220,7 @@ StructuralOccurrenceGraph recover_structural_occurrence_graph(
     }
     return tree;
   } catch (const std::exception& ex) {
+    if (!options.match_rules.partition_by.empty()) throw;
     if (compact_grammar != nullptr) {
       compact_grammar->available = false;
       compact_grammar->stop_reason = "exception";

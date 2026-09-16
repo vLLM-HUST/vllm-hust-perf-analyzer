@@ -543,7 +543,23 @@ void load_ascend_runtime_calls(
 }
 std::string stream_info_db_path_for_msprof(const std::string& db_path) {
   const std::filesystem::path path(db_path);
-  return (path.parent_path() / "host" / "sqlite" / "stream_info.db").string();
+  const auto adjacent = path.parent_path() / "host" / "sqlite" / "stream_info.db";
+  if (std::filesystem::is_regular_file(adjacent) ||
+      path.parent_path().filename() != "ASCEND_PROFILER_OUTPUT")
+    return adjacent.string();
+  // Official torch-npu export keeps the monolithic DB and raw PROF container
+  // as siblings under one rank capture. Require exactly one container, never
+  // guess a rank/session by timestamp or pick the first available mapping.
+  std::vector<std::filesystem::path> containers;
+  for (const auto& entry : std::filesystem::directory_iterator(path.parent_path().parent_path())) {
+    if (entry.is_directory() && entry.path().filename().string().rfind("PROF_", 0) == 0)
+      containers.push_back(entry.path());
+  }
+  if (containers.size() == 1) {
+    const auto mapping = containers.front() / "host" / "sqlite" / "stream_info.db";
+    if (std::filesystem::is_regular_file(mapping)) return mapping.string();
+  }
+  return adjacent.string();
 }
 
 bool aclgraph_capture_stream_schema_usable(

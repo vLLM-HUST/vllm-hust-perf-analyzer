@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "traceloom"
-version = "0.1.0"
+version = "0.1.1"
 description = "Native inference timeline analysis with a Python API and vLLM runtime observer"
 readme = "python/README.md"
 requires-python = ">=3.10"

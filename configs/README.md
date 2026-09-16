@@ -274,10 +274,12 @@ rechecks the source-token span, including already merged macros. The synthetic
 whole-trace root is a container and intentionally spans steps; it is not a
 candidate macro.
 
-This first route supports eager grammar-based AugDB analysis and Perfetto
-export. It rejects missing supported context, grammar-disabled mode, protected
-replay, explicit marked-structure projection and independent legacy/debug
-outputs rather than silently ignoring the constraint. Other marker matching
+This route supports eager and exactly linked protected replay in grammar-based
+AugDB analysis and Perfetto export. Every protected unit must have one known
+step identity across its launch-owned tokens; missing/conflicting evidence is
+rejected, not guessed or split. It also rejects missing supported context,
+grammar-disabled mode, explicit marked-structure projection and independent
+legacy/debug outputs rather than silently ignoring the constraint. Other marker matching
 rules can be combined with partition_by. Omit the field to retain unconstrained
 recovery; importing context alone does not enable it. The macro-only legacy
 rules document also accepts top-level partition_by: scheduler_step.

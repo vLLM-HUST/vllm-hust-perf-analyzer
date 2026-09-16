@@ -1,7 +1,9 @@
--- Bind :run_id. Costs are supported device work, NOT complete step latency.
+-- Bind :run_id. Costs are supported event-level work, NOT complete step latency.
+-- Exclude graph-launch envelopes: adding them to exact body events would mix
+-- observation resolutions and falsely fill unobserved device-idle gaps.
 WITH work AS (
  SELECT DISTINCT run_id,step_id,device_id,device_work_id,start_ns,end_ns,dur_us
- FROM traceloom_v_context_device_work WHERE run_id=:run_id
+ FROM traceloom_v_context_device_work WHERE run_id=:run_id AND event_id IS NOT NULL
 ), previous AS (
  SELECT *,MAX(end_ns) OVER(PARTITION BY run_id,step_id,device_id
               ORDER BY start_ns,end_ns,device_work_id

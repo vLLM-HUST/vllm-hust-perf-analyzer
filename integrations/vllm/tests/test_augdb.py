@@ -524,6 +524,198 @@ class AugDbTests(unittest.TestCase):
         self.run_cli(inputs=[], success=False, extra=("--rules-config", str(rules)))
         self.assertEqual(self.out.read_bytes(), before)
 
+    def exact_replay_profile(self):
+        fixture = ROOT / "native/tests/fixtures/ascend_sqlite/exact_hlt"
+        self.raw = self.root / "exact" / "msprof.db"
+        self.raw.parent.mkdir()
+        with sqlite3.connect(self.raw) as db:
+            db.executescript((fixture / "msprof.sql").read_text())
+            db.execute(
+                "CREATE TABLE PYTORCH_API(startNs INTEGER,endNs INTEGER,name TEXT,globalTid INTEGER)"
+            )
+            # Complete replay waves: prefill H/L/T, three decode H/L/T,
+            # then an incomplete H/L suffix. Parallel body lanes overlap.
+            for i, (start, end) in enumerate(
+                [(80, 299), (380, 599), (680, 899), (980, 1199), (1280, 1499)]
+            ):
+                if i:
+                    output = Output()
+                    context.record_step(scheduler(), output)
+                    with context.execution_scope(output, 0, self.marker):
+                        pass
+                    context.close_all()
+                db.execute(
+                    "INSERT INTO PYTORCH_API VALUES(?,?,?,1)",
+                    (start, end, self.markers[-1]),
+                )
+        stream = self.raw.parent / "host/sqlite/stream_info.db"
+        stream.parent.mkdir(parents=True)
+        with sqlite3.connect(stream) as db:
+            db.executescript((fixture / "host/sqlite/stream_info.sql").read_text())
+        self.inputs = sorted((self.root / "context").glob("*.jsonl"))
+
+    def test_scheduler_exact_replay_members_and_partitions(self):
+        self.exact_replay_profile()
+        self.run_cli()
+        members = self.rows(
+            "SELECT * FROM traceloom_graph_body_member ORDER BY launch_id,member_id"
+        )
+        launches = self.rows("SELECT * FROM traceloom_graph_launch ORDER BY launch_id")
+        self.assertTrue(members)
+        linked = self.rows(
+            "SELECT DISTINCT launch_id,member_id FROM traceloom_v_context_replay_member"
+        )
+        self.assertEqual(len(linked), len(members))
+        self.assertEqual(
+            self.rows(
+                "SELECT COUNT(*) FROM traceloom_v_context_replay_member WHERE association_basis NOT LIKE '%exact_replay_member'"
+            ),
+            [(0,)],
+        )
+        self.run_cli(
+            extra=("--rules-config", str(ROOT / "configs/scheduler-step.yaml"))
+        )
+        self.assertEqual(
+            members,
+            self.rows(
+                "SELECT * FROM traceloom_graph_body_member ORDER BY launch_id,member_id"
+            ),
+        )
+        self.assertEqual(
+            launches,
+            self.rows("SELECT * FROM traceloom_graph_launch ORDER BY launch_id"),
+        )
+        self.assertEqual(
+            self.rows(
+                "SELECT COUNT(*) FROM (SELECT replay_unit_id FROM traceloom_v_context_replay_launch GROUP BY replay_unit_id HAVING COUNT(DISTINCT step_id)>1)"
+            ),
+            [(0,)],
+        )
+        self.assertEqual(
+            self.rows(
+                "SELECT COUNT(*) FROM traceloom_v_context_device_coverage WHERE candidate_steps>1"
+            ),
+            [(0,)],
+        )
+        # Every non-root occurrence stays within one supplied step, including
+        # nested repeat instances; templates may still be reused across steps.
+        query = (ROOT / "integrations/vllm/occurrence-step-context.sql").read_text()
+        for (occurrence,) in self.rows(
+            "SELECT occurrence_id FROM traceloom_v_position_occurrence WHERE parent_occurrence_id IS NOT NULL"
+        ):
+            self.assertLessEqual(
+                len(self.rows(query, {"occurrence_id": occurrence})), 1
+            )
+        self.assertTrue(self.rows("SELECT * FROM traceloom_v_context_anchor"))
+
+    def test_replay_tp1_control_rows_do_not_require_communication_table(self):
+        self.exact_replay_profile()
+        with sqlite3.connect(self.raw) as db:
+            db.executescript("""
+            DROP TABLE COMMUNICATION_TASK_INFO;
+            INSERT INTO STRING_IDS VALUES(201,'NOP'),(202,'MEM_WAIT_VALUE');
+            INSERT INTO TASK VALUES
+              (116,117,0,8001,8001,1,201,0,42,1001,10),
+              (117,118,0,8002,8002,1,202,0,42,1002,10);
+            """)
+        self.run_cli()
+        count = self.rows("SELECT COUNT(*) FROM traceloom_graph_body_member")[0][0]
+        self.assertGreater(count, 0)
+        self.assertTrue(
+            self.rows(
+                "SELECT * FROM traceloom_v_context_replay_launch WHERE graph_launch_occurrence_id=0"
+            )
+        )
+        # Unknown executable work is NOT made safe by classifying known controls.
+        with sqlite3.connect(self.raw) as db:
+            db.execute("UPDATE STRING_IDS SET value='UNKNOWN_EXECUTABLE' WHERE id=201")
+        self.run_cli()
+        self.assertEqual(
+            self.rows(
+                "SELECT COUNT(*) FROM traceloom_v_context_replay_launch WHERE graph_launch_occurrence_id=0"
+            ),
+            [(0,)],
+        )
+
+    def test_official_torch_export_discovers_one_raw_capture_mapping(self):
+        self.exact_replay_profile()
+        capture = self.raw.parent
+        output = capture / "ASCEND_PROFILER_OUTPUT"
+        output.mkdir()
+        official = output / "ascend_pytorch_profiler_0.db"
+        self.raw.rename(official)
+        self.raw = official
+        raw = capture / "PROF_first"
+        raw.mkdir()
+        (capture / "host").rename(raw / "host")
+        self.run_cli(
+            extra=("--rules-config", str(ROOT / "configs/scheduler-step.yaml"))
+        )
+        self.assertTrue(self.rows("SELECT * FROM traceloom_v_context_replay_member"))
+        # Two sibling containers are ambiguous even if only one was parsed.
+        (capture / "PROF_second").mkdir()
+        self.run_cli()
+        self.assertEqual(
+            self.rows("SELECT COUNT(*) FROM traceloom_graph_body_member"), [(0,)]
+        )
+
+    def test_replay_member_conflicting_direct_step_is_not_assigned(self):
+        self.exact_replay_profile()
+        # First wave's member (connection 400) also has a directly correlated
+        # runtime endpoint inside the second step. Neither wins by timestamp.
+        with sqlite3.connect(self.raw) as db:
+            db.execute("INSERT INTO CANN_API VALUES(450,455,0,1,400,20)")
+        self.run_cli()
+        ambiguous = self.rows(
+            "SELECT event_id FROM traceloom_v_context_device_coverage WHERE candidate_steps>1"
+        )
+        self.assertTrue(ambiguous)
+        for (event,) in ambiguous:
+            self.assertEqual(
+                self.rows(
+                    "SELECT COUNT(*) FROM traceloom_v_context_replay_member WHERE event_id=?",
+                    (event,),
+                ),
+                [(0,)],
+            )
+            self.assertEqual(
+                self.rows(
+                    "SELECT COUNT(*) FROM traceloom_v_context_device_work WHERE event_id=?",
+                    (event,),
+                ),
+                [(0,)],
+            )
+
+    def test_scheduler_replay_cross_step_or_missing_fails_closed(self):
+        self.exact_replay_profile()
+        self.run_cli()
+        before = self.out.read_bytes()
+        with sqlite3.connect(self.raw) as db:
+            db.execute("UPDATE PYTORCH_API SET endNs=499 WHERE startNs=380")
+            db.execute("UPDATE PYTORCH_API SET startNs=580 WHERE startNs=680")
+        p = self.run_cli(
+            success=False,
+            extra=("--rules-config", str(ROOT / "configs/scheduler-step.yaml")),
+        )
+        self.assertIn(
+            "protected replay has missing or conflicting step identity", p.stderr
+        )
+        self.assertEqual(before, self.out.read_bytes())
+        # Unconstrained analysis retains evidence even when a replay unit
+        # spans supplied steps; it must not silently 'repair' that evidence.
+        self.run_cli()
+        self.assertTrue(
+            self.rows(
+                "SELECT replay_unit_id FROM traceloom_v_context_replay_launch GROUP BY replay_unit_id HAVING COUNT(DISTINCT step_id)>1"
+            )
+        )
+        with sqlite3.connect(self.raw) as db:
+            db.execute("DELETE FROM PYTORCH_API")
+        self.run_cli()
+        self.assertEqual(
+            self.rows("SELECT COUNT(*) FROM traceloom_v_context_replay_member"), [(0,)]
+        )
+
     def test_partition_unknown_config_is_rejected(self):
         rules = self.root / "bad.yaml"
         rules.write_text("""schema: traceloom-analysis-rules-v1

@@ -9,7 +9,11 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace as NS
+from unittest.mock import patch
 
 import traceloom
 from traceloom._api import native_binary
@@ -51,6 +55,84 @@ class PythonApiTests(unittest.TestCase):
             check=True,
         )
         self.assertIn("0.1.0", result.stdout)
+
+    def test_scheduler_step_and_exact_replay_inside_installed_wheel(self):
+        import traceloom_vllm_context as context
+
+        fixture = ROOT / "native/tests/fixtures/ascend_sqlite/exact_hlt"
+        self.source = self.root / "ASCEND_PROFILER_OUTPUT/ascend_pytorch_profiler_0.db"
+        self.source.parent.mkdir()
+        stream = self.root / "PROF_capture/host/sqlite/stream_info.db"
+        stream.parent.mkdir(parents=True)
+        with sqlite3.connect(stream) as db:
+            db.executescript((fixture / "host/sqlite/stream_info.sql").read_text())
+        markers = []
+
+        @contextmanager
+        def marker(name):
+            markers.append(name)
+            yield
+
+        @dataclass
+        class Output:
+            num_scheduled_tokens: dict
+            total_num_scheduled_tokens: int
+            scheduled_new_reqs: list
+            finished_req_ids: set
+            preempted_req_ids: object = None
+            traceloom_step: dict | None = None
+
+        scheduler = NS(requests={})
+        directory = self.root / "context"
+        with patch.dict(
+            os.environ,
+            {
+                "TRACELOOM_CONTEXT_DIR": str(directory),
+                "TRACELOOM_RUN_ID": "wheel-replay",
+            },
+        ):
+            for _ in range(5):
+                output = Output(
+                    num_scheduled_tokens={"request": 1},
+                    total_num_scheduled_tokens=1,
+                    scheduled_new_reqs=[],
+                    finished_req_ids=set(),
+                    preempted_req_ids=None,
+                )
+                context.record_step(scheduler, output)
+                with context.execution_scope(output, 0, marker):
+                    pass
+            context.close_all()
+        with sqlite3.connect(self.source) as db:
+            db.executescript((fixture / "msprof.sql").read_text())
+            db.execute(
+                "CREATE TABLE PYTORCH_API(startNs INTEGER,endNs INTEGER,name TEXT,globalTid INTEGER)"
+            )
+            for name, (start, end) in zip(
+                markers, [(80, 299), (380, 599), (680, 899), (980, 1199), (1280, 1499)]
+            ):
+                db.execute(
+                    "INSERT INTO PYTORCH_API VALUES(?,?,?,1)", (start, end, name)
+                )
+        result = self.analyze(
+            context=sorted(directory.glob("*.jsonl")),
+            rules_config=traceloom.bundled_rules("scheduler-step"),
+        )
+        members = result.query("SELECT COUNT(*) AS n FROM traceloom_graph_body_member")[
+            0
+        ]["n"]
+        self.assertGreater(members, 0)
+        self.assertEqual(
+            result.query("SELECT COUNT(*) AS n FROM traceloom_v_context_replay_member"),
+            [{"n": members}],
+        )
+        self.assertEqual(
+            result.query(
+                "SELECT COUNT(*) AS n FROM (SELECT replay_unit_id FROM traceloom_v_context_replay_launch GROUP BY replay_unit_id HAVING COUNT(DISTINCT step_id)>1)"
+            ),
+            [{"n": 0}],
+        )
+        result.export_perfetto(self.root / "replay.json.gz", timeout=30)
 
     def test_analysis_query_export_and_reopen(self):
         result = self.analyze()
