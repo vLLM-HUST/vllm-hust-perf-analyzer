@@ -9,13 +9,13 @@
 namespace traceloom::compat::perfetto_internal {
 void write_common_timeline(RawTraceWriter& writer, std::vector<TimelineSlice> slices,
                            PerfettoExportReceipt& receipt) {
-  // Replay identity is deliberately absent from the packing key. Event streams
-  // and actual overlaps require lanes; evidence provenance does not.
-  using Group = std::tuple<int, int, std::string, bool, int, std::int64_t>;
+  // Stream and replay identities are attributes, not display partitions.
+  // Only actual overlap needs another event lane within a device/view.
+  using Group = std::tuple<int, int, std::string, bool, int>;
   std::map<Group, std::vector<TimelineSlice>> groups;
   for (auto& slice : slices) {
     const Group key{slice.db, slice.device, slice.view, slice.event,
-                    slice.event ? 0 : slice.depth, slice.event ? slice.stream : -1};
+                    slice.event ? 0 : slice.depth};
     groups[key].push_back(std::move(slice));
   }
   int next_structure_tid = 1, next_event_tid = 900000;
@@ -35,8 +35,7 @@ void write_common_timeline(RawTraceWriter& writer, std::vector<TimelineSlice> sl
             std::string(slice.event ? "timeline events" : "subtree") +
             " · db " + std::to_string(slice.db) + " · device " +
             std::to_string(slice.device) + " · " + slice.view +
-            (slice.event ? " · stream " + (slice.stream < 0 ? std::string("unknown") : std::to_string(slice.stream))
-                         : " · depth " + std::to_string(slice.depth)) +
+            (slice.event ? std::string{} : " · depth " + std::to_string(slice.depth)) +
             " · lane " + std::to_string(lanes.size());
         writer.thread(110, tid, name, tid);
         lanes.push_back({slice.end, tid});

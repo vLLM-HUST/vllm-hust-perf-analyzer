@@ -258,11 +258,15 @@ capture, complete semantic layer identification, or additive cost attribution.
 
 Replay is evidence/identity, not a display partition. `load_replay_timeline`
 prepares exact realizations; `write_common_timeline` packs both ordinary and
-replay-derived slices in one allocator. Event keys are db/device/view/stream;
+replay-derived slices in one allocator. Since 0.1.4, event keys are db/device/view, not stream;
 structural keys are db/device/view/display-depth. Only overlap allocates another
 lane. Categories are shared (`traceloom.timeline_event`, structural_interval,
 repeat_body_window); use `args.replay_derived` and launch/member attributes to
-select replay evidence. Never key a lane by replay/domain/launch identity.
+select replay evidence. Never key a lane by stream/replay/domain/launch identity. Stream coordinates
+remain event attributes; serial events from different streams reuse a lane.
+For each device/view the start-time greedy packing uses exactly the peak
+number of simultaneously active positive-duration events. This is display
+packing, not a new ordering for grammar or dependency analysis.
 
 Replace a launch anchor only when all its exact members are realized, across
 all lanes. Missing/non-dense/duplicate membership withholds that launch's
@@ -278,7 +282,14 @@ to rewrite analysis membership or infer cross-stream dependencies.
 
 The synthetic integration regression puts eager and graph-member work on the
 same stream and requires shared track IDs, no replay-named tracks, unique
-primary-plane events, preserved parallel streams, hidden expanded graph
+primary-plane events, separate overlapping events with serial cross-stream lane
+reuse, hidden expanded graph
 wrappers, and fail-closed missing evidence. Real Qwen export/audit:
 /root/my-ascend-workspace/runs/traceloom-qwen-graph-step/20260916T0444Z-device1/
 common-plane.perfetto.json.gz and verify-common-plane.py.
+
+The same Qwen capture re-exported with overlap-only event packing has 11,686
+unchanged events, three stream identities, but one display lane (observed peak
+concurrency one). Structure and event geometry/identity are unchanged. Artifact:
+`overlap-packed.perfetto.json.gz`, audit `verification-overlap-packed.json`
+beside the common-plane capture above. Do not infer cross-stream causality.

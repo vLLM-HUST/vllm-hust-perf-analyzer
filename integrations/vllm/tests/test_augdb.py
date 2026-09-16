@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import unittest
 from contextlib import contextmanager
+from itertools import pairwise
 from pathlib import Path
 from unittest.mock import patch
 
@@ -611,8 +612,9 @@ class AugDbTests(unittest.TestCase):
     def test_replay_timeline_realizes_each_launch_and_parallel_lane(self):
         self.exact_replay_profile()
         with sqlite3.connect(self.raw) as db:
-            # Ordinary work on a later graph's stream, outside its launch.
+            # Serial ordinary work on different streams must reuse the same lane.
             db.execute("INSERT INTO TASK VALUES(350,351,0,9090,100,1,30,0,36,999,7)")
+            db.execute("INSERT INTO TASK VALUES(351,352,0,9090,100,1,30,0,136,1000,7)")
         self.run_cli()
         destination = self.root / "replay.json"
 
@@ -679,12 +681,15 @@ class AugDbTests(unittest.TestCase):
             for e in trace["traceEvents"]
             if e.get("cat") == "traceloom.timeline_event"
             and "member_id" not in e.get("args", {})
-            and e.get("args", {}).get("stream_id") == 36
+            and e.get("args", {}).get("stream_id") in (36, 136)
+            and round(e["ts"] * 1000 + trace["metadata"]["time_origin_ns"])
+            in (350, 351)
         ]
-        self.assertTrue(ordinary)
+        self.assertEqual({e["args"]["stream_id"] for e in ordinary}, {36, 136})
+        self.assertEqual(len({e["tid"] for e in ordinary}), 1)
         self.assertTrue(
             {e["tid"] for e in ordinary}
-            & {e["tid"] for e in members if e["args"]["stream_id"] == 36}
+            & {e["tid"] for e in members}
         )
         graph_anchors = {
             a[0]
@@ -704,15 +709,33 @@ class AugDbTests(unittest.TestCase):
             (e["args"]["launch_id"], e["args"]["member_id"]): e for e in members
         }
         self.assertEqual(len(by_identity), len(expected))
-        # Two parallel streams must not be accidentally stacked on one lane.
-        streams = {}
+        # Identity is preserved, but lanes depend only on interval concurrency.
         for launch, member, start, end, stream in expected:
             e = by_identity[launch, member]
-            self.assertEqual(e["pid"], 110)  # primary analysis track, not raw/context
+            self.assertEqual(e["pid"], 110)
+            self.assertEqual(e["args"]["stream_id"], stream)
             self.assertAlmostEqual(e["dur"], (end - start) / 1000, places=3)
-            streams.setdefault(stream, set()).add(e["tid"])
-        tids = [tid for lanes in streams.values() for tid in lanes]
-        self.assertEqual(len(tids), len(set(tids)))
+        events = [
+            e
+            for e in trace["traceEvents"]
+            if e.get("cat") == "traceloom.timeline_event"
+        ]
+        lanes = {}
+        endpoints = []
+        for e in events:
+            lanes.setdefault(e["tid"], []).append(e)
+            endpoints.extend([(e["ts"], 1), (e["ts"] + e["dur"], -1)])
+        active = peak = 0
+        for _, delta in sorted(endpoints):
+            active += delta
+            peak = max(peak, active)
+        self.assertGreater(peak, 1)  # fixture actually exercises concurrency
+        self.assertEqual(len(lanes), peak)
+        for tid, lane in lanes.items():
+            self.assertNotIn("stream", tracks[tid])
+            lane.sort(key=lambda e: e["ts"])
+            for left, right in pairwise(lane):
+                self.assertLessEqual(left["ts"] + left["dur"], right["ts"] + 1e-9)
         # Missing realization evidence must not borrow another launch's member.
         lost = expected[0][1]
         with sqlite3.connect(self.out) as db:
