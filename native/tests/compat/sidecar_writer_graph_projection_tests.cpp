@@ -586,6 +586,7 @@ void run_graph_projection_tests(
               "idx_traceloom_event_source_lookup",
               "idx_traceloom_graph_body_member_event",
               "idx_traceloom_graph_body_member_event_identity",
+              "idx_traceloom_graph_body_member_identity",
               "idx_traceloom_graph_body_member_launch",
               "idx_traceloom_graph_body_member_launch_identity",
               "idx_traceloom_graph_body_member_node",
@@ -599,6 +600,7 @@ void run_graph_projection_tests(
               "idx_traceloom_replay_cost_aggregate_hotspot",
               "idx_traceloom_replay_cost_contributor",
               "idx_traceloom_replay_cost_member_event",
+              "idx_traceloom_replay_cost_member_identity",
               "idx_traceloom_replay_cost_member_launch",
               "idx_traceloom_replay_cost_member_observed",
               "idx_traceloom_runtime_call_correlation",
@@ -620,6 +622,7 @@ void run_graph_projection_tests(
               "idx_traceloom_symbol_normalization_source",
               "idx_traceloom_symbol_normalization_symbol",
               "idx_traceloom_symbol_rule_identity",
+              "idx_traceloom_viz_edge_child",
               "idx_traceloom_viz_node_id",
           }));
 

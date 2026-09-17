@@ -215,6 +215,8 @@ CREATE TABLE IF NOT EXISTS traceloom_replay_cost_issue (
 
 void create_indexes_and_views(Db &db) {
   db.exec(R"SQL(
+CREATE INDEX IF NOT EXISTS idx_traceloom_replay_cost_member_identity
+  ON traceloom_replay_cost_member(member_id, db_idx, device_id);
 CREATE INDEX IF NOT EXISTS idx_traceloom_replay_cost_member_event
   ON traceloom_replay_cost_member(event_id, db_idx, device_id);
 CREATE INDEX IF NOT EXISTS idx_traceloom_replay_cost_member_launch

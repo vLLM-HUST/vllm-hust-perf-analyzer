@@ -168,6 +168,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_traceloom_replay_body_domain_key
 CREATE INDEX IF NOT EXISTS idx_traceloom_replay_body_pattern_kind
   ON traceloom_replay_body_pattern_definition(
     domain_id, node_kind, repeat_count, pattern_id);
+CREATE INDEX IF NOT EXISTS idx_traceloom_replay_body_occurrence_identity
+  ON traceloom_replay_body_pattern_occurrence(
+    occurrence_id, domain_id, db_idx, device_id);
+CREATE INDEX IF NOT EXISTS idx_traceloom_replay_body_position_identity
+  ON traceloom_replay_body_position(position_id, domain_id);
 CREATE INDEX IF NOT EXISTS idx_traceloom_replay_body_occurrence_pattern
   ON traceloom_replay_body_pattern_occurrence(
     pattern_id, occurrence_index);
