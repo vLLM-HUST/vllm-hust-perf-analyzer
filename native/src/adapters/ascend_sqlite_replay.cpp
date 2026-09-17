@@ -467,6 +467,7 @@ void materialize_replay_composition_candidates(
     materialize_replay_composition_candidates_for_order(
         ir, device_order, ReplayCompositionOrderPolicy::kDeviceExecutionOrder,
         missing_body_capability_launches);
+    materialize_direct_aclgraph_candidates(ir);
     return;
   }
   const bool identical_order =
@@ -484,6 +485,7 @@ void materialize_replay_composition_candidates(
   materialize_replay_composition_candidates_for_order(
       ir, host_order, ReplayCompositionOrderPolicy::kHostSubmissionOrder,
       missing_body_capability_launches);
+  materialize_direct_aclgraph_candidates(ir);
 }
 
 std::set<std::uint32_t> materialize_exact_aclgraph_replay_units(

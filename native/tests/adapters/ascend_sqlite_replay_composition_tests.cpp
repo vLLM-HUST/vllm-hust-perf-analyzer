@@ -26,6 +26,51 @@ int main() {
   using namespace traceloom;
   using namespace traceloom::test;
 
+  // Full-graph serving can alternate captured banks and interleave a one-shot
+  // mixed graph without a repeated multi-launch period. Each directly observed
+  // captured invocation is still an exact replay (not an inferred model step).
+  for (const std::string mutation :
+       {"", "direct_singleton.sql", "direct_missing_completion.sql",
+        "direct_missing_body.sql", "direct_overlap.sql"}) {
+    const auto direct_dir = temp_ascend_profile_dir("_direct_replays");
+    materialize_ascend_graph_fixture(direct_dir, "launch_identity");
+    const auto direct_db = (direct_dir / "msprof.db").string();
+    apply_ascend_fixture_mutation(direct_db, "launch_identity",
+                                 "direct_replays.sql");
+    apply_ascend_fixture_mutation(
+        (direct_dir / "host/sqlite/stream_info.db").string(),
+        "launch_identity", "direct_capture_streams.sql");
+    if (!mutation.empty()) {
+      apply_ascend_fixture_mutation(direct_db, "launch_identity", mutation);
+    }
+    const auto direct_ir = AscendSQLiteAdapter(direct_db, "direct_replays").load();
+    const std::size_t expected = mutation.empty() ? 6 :
+        (mutation == "direct_singleton.sql" ? 1 : 0);
+    std::size_t exact = 0;
+    for (const auto& unit : direct_ir.replay_units.rows()) {
+      if (unit.replay_composition_region_id.valid()) ++exact;
+    }
+    require(exact == expected,
+            "direct replay accepted incomplete evidence or lost an invocation");
+    require(direct_ir.replay_unit_launch_members.size() == expected,
+            "direct replay must have exactly one observed launch member");
+    if (expected) {
+      for (const auto& candidate : direct_ir.replay_composition_candidates.rows()) {
+        require(candidate.boundary_policy ==
+                    ReplayCompositionBoundaryPolicy::kDirectObservedGraphLaunch &&
+                    candidate.shape_policy == ReplayCompositionShapePolicy::kSingleGraph,
+                "direct replay invented a periodic composition or model-step identity");
+      }
+    }
+    if (mutation.empty()) {
+      require(direct_ir.graph_launch_body_members.size() == 9,
+              "direct replay failed to retain exact compute/communication body ownership");
+      require(direct_ir.graph_templates.size() == 3,
+              "identical bank bodies should reuse templates; one-shot changed body must stay distinct");
+    }
+    std::filesystem::remove_all(direct_dir);
+  }
+
   const std::filesystem::path body_mismatch_dir =
       temp_ascend_profile_dir("_body_mismatch");
   std::filesystem::create_directories(body_mismatch_dir);

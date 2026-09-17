@@ -1,0 +1,1 @@
+DELETE FROM TASK WHERE startNs>=200;
