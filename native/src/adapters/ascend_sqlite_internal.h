@@ -355,6 +355,8 @@ std::set<GraphLaunchOccurrenceId> materialize_graph_launch_bodies(
     bool compute_identity_source,
     bool communication_identity_source);
 
+void materialize_direct_aclgraph_candidates(NativeIr& ir);
+
 void materialize_replay_composition_candidates(
     NativeIr& ir,
     const std::set<GraphLaunchOccurrenceId>&

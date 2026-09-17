@@ -1,0 +1,1 @@
+DELETE FROM TASK WHERE taskType=30 AND startNs>=600;

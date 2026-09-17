@@ -220,6 +220,7 @@ if(TRACELOOM_NATIVE_ENABLE_SQLITE_ADAPTERS)
         src/adapters/ascend_sqlite_foundation.cpp
         src/adapters/ascend_sqlite_graph.cpp
         src/adapters/ascend_sqlite_replay.cpp
+        src/adapters/ascend_sqlite_direct_replay.cpp
         src/adapters/ascend_sqlite_split.cpp
         src/adapters/ascend_sqlite_tasks.cpp
         src/adapters/cuda_nsys_sqlite_adapter.cpp

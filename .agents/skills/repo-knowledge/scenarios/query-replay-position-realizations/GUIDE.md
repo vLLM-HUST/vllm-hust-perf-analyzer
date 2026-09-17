@@ -293,3 +293,39 @@ unchanged events, three stream identities, but one display lane (observed peak
 concurrency one). Structure and event geometry/identity are unchanged. Artifact:
 `overlap-packed.perfetto.json.gz`, audit `verification-overlap-packed.json`
 beside the common-plane capture above. Do not infer cross-stream causality.
+## Continuous full-graph serving: directly observed invocations
+
+Observed on the September17 Qwen27 TP2 double-bank six-step capture: the capture
+model sequence was25,24,47,26,27,26. Both frozen37323af and mainf1ccc85 produced
+one521.604ms legacy `capture_stream_task_overlap` envelope and no exact launch
+members. There were six explicit MODEL_EXECUTE/NOTIFY_WAIT/NOTIFY_RECORD chains;
+periodic-composition recognition, not missing provider evidence, was the gap.
+Do not demand three repeated launch periods to admit one directly observed graph.
+
+`ascend_sqlite_direct_replay.cpp` now admits single-graph candidates on devices
+without a periodic composition candidate, using the existing
+`direct_observed_graph_launch` policy. Admission requires every launch to have
+adjacent completion, record-model capture identity, all control task IDs, an
+unambiguous exact body and disjoint ordered windows. One incomplete launch
+withholds the new route for that device. Known multi-launch compositions and
+their partial/mismatched-wave rejection keep precedence; this is not a rule that
+every graph equals a model step or that a bank pair is one scheduler wave.
+
+Bounded real validation: both candidate ranks recover six exact replays and
+16,177 exact body members/rank (three reusable body templates). The native
+control retains three exact repeated decode units plus an unrecognized region;
+do not promote the missing mixed/prefill coverage merely for symmetry. Full
+87-test suite and non-test release build pass. Source-level fixtures in
+`launch_identity/mutations/direct_*.sql` cover alternation plus a one-shot body,
+single invocation, missing completion/body, and overlap; existing H/L/T and body
+mismatch tests protect the old fail-closed contract.
+
+Reproducer artifacts are outside Git under
+`/workspace/strengthen-dsv4/runs/qwen38-tp2-serving/dualbank-swe1`:
+`round1/{candidate,baseline}/native-graph/rank{0,1}/PROF_*` are full inputs;
+`traceloom-continuous-current` is the f1ccc85 control;
+`traceloom-continuous-fixed` contains new AugDBs, Markdown, four native Perfetto
+exports and compact counts. Only derived AugDBs received the child-edge lookup
+index for exporter performance; raw profiles were unchanged. Long periodic bank
+sequences still use the existing composition policy; this bounded fix does not
+redefine larger compositions or claim scheduler-step ownership.
