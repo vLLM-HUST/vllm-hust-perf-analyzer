@@ -130,6 +130,17 @@ void materialize_structural_compatibility_indexes(SqliteDb& db) {
   db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_graph_launch_anchor_identity "
       "ON traceloom_graph_launch(anchor_id, db_idx, device_id)");
+  // Identity joins in concrete replay realization must not rescan a full
+  // launch/domain for every member of each continuously replayed graph.
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_graph_body_member_identity "
+      "ON traceloom_graph_body_member(launch_id, member_id, db_idx, device_id)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_replay_cost_member_identity "
+      "ON traceloom_replay_cost_member(member_id, db_idx, device_id)");
+  db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_traceloom_viz_edge_child "
+      "ON traceloom_viz_edge(child_node_id)");
   db.exec(
       "CREATE INDEX IF NOT EXISTS idx_traceloom_graph_body_member_launch "
       "ON traceloom_graph_body_member(launch_id)");

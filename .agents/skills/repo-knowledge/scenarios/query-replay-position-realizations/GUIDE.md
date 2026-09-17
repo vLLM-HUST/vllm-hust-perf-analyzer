@@ -324,8 +324,31 @@ Reproducer artifacts are outside Git under
 `/workspace/strengthen-dsv4/runs/qwen38-tp2-serving/dualbank-swe1`:
 `round1/{candidate,baseline}/native-graph/rank{0,1}/PROF_*` are full inputs;
 `traceloom-continuous-current` is the f1ccc85 control;
-`traceloom-continuous-fixed` contains new AugDBs, Markdown, four native Perfetto
-exports and compact counts. Only derived AugDBs received the child-edge lookup
-index for exporter performance; raw profiles were unchanged. Long periodic bank
+`traceloom-continuous-qualified` contains new AugDBs, Markdown, four native
+Perfetto exports and compact counts, rebased on the common-plane exporter in
+0d65fea. Raw profiles were unchanged. Long periodic bank
 sequences still use the existing composition policy; this bounded fix does not
 redefine larger compositions or claim scheduler-step ownership.
+
+
+### Index concrete realization identity before scaling the export
+
+The same six-replay candidate has16,177 exact members but8,279 template repeat
+windows. On0d65fea plus direct replay recovery, export took over two minutes;
+separate5-second bounded reads both interrupted the repeat-window and member
+queries. EXPLAIN showed per-member scans of a whole domain/launch. A derived-DB
+experiment adding identity indexes reduced those reads to0.407s and0.228s.
+
+The writers now index occurrence identity, terminal position identity, replay
+cost member identity and `(launch_id,member_id,db_idx,device_id)` graph membership.
+The common sidecar writer also indexes viz-edge child lookup, removing an older
+manual exporter workaround. These are lookup indexes, not new uniqueness or
+ownership assumptions. Reanalysis creates them automatically; old AugDBs do not
+acquire them just because the binary changes. Preserve geometry rather than
+rewriting joins into timestamp containment. On candidate rank0 all62,803 exported
+events before/after indexing match exactly; fresh export is about1.37s.
+The four qualified exports validate every exact member and replay repeat window
+against its concrete launch/member coordinates, not a shared template envelope.
+Full87 native and54 vLLM integration tests plus release build pass. Evidence:
+`traceloom-continuous-final/export-query-plans.json`, `export-index-probe.json`,
+and `traceloom-continuous-qualified/{receipt,verification}.json` under the same run.
