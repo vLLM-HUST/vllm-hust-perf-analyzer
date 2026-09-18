@@ -152,6 +152,10 @@ CliOptions parse_args(int argc, char** argv) {
     } else if (arg == "--distributed-rank") {
       options.perfetto_options.distributed_ranks.push_back(
           traceloom::tools::parse_distributed_rank_input(require_value(arg)));
+    } else if (arg == "--distributed-alignment") {
+      options.perfetto_options.distributed_alignment = require_value(arg);
+    } else if (arg == "--no-raw-provider") {
+      options.perfetto_options.include_raw_provider_timeline = false;
     } else if (arg == "--distributed-clock-model") {
       options.perfetto_options.distributed_clock_model_path =
           require_value(arg);
@@ -290,7 +294,9 @@ CliOptions parse_args(int argc, char** argv) {
   }
   if (!options.perfetto_export_only && options.perfetto_out_path.empty() &&
       (!options.perfetto_options.distributed_ranks.empty() ||
-       !options.perfetto_options.distributed_clock_model_path.empty()))
+       !options.perfetto_options.distributed_clock_model_path.empty() ||
+       !options.perfetto_options.distributed_alignment.empty() ||
+       !options.perfetto_options.include_raw_provider_timeline))
     throw std::invalid_argument(
         "distributed Perfetto options require a Perfetto output");
   if (!options.perfetto_options.distributed_clock_model_path.empty() &&
@@ -559,6 +565,7 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
                   << receipt.distributed_timeline_slices << "\n";
         std::cerr << "  distributed_alignment: "
                   << receipt.distributed_alignment << "\n";
+        traceloom::tools::print_perfetto_reading_notes(receipt);
         if (!receipt.distributed_clock_model_sha256.empty()) {
           std::cerr << "  distributed_clock_model_sha256: "
                     << receipt.distributed_clock_model_sha256 << "\n";
@@ -747,6 +754,7 @@ int main(int argc, char** argv) {
                 << receipt.distributed_timeline_slices << "\n";
       std::cerr << "  distributed_alignment: "
                 << receipt.distributed_alignment << "\n";
+      traceloom::tools::print_perfetto_reading_notes(receipt);
       if (!receipt.distributed_clock_model_sha256.empty()) {
         std::cerr << "  distributed_clock_model_sha256: "
                   << receipt.distributed_clock_model_sha256 << "\n";

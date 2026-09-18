@@ -17,6 +17,9 @@ struct PerfettoExportOptions {
   int distributed_reference_rank = 0;
   // Explicit opt-in. Empty keeps first-event display normalization.
   std::string distributed_clock_model_path;
+  // Empty preserves the legacy default (or selects the explicit affine model).
+  // "provider" retains source timestamps; it does not certify a common clock.
+  std::string distributed_alignment;
 };
 
 struct PerfettoExportReceipt {
@@ -31,6 +34,7 @@ struct PerfettoExportReceipt {
   std::uint64_t counter_samples = 0;
   std::uint64_t motif_classes = 0;
   std::string distributed_alignment = "none";
+  std::string distributed_alignment_boundary;
   std::string distributed_clock_model_sha256;
 };
 

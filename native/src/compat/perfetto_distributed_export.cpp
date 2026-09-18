@@ -179,7 +179,7 @@ std::string args_for_event(const DistributedFlatTimeline& timeline,
                            const DistributedRankTimeline& rank,
                            const DistributedTimelineEventSlice& event) {
   std::ostringstream out;
-  out << "{\"semantic_kind\":\"distributed_traceloom_timeline_event\""
+  out << "{\"projection_plane\":\"device_events\",\"semantic_kind\":\"distributed_traceloom_timeline_event\""
       << ",\"rank\":" << rank.rank
       << ",\"source_timeline_db\":" << json_quote(rank.timeline_db_path)
       << ",\"source_timeline_db_sha256\":" << json_quote(rank.timeline_db_sha256)
@@ -206,7 +206,9 @@ std::string args_for_event(const DistributedFlatTimeline& timeline,
       << ",\"self_us\":" << number(event.self_us)
       << ",\"aux_events\":" << event.aux_events
       << ",\"aux_us\":" << number(event.aux_us);
-  if (timeline.clock_models.empty()) {
+  if (timeline.alignment == "provider_timestamps") {
+    out << ",\"clock_model_status\":\"uncalibrated\"";
+  } else if (timeline.clock_models.empty()) {
     out << ",\"source_anchor_ns\":" << rank.source_anchor
         << ",\"display_reference_anchor_ns\":"
         << timeline.display_reference_anchor;
@@ -239,7 +241,17 @@ std::string args_for_event(const DistributedFlatTimeline& timeline,
 
 DistributedFlatTimeline load_distributed_flat_timeline(const PerfettoExportOptions& options) {
   DistributedFlatTimeline timeline;
-  if (options.distributed_ranks.empty()) return timeline;
+  if (!options.distributed_alignment.empty() &&
+      options.distributed_alignment != "provider" &&
+      options.distributed_alignment != "first-event")
+    throw std::invalid_argument("--distributed-alignment expects provider or first-event");
+  if (!options.distributed_alignment.empty() && !options.distributed_clock_model_path.empty())
+    throw std::invalid_argument("choose --distributed-alignment OR --distributed-clock-model");
+  if (options.distributed_ranks.empty()) {
+    if (!options.distributed_alignment.empty() || !options.distributed_clock_model_path.empty())
+      throw std::invalid_argument("distributed alignment requires --distributed-rank inputs");
+    return timeline;
+  }
   timeline.reference_rank = options.distributed_reference_rank;
   std::optional<DistributedClockModelSet> clock_models;
   if (!options.distributed_clock_model_path.empty()) {
@@ -263,11 +275,16 @@ DistributedFlatTimeline load_distributed_flat_timeline(const PerfettoExportOptio
     throw std::invalid_argument("distributed reference rank " +
                                 std::to_string(timeline.reference_rank) + " was not provided");
   timeline.display_reference_anchor = reference->source_anchor;
-  if (!clock_models) {
+  if (options.distributed_alignment == "provider") {
+    timeline.alignment = "provider_timestamps";
+    timeline.alignment_evidence_status = "uncalibrated";
+    timeline.alignment_boundary =
+        "source timestamps preserved; cross-rank clock comparability is caller-supplied, not calibrated";
+  } else if (!clock_models) {
     timeline.alignment = "first_timeline_event_per_rank";
     timeline.alignment_evidence_status = "display_only";
     timeline.alignment_boundary =
-        "first-event translation only; no shared absolute-clock claim";
+        "each rank aligned at its first event; initial skew is removed, not calibrated";
   } else {
     timeline.alignment = "collective_end_affine_clock_model";
     timeline.alignment_evidence_status = clock_models->evidence_status;
@@ -301,6 +318,7 @@ std::int64_t map_distributed_display_timestamp(
     const DistributedFlatTimeline& timeline,
     const DistributedRankTimeline& rank,
     std::int64_t source_timestamp_ns) {
+  if (timeline.alignment == "provider_timestamps") return source_timestamp_ns;
   if (timeline.clock_models.empty()) {
     return timeline.display_reference_anchor +
            (source_timestamp_ns - rank.source_anchor);
@@ -327,7 +345,9 @@ void export_distributed_flat_timeline(const DistributedFlatTimeline& timeline,
   if (timeline.ranks.empty()) return;
   constexpr int pid = 120;
   writer.process(pid,
-                 timeline.clock_models.empty()
+                 timeline.alignment == "provider_timestamps"
+                     ? "TraceLoom · distributed events · provider timestamps (uncalibrated)"
+                     : timeline.clock_models.empty()
                      ? "TraceLoom · distributed flat timeline events · first-event normalized"
                      : "TraceLoom · distributed flat timeline events · collective-end affine aligned",
                  1);

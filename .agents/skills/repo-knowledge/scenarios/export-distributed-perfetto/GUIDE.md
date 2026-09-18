@@ -4,6 +4,20 @@ Use this scenario when extending the Perfetto exporter with distributed
 TraceLoom timelines or when a compressed rank view suggests a phase, skew, or
 anomaly worth auditing.
 
+## Select the view and clock before interpreting it
+
+For independent-source timing use `--distributed-alignment provider` only when
+provider clock comparability is established externally; it preserves offsets,
+not calibration. The legacy first-event default removes initial rank skew.
+Do not repair that export by hand after the fact. Explicit affine receipts
+remain a separate mutually exclusive route.
+
+Never sum all JSON slices: structure, device events and raw evidence overlap.
+Filter `args.projection_plane=device_events` and one rank/device/view for an
+inventory; even then overlapping durations are not wall time. Raw audit slices
+are tagged `raw_provider`. `--no-raw-provider` hides them without deleting DB
+provenance. See the public contract's SQL example and aggregation boundary.
+
 ## Current contract
 
 The public contract is owned by `docs/augmented-perfetto-timeline.md`; read it
@@ -17,7 +31,7 @@ important inquiry boundaries are:
 - the reference AugDB supplies the rank-0 structural tree and embedded raw
   evidence; distributed inputs replace its ordinary single flat atom row with
   one flat atom-occurrence lane per rank;
-- `first_timeline_event_per_rank` translates each rank's first published atom
+- the backward-compatible default `first_timeline_event_per_rank` translates each rank's first published atom
   occurrence onto rank 0's first atom occurrence and preserves later
   within-rank elapsed times and durations;
 - `--distributed-clock-model MODELS.jsonl` is the recommended explicit opt-in
@@ -203,3 +217,15 @@ Regression coverage must reuse a Seq/Repeat definition across instances, and
 check each body's actual duration, anchor count, and costs—not merely the
 number of slices or correctness of HPO intervals. Real-export auditing should
 compare every derived body to its concrete direct members.
+
+### Client-profile ambiguity regression (2026-09-18)
+
+A real Qwen38 client trace has five collect tasks represented both in published
+and raw lanes. A whole-JSON duration sum double-counted them. The exporter now
+tags both planes and prints the aggregation boundary; querying `device_events`
+returns five while preserving the five raw audit slices. The two-source prefill
+export additionally verified33,056 slices with `display_ts + origin == source_ts`
+under provider mode, without first-event normalization or a fitted clock claim.
+The native fixture checks preserved source skew, legacy normalization, conflicting
+options failing before output truncation, and raw-evidence opt-out. See the public
+SQL recipe; do not rely on hard-coded Perfetto TIDs to distinguish planes.

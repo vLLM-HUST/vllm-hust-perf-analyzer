@@ -729,10 +729,12 @@ PerfettoExportReceipt write_perfetto_trace(const std::string& analysis_db_path,
   perfetto_internal::export_context_timeline(db.get(), writer);
   perfetto_internal::export_distributed_flat_timeline(distributed, writer, receipt);
   receipt.distributed_alignment = distributed.alignment;
+  receipt.distributed_alignment_boundary = distributed.alignment_boundary;
   receipt.distributed_clock_model_sha256 = distributed.clock_model_sha256;
   writer.finish(
       "{\"format\":\"TraceLoom queryable database timeline Perfetto export\",\"analysis_db\":" +
       json_quote(analysis_db_path) + ",\"time_origin_ns\":" + std::to_string(origin) +
+      ",\"aggregation_boundary\":\"Views overlap: never sum structure, device_events and raw_provider together. Filter one projection_plane and one rank/device/view; duration sums are not elapsed or busy time.\"" +
       ",\"repeat_body_slices\":" + std::to_string(receipt.repeat_body_slices) +
       ",\"replay_structure_slices\":" + std::to_string(receipt.replay_structure_slices) +
       ",\"replay_member_slices\":" + std::to_string(receipt.replay_member_slices) +

@@ -315,6 +315,35 @@ int main() {
   require(json.find("timeline events · db 0") == std::string::npos);
   require(json.find("shape-") == std::string::npos);
 
+  require_contains(json, "\"projection_plane\":\"device_events\"");
+  require_contains(json, "\"projection_plane\":\"raw_provider\"");
+  require_contains(json, "\"aggregation_boundary\":");
+  auto provider_options = distributed_options;
+  provider_options.distributed_alignment = "provider";
+  const auto provider_receipt = traceloom::compat::write_perfetto_trace(
+      db_path.string(), aligned_json_path.string(), provider_options);
+  require(provider_receipt.distributed_alignment == "provider_timestamps");
+  require(!provider_receipt.distributed_alignment_boundary.empty());
+  const auto provider_json = read_plain(aligned_json_path);
+  // Provider mode must preserve the40us source skew. Default above removes it.
+  require(count_occurrences(provider_json, "\"ts\":9.100") == 1);
+  require(count_occurrences(provider_json, "\"ts\":49.100") == 1);
+  require_contains(provider_json, "\"source_start_ns\":50000");
+  require_contains(provider_json, "\"distributed_alignment_evidence_status\":\"uncalibrated\"");
+  require(provider_json.find("\"source_anchor_ns\"") == std::string::npos);
+  for (int invalid = 0; invalid < 3; ++invalid) {
+    auto bad = provider_options;
+    if (invalid == 0) bad.distributed_alignment = "guess";
+    if (invalid == 1) bad.distributed_ranks.clear();
+    if (invalid == 2) bad.distributed_clock_model_path = model_path.string();
+    bool rejected = false;
+    try {
+      traceloom::compat::write_perfetto_trace(db_path.string(), aligned_json_path.string(), bad);
+    } catch (const std::invalid_argument&) { rejected = true; }
+    require(rejected);
+    require(read_plain(aligned_json_path) == provider_json); // validate before truncation
+  }
+
   traceloom::compat::PerfettoExportOptions aligned_options =
       distributed_options;
   aligned_options.distributed_clock_model_path = model_path.string();
@@ -373,6 +402,16 @@ int main() {
   require_contains(read_gzip(cli_path), "timeline events · rank 1");
   require_contains(read_gzip(cli_path), "collective_end_affine_clock_model");
 #endif
+
+  const std::string provider_cli = std::string("\"") + TRACELOOM_ANALYZER + "\" export-perfetto \"" +
+      db_path.string() + "\" --output \"" + json_path.string() +
+      "\" --distributed-rank 0=\"" + rank0_path.string() +
+      "\" --distributed-rank 1=\"" + rank1_path.string() +
+      "\" --distributed-alignment provider --no-raw-provider >/dev/null 2>&1";
+  require(std::system(provider_cli.c_str()) == 0);
+  require_contains(read_plain(json_path), "provider_timestamps");
+  require(read_plain(json_path).find("\"projection_plane\":\"raw_provider\"") == std::string::npos);
+  require(std::system((provider_cli + " --distributed-clock-model \"" + model_path.string() + "\"").c_str()) != 0);
 
   // Embedded HIP data must appear beside recovered structure, not merely
   // remain queryable in the AugDB. Repeated launch indices retain both rows.

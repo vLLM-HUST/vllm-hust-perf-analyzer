@@ -143,7 +143,7 @@ std::vector<RawTable> raw_tables(sqlite3* db) {
 std::string raw_args(const RawTable& table, sqlite3_stmt* stmt, int rowid_col,
                      const std::vector<std::pair<std::string, int>>& fields) {
   std::ostringstream out;
-  out << "{\"source_id\":" << json_quote(table.source_id)
+  out << "{\"projection_plane\":\"raw_provider\",\"source_id\":" << json_quote(table.source_id)
       << ",\"source_table\":" << json_quote(table.name)
       << ",\"embedded_table_name\":" << json_quote(table.table)
       << ",\"source_rowid\":" << sqlite3_column_int64(stmt, rowid_col);

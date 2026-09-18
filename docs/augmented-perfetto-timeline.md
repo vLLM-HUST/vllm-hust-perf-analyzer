@@ -4,6 +4,14 @@ TraceLoom can export its self-contained queryable database timeline (AugDB) as
 Perfetto / Chrome Trace JSON. This is a first-class projection of AugDB, not a
 second analyzer or a custom frontend.
 
+## Before exporting
+
+- **Counting kernels?** Views overlap. Filter `args.projection_plane` rather
+  than summing every slice; see [the SQL recipe](#avoid-double-counting-the-same-work).
+- **Comparing rank timing?** The default removes each rank's initial offset.
+  For independent sources, consider [provider timestamps](#preserve-provider-timestamps-for-independent-sources)
+  instead; neither option by itself calibrates clocks.
+
 ## CLI
 
 Export while analyzing a profile:
@@ -120,7 +128,8 @@ means an observed structural subtree occurrence, not a guessed layer name.
 
 ## Distributed alignment and audit boundary
 
-Without `--distributed-clock-model`, distributed lanes use
+Without `--distributed-clock-model` or `--distributed-alignment provider`,
+distributed lanes use
 `first_timeline_event_per_rank` display alignment: each rank's first published
 atom occurrence is translated onto rank 0's first atom occurrence while all
 later within-rank elapsed times and durations remain unchanged. This view
@@ -193,3 +202,61 @@ statistics are composed from those children. Export fails closed if the
 published children do not provide exactly the repeat bodies promised by the
 repeat node. This keeps the visualization aligned with the same independently
 composable and auditable intervals exposed by AugDB.
+
+## Avoid double-counting the same work
+
+The JSON is a **multi-view visualization**, not a bag of independent tasks.
+A kernel may appear in the device-event plane and again as raw-provider audit
+evidence; enclosing structure bars are another view of the same interval.
+Every device/distributed event now has `args.projection_plane=device_events`;
+raw slices have `raw_provider`, and subtree bars have `structure`. Export prints
+a reading note and embeds `metadata.aggregation_boundary` for downstream tools.
+
+For a kernel inventory in Perfetto, choose one plane and one device/view (or one
+explicit distributed rank) before summing. For example, for a single-device
+export containing just one view:
+
+```sql
+SELECT name, COUNT(*) AS calls, SUM(dur) / 1e6 AS task_ms
+FROM slice
+WHERE EXTRACT_ARG(arg_set_id, 'args.projection_plane') = 'device_events'
+  AND EXTRACT_ARG(arg_set_id, 'args.database_index') = 0
+  AND EXTRACT_ARG(arg_set_id, 'args.device_id') = 0
+  AND EXTRACT_ARG(arg_set_id, 'args.view_name') = 'native_report_tree'
+GROUP BY name;
+```
+
+Inspect the available device/view coordinates rather than assuming this example
+matches your capture. Perfetto SQL `dur` is nanoseconds, while Chrome JSON `dur`
+is microseconds. Even within one plane, concurrent task durations can overlap:
+the sum is **not** wall time, utilization, or removable latency. Never deduplicate
+by name/timestamp; separate genuine events can share both.
+
+`--no-raw-provider` omits raw audit tracks from this export only. It neither
+deletes evidence from the database nor removes nested structure bars. The
+projection-plane filter remains necessary. Existing default exports keep all
+raw evidence for compatibility and auditability.
+
+## Preserve provider timestamps for independent sources
+
+For sources already recorded in a suitable provider time domain, use:
+
+```bash
+traceloom export-perfetto rank0.db --output sources.json.gz \
+  --distributed-rank 0=rank0.db --distributed-rank 1=rank1.db \
+  --distributed-alignment provider
+```
+
+This retains cross-rank source offsets with a single shared display origin;
+no rank is independently zeroed and no synthetic collective correspondence is
+created. Metadata and the visible track title explicitly say **uncalibrated**.
+The caller must establish whether provider clocks are comparable; retaining
+numbers does not prove that clocks on different hosts agree.
+
+`--distributed-alignment first-event` explicitly selects the historical default.
+It removes initial source skew and must not be used to infer concurrent arrival
+or waiting of independent clients. The CLI now says this at export time as well
+as in `--help`. Either alignment option is mutually exclusive with
+`--distributed-clock-model`; incompatible choices, unknown modes, or alignment
+without ranks fail before opening the output. Existing model-based exports and
+unspecified first-event behavior are unchanged.
