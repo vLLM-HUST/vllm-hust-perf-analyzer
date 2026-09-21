@@ -156,6 +156,14 @@ int main() {
       "mode: end_delimited, boundary_label: residual, labels: []"})
     rejected([&] {load_analysis_rules_config(write("bad-boundary-label.yaml",schema+
         "structure: {unit: {id: r, begin: N, end: E, "+bad+"}}\n"));});
+  auto normalized=load_analysis_rules_config(write("normalized.yaml",schema+
+      "replay_structure: {unit: {id: r, mode: end_delimited, begin: N, end: E, name_normalization: ascend_decorated_kernel, end_predecessor_any: [Add, aclnnAdds_AddAiCore_Add], labels: [{label: a, contains_any: [A]}]}}\n"));
+  require(normalized.replay_structure.name_normalization=="ascend_decorated_kernel");
+  require(normalized.replay_structure.end_predecessor_any.size()==2);
+  for (auto bad : {"name_normalization: fuzzy", "end_predecessor_any: []",
+                  "end_predecessor_any: [Add], end_predecessor: Add", "end_predecessor_any: ['']"})
+    rejected([&] {load_analysis_rules_config(write("bad-normalization.yaml",schema+
+        "replay_structure: {unit: {id: r, mode: end_delimited, begin: N, end: E, labels: [{label: a, contains_any: [A]}], "+bad+"}}\n"));});
   auto cycle=load_analysis_rules_config(write("cycle.yaml",schema+
       "structure: {unit: {id: c, mode: cycle_end, label: candidate, end_sequence: [S, tail]}}\n"));
   require(cycle.structure.end_sequence.size()==2);

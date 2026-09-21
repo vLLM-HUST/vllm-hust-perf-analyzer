@@ -1,5 +1,6 @@
 #include "traceloom/analysis/marked_structure.h"
 #include "traceloom/analysis/structural_occurrence_builder.h"
+#include "traceloom/analysis/structural_symbol_normalization.h"
 #include <algorithm>
 #include <functional>
 #include <map>
@@ -15,12 +16,12 @@ struct Region {
   std::string label, reason;
   std::vector<Region> children;
 };
-std::string classify(const std::vector<StructuralProjectionToken>& tokens,
+std::string classify(const std::vector<std::string>& names,
                      std::size_t a, std::size_t b, const MarkedStructureRules& rules) {
   std::string label;
   for (const auto& rule : rules.labels) {
-    const bool found = std::any_of(tokens.begin()+a, tokens.begin()+b, [&](const auto& token) {
-      return std::find(rule.contains_any.begin(), rule.contains_any.end(), token.display_op)
+    const bool found = std::any_of(names.begin()+a, names.begin()+b, [&](const auto& token) {
+      return std::find(rule.contains_any.begin(), rule.contains_any.end(), token)
           != rule.contains_any.end();
     });
     if (found) {
@@ -34,6 +35,17 @@ std::string classify(const std::vector<StructuralProjectionToken>& tokens,
 StructuralOccurrenceGraph build_marked_structural_graph(
     const std::vector<StructuralProjectionToken>& tokens, const MarkedStructureRules& rules) {
   if (tokens.empty()) return build_structural_occurrence_graph_from_tokens(tokens);
+  if (rules.name_normalization != "exact" &&
+      rules.name_normalization != "ascend_decorated_kernel")
+    throw std::invalid_argument("unsupported model name_normalization");
+  std::vector<std::string> names;
+  names.reserve(tokens.size());
+  for (const auto& token : tokens) {
+    const auto base = rules.name_normalization == "ascend_decorated_kernel"
+        ? ascend_decorated_kernel_base(token.display_op) : std::nullopt;
+    names.push_back(base.value_or(token.display_op));
+  }
+  const bool guarded = !rules.end_predecessor.empty() || !rules.end_predecessor_any.empty();
   StructuralOccurrenceGraph graph;
   graph.diagnostics.push_back({DiagnosticSeverity::kInfo,"model_structure_explicit",rules.id});
   std::vector<Region> units;
@@ -46,11 +58,11 @@ StructuralOccurrenceGraph build_marked_structural_graph(
   if (rules.mode == "cycle_end") {
     if (rules.end_sequence.empty()) throw std::invalid_argument("empty cycle end sequence");
     for (std::size_t i=0; i<tokens.size(); ++i) {
-      if (tokens[i].display_op != rules.end_sequence.front()) continue;
+      if (names[i] != rules.end_sequence.front()) continue;
       const auto end=i+rules.end_sequence.size();
       bool complete=end<=tokens.size();
       for (std::size_t j=0; complete && j<rules.end_sequence.size(); ++j)
-        complete=tokens[i+j].display_op==rules.end_sequence[j];
+        complete=names[i+j]==rules.end_sequence[j];
       if (!complete) {
         warning("model_cycle_incomplete_end",i);
         start.reset(); // Never bridge an observed but unrecognized cycle tail.
@@ -65,15 +77,17 @@ StructuralOccurrenceGraph build_marked_structural_graph(
     for (std::size_t i=0; i<tokens.size(); ++i) {
       // A fresh input norm starts/resets a segment. Preparation before the
       // last such seed stays raw; a previous graph/stream never seeds this one.
-      if (tokens[i].display_op == rules.begin)
+      if (names[i] == rules.begin)
         start=rules.boundary_label.empty() ? i : i+1;
-      if (tokens[i].display_op != rules.end) continue;
-      const bool predecessor=rules.end_predecessor.empty() ||
-          (i>0 && tokens[i-1].display_op==rules.end_predecessor);
+      if (names[i] != rules.end) continue;
+      const bool predecessor=!guarded || (i>0 &&
+          ((!rules.end_predecessor.empty() && names[i-1]==rules.end_predecessor) ||
+           std::find(rules.end_predecessor_any.begin(), rules.end_predecessor_any.end(),
+                     names[i-1]) != rules.end_predecessor_any.end()));
       const auto body_end=rules.boundary_label.empty() ? i+1 :
-          (rules.end_predecessor.empty() || i==0 ? i : i-1);
+          (!guarded || i==0 ? i : i-1);
       if (start && predecessor && *start<body_end) {
-        auto label=classify(tokens,*start,body_end,rules);
+        auto label=classify(names,*start,body_end,rules);
         units.push_back({*start,body_end,label,"model_rule:"+rules.id+":"+label,{}});
         if (label=="ambiguous" || label=="unclassified") warning("model_unit_"+label,*start);
       } else warning("model_unit_unsupported_end",i);
@@ -87,13 +101,13 @@ StructuralOccurrenceGraph build_marked_structural_graph(
     }
   } else {
     for (std::size_t i=0; i<tokens.size(); ++i) {
-      if (tokens[i].display_op == rules.begin) {
+      if (names[i] == rules.begin) {
         if (start) { nested=true; warning("model_unit_nested_begin",i); }
         else { start=i; nested=false; }
-      } else if (tokens[i].display_op == rules.end) {
+      } else if (names[i] == rules.end) {
         if (!start) warning("model_unit_unmatched_end",i);
         else if (!nested) {
-          auto label=classify(tokens,*start,i+1,rules);
+          auto label=classify(names,*start,i+1,rules);
           units.push_back({*start,i+1,label,"model_rule:"+rules.id+":"+label,{}});
           if (label=="ambiguous" || label=="unclassified") warning("model_unit_"+label,*start);
         }

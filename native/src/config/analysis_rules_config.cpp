@@ -114,13 +114,28 @@ AnalysisRulesConfig load_analysis_rules_config(const std::string& path,
     if (p == root.end()) continue;
     auto& structure = std::string(key) == "structure" ? out.structure : out.replay_structure;
     auto fields = document.fields(p->second, {"unit", "compositions"});
-    auto unit = document.fields(YamlDocument::required(fields,"unit"), {"id","begin","end","labels","mode","end_predecessor","end_sequence","label","boundary_label"});
+    auto unit = document.fields(YamlDocument::required(fields,"unit"), {"id","begin","end","labels","mode","end_predecessor","end_sequence","label","boundary_label","name_normalization","end_predecessor_any"});
     auto required_string = [](const auto& f,const std::string& key) {
       auto value=YamlDocument::scalar(YamlDocument::required(f,key));
       if(value.empty()) throw std::invalid_argument("empty structure field: "+key);
       return value;
     };
     structure.id=required_string(unit,"id");
+    if (unit.count("name_normalization")) {
+      structure.name_normalization=required_string(unit,"name_normalization");
+      if (structure.name_normalization!="exact" && structure.name_normalization!="ascend_decorated_kernel")
+        throw std::invalid_argument("unsupported model name_normalization");
+    }
+    if (unit.count("end_predecessor_any")) {
+      if (unit.count("end_predecessor") || !unit.count("mode") || required_string(unit,"mode")!="end_delimited")
+        throw std::invalid_argument("end_predecessor_any requires end_delimited and excludes end_predecessor");
+      for (auto item:document.sequence(unit.at("end_predecessor_any"))) {
+        auto name=YamlDocument::scalar(item);
+        if (name.empty()) throw std::invalid_argument("empty predecessor alternative");
+        structure.end_predecessor_any.push_back(name);
+      }
+      if (structure.end_predecessor_any.empty()) throw std::invalid_argument("empty predecessor alternatives");
+    }
     if (auto mode=unit.find("mode"); mode!=unit.end())
       structure.mode=required_string(unit,"mode");
     if (structure.mode!="paired" && structure.mode!="end_delimited" && structure.mode!="cycle_end")

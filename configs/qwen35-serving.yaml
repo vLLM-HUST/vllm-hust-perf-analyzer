@@ -36,8 +36,11 @@ replay_structure:
     mode: end_delimited
     begin: GemmaRmsNorm
     end: AddRmsNormBias
-    # Replay matching retains exact provider identities, not outer Add aliases.
-    end_predecessor: aclnnAdds_AddAiCore_Add
+    # Only marker matching uses CANN kernel bases; exact body identities stay raw.
+    name_normalization: ascend_decorated_kernel
+    # Rank1 exposes Add_<fingerprint> rather than the aclnnAdds wrapper.
+    # Admit this only immediately before the fused norm, not as a generic residual.
+    end_predecessor_any: [aclnnAdds_AddAiCore_Add, Add]
     boundary_label: residual_norm
     labels:
       - label: attention

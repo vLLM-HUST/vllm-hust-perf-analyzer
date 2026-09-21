@@ -104,9 +104,8 @@ contains four bf6fb49 exports/summaries, not AugDBs. Rank0 decode/mixed each hav
 396 named layers; rank1 has zero in both, despite all twelve exact launches and
 normal operator populations. Rank1 uses suffixed GemmaRmsNorm/AddRmsNormBias and
 classifier identities outside the overlay's exact literals. Do not infer missing
-execution or compare layer costs using those asymmetric labels. The current
-three-phase convention does not itself solve this identity-admission gap.
-Retain backend/source identity if adding explicitly bounded family matching.
+execution or compare layer costs using those asymmetric labels. The three-phase convention alone did not solve this identity-admission gap.
+The matching-only repair below retains backend/source identity.
 
 The independent bounded analysis and reproducer live beside that archive at
 `timeline-analysis-20260921/findings/{REPORT.md,metrics.json,analyze.py}`. It
@@ -115,3 +114,38 @@ checks every exact member against its launch, and measures matrix-family
 interval unions without mixing primary/raw/structural projections. The mixed
 candidate's [3,257,97] then [3,3,3,33] differs from the old [3,33,257,97]; both
 large steps padding to512 does not make their total-time delta a causal speedup.
+
+
+### Matching-only CANN preprocessing closes the rank1 landmark gap
+
+The shared `ascend_decorated_kernel_base` parser already served outer structural
+normalization; replay model rules had bypassed it. `name_normalization:
+ascend_decorated_kernel` now opts marker/classifier matching into that same
+fingerprint/lowering-mode/layout syntax. It does not rewrite atom displays,
+exact replay symbols, cost members, or ordered definition signatures. Unknown
+underscore suffixes remain exact. Default model matching remains `exact`.
+
+Rank1 also exposes the norm predecessor as `Add_<fingerprint>...`, rather than
+`aclnnAdds_AddAiCore_Add`. The Qwen rule explicitly admits either through
+`end_predecessor_any`, only adjacent to `AddRmsNormBias`; this is a landmark
+interpretation, not proof of scalar Adds identity or arbitrary Add residuals.
+The two predecessor fields are mutually exclusive. Do not silently apply the
+outer generic Add alias to all exact replay evidence.
+
+Bounded validation on the newest fused package: the native marked-structure
+matcher consumed each exported exact launch/domain/stream sequence ordered by
+dense `position_ordinal`. All four decode/mixed × rank0/rank1 traces yielded
+396 layer, 396 attention, 396 MLP, and 792 residual_norm occurrences. Evidence:
+`timeline-analysis-20260921/name-normalization/verification.json` beside the
+archive, with per-region exact event IDs and reproducer sources. This is native
+matching on an exported sequence, NOT a full raw-DB reanalysis. The archive has
+no AugDB, and its frozen source path was absent on this machine during repair.
+
+Separate end-to-end CLI validation used the earlier banked-draft full profiles
+(decode rank0/rank1, mixed rank1), producing the same phase counts with all12
+launches. Outputs/commands/checks are under that capture's
+`traceloom/qwen35-name-normalized/`. Decode rank0 event, anchor, graph launch,
+body-member, and replay-cost-member rows are exactly equal to its earlier
+three-phase AugDB. Native integration tests use actual candidate rank1 spelling
+forms and verify equal phase coordinates plus unchanged evidence rows; unit
+tests keep decorated exact variants distinct and reject arbitrary suffixes.

@@ -26,6 +26,9 @@ struct MarkedStructureRules {
   // Optional independent end-delimiter unit, including its guarded predecessor.
   // Seed-only begin markers stay raw rather than becoming residual operations.
   std::string boundary_label;
+  // Matching-only preprocessing; atom display and exact signatures stay intact.
+  std::string name_normalization = "exact";
+  std::vector<std::string> end_predecessor_any;
   bool enabled() const { return !id.empty(); }
 };
 StructuralOccurrenceGraph build_marked_structural_graph(

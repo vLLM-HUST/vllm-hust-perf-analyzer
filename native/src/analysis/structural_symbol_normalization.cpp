@@ -274,37 +274,6 @@ bool is_ascii_alnum_string(const std::string& value) {
          });
 }
 
-std::optional<std::string> ascend_decorated_kernel_base(
-    const std::string& value) {
-  const std::size_t separator = value.find('_');
-  if (separator == std::string::npos || separator == 0) return std::nullopt;
-
-  const std::string base = value.substr(0, separator);
-  const std::string suffix = value.substr(separator + 1);
-  const std::size_t next_separator = suffix.find('_');
-  const std::string first_segment = suffix.substr(0, next_separator);
-
-  // CANN-generated names carry either a 32-character kernel fingerprint or
-  // an explicit lowering-mode suffix.  Treat those as strong syntax, not as
-  // a fuzzy operator-name guess.  Older MatMul names encode their ND/NZ
-  // layout directly and omit the mode marker.
-  const bool has_fingerprint =
-      first_segment.size() == 32 && is_ascii_alnum_string(first_segment);
-  const bool has_lowering_mode =
-      value.find("_high_performance_") != std::string::npos ||
-      value.find("_high_precision_") != std::string::npos ||
-      value.find("_optional_") != std::string::npos;
-  const bool has_legacy_matmul_layout =
-      (first_segment == "ND" || first_segment == "NZ") &&
-      (base == "MatMulV1" || base == "MatMulV2" || base == "MatMulV3" ||
-       base == "BatchMatMulV1" || base == "BatchMatMulV2" ||
-       base == "BatchMatMulV3");
-  if (!has_fingerprint && !has_lowering_mode &&
-      !has_legacy_matmul_layout) {
-    return std::nullopt;
-  }
-  return base;
-}
 
 std::optional<std::string> rule_structural_symbol(
     const StructuralSymbolNormalizationRule& rule,
@@ -462,6 +431,38 @@ StructuralSymbolNormalizationRuleset::snapshot() const {
          rule.source_line});
   }
   return out;
+}
+
+std::optional<std::string> ascend_decorated_kernel_base(
+    const std::string& value) {
+  const std::size_t separator = value.find('_');
+  if (separator == std::string::npos || separator == 0) return std::nullopt;
+
+  const std::string base = value.substr(0, separator);
+  const std::string suffix = value.substr(separator + 1);
+  const std::size_t next_separator = suffix.find('_');
+  const std::string first_segment = suffix.substr(0, next_separator);
+
+  // CANN-generated names carry either a 32-character kernel fingerprint or
+  // an explicit lowering-mode suffix.  Treat those as strong syntax, not as
+  // a fuzzy operator-name guess.  Older MatMul names encode their ND/NZ
+  // layout directly and omit the mode marker.
+  const bool has_fingerprint =
+      first_segment.size() == 32 && is_ascii_alnum_string(first_segment);
+  const bool has_lowering_mode =
+      value.find("_high_performance_") != std::string::npos ||
+      value.find("_high_precision_") != std::string::npos ||
+      value.find("_optional_") != std::string::npos;
+  const bool has_legacy_matmul_layout =
+      (first_segment == "ND" || first_segment == "NZ") &&
+      (base == "MatMulV1" || base == "MatMulV2" || base == "MatMulV3" ||
+       base == "BatchMatMulV1" || base == "BatchMatMulV2" ||
+       base == "BatchMatMulV3");
+  if (!has_fingerprint && !has_lowering_mode &&
+      !has_legacy_matmul_layout) {
+    return std::nullopt;
+  }
+  return base;
 }
 
 const char* structural_symbol_source_name(StructuralSymbolSource source) {

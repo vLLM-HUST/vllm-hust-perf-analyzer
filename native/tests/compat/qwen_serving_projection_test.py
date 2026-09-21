@@ -84,6 +84,31 @@ with tempfile.TemporaryDirectory(prefix='traceloom-qwen-model-') as directory:
             for left, right in zip(group, group[1:]):
                 assert left['ts'] + left['dur'] <= right['ts'] + 1e-9
         assert not db.execute("SELECT 1 FROM traceloom_replay_body_pattern_domain WHERE support_status!='supported'").fetchall()
+    # Real rank1 naming forms from the September-21 fused candidate capture.
+    decorated = {
+        'GemmaRmsNorm': 'GemmaRmsNorm_3f68f4a3c27727c75887c7423ff14492_high_performance_0',
+        'AddRmsNormBias': 'AddRmsNormBias_352d2859a07d64c080e8dfc836d9897f_33',
+        'CausalConv1d': 'CausalConv1d_a7280564d3ba44fea98d5ca869636992_1',
+        'SwiGlu': 'SwiGlu_3_high_performance_27',
+        'aclnnAdds_AddAiCore_Add': 'Add_ce3d1ff8ba23a0bcb292da3577c1625d_high_performance_223000000',
+    }
+    with sqlite3.connect(raw) as db:
+        for plain, name in decorated.items():
+            db.execute('UPDATE STRING_IDS SET value=? WHERE id=?', (name, ids[plain]))
+    decorated_baseline, raw_trace = analyze('decorated-baseline', False)
+    decorated_output, decorated_trace = analyze('decorated-marked', True)
+    assert events(raw_trace) == events(decorated_trace)
+    def model_windows(trace):
+        return collections.Counter((e['name'].rsplit(' · ', 1)[-1], e['args']['launch_id'],
+                                    e['args']['position_start'], e['args']['position_end_exclusive'],
+                                    e['ts'], e['dur'])
+                                   for e in trace if e.get('cat') == 'traceloom.structural_interval'
+                                   and e['name'].rsplit(' · ', 1)[-1] in ('layer', 'attention', 'mlp', 'residual_norm'))
+    assert model_windows(decorated_trace) == model_windows(after)
+    with sqlite3.connect(decorated_output) as db, sqlite3.connect(decorated_baseline) as old:
+        for table in ('traceloom_event', 'traceloom_anchor', 'traceloom_graph_body_member',
+                      'traceloom_graph_launch', 'traceloom_replay_cost_member'):
+            assert db.execute('SELECT * FROM ' + table).fetchall() == old.execute('SELECT * FROM ' + table).fetchall(), table
     # An observed slot marker with an unrecognized tail is a barrier, not a
     # license to combine two cycles into one apparently complete occurrence.
     with sqlite3.connect(raw) as db:

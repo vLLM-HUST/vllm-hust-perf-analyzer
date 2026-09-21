@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <optional>
 #include <vector>
 
 #include "traceloom/ir/communication_op_table.h"
@@ -90,6 +91,9 @@ class StructuralSymbolNormalizationRuleset {
   std::string manifest_sha256_;
   std::vector<StructuralSymbolNormalizationRule> rules_;
 };
+
+// Shared CANN decoration syntax; no fuzzy prefix stripping or identity rewrite.
+std::optional<std::string> ascend_decorated_kernel_base(const std::string& value);
 
 const char* structural_symbol_source_name(StructuralSymbolSource source);
 const char* structural_symbol_outcome_name(StructuralSymbolOutcome outcome);

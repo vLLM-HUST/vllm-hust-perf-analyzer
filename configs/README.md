@@ -325,8 +325,17 @@ replay domain's `reason_code`. Invalid replay evidence is still rejected before
 model matching. Cycle mode is outer-only.
 
 The supplied rule seeds at `GemmaRmsNorm` and ends at `AddRmsNormBias` preceded
-by `aclnnAdds_AddAiCore_Add`. Replay rules match exact provider identity strings,
-not the outer `Add` display alias. `CausalConv1d` or `ScatterPaKvCache` identifies
+by `aclnnAdds_AddAiCore_Add` or the rank1 CANN `Add` kernel family.
+Model matching defaults to exact provider strings, not outer display aliases.
+The Qwen rule opts into `name_normalization: ascend_decorated_kernel`, reusing
+TraceLoom's CANN fingerprint/lowering-mode/layout suffix parser for marker and
+classifier matching only. Arbitrary underscore suffixes are not stripped.
+Raw names, atom labels, replay cost identities, and exact ordered definition
+signatures remain unchanged; equal kernel families do not merge variants.
+`end_predecessor_any` provides nonempty alternatives for the adjacent guard
+and is mutually exclusive with `end_predecessor`; both require `end_delimited`.
+The Qwen `Add` alternative is admitted only immediately before `AddRmsNormBias`,
+not as proof that arbitrary Add kernels implement residuals. `CausalConv1d` or `ScatterPaKvCache` identifies
 attention; `SwiGlu` identifies MLP. With `boundary_label: residual_norm`, the
 exact predecessor plus fused norm form an independent sibling unit, excluded
 from both attention and MLP. The composition is

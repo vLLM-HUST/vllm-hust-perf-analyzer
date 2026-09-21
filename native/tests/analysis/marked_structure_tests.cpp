@@ -81,6 +81,27 @@ int main() {
   check({"Norm","A","End","M","Add","End"},residual,"layer",0);
   check({"Norm","A","M","Add","End"},residual,"layer",0);
   check({"Norm","A","Add","End","sample","Norm","M","Add","End"},residual,"layer",0);
+  // Matching-only CANN preprocessing must not merge exact kernel variants.
+  residual.name_normalization="ascend_decorated_kernel";
+  residual.end_predecessor.clear();
+  residual.end_predecessor_any={"Add", "aclnnAdds_AddAiCore_Add"};
+  auto decorated=tokens({"Norm_high_performance_0", "A_high_performance_1", "Add_high_performance_1", "End_high_performance_1",
+      "M_high_precision_1", "Add_high_performance_1", "End_high_performance_1",
+      "A_high_performance_2", "Add_high_performance_1", "End_high_performance_1",
+      "M_high_precision_1", "Add_high_performance_1", "End_high_performance_1"});
+  auto normalized=build_marked_structural_graph(decorated,residual);
+  require(count(normalized,"layer")==2);
+  templates=0;
+  for (const auto& def:normalized.node_defs) if(def.display_op=="layer") ++templates;
+  require(templates==2); // same family, different exact ordered identities
+  require(count(normalized,"A_high_performance_1")==1);
+  require(count(normalized,"A_high_performance_2")==1);
+  (void)build_structural_position_model(normalized,decorated.size());
+  check({"Norm_custom", "A", "Add", "End", "M", "Add", "End"},residual,"layer",0);
+  check({"Norm", "A_custom", "Add", "End", "M", "Add", "End"},residual,"layer",0);
+  check({"Norm", "A", "Sub_high_performance_1", "End", "M", "Add", "End"},residual,"layer",0);
+  residual.name_normalization="exact";
+  require(count(build_marked_structural_graph(decorated,residual),"layer")==0);
   MarkedStructureRules cycle;cycle.id="cycle";cycle.mode="cycle_end";
   cycle.end_sequence={"S","tail"};cycle.cycle_label="cycle_candidate";
   check({"prefix","S","tail","A","S","tail","B","S","tail","partial"},
