@@ -114,7 +114,7 @@ AnalysisRulesConfig load_analysis_rules_config(const std::string& path,
     if (p == root.end()) continue;
     auto& structure = std::string(key) == "structure" ? out.structure : out.replay_structure;
     auto fields = document.fields(p->second, {"unit", "compositions"});
-    auto unit = document.fields(YamlDocument::required(fields,"unit"), {"id","begin","end","labels","mode","end_predecessor","end_sequence","label"});
+    auto unit = document.fields(YamlDocument::required(fields,"unit"), {"id","begin","end","labels","mode","end_predecessor","end_sequence","label","boundary_label"});
     auto required_string = [](const auto& f,const std::string& key) {
       auto value=YamlDocument::scalar(YamlDocument::required(f,key));
       if(value.empty()) throw std::invalid_argument("empty structure field: "+key);
@@ -125,6 +125,13 @@ AnalysisRulesConfig load_analysis_rules_config(const std::string& path,
       structure.mode=required_string(unit,"mode");
     if (structure.mode!="paired" && structure.mode!="end_delimited" && structure.mode!="cycle_end")
       throw std::invalid_argument("unsupported structure boundary mode");
+    if (unit.count("boundary_label")) {
+      if (structure.mode!="end_delimited")
+        throw std::invalid_argument("boundary_label requires end_delimited mode");
+      structure.boundary_label=required_string(unit,"boundary_label");
+      if (structure.boundary_label=="ambiguous" || structure.boundary_label=="unclassified")
+        throw std::invalid_argument("reserved boundary label");
+    }
     if (structure.mode=="cycle_end") {
       if (std::string(key)=="replay_structure" || unit.count("begin") || unit.count("end") ||
           unit.count("labels") || unit.count("end_predecessor") || fields.count("compositions"))
@@ -151,6 +158,7 @@ AnalysisRulesConfig load_analysis_rules_config(const std::string& path,
     structure.end=required_string(unit,"end");
     if(structure.begin==structure.end) throw std::invalid_argument("identical unit markers");
     std::set<std::string> labels;
+    if (!structure.boundary_label.empty()) labels.insert(structure.boundary_label);
     for(auto node:document.sequence(YamlDocument::required(unit,"labels"))) {
       auto f=document.fields(node,{"label","contains_any"});
       UnitLabelRule rule;rule.label=required_string(f,"label");
@@ -164,7 +172,7 @@ AnalysisRulesConfig load_analysis_rules_config(const std::string& path,
       if(rule.contains_any.empty()) throw std::invalid_argument("empty unit classifier");
       structure.labels.push_back(std::move(rule));
     }
-    if(labels.empty()) throw std::invalid_argument("unit labels must not be empty");
+    if(structure.labels.empty()) throw std::invalid_argument("unit labels must not be empty");
     std::set<std::string> composition_labels;
     std::set<std::vector<std::string>> signatures;
     if(auto p=fields.find("compositions");p!=fields.end())

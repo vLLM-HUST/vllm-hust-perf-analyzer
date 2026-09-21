@@ -25,11 +25,25 @@ immediate predecessor is `aclnnAdds_AddAiCore_Add`. Replay cost identities retai
 this full name. Matching the outer alias in replay silently finds no units;
 inspect `reason_code` instead of trusting successful export. The fused residual
 norm is a useful boundary landmark, not proof of Python module ownership; the
-convention here includes it in the unit on its left.
+initial `bf6fb49` convention included it in the unit on its left. Fletcher then
+chose independent residual/norm phases: the guarded Adds + AddRmsNormBias pair
+now forms `residual_norm`, separate from attention and MLP. Plain seed-only
+GemmaRmsNorm stays raw, not mislabeled as a residual operation. A layer container
+composes attention → residual_norm → mlp → residual_norm, without duplicating
+terminal ownership or splitting one fused kernel into fictional operations.
+
+Source check: pinned local vLLM `752a3a50` Qwen3.5 inherits the Qwen3Next decoder
+forward: input norm → attention → post-attention norm → MLP. Ascend `9bf964c`
+`AscendGemmaRMSNorm.forward_oot` uses `npu_add_rms_norm_bias` with a residual and
+`1.0 + self.weight`. Thus a fused kernel combines previous-output residual work
+with next-stage input normalization; its module ownership is not inferred from
+which side of a displayed boundary it occupies. The exact preceding Adds is
+consistent with weight preparation, not proof that every displayed Add is a
+residual add.
 
 The layer rule finds 64 layers per large launch and two per small launch, 396
-concrete windows total. Four exact layer variants remain in each large compute
-domain; each small compute domain has one. Communication-only domains retain
+concrete windows total. Exact ordered layer variants remain separate definitions; boundary placement
+can change their count, so do not freeze a template count as model semantics. Communication-only domains retain
 the original grammar and typed `model_rules_no_match` status. Names stay
 R-domain-qualified; generic global layer indices/cross-bank equivalence are not
 introduced. Unknown, preparation, and sampling events remain in their original
@@ -39,7 +53,8 @@ streams and timestamps.
 
 Run the native CLI on the full input with `--threads 8 --rules-config
 configs/qwen35-serving.yaml`, writing new DB/Perfetto outputs. Qualified artifacts
-are in `traceloom/qwen35-marked/` beside the baseline, including `verification.json`
+are in `traceloom/qwen35-marked/` (initial two-phase convention) and
+`traceloom/qwen35-three-phase/` (independent residual/norm), including `verification.json`
 and `verify.py`. The check compares all event/anchor/launch/body-member rows,
 replay cost membership, the 10,460 displayed event IDs and exact geometry, and
 every layer window against its concrete launch/stream/task ordinals. It does not
@@ -52,3 +67,11 @@ cross-cycle bridging. Native unit tests cover clipped/missing delimiters,
 classifier ambiguity, reversed composition, raw tails, exact variants and
 communication-domain fallback. The schema is optional; baseline behavior stays
 unchanged when the overlay is absent.
+
+Three-phase acceptance retains 5 candidate cycles and 396 layer windows, with
+396 attention, 396 MLP and 792 residual_norm windows. Concrete task-ordinal
+ranges partition every layer into four adjacent disjoint children; all 10,460
+event identities/timestamps and exact launch/body/cost membership remain equal
+to the prior two-phase output. Each residual unit contains precisely the guarded
+Adds and fused AddRmsNormBias; neither attention nor MLP contains that fused
+kernel. The 89-test suite and Release build pass.

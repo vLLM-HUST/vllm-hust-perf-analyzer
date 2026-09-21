@@ -38,6 +38,7 @@ replay_structure:
     end: AddRmsNormBias
     # Replay matching retains exact provider identities, not outer Add aliases.
     end_predecessor: aclnnAdds_AddAiCore_Add
+    boundary_label: residual_norm
     labels:
       - label: attention
         contains_any: [CausalConv1d, ScatterPaKvCache]
@@ -45,4 +46,4 @@ replay_structure:
         contains_any: [SwiGlu]
   compositions:
     - label: layer
-      sequence: [attention, mlp]
+      sequence: [attention, residual_norm, mlp, residual_norm]

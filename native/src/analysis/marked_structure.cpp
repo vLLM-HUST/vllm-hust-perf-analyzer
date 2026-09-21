@@ -65,15 +65,22 @@ StructuralOccurrenceGraph build_marked_structural_graph(
     for (std::size_t i=0; i<tokens.size(); ++i) {
       // A fresh input norm starts/resets a segment. Preparation before the
       // last such seed stays raw; a previous graph/stream never seeds this one.
-      if (tokens[i].display_op == rules.begin) start=i;
+      if (tokens[i].display_op == rules.begin)
+        start=rules.boundary_label.empty() ? i : i+1;
       if (tokens[i].display_op != rules.end) continue;
       const bool predecessor=rules.end_predecessor.empty() ||
           (i>0 && tokens[i-1].display_op==rules.end_predecessor);
-      if (start && predecessor) {
-        auto label=classify(tokens,*start,i+1,rules);
-        units.push_back({*start,i+1,label,"model_rule:"+rules.id+":"+label,{}});
+      const auto body_end=rules.boundary_label.empty() ? i+1 :
+          (rules.end_predecessor.empty() || i==0 ? i : i-1);
+      if (start && predecessor && *start<body_end) {
+        auto label=classify(tokens,*start,body_end,rules);
+        units.push_back({*start,body_end,label,"model_rule:"+rules.id+":"+label,{}});
         if (label=="ambiguous" || label=="unclassified") warning("model_unit_"+label,*start);
       } else warning("model_unit_unsupported_end",i);
+      if (predecessor && !rules.boundary_label.empty()) {
+        units.push_back({body_end,i+1,rules.boundary_label,
+            "model_boundary:"+rules.id+":"+rules.boundary_label,{}});
+      }
       // A valid observed end also seeds the next unit, including after a
       // clipped prefix. It does not invent ownership of the clipped prefix.
       start = predecessor ? std::optional<std::size_t>(i+1) : std::nullopt;

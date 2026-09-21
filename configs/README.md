@@ -327,11 +327,23 @@ model matching. Cycle mode is outer-only.
 The supplied rule seeds at `GemmaRmsNorm` and ends at `AddRmsNormBias` preceded
 by `aclnnAdds_AddAiCore_Add`. Replay rules match exact provider identity strings,
 not the outer `Add` display alias. `CausalConv1d` or `ScatterPaKvCache` identifies
-attention; `SwiGlu` identifies MLP. Adjacent attention→MLP units form `layer`.
-No fixed layer count or inferred cross-stream AllReduce membership is used.
-The included fused residual/norm delimiter is an execution landmark, **not a
-claim that the entire fused kernel belongs to the preceding Python module**.
-Preparation and sampling outside the complete units are retained.
+attention; `SwiGlu` identifies MLP. With `boundary_label: residual_norm`, the
+exact predecessor plus fused norm form an independent sibling unit, excluded
+from both attention and MLP. The composition is
+`attention → residual_norm → mlp → residual_norm`. No fixed layer count or
+inferred cross-stream AllReduce membership is used. Seed-only `GemmaRmsNorm`
+operations stay raw (they have no residual input), as do preparation and sampling
+outside complete units. The enclosing `layer` is a landmark-based container,
+not a claim that its final fused norm belongs to that Python decoder module.
+
+`boundary_label` is optional and only valid for `end_delimited` mode. It must
+not collide with classifier labels or reserved ambiguity labels. Without it,
+the historical included-right-delimiter convention is unchanged. With it,
+classification examines only the body before the boundary; composition can
+reference the boundary label like any other unit. A valid boundary remains
+visible even after a clipped/unsupported body, but unknown or missing bodies
+cannot form a complete layer. The token intervals of the three phase kinds are
+disjoint: sum phases at one level, never add their parent layer again.
 
 The full YAML is stored in `analysis_rules_yaml`; outer boundary mode and replay
 rule identity/semantics are separate metadata. Realizations use the existing

@@ -23,6 +23,9 @@ struct MarkedStructureRules {
   std::string end_predecessor;
   std::vector<std::string> end_sequence;
   std::string cycle_label;
+  // Optional independent end-delimiter unit, including its guarded predecessor.
+  // Seed-only begin markers stay raw rather than becoming residual operations.
+  std::string boundary_label;
   bool enabled() const { return !id.empty(); }
 };
 StructuralOccurrenceGraph build_marked_structural_graph(

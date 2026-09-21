@@ -73,7 +73,16 @@ with tempfile.TemporaryDirectory(prefix='traceloom-qwen-model-') as directory:
                   and e.get('name', '').endswith(' · layer')]
         assert len(layers) == len(launches) > 0
         assert {e['args']['launch_id'] for e in layers} == set(launches)
-        assert all(abs(e['dur'] - .065) < 1e-9 for e in layers), layers
+        assert all(abs(e['dur'] - .055) < 1e-9 for e in layers), layers
+        phases = [e for e in after if e.get('cat') == 'traceloom.structural_interval'
+                  and e['name'].rsplit(' · ', 1)[-1] in ('attention', 'mlp', 'residual_norm')]
+        assert len(phases) == len(launches) * 4
+        for launch in launches:
+            group = sorted((e for e in phases if e['args']['launch_id'] == launch), key=lambda e: e['ts'])
+            assert [e['name'].rsplit(' · ', 1)[-1] for e in group] == ['attention', 'residual_norm', 'mlp', 'residual_norm']
+            assert [(e['args']['position_start'], e['args']['position_end_exclusive']) for e in group] == [(1, 2), (2, 4), (4, 5), (5, 7)]
+            for left, right in zip(group, group[1:]):
+                assert left['ts'] + left['dur'] <= right['ts'] + 1e-9
         assert not db.execute("SELECT 1 FROM traceloom_replay_body_pattern_domain WHERE support_status!='supported'").fetchall()
     # An observed slot marker with an unrecognized tail is a barrier, not a
     # license to combine two cycles into one apparently complete occurrence.

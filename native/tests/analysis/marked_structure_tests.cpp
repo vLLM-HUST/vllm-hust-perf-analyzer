@@ -62,6 +62,25 @@ int main() {
   check({"Norm","M","Add","End","A","Add","End"},residual,"layer",0);
   check({"Norm","A","Add","End","M","Add","End","sample",
          "Norm","Norm","A","Add","End","M","Add","End"},residual,"layer",2);
+  residual.boundary_label="residual_norm";
+  residual.compositions={{"layer",{"attention","residual_norm","mlp","residual_norm"}}};
+  const auto separated=tokens({"Norm","A","Add","End","M","Add","End","tail"});
+  const auto separated_graph=build_marked_structural_graph(separated,residual);
+  require(count(separated_graph,"layer")==1 && count(separated_graph,"residual_norm")==2);
+  std::map<std::string,std::vector<std::pair<std::uint32_t,std::uint32_t>>> spans;
+  for(const auto& o:separated_graph.occurrences)
+    spans[separated_graph.node_defs[o.node_def_id.value()].display_op].push_back(
+        {o.token_start_ordinal,o.token_end_ordinal});
+  require(spans["attention"]==decltype(spans)::mapped_type{{1,2}});
+  require(spans["mlp"]==decltype(spans)::mapped_type{{4,5}});
+  require(spans["residual_norm"]==decltype(spans)::mapped_type{{2,4},{5,7}});
+  require(spans["layer"]==decltype(spans)::mapped_type{{1,7}});
+  (void)build_structural_position_model(separated_graph,separated.size());
+  check({"Norm","A","Add","End","M","Add","End"},residual,"layer",1);
+  check({"A","Add","End","M","Add","End"},residual,"residual_norm",2);
+  check({"Norm","A","End","M","Add","End"},residual,"layer",0);
+  check({"Norm","A","M","Add","End"},residual,"layer",0);
+  check({"Norm","A","Add","End","sample","Norm","M","Add","End"},residual,"layer",0);
   MarkedStructureRules cycle;cycle.id="cycle";cycle.mode="cycle_end";
   cycle.end_sequence={"S","tail"};cycle.cycle_label="cycle_candidate";
   check({"prefix","S","tail","A","S","tail","B","S","tail","partial"},

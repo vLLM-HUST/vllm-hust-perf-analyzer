@@ -146,6 +146,16 @@ int main() {
   auto replay=load_analysis_rules_config(write("replay-model.yaml",schema+
       "replay_structure: {unit: {id: r, mode: end_delimited, begin: N, end: E, end_predecessor: Add, labels: [{label: a, contains_any: [A]}]}}\n"));
   require(replay.replay_structure.mode=="end_delimited" && !replay.structure.enabled());
+  auto separated=load_analysis_rules_config(write("separated.yaml",schema+
+      "replay_structure: {unit: {id: r, mode: end_delimited, begin: N, end: E, boundary_label: residual, labels: [{label: a, contains_any: [A]}]}, compositions: [{label: stage, sequence: [a, residual]}]}\n"));
+  require(separated.replay_structure.boundary_label=="residual");
+  for (auto bad : {
+      "mode: paired, boundary_label: residual, labels: [{label: a, contains_any: [A]}]",
+      "mode: end_delimited, boundary_label: ambiguous, labels: [{label: a, contains_any: [A]}]",
+      "mode: end_delimited, boundary_label: a, labels: [{label: a, contains_any: [A]}]",
+      "mode: end_delimited, boundary_label: residual, labels: []"})
+    rejected([&] {load_analysis_rules_config(write("bad-boundary-label.yaml",schema+
+        "structure: {unit: {id: r, begin: N, end: E, "+bad+"}}\n"));});
   auto cycle=load_analysis_rules_config(write("cycle.yaml",schema+
       "structure: {unit: {id: c, mode: cycle_end, label: candidate, end_sequence: [S, tail]}}\n"));
   require(cycle.structure.end_sequence.size()==2);
