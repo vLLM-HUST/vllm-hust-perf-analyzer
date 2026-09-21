@@ -96,3 +96,22 @@ phase-associated by this rule. Primary-plane event count becomes 9,626 after
 834 duplicate drawings disappear; the raw plane remains 27,735 slices.
 Qualified re-export/verification: `traceloom/qwen35-attention-collectives/`.
 The AugDB remains the unchanged `qwen35-three-phase/decode-rank0.db`.
+
+## Cross-rank coverage gap in the subsequent fused candidate package
+
+`/root/my-ascend-workspace/runs/qwen-mtp-gdn-fusion-20260921/candidate-timelines.tar.gz`
+contains four bf6fb49 exports/summaries, not AugDBs. Rank0 decode/mixed each have
+396 named layers; rank1 has zero in both, despite all twelve exact launches and
+normal operator populations. Rank1 uses suffixed GemmaRmsNorm/AddRmsNormBias and
+classifier identities outside the overlay's exact literals. Do not infer missing
+execution or compare layer costs using those asymmetric labels. The current
+three-phase convention does not itself solve this identity-admission gap.
+Retain backend/source identity if adding explicitly bounded family matching.
+
+The independent bounded analysis and reproducer live beside that archive at
+`timeline-analysis-20260921/findings/{REPORT.md,metrics.json,analyze.py}`. It
+separates same-work decode seams from unmatched mixed arrival partitions,
+checks every exact member against its launch, and measures matrix-family
+interval unions without mixing primary/raw/structural projections. The mixed
+candidate's [3,257,97] then [3,3,3,33] differs from the old [3,33,257,97]; both
+large steps padding to512 does not make their total-time delta a causal speedup.
