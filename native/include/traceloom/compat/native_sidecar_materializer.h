@@ -33,6 +33,7 @@ struct NativeCompatibilitySidecarOptions {
   bool materialize_grammar_structural_projection = true;
   MacroMatchRules match_rules;
   MarkedStructureRules marked_structure;
+  MarkedStructureRules replay_marked_structure;
   std::string analysis_rules_yaml;
   std::vector<std::string> context_paths;
   std::map<std::string, std::string> event_partitions;

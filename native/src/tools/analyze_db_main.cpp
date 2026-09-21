@@ -500,6 +500,7 @@ int analyze_one_db(const CliOptions& cli, const std::string& source_db,
     if (cli.rules_config) {
       sidecar_options.analysis_rules_yaml = cli.rules_config->source_yaml;
       sidecar_options.marked_structure = cli.rules_config->structure;
+      sidecar_options.replay_marked_structure = cli.rules_config->replay_structure;
     }
     sidecar_options.grammar_worker_count = cli.threads;
     sidecar_options.grammar_target_nodes_per_chunk =

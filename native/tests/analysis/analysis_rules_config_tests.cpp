@@ -143,6 +143,18 @@ int main() {
     rejected([&] {load_analysis_rules_config(write("structure-invalid.yaml",schema+"structure: {"+unit+extra+"}\n"));});
   rejected([&] {load_analysis_rules_config(write("structure-same.yaml",schema+
       "structure: {unit: {id: x, begin: P, end: P, labels: []}}\n"));});
+  auto replay=load_analysis_rules_config(write("replay-model.yaml",schema+
+      "replay_structure: {unit: {id: r, mode: end_delimited, begin: N, end: E, end_predecessor: Add, labels: [{label: a, contains_any: [A]}]}}\n"));
+  require(replay.replay_structure.mode=="end_delimited" && !replay.structure.enabled());
+  auto cycle=load_analysis_rules_config(write("cycle.yaml",schema+
+      "structure: {unit: {id: c, mode: cycle_end, label: candidate, end_sequence: [S, tail]}}\n"));
+  require(cycle.structure.end_sequence.size()==2);
+  for (auto bad : {
+      "structure: {unit: {id: c, mode: cycle_end, label: candidate, end_sequence: []}}",
+      "structure: {unit: {id: c, mode: typo}}",
+      "structure: {unit: {id: c, mode: cycle_end, label: candidate, end_sequence: [S], begin: X}}",
+      "replay_structure: {unit: {id: c, mode: cycle_end, label: candidate, end_sequence: [S]}}"})
+    rejected([&] {load_analysis_rules_config(write("bad-boundary.yaml",schema+bad+"\n"));});
   rejected([&] { load_structural_symbol_ruleset(c.metadata().manifest_source_path); });
   rejected([&] { YamlDocument huge(std::string(1024 * 1024 + 1, 'x')); });
   // Temp directory contains only these tests' explicitly-created files.

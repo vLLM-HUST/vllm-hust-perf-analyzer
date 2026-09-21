@@ -41,4 +41,31 @@ int main() {
   test({"P","M","Q","P","A","Q"},0,0,0); // wrong type order
   test({"Q","P","P","A","Q","P"},0,0,0); // malformed stays raw
   test({"x","y"},0,0,0);
+  MarkedStructureRules residual{"residual","Norm","End",
+      {{"attention",{"A"}},{"mlp",{"M"}}},{{"layer",{"attention","mlp"}}}};
+  residual.mode="end_delimited";residual.end_predecessor="Add";
+  auto check=[&](std::initializer_list<const char*> names,const MarkedStructureRules& r,
+                 const std::string& label,int expected) {
+    auto ts=tokens(names);auto graph=build_marked_structural_graph(ts,r);
+    require(count(graph,label)==expected);
+    std::size_t leaves=0;
+    for(const auto& o:graph.occurrences)
+      if(graph.node_defs[o.node_def_id.value()].kind==StructuralNodeKind::kAtom)++leaves;
+    require(leaves==ts.size());
+    (void)build_structural_position_model(graph,ts.size());
+  };
+  check({"prep","Norm","A","Add","End","M","Add","End",
+         "A","x","Add","End","M","Add","End","tail"},residual,"layer",2);
+  check({"Norm","A","Add","M","Add","End"},residual,"layer",0); // missing end
+  check({"Norm","A","Add","End","M","End"},residual,"layer",0); // wrong predecessor
+  check({"A","Add","End","M","Add","End"},residual,"layer",0); // clipped first unit
+  check({"Norm","M","Add","End","A","Add","End"},residual,"layer",0);
+  check({"Norm","A","Add","End","M","Add","End","sample",
+         "Norm","Norm","A","Add","End","M","Add","End"},residual,"layer",2);
+  MarkedStructureRules cycle;cycle.id="cycle";cycle.mode="cycle_end";
+  cycle.end_sequence={"S","tail"};cycle.cycle_label="cycle_candidate";
+  check({"prefix","S","tail","A","S","tail","B","S","tail","partial"},
+        cycle,"cycle_candidate",2);
+  check({"S","tail","A","S","wrong","B","S","tail"},cycle,"cycle_candidate",0);
+  check({"S","tail","A","S"},cycle,"cycle_candidate",0);
 }

@@ -14,6 +14,7 @@ struct AnalysisRulesConfig {
   std::optional<EventReconciliationRuleset> reconciliation;
   MacroMatchRules macro_matching;
   MarkedStructureRules structure;
+  MarkedStructureRules replay_structure;
   std::string source_path;
   std::string source_yaml;
   void apply(FlatAnchorBuildConfig& config) const;

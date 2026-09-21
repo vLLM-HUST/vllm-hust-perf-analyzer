@@ -149,6 +149,23 @@ void recover_domain(const NativeIr& ir,
     tokens.push_back(std::move(token));
   }
 
+  if (config.marked_structure.enabled()) {
+    auto marked=build_marked_structural_graph(tokens, config.marked_structure);
+    const bool matched=std::any_of(marked.node_defs.begin(), marked.node_defs.end(),
+        [](const auto& def) { return def.display_depth>0 && def.display_category=="model_rule"; });
+    if (matched) {
+      domain.graph=std::move(marked);
+      domain.reason_code="model_rules_explicit";
+      for (const auto& diagnostic:domain.graph.diagnostics)
+        if (diagnostic.severity==DiagnosticSeverity::kWarning)
+          domain.reason_code="model_rules_partial";
+      return;
+    }
+    // Communication-only or otherwise unmatched lanes keep their original
+    // grammar, with an explicit no-match status rather than fabricated layers.
+    domain.reason_code="model_rules_no_match";
+  }
+
   GrammarStateConfig state_config;
   state_config.mode = config.grammar_mode;
   state_config.target_nodes_per_chunk = config.target_nodes_per_chunk;
@@ -256,7 +273,7 @@ ReplayBodyPatternResult build_replay_body_patterns(
     try {
       recover_domain(ir, replay_cost, config, domain);
       domain.support_status = ReplayBodyPatternSupportStatus::kSupported;
-      domain.reason_code.clear();
+      // recover_domain retains explicit model-rule/no-match provenance.
       ++result.supported_domain_count;
     } catch (const std::exception& ex) {
       reject_domain(result, domain_index, "grammar_recovery_rejected",

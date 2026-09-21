@@ -17,6 +17,12 @@ struct MarkedStructureRules {
   std::string id, begin, end;
   std::vector<UnitLabelRule> labels;
   std::vector<UnitCompositionRule> compositions;
+  // paired: explicit begin/end; end_delimited: seed/reset at begin, then
+  // successive ends; cycle_end: only intervals between complete end sequences.
+  std::string mode = "paired";
+  std::string end_predecessor;
+  std::vector<std::string> end_sequence;
+  std::string cycle_label;
   bool enabled() const { return !id.empty(); }
 };
 StructuralOccurrenceGraph build_marked_structural_graph(

@@ -1,0 +1,48 @@
+# Opt-in, capture-derived Qwen3.5 serving landmarks; NOT scheduler ground truth.
+# Layers are compute-stream-local. Communication remains independently recovered.
+schema: traceloom-analysis-rules-v1
+structure:
+  unit:
+    id: qwen35_slot_mapping_tail
+    mode: cycle_end
+    label: serving_cycle_candidate
+    end_sequence:
+      - _compute_slot_mapping_kernel
+      - Index
+      - Cast
+      - Index
+      - Cast
+      - Sub
+      - Slice
+      - Add
+      - ViewCopy
+      - Slice
+      - ViewCopy
+      - Index
+      - Add
+      - Index
+      - Fill
+      - Fill
+      - Fill
+      - GatherV3
+      - GatherV3
+      - GatherV3
+      - Equal
+      - MaskedFill
+      - ClipByValueV2
+replay_structure:
+  unit:
+    id: qwen35_residual_sublayer
+    mode: end_delimited
+    begin: GemmaRmsNorm
+    end: AddRmsNormBias
+    # Replay matching retains exact provider identities, not outer Add aliases.
+    end_predecessor: aclnnAdds_AddAiCore_Add
+    labels:
+      - label: attention
+        contains_any: [CausalConv1d, ScatterPaKvCache]
+      - label: mlp
+        contains_any: [SwiGlu]
+  compositions:
+    - label: layer
+      sequence: [attention, mlp]

@@ -43,7 +43,7 @@ AnalysisRulesConfig load_analysis_rules_config(const std::string& path,
   out.source_yaml = read_config_file(path);
   YamlDocument document(out.source_yaml);
   const auto root = document.fields(document.root(),
-      {"schema", "classification", "symbol_normalization", "event_reconciliation", "macro_matching", "structure"});
+      {"schema", "classification", "symbol_normalization", "event_reconciliation", "macro_matching", "structure", "replay_structure"});
   if (YamlDocument::scalar(YamlDocument::required(root, "schema")) != "traceloom-analysis-rules-v1")
     throw std::invalid_argument("unsupported analysis rules schema");
   for (const auto& kind : {"classification", "symbol_normalization", "event_reconciliation"}) {
@@ -109,18 +109,47 @@ AnalysisRulesConfig load_analysis_rules_config(const std::string& path,
     out.macro_matching.source_path = path;
     out.macro_matching.source_yaml = out.source_yaml;
   }
-  if (auto p = root.find("structure"); p != root.end()) {
+  for (const auto& key : {"structure", "replay_structure"}) {
+    auto p = root.find(key);
+    if (p == root.end()) continue;
+    auto& structure = std::string(key) == "structure" ? out.structure : out.replay_structure;
     auto fields = document.fields(p->second, {"unit", "compositions"});
-    auto unit = document.fields(YamlDocument::required(fields,"unit"), {"id","begin","end","labels"});
+    auto unit = document.fields(YamlDocument::required(fields,"unit"), {"id","begin","end","labels","mode","end_predecessor","end_sequence","label"});
     auto required_string = [](const auto& f,const std::string& key) {
       auto value=YamlDocument::scalar(YamlDocument::required(f,key));
       if(value.empty()) throw std::invalid_argument("empty structure field: "+key);
       return value;
     };
-    out.structure.id=required_string(unit,"id");
-    out.structure.begin=required_string(unit,"begin");
-    out.structure.end=required_string(unit,"end");
-    if(out.structure.begin==out.structure.end) throw std::invalid_argument("identical unit markers");
+    structure.id=required_string(unit,"id");
+    if (auto mode=unit.find("mode"); mode!=unit.end())
+      structure.mode=required_string(unit,"mode");
+    if (structure.mode!="paired" && structure.mode!="end_delimited" && structure.mode!="cycle_end")
+      throw std::invalid_argument("unsupported structure boundary mode");
+    if (structure.mode=="cycle_end") {
+      if (std::string(key)=="replay_structure" || unit.count("begin") || unit.count("end") ||
+          unit.count("labels") || unit.count("end_predecessor") || fields.count("compositions"))
+        throw std::invalid_argument("cycle_end requires only an outer end sequence and label");
+      structure.cycle_label=required_string(unit,"label");
+      if (structure.cycle_label=="ambiguous" || structure.cycle_label=="unclassified")
+        throw std::invalid_argument("reserved cycle label");
+      for (auto symbol:document.sequence(YamlDocument::required(unit,"end_sequence"))) {
+        auto name=YamlDocument::scalar(symbol);
+        if (name.empty()) throw std::invalid_argument("empty cycle end symbol");
+        structure.end_sequence.push_back(name);
+      }
+      if (structure.end_sequence.empty()) throw std::invalid_argument("empty cycle end sequence");
+      continue;
+    }
+    if (unit.count("end_sequence") || unit.count("label"))
+      throw std::invalid_argument("end_sequence and label require cycle_end mode");
+    if (unit.count("end_predecessor")) {
+      if (structure.mode!="end_delimited")
+        throw std::invalid_argument("end_predecessor requires end_delimited mode");
+      structure.end_predecessor=required_string(unit,"end_predecessor");
+    }
+    structure.begin=required_string(unit,"begin");
+    structure.end=required_string(unit,"end");
+    if(structure.begin==structure.end) throw std::invalid_argument("identical unit markers");
     std::set<std::string> labels;
     for(auto node:document.sequence(YamlDocument::required(unit,"labels"))) {
       auto f=document.fields(node,{"label","contains_any"});
@@ -133,7 +162,7 @@ AnalysisRulesConfig load_analysis_rules_config(const std::string& path,
         rule.contains_any.push_back(name);
       }
       if(rule.contains_any.empty()) throw std::invalid_argument("empty unit classifier");
-      out.structure.labels.push_back(std::move(rule));
+      structure.labels.push_back(std::move(rule));
     }
     if(labels.empty()) throw std::invalid_argument("unit labels must not be empty");
     std::set<std::string> composition_labels;
@@ -152,7 +181,7 @@ AnalysisRulesConfig load_analysis_rules_config(const std::string& path,
       }
       if(rule.sequence.size()<2 || !signatures.insert(rule.sequence).second)
         throw std::invalid_argument("short or duplicate composition sequence");
-      out.structure.compositions.push_back(std::move(rule));
+      structure.compositions.push_back(std::move(rule));
     }
   }
   if (!out.classification) out.classification = load_default_signal_classification_ruleset(executable_path);

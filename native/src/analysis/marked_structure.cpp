@@ -43,21 +43,58 @@ StructuralOccurrenceGraph build_marked_structural_graph(
     graph.diagnostics.push_back({DiagnosticSeverity::kWarning, code,
         "rule " + rules.id + ", structural ordinal " + std::to_string(ordinal)});
   };
-  for (std::size_t i=0; i<tokens.size(); ++i) {
-    if (tokens[i].display_op == rules.begin) {
-      if (start) { nested=true; warning("model_unit_nested_begin",i); }
-      else { start=i; nested=false; }
-    } else if (tokens[i].display_op == rules.end) {
-      if (!start) warning("model_unit_unmatched_end",i);
-      else if (!nested) {
+  if (rules.mode == "cycle_end") {
+    if (rules.end_sequence.empty()) throw std::invalid_argument("empty cycle end sequence");
+    for (std::size_t i=0; i<tokens.size(); ++i) {
+      if (tokens[i].display_op != rules.end_sequence.front()) continue;
+      const auto end=i+rules.end_sequence.size();
+      bool complete=end<=tokens.size();
+      for (std::size_t j=0; complete && j<rules.end_sequence.size(); ++j)
+        complete=tokens[i+j].display_op==rules.end_sequence[j];
+      if (!complete) {
+        warning("model_cycle_incomplete_end",i);
+        start.reset(); // Never bridge an observed but unrecognized cycle tail.
+        continue;
+      }
+      if (start) units.push_back({*start,end,rules.cycle_label,
+          "model_cycle_candidate:"+rules.id,{}});
+      start=end;
+      i=end-1;
+    }
+  } else if (rules.mode == "end_delimited") {
+    for (std::size_t i=0; i<tokens.size(); ++i) {
+      // A fresh input norm starts/resets a segment. Preparation before the
+      // last such seed stays raw; a previous graph/stream never seeds this one.
+      if (tokens[i].display_op == rules.begin) start=i;
+      if (tokens[i].display_op != rules.end) continue;
+      const bool predecessor=rules.end_predecessor.empty() ||
+          (i>0 && tokens[i-1].display_op==rules.end_predecessor);
+      if (start && predecessor) {
         auto label=classify(tokens,*start,i+1,rules);
         units.push_back({*start,i+1,label,"model_rule:"+rules.id+":"+label,{}});
         if (label=="ambiguous" || label=="unclassified") warning("model_unit_"+label,*start);
-      }
-      start.reset(); nested=false;
+      } else warning("model_unit_unsupported_end",i);
+      // A valid observed end also seeds the next unit, including after a
+      // clipped prefix. It does not invent ownership of the clipped prefix.
+      start = predecessor ? std::optional<std::size_t>(i+1) : std::nullopt;
     }
+  } else {
+    for (std::size_t i=0; i<tokens.size(); ++i) {
+      if (tokens[i].display_op == rules.begin) {
+        if (start) { nested=true; warning("model_unit_nested_begin",i); }
+        else { start=i; nested=false; }
+      } else if (tokens[i].display_op == rules.end) {
+        if (!start) warning("model_unit_unmatched_end",i);
+        else if (!nested) {
+          auto label=classify(tokens,*start,i+1,rules);
+          units.push_back({*start,i+1,label,"model_rule:"+rules.id+":"+label,{}});
+          if (label=="ambiguous" || label=="unclassified") warning("model_unit_"+label,*start);
+        }
+        start.reset(); nested=false;
+      }
+    }
+    if (start) warning("model_unit_unmatched_begin",*start);
   }
-  if (start) warning("model_unit_unmatched_begin",*start);
   if (units.empty()) warning("model_unit_no_complete_match",0);
   // Composition is over adjacent COMPLETE units; any intervening event is a
   // barrier. No nesting inference, skipped unknown units, or guessed layer count.

@@ -288,3 +288,57 @@ The state-to-HPO display projection honors the same boundary: it cannot fold
 equal adjacent live macros back into a cross-partition Repeat. Nonuniform
 top-level macros remain visible Seq instances; identical instances reuse the
 same structural template without merging their event membership.
+
+## Qwen3.5 serving landmarks (opt-in, capture-derived)
+
+Use `--rules-config configs/qwen35-serving.yaml` for the observed banked Qwen
+MTP decode layout. The installed copy is `share/traceloom/models/qwen35-serving.yaml`.
+This is a model-hint projection, not universal Qwen support or scheduler truth.
+It does not require changing default classification or dropping unknown events.
+
+The generic `structure.unit.mode: cycle_end` accepts `id`, `label`, and a
+nonempty `end_sequence` instead of paired begin/end/classifiers. Matching is
+exact in the outer structural token order. Only the intervals between two
+complete observed end sequences receive a named Position; the right sequence
+is included, and the first prefix and last suffix remain ordinary evidence.
+An observed first marker with an unmatched tail breaks recognition, rather than
+silently bridging two cycles. For this capture the end sequence is slot mapping
+plus its 22 following structural tokens, through `ClipByValueV2`. These are
+**candidate serving cycles**, not completed-device scheduler steps.
+Unlike paired model rules, cycle grouping may contain protected replay launch
+anchors: it groups whole atomic tokens and does not reinterpret body membership.
+The compact grammar remains separately available. Explicit cycle grouping is
+not compatible with scheduler-step partitioning; choose the evidence appropriate
+to the question rather than silently mixing the two boundary definitions.
+
+`replay_structure` has the same unit/composition schema as `structure`, but is
+applied independently to each exact replay-body stream. Its `end_delimited`
+mode uses `begin` as an initial/reset marker, `end` as the included right
+boundary, and optional `end_predecessor` as an exact adjacent guard. A supported
+end seeds the next unit; a new begin resets pending preparation, which stays
+raw. A clipped first unit is not manufactured from the graph start. Incomplete
+suffixes remain raw. Classification and adjacent composition have the same
+ambiguity and exact ordered-signature rules as paired units. A stream with no
+recognized units keeps its ordinary grammar and reports `model_rules_no_match`;
+matched streams report `model_rules_explicit` or `model_rules_partial` in the
+replay domain's `reason_code`. Invalid replay evidence is still rejected before
+model matching. Cycle mode is outer-only.
+
+The supplied rule seeds at `GemmaRmsNorm` and ends at `AddRmsNormBias` preceded
+by `aclnnAdds_AddAiCore_Add`. Replay rules match exact provider identity strings,
+not the outer `Add` display alias. `CausalConv1d` or `ScatterPaKvCache` identifies
+attention; `SwiGlu` identifies MLP. Adjacent attention→MLP units form `layer`.
+No fixed layer count or inferred cross-stream AllReduce membership is used.
+The included fused residual/norm delimiter is an execution landmark, **not a
+claim that the entire fused kernel belongs to the preceding Python module**.
+Preparation and sampling outside the complete units are retained.
+
+The full YAML is stored in `analysis_rules_yaml`; outer boundary mode and replay
+rule identity/semantics are separate metadata. Realizations use the existing
+HPO relations and concrete launch/member Perfetto geometry. Same-label layer
+variants remain separate Positions unless their exact ordered signatures agree.
+The September-21 banked-draft rank-0 acceptance observed 5 complete candidate
+cycles and 396 layer windows across 12 launches (64 per large graph, 2 per small
+graph), with all 10,460 device-event identities and timestamps unchanged.
+Different captures must be checked for marker coverage and partial/no-match
+states before reusing these hints.

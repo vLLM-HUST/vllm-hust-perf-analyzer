@@ -224,6 +224,35 @@ void test_oversized_and_empty_inputs_are_typed() {
           std::string::npos);
 }
 
+void test_model_rules_are_stream_local_and_preserve_members() {
+  NativeIr ir;
+  ReplayInternalCostMapResult cost;
+  std::uint32_t pos=0;
+  for (auto name:{"prep","Norm","A","Add","End","M","Add","End","tail"})
+    cost.aggregates.push_back(aggregate(ir.symbols.intern(name),pos++,7));
+  for (std::uint32_t i=0;i<8;++i)
+    cost.aggregates.push_back(aggregate(ir.symbols.intern("AllReduce"),i,8));
+  ReplayBodyPatternConfig config;
+  config.marked_structure={"residual","Norm","End",{{"attention",{"A"}},{"mlp",{"M"}}},
+                           {{"layer",{"attention","mlp"}}}};
+  config.marked_structure.mode="end_delimited";
+  config.marked_structure.end_predecessor="Add";
+  const auto baseline=build_replay_body_patterns(ir,cost);
+  const auto result=build_replay_body_patterns(ir,cost,config);
+  require(result.supported_domain_count==2 && result.rejected_domain_count==0);
+  const auto& compute=result.domains[0];
+  require(compute.reason_code=="model_rules_explicit");
+  std::size_t layers=0,leaves=0;
+  for (const auto& occurrence:compute.graph.occurrences) {
+    const auto& def=compute.graph.node_defs[occurrence.node_def_id.value()];
+    layers+=def.display_op=="layer";
+    leaves+=def.kind==StructuralNodeKind::kAtom;
+  }
+  require(layers==1 && leaves==9);
+  require(result.domains[1].reason_code=="model_rules_no_match");
+  require(definition_signature(result.domains[1].graph)==definition_signature(baseline.domains[1].graph));
+}
+
 }  // namespace
 
 int main() {
@@ -232,5 +261,6 @@ int main() {
   test_sparse_or_inconsistent_domains_fail_closed();
   test_member_kind_is_part_of_the_exact_alphabet();
   test_oversized_and_empty_inputs_are_typed();
+  test_model_rules_are_stream_local_and_preserve_members();
   return 0;
 }

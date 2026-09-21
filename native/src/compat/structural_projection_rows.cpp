@@ -128,7 +128,8 @@ std::string macro_discovery_status(const StructuralOccurrenceGraph& tree) {
   for (const auto& diagnostic : tree.diagnostics) {
     model_rules = model_rules || diagnostic.code=="model_structure_explicit";
     model_partial = model_partial || diagnostic.code.rfind("model_unit_",0)==0 ||
-        diagnostic.code.rfind("model_composition_",0)==0;
+        diagnostic.code.rfind("model_composition_",0)==0 ||
+        diagnostic.code.rfind("model_cycle_",0)==0;
     if(diagnostic.code=="model_structure_protected_replay_unsupported")
       return "model_rules_unsupported_protected_replay";
   }

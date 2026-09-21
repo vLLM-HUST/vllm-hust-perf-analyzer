@@ -118,7 +118,8 @@ StructuralOccurrenceGraph recover_structural_occurrence_graph(
       (options.event_partitions.empty() || options.marked_structure.enabled() ||
        !options.materialize_grammar_structural_projection))
     throw std::invalid_argument("scheduler_step partition requires linked grammar projection; marked structure is not supported");
-  if (options.marked_structure.enabled() && !ir.protected_intervals.empty()) {
+  if (options.marked_structure.enabled() &&
+      options.marked_structure.mode != "cycle_end" && !ir.protected_intervals.empty()) {
     auto without_rules = options;
     without_rules.marked_structure = {};
     auto fallback = recover_structural_occurrence_graph(ir, without_rules, structural_tokens, compact_grammar);
@@ -508,6 +509,11 @@ void write_basic_native_compatibility_sidecar(
   if (options.marked_structure.enabled()) {
     metadata.push_back({"model_structure_semantics", "marked_units_and_adjacent_compositions_v1"});
     metadata.push_back({"model_structure_rule_id", options.marked_structure.id});
+    metadata.push_back({"model_structure_boundary_mode", options.marked_structure.mode});
+  }
+  if (options.replay_marked_structure.enabled()) {
+    metadata.push_back({"replay_model_structure_rule_id", options.replay_marked_structure.id});
+    metadata.push_back({"replay_model_structure_semantics", "stream_local_marked_units_v1"});
   }
   if (!options.analysis_rules_yaml.empty()) {
     metadata.push_back({"analysis_rules_yaml", options.analysis_rules_yaml});
@@ -589,6 +595,7 @@ void write_basic_native_compatibility_sidecar(
       build_replay_internal_cost_map(ir);
   replace_replay_cost_rows(sqlite_path, ir, replay_cost, options.db_idx);
   ReplayBodyPatternConfig replay_body_pattern_config;
+  replay_body_pattern_config.marked_structure = options.replay_marked_structure;
   replay_body_pattern_config.worker_count = options.grammar_worker_count;
   replay_body_pattern_config.target_nodes_per_chunk =
       options.grammar_target_nodes_per_chunk;

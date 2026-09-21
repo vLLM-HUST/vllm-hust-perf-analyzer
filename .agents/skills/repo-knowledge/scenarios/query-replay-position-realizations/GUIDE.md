@@ -357,3 +357,11 @@ against its concrete launch/member coordinates, not a shared template envelope.
 Full87 native and54 vLLM integration tests plus release build pass. Evidence:
 `traceloom-continuous-final/export-query-plans.json`, `export-index-probe.json`,
 and `traceloom-continuous-qualified/{receipt,verification}.json` under the same run.
+
+## Recognize model landmarks inside exact replay
+
+For Qwen serving cycle tails and residual/norm-derived compute-stream layers,
+read [the bounded Qwen landmark observation](qwen-serving-landmarks.md) before
+changing rules. Outer aliases and exact replay symbols differ; the overlay is
+opt-in, and neither model labels nor repeated marker cycles establish scheduler
+identity or cross-stream layer ownership.

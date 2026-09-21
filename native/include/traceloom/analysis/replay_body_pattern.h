@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "traceloom/analysis/replay_internal_cost_map.h"
+#include "traceloom/analysis/marked_structure.h"
 #include "traceloom/analysis/structural_occurrence_graph.h"
 #include "traceloom/pattern/grammar_engine.h"
 #include "traceloom/pattern/grammar_modes.h"
@@ -39,6 +40,7 @@ struct ReplayBodyPatternConfig {
   std::size_t worker_count = 1;
   std::size_t full_discovery_cap = 50000;
   std::size_t max_rounds = 10000;
+  MarkedStructureRules marked_structure;
 };
 
 // A supported domain owns a dense ordered Position sequence, the aggregate

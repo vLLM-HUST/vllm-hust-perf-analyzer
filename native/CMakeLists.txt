@@ -107,6 +107,7 @@ target_compile_definitions(
 )
 
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../configs/deepseekv4.yaml
+              ${CMAKE_CURRENT_SOURCE_DIR}/../configs/qwen35-serving.yaml
         DESTINATION ${CMAKE_INSTALL_DATADIR}/traceloom/models)
 
 install(
@@ -992,6 +993,10 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
     add_test(NAME replay_gap_projection_test
       COMMAND ${Python3_EXECUTABLE}
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/compat/replay_gap_projection_test.py
+        $<TARGET_FILE:traceloom>)
+    add_test(NAME qwen_serving_projection_test
+      COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/compat/qwen_serving_projection_test.py
         $<TARGET_FILE:traceloom>)
 
     add_executable(ascend_sqlite_determinism_tests
