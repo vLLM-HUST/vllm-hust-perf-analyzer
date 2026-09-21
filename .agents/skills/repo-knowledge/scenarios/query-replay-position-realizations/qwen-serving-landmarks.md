@@ -149,3 +149,24 @@ body-member, and replay-cost-member rows are exactly equal to its earlier
 three-phase AugDB. Native integration tests use actual candidate rank1 spelling
 forms and verify equal phase coordinates plus unchanged evidence rows; unit
 tests keep decorated exact variants distinct and reject arbitrary suffixes.
+
+
+Full-profile follow-through (same analyzer source `286dfd4`): Fletcher located
+the latest inputs on SSH host `hw3` at
+`/workspace/my-ascend-workspace/runs/qwen27-partition-serving/mtp-gdn-fusion-final-20260921/native-graph/`.
+All four full PROF directories were copied to the local fusion artifact root's
+`raw-from-hw3/native-graph/`, without modifying remote inputs. Reanalysis outputs
+are `traceloom-name-normalized/` there, including exact commands and
+`verification.json`; all report `profile_directory_complete` and embedded sources.
+Each rank/mode recovers12 launches, six64-layer and six2-layer realizations,
+396 attention,396 MLP,792 residual/norm. Comparing against the original package,
+every primary event preserves its geometry, either directly or via the exact
+collective duplicate fold (834 decode,578 mixed). Attention display association
+counts are396 decode and268 mixed; do not make association count equal layer
+count by weakening the collective matcher. Full-launch containment checks pass.
+
+The outer `serving_cycle_candidate` count is zero on all four latest inputs.
+Thus repairing kernel-name admission closes the layer/phase gap but does not
+adapt the older23-token serving tail to the fusion capture. Keep that as a
+separate recognition problem. This capture precedes the later solve/WY
+operator-only experiments; no new service capture was made for those experiments.
