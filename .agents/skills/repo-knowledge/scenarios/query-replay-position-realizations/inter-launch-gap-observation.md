@@ -82,3 +82,56 @@ AllReduce plus previously envelope-hidden NOP and MEM_WAIT_VALUE observations).
 No new classification rules were introduced. Evidence and commands are in
 `build/timeline-gap-investigation/{verify-real.py,real-receipt.json}`. This is
 not a reanalysis of the September-21 MTP artifact above.
+
+## Follow-up regression and correction: outer grammar and display identity
+
+Follow-up on `qwen-mtp-banked-draft-20260921` decode rank 0, comparing its
+original AugDB with `traceloom/replay-membership-c1328e9/decode-rank0.db`:
+`traceloom_semantic_tree.macro_discovery` changed to
+`native_report_tree_flat_fallback_exception`. The outer tree grew from
+49 atoms / 5 repeats / 2 sequences to 776 atoms / 102 repeats / 1 sequence.
+Each of the three protected composition spans now has 504 anchors rather than
+four, but `grammar_state.cpp::semantic_replay_intervals` requires every anchor
+inside the span to share the unit's membership. Ordinary anchors correctly do
+not, so it throws `exact replay interval mixes replay-unit membership`.
+`native_sidecar_materializer.cpp` catches this and emits an adjacent-run-only
+flat tree; successful CLI export is not evidence that grammar recovery worked.
+
+The existing `exact_hlt` + `inter_launch_eager.sql` regression reproduces the
+exception when invoked with `--grammar-debug-out`. Its projection-only checks
+did not protect the grammar contract. The strengthened regression now asserts no
+exception fallback and meaningful recursive structure as well as exact event
+coverage. Do not assign ordinary anchors to a graph to silence the exception:
+shared semantic macros require consistent RHS signatures.
+
+Separate display issue: all 542 replay-body Position definitions are unchanged
+between these two artifacts. Domain 0 is `N001 Seq -> N002 Rep x129 -> N003
+AivKernel`. Different stream domains restart their local N numbering; Perfetto
+prints only that local number on a common display plane. `N002` repetitions
+within one domain are legitimate occurrences, but equal labels across domains
+do not identify one Position. Full `position_id`/`domain_id` arguments remain
+distinct. Lane-local communication repetition is not a global model-layer loop.
+Compact evidence and reproducer logs: `build/node-projection-investigation/`.
+
+The correction keeps contiguous, member-only compositions atomic as before.
+For a composition envelope containing ordinary anchors, grammar construction
+instead protects each exact launch as an atomic semantic macro; the complete
+sequence, including ordinary work, participates in outer discovery. Macro keys
+include graph template, body template, and launch symbol. Conflicting replay
+ownership, missing body identity, and incomplete launch counts still fail.
+The fixture also varies one ordinary operation between executions to verify
+that ordinary signatures do not enter an invariant graph macro's RHS.
+
+Replay structural titles now qualify local positions as `R0/N002`, `R2/N002`,
+etc.; stored Position definitions and full query identities are unchanged.
+The multi-domain integration regression checks the qualification explicitly.
+
+Reanalysis of the same banked-draft full profile reports
+`native_report_tree_complete`: 470 atoms / 73 repeats / 9 sequences, including
+a repeat with two occurrences of 1,172 anchors. All 10,460 projected event IDs,
+timestamps, and durations match the membership-corrected artifact exactly.
+This is not expected to reproduce the original 56-node tree, which omitted
+ordinary work. Artifacts are under
+`/workspace/strengthen-dsv4/runs/qwen-mtp-banked-draft-20260921/traceloom/grammar-qualified/`
+(`decode-rank0.db`, `decode-rank0.perfetto.json.gz`, `grammar.json`,
+`verification.json`). All 88 tests and the release build pass.

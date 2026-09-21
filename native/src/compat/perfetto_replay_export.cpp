@@ -54,7 +54,7 @@ ReplayTimelineProjection load_replay_timeline(sqlite3* db) {
   std::map<Domain, int> root_depth_shift;
   auto occurrences = query(db, R"SQL(
 SELECT o.domain_id,o.position_start,o.position_end_exclusive,d.display_depth,
-       d.local_position_id||' · '||d.label,
+       'R'||substr(d.domain_id,length('replay-body-domain-')+1)||'/'||d.local_position_id||' · '||d.label,
        json_object('position_id',o.position_id,'template_occurrence_id',o.occurrence_id,
                    'parent_template_occurrence_id',o.parent_occurrence_id,
                    'position_start',o.position_start,'position_end_exclusive',o.position_end_exclusive),
@@ -80,7 +80,7 @@ WHERE d.position_kind='seq'
   auto bodies = query(db, R"SQL(
 SELECT p.domain_id,MIN(COALESCE(c.position_start,m.terminal_position_ordinal)),
  MAX(COALESCE(c.position_end_exclusive,m.terminal_position_ordinal+1)),d.display_depth,
- d.local_position_id||' · '||d.label||' · body '||m.member_order||'/'||d.repeat_count,
+ 'R'||substr(d.domain_id,length('replay-body-domain-')+1)||'/'||d.local_position_id||' · '||d.label||' · body '||m.member_order||'/'||d.repeat_count,
  json_object('position_id',p.position_id,'template_occurrence_id',p.occurrence_id,
              'repeat_iteration',m.member_order,'repeat_count',d.repeat_count,
              'position_start',MIN(COALESCE(c.position_start,m.terminal_position_ordinal)),

@@ -798,7 +798,10 @@ class AugDbTests(unittest.TestCase):
             and "launch_id" in e.get("args", {})
         ]
         self.assertTrue(bodies)  # atomic repeat bodies must also have iteration tracks
+        self.assertGreater(len({e["args"]["domain_id"] for e in bodies}), 1)
         for event in bodies:
+            domain = event["args"]["domain_id"].removeprefix("replay-body-domain-")
+            self.assertTrue(event["name"].startswith(f"R{domain}/N"), event)
             self.assertEqual(
                 event["args"]["position_end_exclusive"]
                 - event["args"]["position_start"],

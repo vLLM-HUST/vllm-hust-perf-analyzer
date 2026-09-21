@@ -35,12 +35,16 @@ with tempfile.TemporaryDirectory(prefix='traceloom-replay-gap-') as directory:
         db.executescript((fixture / 'mutations/inter_launch_eager.sql').read_text())
     output = root / 'with-eager.db'
     timeline = root / 'with-eager.json'
-    run(raw, '--threads', '1', '--output', output, '--perfetto-out', timeline)
+    run(raw, '--threads', '1', '--output', output, '--perfetto-out', timeline,
+        '--grammar-debug-out', root / 'grammar.json')
     with sqlite3.connect(output) as db:
+        discovery = db.execute('SELECT macro_discovery FROM traceloom_semantic_tree').fetchall()
+        assert discovery and all('fallback' not in r[0] for r in discovery), discovery
+        assert db.execute("SELECT COUNT(*) FROM traceloom_v_tree_node WHERE kind='repeat' AND repeat_count=3 AND anchors_per_occurrence>3").fetchone()[0] > 0
         assert db.execute('SELECT launch_id,start_ns,end_ns FROM traceloom_graph_launch ORDER BY launch_id').fetchall() == launches
         assert db.execute('SELECT COUNT(*) FROM traceloom_graph_body_member').fetchone()[0] == bodies
-        events = db.execute('SELECT event_id FROM traceloom_event WHERE (start_ns=125 AND end_ns=135) OR (start_ns=116 AND end_ns=117 AND stream_id=99)').fetchall()
-        assert len(events) == 2, events
+        events = db.execute('SELECT event_id FROM traceloom_event WHERE start_ns IN (125,425,725,1025) OR (start_ns=116 AND end_ns=117 AND stream_id=99)').fetchall()
+        assert len(events) == 5, events
         for (event,) in events:
             assert db.execute('SELECT COUNT(*) FROM traceloom_anchor WHERE event_id=?', (event,)).fetchone()[0] == 1, event
             role = db.execute('SELECT final_role FROM traceloom_evidence_role_decision WHERE event_id=?', (event,)).fetchall()
@@ -53,7 +57,21 @@ with tempfile.TemporaryDirectory(prefix='traceloom-replay-gap-') as directory:
         matching = [e for e in projected if e.get('args', {}).get('event_id') == event]
         assert len(matching) == 1, (event, matching)
         assert not matching[0]['args']['replay_derived'], matching
+    for e in slices:
+        if e.get('args', {}).get('replay_derived') and e['cat'] != 'traceloom.timeline_event':
+            domain = e['args']['domain_id'].removeprefix('replay-body-domain-')
+            assert e['name'].startswith('R' + domain + '/N'), e
     exact = [e for e in projected if e.get('args', {}).get('replay_derived')]
     assert len(exact) == bodies, (len(exact), bodies)
     assert len({e['args']['event_id'] for e in projected}) == len(projected)
+    # Ordinary work can change without invalidating a shared graph template.
+    # It must not be smuggled into that template's invariant semantic RHS.
+    with sqlite3.connect(raw) as db:
+        db.execute('UPDATE TASK SET globalTaskId=101 WHERE connectionId=99004')
+    varied = root / 'varied.db'
+    run(raw, '--threads', '1', '--output', varied,
+        '--grammar-debug-out', root / 'varied-grammar.json')
+    with sqlite3.connect(varied) as db:
+        discovery = db.execute('SELECT macro_discovery FROM traceloom_semantic_tree').fetchall()
+        assert discovery and all('fallback' not in r[0] for r in discovery), discovery
 print('Inter-launch and concurrent non-members retained once; exact bodies unchanged.')

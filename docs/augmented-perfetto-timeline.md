@@ -167,6 +167,13 @@ N612 · motif C · body 1/2
 N612 · motif C · body 2/2
 ```
 
+Replay-body positions use domain-qualified titles, such as `R0/N002` and
+`R2/N002`. Local `N` numbering restarts in each replay-body stream domain;
+equal local numbers in different domains do not identify the same position.
+Repeated occurrences within one domain intentionally reuse their position ID.
+The full `domain_id` and `position_id` arguments remain the query identities.
+A stream-local communication repeat does not imply a global model-layer loop.
+
 A motif class is the canonical ordered rooted topology of node kinds
 (`seq`/`repeat`/`atom`). Labels, categories, node IDs, occurrence IDs, and repeat
 counts do not affect it. Isomorphic repeat subtrees receive the same compact

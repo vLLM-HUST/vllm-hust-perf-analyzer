@@ -4,6 +4,7 @@
 #include <limits>
 #include <map>
 #include <stdexcept>
+#include <tuple>
 
 #include "traceloom/sequence/protected_sequence.h"
 
@@ -56,6 +57,8 @@ struct SemanticReplayInterval {
   GraphTemplateId graph_template_id;
   std::size_t first_token_index = 0;
   std::size_t last_token_index = 0;
+  ReplayBodyTemplateId body_template_id;
+  SymbolId launch_symbol_id;
 };
 
 std::vector<SemanticReplayInterval> semantic_replay_intervals(
@@ -116,22 +119,56 @@ std::vector<SemanticReplayInterval> semantic_replay_intervals(
       throw std::invalid_argument(
           "exact replay interval lacks structurally exact composition");
     }
+    bool mixed = false;
     for (std::size_t token_index = span.first_token_index;
          token_index <= span.last_token_index; ++token_index) {
       const AnchorId anchor_id = sequence.token_at(token_index).anchor_id;
-      if (!anchor_id.valid() ||
-          ir.anchors.row(anchor_id).replay_unit_id != replay.id) {
+      if (!anchor_id.valid()) {
+        throw std::invalid_argument("exact replay interval has no anchor");
+      }
+      const auto owner = ir.anchors.row(anchor_id).replay_unit_id;
+      if (owner.valid() && owner != replay.id) {
         throw std::invalid_argument(
             "exact replay interval mixes replay-unit membership");
       }
+      mixed = mixed || !owner.valid();
     }
     if (!out.empty() &&
         span.first_token_index <= out.back().last_token_index) {
       throw std::invalid_argument("exact replay intervals overlap");
     }
-    out.push_back(SemanticReplayInterval{
-        span.id, replay.id, replay.graph_template_id,
-        span.first_token_index, span.last_token_index});
+    if (!mixed) {
+      out.push_back(SemanticReplayInterval{
+          span.id, replay.id, replay.graph_template_id,
+          span.first_token_index, span.last_token_index, {}, {}});
+      continue;
+    }
+    // A composition envelope is not ownership. Keep each observed launch
+    // atomic, but let ordinary tokens between launches enter outer discovery.
+    // Do not reuse the composition template as a macro for those ordinary
+    // tokens: they need not have the same signature on every execution.
+    std::size_t launch_count = 0;
+    for (std::size_t index = span.first_token_index;
+         index <= span.last_token_index; ++index) {
+      const auto& anchor = ir.anchors.row(sequence.token_at(index).anchor_id);
+      if (!anchor.replay_unit_id.valid()) continue;
+      const auto& member = ir.replay_unit_launch_members.row(
+          anchor.replay_unit_launch_member_id);
+      if (member.replay_unit_id != replay.id) {
+        throw std::invalid_argument("replay launch anchor has inconsistent ownership");
+      }
+      const auto& slot = ir.replay_composition_slots.row(member.replay_composition_slot_id);
+      if (!slot.replay_body_template_id.valid()) {
+        throw std::invalid_argument("replay launch anchor lacks exact body identity");
+      }
+      out.push_back(SemanticReplayInterval{
+          span.id, replay.id, replay.graph_template_id, index, index,
+          slot.replay_body_template_id, anchor.symbol_id});
+      ++launch_count;
+    }
+    if (launch_count != region.observed_launch_count) {
+      throw std::invalid_argument("replay composition lost launch anchors");
+    }
   }
   return out;
 }
@@ -220,7 +257,10 @@ GlobalGrammarState build_initial_grammar_state(
 
   const std::vector<SemanticReplayInterval> semantic_intervals =
       semantic_replay_intervals(ir, sequence, boundary_index);
-  std::map<GraphTemplateId::value_type, MacroDefId>
+  using SemanticKey = std::tuple<GraphTemplateId::value_type,
+                                 ReplayBodyTemplateId::value_type,
+                                 SymbolId::value_type>;
+  std::map<SemanticKey, MacroDefId>
       semantic_macro_by_template;
   state.nodes.reserve(sequence.size());
   std::size_t semantic_interval_index = 0;
@@ -240,8 +280,10 @@ GlobalGrammarState build_initial_grammar_state(
 
       MacroDefId macro_def_id;
       SymbolId macro_symbol_id;
-      const auto existing = semantic_macro_by_template.find(
-          interval.graph_template_id.value());
+      const SemanticKey key{interval.graph_template_id.value(),
+                            interval.body_template_id.value(),
+                            interval.launch_symbol_id.value()};
+      const auto existing = semantic_macro_by_template.find(key);
       if (existing == semantic_macro_by_template.end()) {
         macro_def_id = checked_next_id<MacroDefId>(state.macro_defs.size());
         macro_symbol_id = next_symbol;
@@ -259,10 +301,10 @@ GlobalGrammarState build_initial_grammar_state(
             1,
             static_cast<std::ptrdiff_t>(rhs_symbols.size() - 1),
             interval.first_token_index,
-            "ReplayUnit T" +
-                std::to_string(interval.graph_template_id.value() + 1)});
-        semantic_macro_by_template.emplace(
-            interval.graph_template_id.value(), macro_def_id);
+            interval.body_template_id.valid()
+                ? "GraphReplay B" + std::to_string(interval.body_template_id.value() + 1)
+                : "ReplayUnit T" + std::to_string(interval.graph_template_id.value() + 1)});
+        semantic_macro_by_template.emplace(key, macro_def_id);
       } else {
         macro_def_id = existing->second;
         MacroDefRow& macro = state.macro_defs[macro_def_id.value()];
