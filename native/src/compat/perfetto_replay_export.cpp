@@ -35,6 +35,7 @@ std::string merge_args(const std::string& a, const std::string& b) {
 struct Pattern {
   int first, end, depth;
   std::string name, category, args;
+  std::string position_id, label;
 };
 struct Member {
   int ordinal, count, db, device;
@@ -58,7 +59,7 @@ SELECT o.domain_id,o.position_start,o.position_end_exclusive,d.display_depth,
        json_object('position_id',o.position_id,'template_occurrence_id',o.occurrence_id,
                    'parent_template_occurrence_id',o.parent_occurrence_id,
                    'position_start',o.position_start,'position_end_exclusive',o.position_end_exclusive),
-       o.db_idx,o.device_id,d.position_kind
+       o.db_idx,o.device_id,d.position_kind,o.position_id,d.label
 FROM traceloom_v_replay_body_position_occurrence o
 JOIN traceloom_v_replay_body_position_definition d USING(position_id,domain_id,db_idx,device_id)
 WHERE d.position_kind='seq'
@@ -72,7 +73,7 @@ WHERE d.position_kind='seq'
     }
     patterns[domain].push_back({sqlite3_column_int(s,1),sqlite3_column_int(s,2),
         sqlite3_column_int(s,3)*2,text(s,4),
-        "traceloom.replay.structure",text(s,5)});
+        "traceloom.replay.structure",text(s,5),text(s,9),text(s,10)});
   }
   // Match ordinary-node projection: repeat iteration windows, not an extra
   // replay-only aggregate row above the same windows. Geometry uses direct members,
@@ -102,7 +103,7 @@ GROUP BY p.domain_id,p.db_idx,p.device_id,p.occurrence_id,m.member_order
     auto* s = bodies.get();
     patterns[{text(s,0),sqlite3_column_int(s,6),sqlite3_column_int(s,7)}].push_back({sqlite3_column_int(s,1),sqlite3_column_int(s,2),
         sqlite3_column_int(s,3)*2+1,text(s,4),
-        "traceloom.replay.repeat_body",text(s,5)});
+        "traceloom.replay.repeat_body",text(s,5),{}, {}});
   }
 
   using Realization = std::tuple<std::string,std::string,int,int>;
@@ -176,6 +177,9 @@ GROUP BY a.db_idx,a.device_id,a.anchor_idx
       slice.repeat_body=p.category=="traceloom.replay.repeat_body";
       slice.category=slice.repeat_body ? "traceloom.repeat_body_window" : "traceloom.structural_interval";
       slice.args=merge_args(rows.front().launch_args,p.args); slice.replay=true;
+      slice.launch_id=std::get<1>(key); slice.domain_id=domain;
+      slice.position_id=p.position_id; slice.phase_label=p.label;
+      slice.position_start=p.first; slice.position_end=p.end;
       slices.push_back(std::move(slice));
     }
     for (const auto& m:rows) {
@@ -185,6 +189,7 @@ GROUP BY a.db_idx,a.device_id,a.anchor_idx
       slice.name=m.name; slice.category="traceloom.timeline_event";
       slice.args=merge_args(m.launch_args,m.args); slice.event_id=m.event_id;
       slice.event=true; slice.replay=true;
+      slice.launch_id=std::get<1>(key); slice.domain_id=domain;
       slices.push_back(std::move(slice));
       ++realized[{m.db,m.device,m.anchor_index}];
     }

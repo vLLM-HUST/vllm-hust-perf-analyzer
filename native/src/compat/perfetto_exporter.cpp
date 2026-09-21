@@ -719,6 +719,7 @@ PerfettoExportReceipt write_perfetto_trace(const std::string& analysis_db_path,
       }
     }
   }
+  perfetto_internal::project_collective_display(db.get(),slices);
   perfetto_internal::write_common_timeline(writer,std::move(slices),receipt);
   std::set<std::string> motifs;
   for (const auto& [id, n] : nodes)

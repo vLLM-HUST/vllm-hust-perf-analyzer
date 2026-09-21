@@ -239,6 +239,7 @@ if(TRACELOOM_NATIVE_ENABLE_SQLITE_ADAPTERS)
         src/compat/perfetto_raw_export.cpp
         src/compat/perfetto_context_export.cpp
         src/compat/perfetto_replay_export.cpp
+        src/compat/perfetto_collective_projection.cpp
         src/compat/perfetto_timeline_render.cpp
     )
     if(TARGET SQLite::SQLite3)
@@ -961,6 +962,16 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
       ascend_sqlite_replay_composition_tests
       tests/adapters/ascend_sqlite_replay_composition_tests.cpp
     )
+
+    add_executable(perfetto_collective_projection_tests tests/compat/perfetto_collective_projection_tests.cpp)
+    target_link_libraries(perfetto_collective_projection_tests PRIVATE traceloom_native_materialize)
+    if(TARGET SQLite::SQLite3)
+      target_link_libraries(perfetto_collective_projection_tests PRIVATE SQLite::SQLite3)
+    else()
+      target_include_directories(perfetto_collective_projection_tests PRIVATE ${SQLite3_INCLUDE_DIRS})
+      target_link_libraries(perfetto_collective_projection_tests PRIVATE ${SQLite3_LIBRARIES})
+    endif()
+    add_test(NAME perfetto_collective_projection_tests COMMAND perfetto_collective_projection_tests)
 
     add_executable(perfetto_exporter_tests
       tests/compat/perfetto_exporter_tests.cpp

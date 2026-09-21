@@ -267,3 +267,32 @@ as in `--help`. Either alignment option is mutually exclusive with
 `--distributed-clock-model`; incompatible choices, unknown modes, or alignment
 without ranks fail before opening the output. Existing model-based exports and
 unspecified first-event behavior are unchanged.
+
+## Collective display folding and attention envelopes
+
+The primary plane folds an `AivKernel` TASK into its already-visible AllReduce
+or AllGather observation only when embedded provider evidence proves a unique
+one-to-one match: same raw source, collective kind, connection ID, database,
+device, normalized stream and exact start/end timestamps. Names or temporal
+containment alone are insufficient. Missing counterparts, mismatches and
+ambiguous pairs remain visible. The raw-provider plane, AugDB events, exact
+replay membership and cost tables are unchanged. The surviving collective's
+`display_folded_task_event_id` preserves the reverse lookup; an exactly matching
+single-terminal replay repeat decoration is also omitted. Multi-member
+structures are not removed by this presentation rule.
+
+For explicitly labeled replay `attention` Positions, a unique folded AllReduce
+in the gap before the directly adjacent `residual_norm` Position can extend the
+attention **display envelope**. Both Positions must share their exact domain and
+launch; the collective obtains that launch through its matched exact TASK.
+Multiple candidate collectives or competing phases withhold the association.
+AllGather, MLP, unrelated launches and overlapping residual work are not assigned
+by this rule. The collective stays visible at its own unchanged timestamp.
+
+This is a requested presentation convention, not cross-stream HPO membership,
+a dependency edge or additive phase cost. `display_compute_end_ns` retains the
+original compute boundary, `display_collective_event_id` identifies the attached
+observation, and `display_phase_semantics` states the interpretation. The
+collective retains `display_phase_position_id` and `display_phase_launch_id`.
+Re-exporting an existing self-contained AugDB is sufficient; no reanalysis or
+raw-data deletion is necessary.

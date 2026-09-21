@@ -75,3 +75,24 @@ event identities/timestamps and exact launch/body/cost membership remain equal
 to the prior two-phase output. Each residual unit contains precisely the guarded
 Adds and fused AddRmsNormBias; neither attention nor MLP contains that fused
 kernel. The 89-test suite and Release build pass.
+
+## Fold AIV decorations without inventing cross-stream membership
+
+The three-phase capture publishes the same collective as both TASK/AivKernel
+and COMMUNICATION_OP. A bounded raw audit found equal source, connection ID,
+device, stream and exact interval (e.g. TASK row162 / COMMUNICATION_OP row451,
+connection6213). The primary Perfetto fold uses all of those coordinates plus
+collective kind and one-to-one cardinality, never timestamps alone. All 834
+visible AivKernel tasks have counterparts: 810 AllReduce and 24 AllGather.
+Raw evidence and SQL events/body/cost membership are unchanged. Retain the
+surviving event's `display_folded_task_event_id` rather than deleting provenance.
+
+Fletcher selected an attention display convention: extend the compute window
+through the unique same-launch AllReduce before its next residual_norm unit.
+All 396 attention realizations satisfy it here. This is explicitly a display
+association, not new HPO membership or a proven cross-stream dependency; it
+must not leak into cost or layer-count analysis. MLP and AllGather are not
+phase-associated by this rule. Primary-plane event count becomes 9,626 after
+834 duplicate drawings disappear; the raw plane remains 27,735 slices.
+Qualified re-export/verification: `traceloom/qwen35-attention-collectives/`.
+The AugDB remains the unchanged `qwen35-three-phase/decode-rank0.db`.

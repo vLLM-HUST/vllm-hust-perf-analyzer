@@ -88,6 +88,9 @@ struct TimelineSlice {
   std::int64_t stream = -1, start = 0, end = 0, anchor_index = 0;
   std::string view, name, category, args, event_id;
   bool event = false, replay = false, repeat_body = false;
+  // Exact replay coordinates for optional display-only phase associations.
+  std::string launch_id, domain_id, position_id, phase_label;
+  int position_start = -1, position_end = -1;
 };
 using AnchorCoordinate = std::tuple<int, int, std::int64_t>;
 struct ReplayTimelineProjection {
@@ -95,6 +98,7 @@ struct ReplayTimelineProjection {
   std::set<AnchorCoordinate> expanded_anchors;
 };
 ReplayTimelineProjection load_replay_timeline(sqlite3* db);
+void project_collective_display(sqlite3* db, std::vector<TimelineSlice>& slices);
 void write_common_timeline(RawTraceWriter& writer, std::vector<TimelineSlice> slices,
                            PerfettoExportReceipt& receipt);
 void export_context_timeline(sqlite3* db, RawTraceWriter& writer);
