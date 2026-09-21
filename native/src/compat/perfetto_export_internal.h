@@ -5,6 +5,7 @@
 #include <set>
 #include <tuple>
 #include <limits>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -99,6 +100,10 @@ struct ReplayTimelineProjection {
 };
 ReplayTimelineProjection load_replay_timeline(sqlite3* db);
 void project_collective_display(sqlite3* db, std::vector<TimelineSlice>& slices);
+std::optional<std::string> device_event_display_name(
+    const std::string& provider, const std::string& name);
+void apply_device_event_display_policy(std::vector<TimelineSlice>& slices,
+                                       const std::string& provider);
 void write_common_timeline(RawTraceWriter& writer, std::vector<TimelineSlice> slices,
                            PerfettoExportReceipt& receipt);
 void export_context_timeline(sqlite3* db, RawTraceWriter& writer);

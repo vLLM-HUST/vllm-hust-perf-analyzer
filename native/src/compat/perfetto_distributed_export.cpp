@@ -137,6 +137,13 @@ DistributedRankTimeline load_rank(const PerfettoDistributedRankInput& input) {
       "AND o.view_name=n.view_name WHERE n.kind='atom' "
       "ORDER BY o.start_ns,o.end_ns,n.node_id,o.occurrence_idx");
 
+  std::string display_provider;
+  if (has_object(db.get(), "traceloom_raw_table")) {
+    auto provider = prepare(db.get(),
+        "SELECT 1 FROM traceloom_raw_table WHERE source_table IN "
+        "('TASK','COMPUTE_TASK_INFO','COMMUNICATION_OP') LIMIT 1");
+    if (sqlite3_step(provider.get()) == SQLITE_ROW) display_provider = "ascend";
+  }
   DistributedRankTimeline rank;
   rank.rank = input.rank;
   rank.timeline_db_path = input.timeline_db_path;
@@ -146,7 +153,10 @@ DistributedRankTimeline load_rank(const PerfettoDistributedRankInput& input) {
     event.local_node_id = text(stmt.get(), 1);
     event.view_name = text(stmt.get(), 2);
     event.rooted_role_path = text(stmt.get(), 3);
-    event.label = text(stmt.get(), 4);
+    const auto display_name = device_event_display_name(
+        display_provider, text(stmt.get(), 4));
+    if (!display_name.has_value()) continue;
+    event.label = *display_name;
     event.category = text(stmt.get(), 5);
     event.database_index = sqlite3_column_int(stmt.get(), 6);
     event.device_id = sqlite3_column_int(stmt.get(), 7);

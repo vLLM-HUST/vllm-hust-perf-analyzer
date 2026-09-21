@@ -1,5 +1,7 @@
 #include "perfetto_export_internal.h"
 
+#include "traceloom/analysis/structural_symbol_normalization.h"
+
 #include <algorithm>
 #include <map>
 #include <tuple>
@@ -7,6 +9,33 @@
 #include <vector>
 
 namespace traceloom::compat::perfetto_internal {
+std::optional<std::string> device_event_display_name(
+    const std::string& provider, const std::string& name) {
+  if (provider != "ascend") return name;
+  static const auto rules = load_default_structural_symbol_ruleset();
+  const std::string normalized = normalize_selected_task_structural_symbol(
+      provider, name, rules);
+  if (normalized == "KERNEL_AICPU" || normalized == "AivKernel" ||
+      (normalized.size() >= 3 &&
+       normalized.compare(normalized.size() - 3, 3, "SQE") == 0)) {
+    return std::nullopt;
+  }
+  return normalized;
+}
+
+void apply_device_event_display_policy(std::vector<TimelineSlice>& slices,
+                                       const std::string& provider) {
+  for (auto& slice : slices) {
+    if (!slice.event) continue;
+    const auto name = device_event_display_name(provider, slice.name);
+    if (name.has_value()) slice.name = *name;
+  }
+  slices.erase(std::remove_if(slices.begin(), slices.end(), [&](const auto& slice) {
+    return slice.event &&
+           !device_event_display_name(provider, slice.name).has_value();
+  }), slices.end());
+}
+
 void write_common_timeline(RawTraceWriter& writer, std::vector<TimelineSlice> slices,
                            PerfettoExportReceipt& receipt) {
   // Stream and replay identities are attributes, not display partitions.

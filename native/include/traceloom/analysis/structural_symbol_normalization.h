@@ -94,6 +94,12 @@ class StructuralSymbolNormalizationRuleset {
 
 // Shared CANN decoration syntax; no fuzzy prefix stripping or identity rewrite.
 std::optional<std::string> ascend_decorated_kernel_base(const std::string& value);
+// Resolve one already-selected task identity through the same normalization
+// rules used by structural analysis. Identity is preserved on no-match/conflict.
+std::string normalize_selected_task_structural_symbol(
+    const std::string& provider,
+    const std::string& value,
+    const StructuralSymbolNormalizationRuleset& ruleset);
 
 const char* structural_symbol_source_name(StructuralSymbolSource source);
 const char* structural_symbol_outcome_name(StructuralSymbolOutcome outcome);

@@ -720,6 +720,14 @@ PerfettoExportReceipt write_perfetto_trace(const std::string& analysis_db_path,
     }
   }
   perfetto_internal::project_collective_display(db.get(),slices);
+  std::string display_provider;
+  if (has_object(db.get(), "traceloom_raw_table")) {
+    auto provider = prepare(db.get(),
+        "SELECT 1 FROM traceloom_raw_table WHERE source_table IN "
+        "('TASK','COMPUTE_TASK_INFO','COMMUNICATION_OP') LIMIT 1");
+    if (sqlite3_step(provider.get()) == SQLITE_ROW) display_provider = "ascend";
+  }
+  perfetto_internal::apply_device_event_display_policy(slices,display_provider);
   perfetto_internal::write_common_timeline(writer,std::move(slices),receipt);
   std::set<std::string> motifs;
   for (const auto& [id, n] : nodes)

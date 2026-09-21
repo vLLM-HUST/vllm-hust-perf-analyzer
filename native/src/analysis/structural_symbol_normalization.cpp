@@ -465,6 +465,38 @@ std::optional<std::string> ascend_decorated_kernel_base(
   return base;
 }
 
+std::string normalize_selected_task_structural_symbol(
+    const std::string& provider,
+    const std::string& value,
+    const StructuralSymbolNormalizationRuleset& ruleset) {
+  std::int32_t matched_priority = 0;
+  std::optional<std::string> matched;
+  for (const auto& rule : ruleset.rules()) {
+    if (matched.has_value() && rule.priority < matched_priority) break;
+    if (rule.source_domain != "task" ||
+        (rule.field != StructuralSymbolField::kSelected &&
+         rule.field != StructuralSymbolField::kAnyIdentity)) {
+      continue;
+    }
+    if (rule.provider_scope != "provider-neutral" &&
+        lower_ascii(provider).find(lower_ascii(rule.provider_scope)) ==
+            std::string::npos) {
+      continue;
+    }
+    const auto candidate = rule_structural_symbol(rule, value);
+    if (!candidate.has_value()) continue;
+    if (!matched.has_value()) {
+      matched_priority = rule.priority;
+      matched = *candidate;
+    } else {
+      // Match analysis fail-closed behavior when equal-precedence aliases
+      // overlap, rather than choosing by declaration order.
+      return value;
+    }
+  }
+  return matched.value_or(value);
+}
+
 const char* structural_symbol_source_name(StructuralSymbolSource source) {
   switch (source) {
     case StructuralSymbolSource::kUnknown: return "unknown";

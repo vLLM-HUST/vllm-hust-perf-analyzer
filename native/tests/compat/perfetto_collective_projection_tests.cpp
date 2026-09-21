@@ -21,6 +21,24 @@ std::vector<TimelineSlice> input() {
   return {task,op,phase,residual,decoration};
 }
 int main() {
+  {
+    TimelineSlice aicpu; aicpu.event=true; aicpu.name="KERNEL_AICPU";
+    TimelineSlice aiv=aicpu; aiv.name="AivKernel";
+    TimelineSlice sqe=aicpu; sqe.name="FUTURE_COMMAND_SQE";
+    TimelineSlice ordinary=aicpu; ordinary.name="MatMulV2_ND_ND_FP16_FP16_false_true_all_98513";
+    TimelineSlice fused=aicpu; fused.name="QuantBatchMatmulAllReduce_506a984e26ea19e14052d4a5eac3f461_260";
+    TimelineSlice structure=aicpu; structure.event=false; structure.name="AivKernel";
+    std::vector<TimelineSlice> slices{ordinary,aicpu,fused,aiv,sqe,structure};
+    apply_device_event_display_policy(slices, "ascend");
+    require(slices.size()==3);
+    require(slices[0].name=="MatMul");
+    require(slices[1].name=="QuantBatchMatmulAllReduce");
+    require(!slices[2].event && slices[2].name=="AivKernel");
+    std::vector<TimelineSlice> cuda{aicpu, ordinary};
+    apply_device_event_display_policy(cuda, "cuda");
+    require(cuda.size()==2 && cuda[0].name=="KERNEL_AICPU" &&
+            cuda[1].name==ordinary.name);
+  }
   sqlite3* raw=nullptr;require(sqlite3_open(":memory:",&raw)==SQLITE_OK);
   std::unique_ptr<sqlite3,decltype(&sqlite3_close)> db(raw,sqlite3_close);
   sql(raw,R"(

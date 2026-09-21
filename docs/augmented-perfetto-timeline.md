@@ -244,6 +244,14 @@ deletes evidence from the database nor removes nested structure bars. The
 projection-plane filter remains necessary. Existing default exports keep all
 raw evidence for compatibility and auditability.
 
+For timelines whose embedded source inventory admits the Ascend task schema,
+the upper `device_events` plane uses the same structural-symbol rules as
+analysis to remove audited CANN decorations. Provider wrapper labels
+`KERNEL_AICPU`, `AivKernel`, and labels ending in `SQE` are omitted from that
+upper display plane. The `raw_provider` plane remains unchanged, including the
+original name and source-row provenance; non-Ascend timelines are not rewritten
+by this display policy.
+
 ## Preserve provider timestamps for independent sources
 
 For sources already recorded in a suitable provider time domain, use:
