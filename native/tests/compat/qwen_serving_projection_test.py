@@ -112,9 +112,28 @@ with tempfile.TemporaryDirectory(prefix='traceloom-qwen-model-') as directory:
     # An observed slot marker with an unrecognized tail is a barrier, not a
     # license to combine two cycles into one apparently complete occurrence.
     with sqlite3.connect(raw) as db:
-        db.execute('UPDATE TASK SET globalTaskId=? WHERE connectionId=90101', (ids['GemmaRmsNorm'],))
+        db.execute('UPDATE TASK SET globalTaskId=? WHERE connectionId=90121', (ids['GemmaRmsNorm'],))
     partial, _ = analyze('partial', True)
     with sqlite3.connect(partial) as db:
         assert db.execute('SELECT macro_discovery FROM traceloom_semantic_tree').fetchone()[0] == 'model_rules_partial'
         assert db.execute("SELECT SUM(occurrence_count) FROM traceloom_v_tree_node WHERE label='serving_cycle_candidate'").fetchone()[0] == 1
+    # Fused publication plus variable metadata preparation must not require
+    # the old 23-token sequence. Keep the complete guarded three-token suffix.
+    with sqlite3.connect(raw) as db:
+        db.execute('UPDATE TASK SET globalTaskId=? WHERE connectionId=90121', (ids['MaskedFill'],))
+        db.execute('INSERT INTO STRING_IDS VALUES(2000, ?)', ('slots_kernel',))
+        db.execute('INSERT INTO COMPUTE_TASK_INFO VALUES(2000,2000,2000,30)')
+        for cycle, start in enumerate((35000, 65000, 95000, 125000)):
+            db.execute('UPDATE TASK SET globalTaskId=2000 WHERE connectionId BETWEEN ? AND ?',
+                       (90000+cycle*100+17, 90000+cycle*100+19))
+            for j in range(1 + cycle % 2):
+                ident=98000+cycle*10+j
+                db.execute('INSERT INTO TASK VALUES(?,?,0,?,?,1,30,0,3,?,-1)',
+                           (start+136+j*2, start+138+j*2, ident, ids['Sub'], ident))
+    _, fused_before = analyze('fused-baseline', False)
+    fused_output, fused_after = analyze('fused-marked', True)
+    assert events(fused_before) == events(fused_after)
+    assert model_windows(fused_after) == model_windows(decorated_trace)
+    with sqlite3.connect(fused_output) as db:
+        assert db.execute("SELECT SUM(occurrence_count) FROM traceloom_v_tree_node WHERE label='serving_cycle_candidate'").fetchone()[0] == 3
 print('Qwen candidate cycles and replay layers preserve exact evidence and geometry.')

@@ -148,9 +148,9 @@ AnalysisRulesConfig load_analysis_rules_config(const std::string& path,
         throw std::invalid_argument("reserved boundary label");
     }
     if (structure.mode=="cycle_end") {
-      if (std::string(key)=="replay_structure" || unit.count("begin") || unit.count("end") ||
+      if (std::string(key)=="replay_structure" || unit.count("end") ||
           unit.count("labels") || unit.count("end_predecessor") || fields.count("compositions"))
-        throw std::invalid_argument("cycle_end requires only an outer end sequence and label");
+        throw std::invalid_argument("cycle_end requires an outer end sequence and label, with optional begin");
       structure.cycle_label=required_string(unit,"label");
       if (structure.cycle_label=="ambiguous" || structure.cycle_label=="unclassified")
         throw std::invalid_argument("reserved cycle label");
@@ -160,6 +160,11 @@ AnalysisRulesConfig load_analysis_rules_config(const std::string& path,
         structure.end_sequence.push_back(name);
       }
       if (structure.end_sequence.empty()) throw std::invalid_argument("empty cycle end sequence");
+      if (unit.count("begin")) {
+        structure.begin=required_string(unit,"begin");
+        for (const auto& symbol:structure.end_sequence)
+          if (symbol==structure.begin) throw std::invalid_argument("cycle begin overlaps end sequence");
+      }
       continue;
     }
     if (unit.count("end_sequence") || unit.count("label"))

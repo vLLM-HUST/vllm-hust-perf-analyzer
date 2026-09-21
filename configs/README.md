@@ -311,6 +311,28 @@ The compact grammar remains separately available. Explicit cycle grouping is
 not compatible with scheduler-step partitioning; choose the evidence appropriate
 to the question rather than silently mixing the two boundary definitions.
 
+With an optional `begin`, `cycle_end` first requires that marker, then searches
+for the contiguous `end_sequence` through variable preparation tokens. A second
+begin, a graph anchor, or a device change aborts an unfinished search and clears
+the prior boundary so a missing cycle cannot be bridged. An observed broken
+suffix also clears the chain; unseeded suffixes are ignored. Graph anchors remain
+legal between completed boundaries. An unfinished final preparation is diagnosed
+and left raw. Without `begin`, the original exact end-sequence mode is unchanged.
+
+The Qwen rule uses `_compute_slot_mapping_kernel` followed eventually by
+`Equal → MaskedFill → ClipByValueV2`. This common suffix covers both older
+GatherV3 publication and newer `slots_kernel` publication, without fixing all
+metadata work in between. Windows still run from the end of one validated
+preparation boundary through the end of the next: they are device-side candidate
+cycles, not CPU scheduler identity or a claim that preparation belongs to the
+preceding model invocation. Six complete boundaries yield five full windows;
+initial preparation and the trailing execution remain outside full-cycle labels.
+A cycle node's temporal box remains the envelope of all its member anchors.
+A provider collective interval can cross the ending landmark and therefore
+extend that box into the next cycle; do not read the envelope as the boundary
+instant or scheduler-step latency. Exact marker/anchor coordinates define the
+candidate partition, and raw member intervals are never clipped to fit it.
+
 `replay_structure` has the same unit/composition schema as `structure`, but is
 applied independently to each exact replay-body stream. Its `end_delimited`
 mode uses `begin` as an initial/reset marker, `end` as the included right

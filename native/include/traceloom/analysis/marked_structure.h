@@ -19,6 +19,8 @@ struct MarkedStructureRules {
   std::vector<UnitCompositionRule> compositions;
   // paired: explicit begin/end; end_delimited: seed/reset at begin, then
   // successive ends; cycle_end: only intervals between complete end sequences.
+  // Optional begin guards a variable preparation region ending in end_sequence;
+  // another begin or any graph anchor aborts an unfinished boundary search.
   std::string mode = "paired";
   std::string end_predecessor;
   std::vector<std::string> end_sequence;

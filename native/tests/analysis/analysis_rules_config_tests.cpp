@@ -166,11 +166,14 @@ int main() {
         "replay_structure: {unit: {id: r, mode: end_delimited, begin: N, end: E, labels: [{label: a, contains_any: [A]}], "+bad+"}}\n"));});
   auto cycle=load_analysis_rules_config(write("cycle.yaml",schema+
       "structure: {unit: {id: c, mode: cycle_end, label: candidate, end_sequence: [S, tail]}}\n"));
+  auto guarded_cycle=load_analysis_rules_config(write("guarded-cycle.yaml",schema+
+      "structure: {unit: {id: c, mode: cycle_end, begin: B, label: candidate, end_sequence: [S, tail]}}\n"));
+  require(guarded_cycle.structure.begin=="B");
   require(cycle.structure.end_sequence.size()==2);
   for (auto bad : {
       "structure: {unit: {id: c, mode: cycle_end, label: candidate, end_sequence: []}}",
       "structure: {unit: {id: c, mode: typo}}",
-      "structure: {unit: {id: c, mode: cycle_end, label: candidate, end_sequence: [S], begin: X}}",
+      "structure: {unit: {id: c, mode: cycle_end, label: candidate, end_sequence: [S], begin: S}}",
       "replay_structure: {unit: {id: c, mode: cycle_end, label: candidate, end_sequence: [S]}}"})
     rejected([&] {load_analysis_rules_config(write("bad-boundary.yaml",schema+bad+"\n"));});
   rejected([&] { load_structural_symbol_ruleset(c.metadata().manifest_source_path); });

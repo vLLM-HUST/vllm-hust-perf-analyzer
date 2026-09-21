@@ -170,3 +170,35 @@ Thus repairing kernel-name admission closes the layer/phase gap but does not
 adapt the older23-token serving tail to the fusion capture. Keep that as a
 separate recognition problem. This capture precedes the later solve/WY
 operator-only experiments; no new service capture was made for those experiments.
+
+
+### Guarded preparation-tail matching replaces the fixed sequence
+
+The subsequent matcher supports optional `begin` in outer `cycle_end`. The
+Qwen overlay now anchors `_compute_slot_mapping_kernel` and searches for the
+contiguous common `Equal, MaskedFill, ClipByValueV2` suffix. This covers both
+older GatherV3 and newer triple-slots_kernel publication without freezing
+variable metadata work. New begin, graph anchor, device change, or broken
+observed suffix invalidates an unfinished boundary and clears the cycle chain.
+Unseeded suffixes and incomplete capture edges cannot create cycles. Graph
+anchors between completed boundaries remain atomic and legal.
+
+Latest full-profile validation: all four rank/mode inputs now recover five
+complete candidate cycles from six validated boundaries. Layer/phase counts,
+all event/anchor/launch/body/cost member rows, and primary event geometry equal
+the prior name-normalized output. Artifacts and checks are in
+`traceloom-guarded-cycles/` beside the fusion archive; `verification.json` records
+both exact partition anchors and member-envelope overhang. Native fixtures
+exercise old and fused publication, variable preparation, missing tails,
+unseeded suffixes, interrupted searches and graph barriers. Legacy cycle_end
+without begin retains exact contiguous matching.
+
+Important remaining evidence issue: in mixed rank0/rank1 the third candidate's
+member envelope extends beyond its ending landmark. For example rank0
+anchor6485 / event-31138 is COMMUNICATION_OP row584,
+`MatmulAllReduceMc2AicpuKernel_467_127_1`, normalized as AllReduce, spanning
+1789981599141570334..1789981599219857979 ns. This provider interval extends
+into the next execution cycle; it is not a reason to move a validated landmark
+or clip raw evidence. The observed label/timing does not prove a physical
+78-ms AllReduce or scheduler waiting. Investigate provider MC2 observation
+identity separately before treating candidate container width as step latency.

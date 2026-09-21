@@ -57,22 +57,55 @@ StructuralOccurrenceGraph build_marked_structural_graph(
   };
   if (rules.mode == "cycle_end") {
     if (rules.end_sequence.empty()) throw std::invalid_argument("empty cycle end sequence");
+    // Optional begin brackets a variable-length preparation region. Graph
+    // anchors are legal BETWEEN completed boundaries, never inside this search.
+    std::optional<std::size_t> preparation;
+    auto graph_barrier=[](StructuralAnchorKind kind) {
+      return kind==StructuralAnchorKind::kGraphH || kind==StructuralAnchorKind::kGraphL ||
+          kind==StructuralAnchorKind::kGraphT || kind==StructuralAnchorKind::kGraphTemplate ||
+          kind==StructuralAnchorKind::kGraphLaunchActivity;
+    };
     for (std::size_t i=0; i<tokens.size(); ++i) {
+      if (!rules.begin.empty()) {
+        if (i && tokens[i].device_id!=tokens[i-1].device_id) {
+          if (preparation) warning("model_cycle_cross_device_preparation",i);
+          preparation.reset();start.reset();
+        }
+        if (names[i]==rules.begin) {
+          if (preparation) {
+            warning("model_cycle_incomplete_preparation",*preparation);
+            start.reset(); // Do not bridge a missing boundary to its successor.
+          }
+          preparation=i;
+          continue;
+        }
+        if (!preparation) continue;
+        if (graph_barrier(tokens[i].anchor_kind)) {
+          warning("model_cycle_preparation_crosses_graph",i);
+          preparation.reset();start.reset();
+          continue;
+        }
+      }
       if (names[i] != rules.end_sequence.front()) continue;
       const auto end=i+rules.end_sequence.size();
       bool complete=end<=tokens.size();
       for (std::size_t j=0; complete && j<rules.end_sequence.size(); ++j)
-        complete=names[i+j]==rules.end_sequence[j];
+        complete=names[i+j]==rules.end_sequence[j] &&
+            (rules.begin.empty() || (!graph_barrier(tokens[i+j].anchor_kind) &&
+             tokens[i+j].device_id==tokens[i].device_id));
       if (!complete) {
         warning("model_cycle_incomplete_end",i);
+        preparation.reset();
         start.reset(); // Never bridge an observed but unrecognized cycle tail.
         continue;
       }
       if (start) units.push_back({*start,end,rules.cycle_label,
           "model_cycle_candidate:"+rules.id,{}});
+      preparation.reset();
       start=end;
       i=end-1;
     }
+    if (preparation) warning("model_cycle_incomplete_preparation",*preparation);
   } else if (rules.mode == "end_delimited") {
     for (std::size_t i=0; i<tokens.size(); ++i) {
       // A fresh input norm starts/resets a segment. Preparation before the

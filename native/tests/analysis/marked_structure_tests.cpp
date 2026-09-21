@@ -108,4 +108,23 @@ int main() {
         cycle,"cycle_candidate",2);
   check({"S","tail","A","S","wrong","B","S","tail"},cycle,"cycle_candidate",0);
   check({"S","tail","A","S"},cycle,"cycle_candidate",0);
+  cycle.begin="B";
+  check({"B","x","S","tail","graph","B","x","y","S","tail","B","partial"},cycle,"cycle_candidate",1);
+  check({"S","tail","B","S","tail"},cycle,"cycle_candidate",0); // unseeded suffix
+  check({"B","S","tail","B","missing","B","S","tail"},cycle,"cycle_candidate",0);
+  check({"B","S","tail","B","S","wrong","S","tail","B","S","tail"},cycle,"cycle_candidate",0);
+  for (auto kind:{StructuralAnchorKind::kGraphH,StructuralAnchorKind::kGraphL,
+      StructuralAnchorKind::kGraphT,StructuralAnchorKind::kGraphTemplate,
+      StructuralAnchorKind::kGraphLaunchActivity}) {
+    auto blocked=tokens({"B","S","tail","B","graph","S","tail","B","S","tail"});
+    blocked[4].anchor_kind=kind;
+    require(count(build_marked_structural_graph(blocked,cycle),"cycle_candidate")==0);
+    auto allowed=tokens({"B","S","tail","graph","B","x","S","tail"});
+    allowed[3].anchor_kind=kind;
+    require(count(build_marked_structural_graph(allowed,cycle),"cycle_candidate")==1);
+    // A graph may not masquerade as one of the matching suffix tokens either.
+    allowed[6].anchor_kind=kind;
+    require(count(build_marked_structural_graph(allowed,cycle),"cycle_candidate")==0);
+  }
+
 }
