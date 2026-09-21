@@ -2,6 +2,8 @@
 #include "support/ascend_sqlite_fixture.h"
 
 #include "traceloom/analysis/flat_anchor_builder.h"
+#include "traceloom/analysis/event_cost_attribution.h"
+#include "traceloom/analysis/replay_event_membership.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -69,6 +71,45 @@ int main() {
               "identical bank bodies should reuse templates; one-shot changed body must stay distinct");
     }
     std::filesystem::remove_all(direct_dir);
+  }
+
+  {
+    const auto dir = temp_ascend_profile_dir("_inter_launch_eager");
+    materialize_ascend_graph_fixture(dir, "exact_hlt");
+    const auto db = (dir / "msprof.db").string();
+    apply_ascend_fixture_mutation(db, "exact_hlt", "inter_launch_eager.sql");
+    auto ir = AscendSQLiteAdapter(db, "inter_launch_eager").load();
+    FlatAnchorBuildConfig config;
+    config.filter_auxiliary_task_anchors = true;
+    config.skip_events_covered_by_replay_units = true;
+    build_flat_anchors(ir, config);
+    const ReplayEventMembershipIndex membership(ir);
+    // Exercise the auxiliary cost lens separately from anchored compute.
+    // Explicitly excluded kernel tasks remain attributable unless replay-owned.
+    config.skipped_task_type_symbols.push_back("KERNEL_AIVEC");
+    const auto costs = build_event_cost_attribution_mask(ir, config);
+    std::size_t ordinary = 0;
+    for (const auto& task : ir.tasks.rows()) {
+      if (task.raw_connection_id != 99001 && task.raw_connection_id != 99002) continue;
+      const auto& event = ir.trace_events.row(task.trace_event_id);
+      require(!membership.contains(event) && costs.includes(event.id),
+              "ordinary work inherited replay ownership or lost cost eligibility");
+      require(std::count_if(ir.anchors.rows().begin(), ir.anchors.rows().end(),
+                           [&](const auto& a) { return a.trace_event_id == event.id; }) == 1,
+              "ordinary work inside a composition must retain one anchor");
+      ++ordinary;
+    }
+    require(ordinary == 2, "gap/concurrent fixture lost ordinary tasks");
+    for (const auto& member : ir.replay_unit_launch_members.rows()) {
+      const auto& launch = ir.graph_launch_occurrences.row(member.graph_launch_occurrence_id);
+      for (const auto task : {launch.model_execute_task_id,
+                              launch.notify_wait_task_id, launch.notify_record_task_id}) {
+        const auto event = ir.tasks.row(task).trace_event_id;
+        require(membership.contains(ir.trace_events.row(event)) && !costs.includes(event),
+                "matched execution/completion controls escaped replay protection");
+      }
+    }
+    std::filesystem::remove_all(dir);
   }
 
   const std::filesystem::path body_mismatch_dir =

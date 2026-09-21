@@ -198,6 +198,11 @@ latency or placement guarantees.
 
 ## Verify a change
 
+Before treating missing primary-plane events as a renderer-only defect, check
+the [bounded inter-launch gap observation](inter-launch-gap-observation.md).
+Replay-unit envelope suppression can remove ordinary anchors that exact graph
+body expansion cannot restore.
+
 1. Exercise a fixture where lane-major order differs from timestamp order and
    require dense deterministic observed order.
 2. Check nested `policy_role` values and outer `final_role` independently.

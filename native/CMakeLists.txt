@@ -22,6 +22,7 @@ endif()
 add_library(traceloom_native_core
   src/analysis/clock_calibration.cpp
   src/analysis/event_cost_attribution.cpp
+  src/analysis/replay_event_membership.cpp
   src/analysis/event_reconciliation.cpp
   src/analysis/event_reconciliation_task_communication.cpp
   src/analysis/exact_periodic_suffix.cpp
@@ -988,6 +989,10 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
       NAME perfetto_exporter_tests
       COMMAND perfetto_exporter_tests
     )
+    add_test(NAME replay_gap_projection_test
+      COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/compat/replay_gap_projection_test.py
+        $<TARGET_FILE:traceloom>)
 
     add_executable(ascend_sqlite_determinism_tests
       tests/adapters/ascend_sqlite_determinism_tests.cpp

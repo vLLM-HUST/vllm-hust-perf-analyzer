@@ -1,4 +1,5 @@
 #include "traceloom/analysis/event_cost_attribution.h"
+#include "traceloom/analysis/replay_event_membership.h"
 
 #include <algorithm>
 #include <map>
@@ -125,17 +126,7 @@ EventCostAttributionMask build_event_cost_attribution_mask(
         .push_back({event.start_ns, event.end_ns});
   }
 
-  std::unordered_map<std::uint32_t, std::vector<Interval>> replay_by_device;
-  for (const ReplayUnitRow& replay : ir.replay_units.rows()) {
-    if (!replay.launch_trace_event_id.valid() ||
-        replay.launch_trace_event_id.value() >= ir.trace_events.size()) {
-      continue;
-    }
-    const TraceEventRow& event =
-        ir.trace_events.row(replay.launch_trace_event_id);
-    replay_by_device[event.device_id].push_back(
-        {event.start_ns, event.end_ns});
-  }
+  const ReplayEventMembershipIndex replay_membership(ir);
 
   const auto host_events = host_runtime_event_ids(ir);
   const auto reconciled_noncanonical =
@@ -160,16 +151,8 @@ EventCostAttributionMask build_event_cost_attribution_mask(
     const bool skip_replay_covered =
         config.skip_tasks_covered_by_replay_units ||
         config.skip_events_covered_by_replay_units;
-    if (skip_replay_covered) {
-      const auto replay = replay_by_device.find(event.device_id);
-      if (replay != replay_by_device.end() &&
-          std::any_of(replay->second.begin(), replay->second.end(),
-                      [&event](const Interval& interval) {
-                        return event.start_ns >= interval.start_ns &&
-                               event.end_ns <= interval.end_ns;
-                      })) {
-        continue;
-      }
+    if (skip_replay_covered && replay_membership.contains(event)) {
+      continue;
     }
 
     if (task == nullptr) {

@@ -1,4 +1,5 @@
 #include "traceloom/analysis/flat_anchor_builder.h"
+#include "traceloom/analysis/replay_event_membership.h"
 
 #include <algorithm>
 #include <cctype>
@@ -54,11 +55,6 @@ AnchorCandidate anchor_candidate_from_event(
 }
 
 struct CommunicationSpan {
-  std::int64_t start_ns = 0;
-  std::int64_t end_ns = 0;
-};
-
-struct ReplayUnitSpan {
   std::int64_t start_ns = 0;
   std::int64_t end_ns = 0;
 };
@@ -216,28 +212,6 @@ std::uint64_t connection_key(std::uint32_t device_id,
          (static_cast<std::uint64_t>(connection_id) & 0xffffffffu);
 }
 
-std::unordered_map<std::uint32_t, std::vector<ReplayUnitSpan>>
-replay_unit_spans_by_device(const NativeIr& ir) {
-  std::unordered_map<std::uint32_t, std::vector<ReplayUnitSpan>> out;
-  for (const ReplayUnitRow& replay : ir.replay_units.rows()) {
-    if (!replay.launch_trace_event_id.valid()) {
-      continue;
-    }
-    const TraceEventRow& event = ir.trace_events.row(replay.launch_trace_event_id);
-    out[event.device_id].push_back(ReplayUnitSpan{event.start_ns, event.end_ns});
-  }
-  for (auto& item : out) {
-    std::sort(item.second.begin(), item.second.end(),
-              [](const ReplayUnitSpan& lhs, const ReplayUnitSpan& rhs) {
-                if (lhs.start_ns != rhs.start_ns) {
-                  return lhs.start_ns < rhs.start_ns;
-                }
-                return lhs.end_ns < rhs.end_ns;
-              });
-  }
-  return out;
-}
-
 std::unordered_map<std::uint64_t, std::vector<CommunicationSpan>>
 communication_spans_by_connection(const NativeIr& ir) {
   std::unordered_map<std::uint64_t, std::vector<CommunicationSpan>> out;
@@ -284,27 +258,6 @@ bool task_is_covered_by_communication_op(
     }
   }
   return false;
-}
-
-bool event_is_covered_by_replay_unit(
-    const TraceEventRow& event,
-    const std::unordered_map<std::uint32_t, std::vector<ReplayUnitSpan>>&
-        replay_spans) {
-  const auto found = replay_spans.find(event.device_id);
-  if (found == replay_spans.end()) {
-    return false;
-  }
-  const std::vector<ReplayUnitSpan>& spans = found->second;
-  const auto first_after_start =
-      std::upper_bound(spans.begin(), spans.end(), event.start_ns,
-                       [](std::int64_t value, const ReplayUnitSpan& span) {
-                         return value < span.start_ns;
-                       });
-  if (first_after_start == spans.begin()) {
-    return false;
-  }
-  const ReplayUnitSpan& span = *(first_after_start - 1);
-  return event.start_ns >= span.start_ns && event.end_ns <= span.end_ns;
 }
 
 bool candidate_less(const AnchorCandidate& lhs,
@@ -381,8 +334,7 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
       communication_trace_event_ids(ir.communication_ops);
   const std::unordered_map<std::uint64_t, std::vector<CommunicationSpan>>
       comm_spans = communication_spans_by_connection(ir);
-  const std::unordered_map<std::uint32_t, std::vector<ReplayUnitSpan>>
-      replay_spans = replay_unit_spans_by_device(ir);
+  const ReplayEventMembershipIndex replay_membership(ir);
   const bool skip_replay_covered_tasks =
       config.skip_tasks_covered_by_replay_units ||
       config.skip_events_covered_by_replay_units;
@@ -479,7 +431,7 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
     }
     const TraceEventRow& task_event = ir.trace_events.row(task.trace_event_id);
     if (skip_replay_covered_tasks &&
-        event_is_covered_by_replay_unit(task_event, replay_spans)) {
+        replay_membership.contains(task_event)) {
       ++stats.skipped_task_events;
       continue;
     }
@@ -630,7 +582,7 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
     }
     const TraceEventRow& event = ir.trace_events.row(comm.trace_event_id);
     if (config.skip_events_covered_by_replay_units &&
-        event_is_covered_by_replay_unit(event, replay_spans)) {
+        replay_membership.contains(event)) {
       continue;
     }
     candidates.push_back(anchor_candidate_from_event(

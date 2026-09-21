@@ -1,4 +1,5 @@
 #include "evidence_role_sql_internal.h"
+#include "traceloom/analysis/replay_event_membership.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -93,52 +94,6 @@ std::uint64_t connection_key(std::uint32_t device_id,
 bool overlaps(std::int64_t lhs_start, std::int64_t lhs_end,
               std::int64_t rhs_start, std::int64_t rhs_end) {
   return lhs_start <= rhs_end && lhs_end >= rhs_start;
-}
-
-std::vector<ReplayMembership> replay_memberships_for_event(
-    const NativeIr& ir,
-    const TraceEventRow& event,
-    const std::unordered_map<TraceEventId::value_type,
-                             std::set<ReplayUnitId::value_type>>&
-        exact_replays_by_event) {
-  std::map<ReplayUnitId::value_type, ReplayMembership> memberships;
-  const auto exact = exact_replays_by_event.find(event.id.value());
-  if (exact != exact_replays_by_event.end()) {
-    for (const ReplayUnitId::value_type value : exact->second) {
-      const ReplayUnitRow& replay = ir.replay_units.row(ReplayUnitId(value));
-      const TraceEventRow& replay_event =
-          ir.trace_events.row(replay.launch_trace_event_id);
-      memberships.emplace(
-          value, ReplayMembership{replay.id, replay_event.start_ns,
-                                  replay_event.end_ns, true});
-    }
-  }
-  for (const ReplayUnitRow& replay : ir.replay_units.rows()) {
-    if (!replay.launch_trace_event_id.valid() ||
-        replay.launch_trace_event_id.value() >= ir.trace_events.size()) {
-      throw std::invalid_argument(
-          "evidence-role SQL: ReplayUnit launch event is out of range");
-    }
-    const TraceEventRow& replay_event =
-        ir.trace_events.row(replay.launch_trace_event_id);
-    if (replay.launch_trace_event_id == event.id ||
-        (event.device_id == replay_event.device_id &&
-         event.start_ns >= replay_event.start_ns &&
-         event.end_ns <= replay_event.end_ns)) {
-      const bool exact_membership = replay.replay_composition_region_id.valid();
-      auto inserted = memberships.emplace(
-          replay.id.value(),
-          ReplayMembership{replay.id, replay_event.start_ns,
-                           replay_event.end_ns, exact_membership});
-      inserted.first->second.exact =
-          inserted.first->second.exact || exact_membership;
-    }
-  }
-  std::vector<ReplayMembership> result;
-  for (const auto& item : memberships) {
-    result.push_back(item.second);
-  }
-  return result;
 }
 
 void add_placement(EvidenceRoleDecisionRow& row, std::string kind, std::string id,
@@ -260,25 +215,7 @@ std::vector<EvidenceRoleDecisionRow> build_decisions(
   std::unordered_map<TaskId::value_type,
                      std::vector<GraphLaunchBodyMemberId>>
       body_members_by_task;
-  std::unordered_map<GraphLaunchOccurrenceId::value_type,
-                     std::set<ReplayUnitId::value_type>>
-      replay_units_by_occurrence;
-  for (const ReplayUnitLaunchMemberRow& member :
-       ir.replay_unit_launch_members.rows()) {
-    if (!member.replay_unit_id.valid() ||
-        member.replay_unit_id.value() >= ir.replay_units.size() ||
-        !member.graph_launch_occurrence_id.valid() ||
-        member.graph_launch_occurrence_id.value() >=
-            ir.graph_launch_occurrences.size()) {
-      throw std::invalid_argument(
-          "evidence-role SQL: replay launch membership is out of range");
-    }
-    replay_units_by_occurrence[member.graph_launch_occurrence_id.value()]
-        .insert(member.replay_unit_id.value());
-  }
-  std::unordered_map<TraceEventId::value_type,
-                     std::set<ReplayUnitId::value_type>>
-      exact_replays_by_event;
+  const ReplayEventMembershipIndex replay_membership(ir);
   for (const GraphLaunchBodyMemberRow& member :
        ir.graph_launch_body_members.rows()) {
     if (!member.task_id.valid() || member.task_id.value() >= ir.tasks.size() ||
@@ -288,16 +225,6 @@ std::vector<EvidenceRoleDecisionRow> build_decisions(
           "evidence-role SQL: graph body membership is out of range");
     }
     body_members_by_task[member.task_id.value()].push_back(member.id);
-    const GraphLaunchBodyRow& body =
-        ir.graph_launch_bodies.row(member.graph_launch_body_id);
-    const auto replay_found = replay_units_by_occurrence.find(
-        body.graph_launch_occurrence_id.value());
-    if (replay_found == replay_units_by_occurrence.end()) {
-      continue;
-    }
-    const TaskRow& task = ir.tasks.row(member.task_id);
-    exact_replays_by_event[task.trace_event_id.value()].insert(
-        replay_found->second.begin(), replay_found->second.end());
   }
 
   std::unordered_map<TraceEventId::value_type, std::vector<AnchorId>>
@@ -446,8 +373,13 @@ std::vector<EvidenceRoleDecisionRow> build_decisions(
       row.available_fields = "provider_scope,source_domain";
     }
 
-    const std::vector<ReplayMembership> replay_memberships =
-        replay_memberships_for_event(ir, event, exact_replays_by_event);
+    std::vector<ReplayMembership> replay_memberships;
+    for (const auto id : replay_membership.memberships(event)) {
+      const auto& replay = ir.replay_units.row(id);
+      const auto& span = ir.trace_events.row(replay.launch_trace_event_id);
+      replay_memberships.push_back({id, span.start_ns, span.end_ns,
+                                   replay.replay_composition_region_id.valid()});
+    }
     std::map<CommunicationOpId::value_type, const CommunicationOpRow*>
         matching_communications;
     const auto direct_communications = comm_by_event.find(event.id.value());
