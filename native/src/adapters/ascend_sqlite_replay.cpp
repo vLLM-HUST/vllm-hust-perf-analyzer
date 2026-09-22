@@ -34,7 +34,7 @@ ReplayBodyTemplateId replay_body_template_for_launch(
   return ReplayBodyTemplateId::invalid();
 }
 
-void materialize_replay_composition_segment(
+void materialize_single_replay_composition_segment(
     NativeIr& ir,
     const std::vector<const GraphLaunchOccurrenceRow*>& segment,
     ReplayCompositionOrderPolicy order_policy,
@@ -415,6 +415,48 @@ bool graph_launches_in_host_submission_order(
     return false;
   }
   return true;
+}
+
+// A tail-only candidate must not erase an earlier independently periodic
+// regime (e.g. batch-4, then batch-2, then batch-1 captured graphs). Split only
+// when every resulting regime meets the SAME repetition contract with no
+// leftover leading context. A one-shot
+// H/L/T prefix or incomplete wave still goes through the existing whole-segment
+// rules. Work backwards iteratively, then materialize in observed order.
+void materialize_replay_composition_segment(
+    NativeIr& ir,
+    const std::vector<const GraphLaunchOccurrenceRow*>& segment,
+    ReplayCompositionOrderPolicy order_policy,
+    const std::set<GraphLaunchOccurrenceId>& missing_body_capability_launches) {
+  if (segment.empty()) return;
+  const bool instances = std::all_of(segment.begin(), segment.end(), [](const auto* l) {
+    return l->captured_graph_instance_id.valid();
+  });
+  std::vector<std::int64_t> identities;
+  identities.reserve(segment.size());
+  for (const auto* launch : segment) {
+    if (!instances && launch->raw_graph_connection_id < 0) return;
+    identities.push_back(instances ? launch->captured_graph_instance_id.value()
+                                   : launch->raw_graph_connection_id);
+  }
+  std::vector<std::size_t> ends{segment.size()};
+  auto suffix = find_exact_periodic_suffix(identities);
+  while (suffix.valid() && suffix.start > 0) {
+    identities.resize(suffix.start);
+    const auto prefix = find_exact_periodic_suffix(identities);
+    if (!prefix.valid()) break;
+    ends.push_back(suffix.start);
+    suffix = prefix;
+  }
+  if (!suffix.valid() || suffix.start != 0) ends = {segment.size()};
+  std::size_t begin = 0;
+  for (auto it = ends.rbegin(); it != ends.rend(); ++it) {
+    const std::vector<const GraphLaunchOccurrenceRow*> part(
+        segment.begin() + begin, segment.begin() + *it);
+    materialize_single_replay_composition_segment(
+        ir, part, order_policy, missing_body_capability_launches);
+    begin = *it;
+  }
 }
 
 void materialize_replay_composition_candidates_for_order(

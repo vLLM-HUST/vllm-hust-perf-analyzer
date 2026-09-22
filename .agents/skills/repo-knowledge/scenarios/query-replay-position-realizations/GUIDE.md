@@ -365,3 +365,31 @@ read [the bounded Qwen landmark observation](qwen-serving-landmarks.md) before
 changing rules. Outer aliases and exact replay symbols differ; the overlay is
 opt-in, and neither model labels nor repeated marker cycles establish scheduler
 identity or cross-stream layer ownership.
+
+## Changing graph populations before a periodic suffix (2026-09-22)
+
+The clean upstream 0fc695/f4a08bd Qwen3-0.6B concurrent pilot supplies28 scheduler
+steps with exact request identities. Its15 decode launches use captured-instance
+runs of6,3,6 (batch-4/padded3, batch-2, batch-1). At4325414, all15 launch bodies
+exist in native IR, but composition publishes only the final6: the first9 become
+`unrecognized_leading_context`. This is not a missing marker/body problem.
+
+Composition now partitions backward into independently periodic regimes only
+when the entire segment is covered with no leftover leading context. Each part
+still uses the original minimum-repeat, completion, body-capability, body-match
+and incomplete-tail rules. One-shot H/L/T and unknown-prefix handling remain on
+the original route. The direct-observed fallback is unchanged. Do not promote
+arbitrary changing graph IDs or equate one recovered unit with one scheduler step.
+
+Reanalysis recovers15 launches/5,841 members, adding3,807 supported events without
+changing any TASK/CANN_API/PYTORCH_API raw row or normalized TASK row. All28 step
+and74 request-participation records remain identical. Unassociated NOP,
+MEM_WAIT_VALUE, bare AI_CORE, MEM_WRITE_VALUE and profiler/control observations
+remain explicit; named-kernel recovery is not complete step membership.
+
+External capsule and before/after receipts:
+`/root/my-ascend-workspace/runs/traceloom-production-joint/20260922-stock-pilot/`
+(`analysis` is the4325414 result, `analysis-regimes` is the fix verification).
+The `periodic_regimes*` launch-identity fixtures protect two stable populations,
+an insufficient two-repeat prefix and a missing earlier body; existing H/L/T,
+body-mismatch and incomplete-wave negatives must continue to pass.

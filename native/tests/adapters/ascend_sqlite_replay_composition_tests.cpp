@@ -73,6 +73,29 @@ int main() {
     std::filesystem::remove_all(direct_dir);
   }
 
+  for (const std::string mutation : {"", "periodic_regimes_short_prefix.sql",
+                                     "periodic_regimes_missing_body.sql"}) {
+    const auto dir = temp_ascend_profile_dir("_periodic_regimes");
+    materialize_ascend_graph_fixture(dir, "launch_identity");
+    const auto db = (dir / "msprof.db").string();
+    apply_ascend_fixture_mutation(db, "launch_identity", "direct_replays.sql");
+    apply_ascend_fixture_mutation(db, "launch_identity", "periodic_regimes.sql");
+    if (!mutation.empty()) apply_ascend_fixture_mutation(db, "launch_identity", mutation);
+    const auto ir = AscendSQLiteAdapter(db, "periodic_regimes").load();
+    const bool short_prefix = mutation == "periodic_regimes_short_prefix.sql";
+    const std::size_t expected = mutation.empty() ? 6 : (short_prefix ? 3 : 5);
+    require(ir.replay_units.size() == expected && ir.replay_unit_launch_members.size() == expected,
+            "an independently periodic prefix was lost behind a later graph regime");
+    require(ir.replay_composition_candidates.size() == (short_prefix ? 1 : 2),
+            "different graph regimes were merged or guessed as direct invocations");
+    for (const auto& c : ir.replay_composition_candidates.rows()) {
+      require(c.boundary_policy == ReplayCompositionBoundaryPolicy::kExactPeriodicSuffix &&
+                  c.pattern_length == 1 && c.full_repeat_count == 3,
+              "regime partition weakened the existing repetition contract");
+    }
+    std::filesystem::remove_all(dir);
+  }
+
   {
     const auto dir = temp_ascend_profile_dir("_inter_launch_eager");
     materialize_ascend_graph_fixture(dir, "exact_hlt");
