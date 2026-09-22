@@ -45,7 +45,23 @@ WHERE projection_name = :recipe;
 Use the published `example_sql`; SQL is the semantic interface. Do not recreate
 boundaries or population membership in client code when a recipe exists.
 
-## Select a structural Position
+## Choose request, supplied step, or structural scope
+
+When context is imported, discover `requests`, `request_steps`,
+`scheduler_steps_by_kind`, and `scheduler_step_costs` through the recipe catalog.
+Retain `(run_id,scheduler_id,request_id)` for requests and `(run_id,step_id)` for
+steps. Follow the returned typed continuations to device work and source rows.
+Producer-local step ordinal, semantic kind, and structural Position are different
+selectors; none replaces the others. Native-only inputs expose no invented
+request membership or scheduler decisions.
+
+For type statistics, reduce at step/device grain and retain workload counts,
+supported-marker coverage and NULL costs. For a request, select its participating
+steps with `EXISTS`, not a request-expanded cost aggregate. The executable SQL
+and interpretation rules live in `docs/runtime-context.md`; reuse those public
+views instead of copying a new interval reducer into the analysis client.
+
+## Select a structural Position when structure is the entrance
 
 Start broad and bound the result:
 

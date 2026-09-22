@@ -102,11 +102,24 @@ Open the exact timeline alongside SQL when an overview helps:
 traceloom export-perfetto analysis.db --output timeline.perfetto.json.gz
 ```
 
-Select a returned Position via `hpo_positions`, then its Occurrences and members;
-use replay HPO for internal graph structure. With optional runtime context,
-`requests -> request_steps` and `scheduler_steps_by_kind` offer additional
-entrances to the same evidence. Choose a statistical unit and cost lens before
-aggregating shared work. See
+Choose the entrance that matches the question:
+
+- **Request:** with runtime context, use `requests -> request_steps`, then inspect
+  participating steps and supported device work. This follows shared service
+  participation, not an exclusive request-owned execution tree.
+- **Step kind/workload:** use `scheduler_steps_by_kind` and
+  `scheduler_step_costs`; compare populations conditioned on scheduled request
+  and token counts, then reopen concrete steps. A common `decode` label alone
+  does not prove equivalent execution.
+- **Structure/position:** select a Position via `hpo_positions`, then its
+  Occurrences and members; use replay HPO for internal graph structure. This
+  route remains available without request/scheduler context.
+
+Preserve returned coordinate domains when moving between these dimensions.
+Choose a statistical unit and cost lens before aggregating shared work; do not
+multiply step cost by participating request count. Detailed rank-local Perfetto
+and bounded SQL projections are complementary views of the same AugDB, not
+independent analyses. See
 [`composable-analytical-projections.md`](composable-analytical-projections.md)
 and [`runtime-context.md`](runtime-context.md). The executable
 [`database-timeline tour`](../examples/db-timeline-tour) remains a legacy

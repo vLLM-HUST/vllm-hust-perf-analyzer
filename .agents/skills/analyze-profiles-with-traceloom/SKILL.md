@@ -5,9 +5,12 @@ description: Build or install TraceLoom, turn existing Ascend/CANN, Hygon/DTK hi
 
 # Analyze Profiles with TraceLoom
 
-Treat the AugDB as the analysis product. Select a structural coordinate, compare
-its measured Occurrences, then drill one finding back to embedded raw evidence.
-Use Perfetto to inspect temporal geometry; use SQL over AugDB for statistics.
+Treat the AugDB as the analysis product. Enter through the production question:
+request participation, supplied step kind/workload, or structural Position and
+Occurrence. Preserve concrete identity as you change dimensions, then audit a
+finding against embedded source evidence. Request/step entrances require the
+optional runtime context; a native-only trace must not invent them. Use Perfetto
+for temporal geometry and SQL over AugDB for statistics.
 
 ## Run the workflow
 
@@ -76,7 +79,7 @@ needed. Require:
 If the source metadata or rank mapping does not match the intended capture,
 stop. Do not analyze the convenient artifact instead of the correct one.
 
-### 4. Ask one structural question at a time
+### 4. Choose the question's entry dimension
 
 Start with the database's own interfaces:
 
@@ -87,7 +90,22 @@ SELECT projection_name, population_mode, resolution,
 FROM traceloom_projection_recipe ORDER BY display_order;
 ```
 
-Then follow this coordinate-preserving route:
+Choose an available coordinate-preserving route rather than forcing a request
+question to start from a tree:
+
+```text
+requests -> request_steps -> step_device_work -> event_audit
+scheduler_steps_by_kind / scheduler_step_costs -> selected step -> device work
+Position -> Occurrences -> members / supported host context -> raw evidence
+```
+
+The first two require imported context. Compare step/device costs before request
+fanout; shared-step association is not exclusive request cost. Condition type
+populations on observed scheduling shape before assuming comparable execution.
+See [runtime-context.md](../../../docs/runtime-context.md) for the public views,
+planned-phase predicate and explicit missing-data boundaries.
+
+For the structural entrance, follow:
 
 ```text
 Position
@@ -125,7 +143,7 @@ Report:
 1. the input/run and rank/device mapping;
 2. TraceLoom version or Git commit and exact command;
 3. AugDB path, size, SHA-256, source hashes, and relevant policy digests;
-4. the analytical question, selected Position/Occurrence coordinates, and SQL;
+4. the analytical question, selected request/step/structural coordinates, and SQL;
 5. the population size, statistic or comparison, and concrete observation;
 6. the raw event/runtime locator or explicit reason raw audit is unsupported;
 7. the narrow interpretation and alternatives still open; and

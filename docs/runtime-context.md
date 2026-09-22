@@ -371,8 +371,11 @@ a shared step must not become several independent device-cost samples.
 `:run_id` and optional `:step_kind`. Its grain is **step × device**, before any
 request join. It carries planned kind, observed token/request counts, producer
 capture state and supported-marker count alongside distinct event work, duration
-sum, overlap-safe busy union and envelope. Graph-launch envelopes are excluded;
-empty decisions and missing device links remain visible with NULL costs.
+sum, overlap-safe busy union and envelope. Graph-launch envelopes are excluded.
+Missing device links remain visible with NULL costs; empty decisions can still
+have observed control work and must not be forced to zero or NULL. The union
+includes supported wait/control event intervals, not just compute kernels:
+despite its `device_busy_union_us` column name, it is not hardware utilization.
 
 ```sql
 SELECT step_kind,scheduled_requests,total_scheduled_tokens,device_id,
