@@ -87,7 +87,33 @@ CREATE VIEW traceloom_v_scheduler_step_shape AS
  'observed_scheduling_shape_not_semantic_phase' AS classification_basis
  FROM traceloom_v_scheduler_step_context s LEFT JOIN phases p USING(run_id,step_id);
 
+
+-- Costs are computed before request joins. Shared steps remain one sample per
+-- device; no captured links means NULL cost, not zero work. Graph envelopes
+-- are intentionally excluded when measuring event-level work.
+CREATE VIEW traceloom_v_scheduler_step_device_cost AS
+ WITH work AS (
+ SELECT DISTINCT run_id,step_id,device_id,device_work_id,start_ns,end_ns,dur_us
+ FROM traceloom_v_context_device_work WHERE event_id IS NOT NULL
+ ), previous AS (
+ SELECT *,MAX(end_ns) OVER(PARTITION BY run_id,step_id,device_id
+ ORDER BY start_ns,end_ns,device_work_id ROWS BETWEEN UNBOUNDED PRECEDING
+ AND 1 PRECEDING) AS prior_end FROM work
+ ), costs AS (
+ SELECT run_id,step_id,device_id,COUNT(*) AS linked_device_work,
+ SUM(dur_us) AS summed_device_work_us,
+ SUM(MAX(0,end_ns-MAX(start_ns,COALESCE(prior_end,start_ns))))/1000.0 AS device_busy_union_us,
+ (MAX(end_ns)-MIN(start_ns))/1000.0 AS device_envelope_us
+ FROM previous GROUP BY run_id,step_id,device_id
+ ) SELECT s.*,c.device_id,COALESCE(c.linked_device_work,0) AS linked_device_work,
+ c.summed_device_work_us,c.device_busy_union_us,c.device_envelope_us,
+ 'supported_event_work_not_step_latency_or_request_allocation' AS measure_scope
+ FROM traceloom_v_scheduler_step_shape s LEFT JOIN costs c USING(run_id,step_id);
+
 INSERT INTO traceloom_analysis_surface VALUES
+ ('scheduler_step_device_cost','traceloom_v_scheduler_step_device_cost','run/step/device',
+ 'Distinct supported event work, sum/union/envelope; not complete latency or request allocation',
+ 'SELECT * FROM traceloom_v_scheduler_step_device_cost LIMIT 20'),
  ('request_catalog','traceloom_v_request_catalog','run/scheduler/request',
  'Requests observed through participation or lifecycle notifications; not complete lifecycles',
  'SELECT * FROM traceloom_v_request_catalog LIMIT 20'),
@@ -117,6 +143,16 @@ INSERT INTO traceloom_projection_recipe VALUES
  ('scheduler_steps_by_kind',24,'scheduler_step','selected_kind','step','runtime_context','none',':run_id,:step_kind (NULL selects all)',
  'Select planned prompt/generation token intervals from worker-input offsets; unknown remains explicit',
  'SELECT * FROM traceloom_v_scheduler_step_shape WHERE run_id=:run_id AND (:step_kind IS NULL OR step_kind=:step_kind) ORDER BY scheduler_id,ordinal');
+INSERT INTO traceloom_projection_recipe VALUES
+ ('scheduler_step_costs',25,'scheduler_step','selected_kind','step_device','runtime_device','sum_union_envelope',':run_id,:step_kind (NULL selects all)',
+ 'Compare step/device samples before joining requests; retain NULL unobserved costs',
+ 'SELECT * FROM traceloom_v_scheduler_step_device_cost WHERE run_id=:run_id AND (:step_kind IS NULL OR step_kind=:step_kind) ORDER BY scheduler_id,ordinal,device_id');
+INSERT INTO traceloom_projection_parameter VALUES
+ ('scheduler_step_costs',0,'run_id','TEXT',0,'runtime_run','traceloom_scheduler_step','run_id','Selected run'),
+ ('scheduler_step_costs',1,'step_kind','TEXT',1,'scheduler_step_kind','traceloom_v_scheduler_step_shape','step_kind','NULL selects all including unknown');
+INSERT INTO traceloom_projection_coordinate VALUES
+ ('scheduler_step_costs',0,'run_id','runtime_run','Selected run'),
+ ('scheduler_step_costs',1,'step_id','scheduler_step','Retained step for device and request drill-down');
 INSERT INTO traceloom_projection_parameter VALUES
  ('scheduler_steps_by_kind',0,'run_id','TEXT',0,'runtime_run','traceloom_scheduler_step','run_id','Selected run'),
  ('scheduler_steps_by_kind',1,'step_kind','TEXT',1,'scheduler_step_kind','traceloom_v_scheduler_step_shape','step_kind','NULL selects all including unknown');

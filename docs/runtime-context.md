@@ -364,3 +364,46 @@ ORDER BY scheduler_id, ordinal;
 Use `integrations/vllm/step-device-summary.sql` for linked event-level cost lenses.
 Keep individual step identity before grouping or joining request participation;
 a shared step must not become several independent device-cost samples.
+
+### Compare step-kind distributions, then reopen a sample
+
+`scheduler_step_costs` selects `traceloom_v_scheduler_step_device_cost` by
+`:run_id` and optional `:step_kind`. Its grain is **step × device**, before any
+request join. It carries planned kind, observed token/request counts, producer
+capture state and supported-marker count alongside distinct event work, duration
+sum, overlap-safe busy union and envelope. Graph-launch envelopes are excluded;
+empty decisions and missing device links remain visible with NULL costs.
+
+```sql
+SELECT step_kind,scheduled_requests,total_scheduled_tokens,device_id,
+       COUNT(*) AS decisions,COUNT(device_busy_union_us) AS observed_samples,
+       MIN(device_busy_union_us) AS min_union_us,
+       AVG(device_busy_union_us) AS avg_union_us,
+       MAX(device_busy_union_us) AS max_union_us
+FROM traceloom_v_scheduler_step_device_cost
+WHERE run_id=:run_id
+GROUP BY step_kind,scheduled_requests,total_scheduled_tokens,device_id;
+```
+
+The returned distributions describe captured supported work, **not complete step
+latency**. Keep NULL-device rows separate, and retain each concrete `step_id` to
+continue through `step_device_work` and `event_audit`. When selecting a request,
+use `EXISTS` rather than expanding one step into one row per participating
+request:
+
+```sql
+SELECT c.* FROM traceloom_v_scheduler_step_device_cost c
+WHERE c.run_id=:run_id AND EXISTS (
+ SELECT 1 FROM traceloom_v_request_step q
+ WHERE q.run_id=c.run_id AND q.step_id=c.step_id
+   AND q.scheduler_id=:scheduler_id AND q.request_id=:request_id
+)
+ORDER BY c.ordinal,c.device_id;
+```
+
+This is the work associated with its participating steps, not exclusive request
+cost. Two requests can legitimately select the same step; their selected costs
+must not be added as a service-cost allocation. The optional observer's
+`request_coordinate` receipt can connect an in-process caller ID to the exact
+producer-scoped pseudonym, without exporting the private salt or guessing by
+submission time. Remote service clients need their own explicit identity bridge.

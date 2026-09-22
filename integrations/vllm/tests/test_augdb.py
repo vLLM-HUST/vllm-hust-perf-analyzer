@@ -203,6 +203,32 @@ class AugDbTests(unittest.TestCase):
         self.assertEqual(self.rows("SELECT step_shape FROM traceloom_v_scheduler_step_shape"),
                          [("multiple_requests",)])
 
+        self.assertEqual(self.rows("SELECT linked_device_work,summed_device_work_us "
+                                  "FROM traceloom_v_scheduler_step_device_cost"), [(1, 0.06)])
+
+    def test_step_costs_preserve_overlap_and_missing_evidence(self):
+        # Two provider-linked overlapping events: sum 0.11 us, union/envelope 0.08 us.
+        with sqlite3.connect(self.raw) as db:
+            columns = [row[1] for row in db.execute("PRAGMA table_info(TASK)")]
+            row = list(db.execute("SELECT * FROM TASK WHERE connectionId=700").fetchone())
+            row[columns.index("startNs")] = 130
+            row[columns.index("endNs")] = 180
+            row[columns.index("taskId")] += 1
+            db.execute("INSERT INTO TASK VALUES(" + ",".join("?" for _ in row) + ")", row)
+        self.run_cli()
+        costs = self.rows("SELECT linked_device_work,summed_device_work_us,device_busy_union_us,"
+                          "device_envelope_us FROM traceloom_v_scheduler_step_device_cost")
+        self.assertEqual(costs[0][0], 2)
+        for got, expected in zip(costs[0][1:], (0.11, 0.08, 0.08)):
+            self.assertAlmostEqual(got, expected)
+        with sqlite3.connect(self.raw) as db:
+            db.execute("DELETE FROM PYTORCH_API")
+        self.run_cli()
+        self.assertEqual(self.rows("SELECT device_id,linked_device_work,summed_device_work_us,"
+                                  "device_busy_union_us,device_envelope_us "
+                                  "FROM traceloom_v_scheduler_step_device_cost"),
+                         [(None, 0, None, None, None)])
+
     def test_export_import_and_reverse_audit(self):
         original = self.raw.read_bytes()
         baseline = self.root / "baseline.db"

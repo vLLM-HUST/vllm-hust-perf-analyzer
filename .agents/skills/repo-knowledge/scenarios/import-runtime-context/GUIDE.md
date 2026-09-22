@@ -264,3 +264,9 @@ step query in about0.12s locally. This is bounded evidence to regenerate derived
 artifacts before rewriting joins; do not mutate the frozen historical DB or
 promise general latency from this one check. Paper inventory SQL lives in
 `traceloom-paper/experiments/joint-analysis-inventory/inspect.py`.
+
+The `scheduler_step_costs` recipe / `traceloom_v_scheduler_step_device_cost`
+now colocates planned kind and observed workload with event-work sum, overlap-safe
+union and envelope at step/device grain. It deduplicates before request joins,
+excludes launch envelopes and retains missing work as NULL. Use this public view
+instead of copying the window-function reducer into each new paper query.
