@@ -216,6 +216,27 @@ def _scheduler_writer(scheduler):
     return writer
 
 
+def _request_pseudonym(scheduler, request_id):
+    return hashlib.sha256(
+        scheduler._traceloom_salt + str(request_id).encode()
+    ).hexdigest()
+
+
+def request_coordinate(scheduler, request_id):
+    """Return a recorded producer-local key for an in-process observer.
+
+    Does not start recording, expose the salt, certify lifecycle state, or
+    transport identity between processes. Call with the actual scheduler ID,
+    not a client alias that the runtime may have rewritten.
+    """
+    writer = getattr(scheduler, "_traceloom_writer", None)
+    if (not _enabled() or writer is None or writer.closed or writer.failed
+            or writer.pid != os.getpid()):
+        return None
+    return {"run_id": writer.run_id, "scheduler_id": writer.producer_id,
+            "request_id": _request_pseudonym(scheduler, request_id)}
+
+
 def _scheduled_token_starts(output):
     """Worker-input offsets, not optimistic post-schedule Request counters.
 
@@ -274,9 +295,7 @@ def record_step(scheduler, output, *, transport_identity=True, _injected=False):
         scheduler._traceloom_ordinal += 1
 
         def anonymous(request_id):
-            return hashlib.sha256(
-                scheduler._traceloom_salt + str(request_id).encode()
-            ).hexdigest()
+            return _request_pseudonym(scheduler, request_id)
 
         new_ids = {r.req_id for r in output.scheduled_new_reqs}
         requests = []

@@ -232,3 +232,14 @@ including actual SchedulerOutput pickle/msgpack field transport. Installing the
 exporter into an isolated CPU environment did not import torch. No shared vLLM
 checkout was patched, no accelerator workload was launched, and live capture
 coverage and recording overhead have not been measured.
+
+### Optional in-process request receipt key
+
+`traceloom_vllm_context.request_coordinate(scheduler, actual_request_id)` returns
+`{run_id, scheduler_id, request_id}` for an already active scheduler recorder,
+or `None` if unavailable/closed/disabled. An in-process workload observer can
+retain this key beside its own submission/output receipts without exporting
+request text, raw IDs or the producer salt. Pass the runtime's actual request
+ID (which may differ from the caller's ID), not a guessed ordinal. This does
+not associate a remote HTTP client automatically or establish lifecycle timing;
+any external receipt's source, clock and semantics must remain explicit.

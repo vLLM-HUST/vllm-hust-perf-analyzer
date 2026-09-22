@@ -89,6 +89,22 @@ class ContextTests(unittest.TestCase):
         output.scheduled_cached_reqs = NS(req_ids=["a"], num_computed_tokens=[True])
         self.assertEqual(context._scheduled_token_starts(output), {"a": None})
 
+    def test_in_process_request_coordinate_requires_existing_recorder(self):
+        first, second = scheduler(), scheduler()
+        self.assertIsNone(context.request_coordinate(first, "private-request"))
+        context.record_step(first, Output())
+        context.record_step(second, Output())
+        key = context.request_coordinate(first, "private-request")
+        other = context.request_coordinate(second, "private-request")
+        self.assertNotEqual(key["request_id"], other["request_id"])
+        self.assertNotEqual(key["scheduler_id"], other["scheduler_id"])
+        records = self.records()
+        step = next(r for r in records if r["type"] == "step"
+                    and r["producer_id"] == key["scheduler_id"])
+        self.assertEqual(step["requests"][0]["request_id"], key["request_id"])
+        self.assertIsNone(context.request_coordinate(first, "private-request"))
+        self.assertNotIn("private-request", json.dumps(key))
+
     def test_identity_transport_and_fanout(self):
         s = scheduler()
         output = Output()
