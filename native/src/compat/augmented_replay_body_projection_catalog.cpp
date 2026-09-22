@@ -172,7 +172,7 @@ void materialize_replay_body_projection_catalog(sqlite3* db) {
            "replay_body_domain_id", "owning replay-body stream domain"},
           {"replay_body_pattern_members", "10", "member_id",
            "replay_cost_member_id", "exact contributing replay member"},
-          {"replay_body_pattern_members", "20", "event_id", "event_id",
+          {"replay_body_pattern_members", "20", "event_id", "normalized_event_id",
            "normalized event with raw source lineage"},
           {"replay_body_pattern_members", "30", "occurrence_id",
            "replay_body_pattern_occurrence_id",

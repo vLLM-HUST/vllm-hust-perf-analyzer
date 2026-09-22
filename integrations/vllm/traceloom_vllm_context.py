@@ -216,6 +216,34 @@ def _scheduler_writer(scheduler):
     return writer
 
 
+def _scheduled_token_starts(output):
+    """Worker-input offsets, not optimistic post-schedule Request counters.
+
+    Missing/misaligned/duplicate payload identities stay unknown. Never pair
+    cached arrays positionally when their lengths disagree.
+    """
+    candidates = {}
+
+    def add(request_id, value):
+        if request_id is not None:
+            candidates.setdefault(request_id, []).append(_integer(value))
+
+    for item in output.scheduled_new_reqs:
+        add(getattr(item, "req_id", None), getattr(item, "num_computed_tokens", None))
+    cached = getattr(output, "scheduled_cached_reqs", None)
+    ids = getattr(cached, "req_ids", None)
+    counts = getattr(cached, "num_computed_tokens", None)
+    if isinstance(ids, (list, tuple)):
+        if isinstance(counts, (list, tuple)) and len(ids) == len(counts):
+            for request_id, value in zip(ids, counts):
+                add(request_id, value)
+        else:
+            for request_id in ids:
+                add(request_id, None)
+    return {key: values[0] if len(values) == 1 else None
+            for key, values in candidates.items()}
+
+
 def record_step(scheduler, output, *, transport_identity=True, _injected=False):
     """Call immediately after the final schedule() result, before dispatch.
 
@@ -252,6 +280,7 @@ def record_step(scheduler, output, *, transport_identity=True, _injected=False):
 
         new_ids = {r.req_id for r in output.scheduled_new_reqs}
         requests = []
+        token_starts = _scheduled_token_starts(output)
         for request_id, tokens in output.num_scheduled_tokens.items():
             if _integer(tokens) is None:
                 raise ValueError("invalid scheduled tokens")
@@ -260,6 +289,11 @@ def record_step(scheduler, output, *, transport_identity=True, _injected=False):
                 {
                     "request_id": anonymous(request_id),
                     "scheduled_tokens": _integer(tokens),
+                    "scheduled_token_start": token_starts.get(request_id),
+                    "scheduled_token_start_basis": (
+                        "scheduler_output_num_computed_tokens"
+                        if token_starts.get(request_id) is not None else None
+                    ),
                     "payload_kind": "new" if request_id in new_ids else "cached",
                     "computed_tokens_after_schedule": _integer(
                         getattr(request, "num_computed_tokens", None)

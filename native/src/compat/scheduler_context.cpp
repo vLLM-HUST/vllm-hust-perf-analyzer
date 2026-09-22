@@ -2,6 +2,7 @@
 #include "sidecar_sqlite_utils.h"
 #include "sidecar_views.h"
 #include "scheduler_replay_context.h"
+#include "scheduler_query_views.h"
 #include "traceloom/core/sha256.h"
 
 #include <algorithm>
@@ -534,17 +535,17 @@ INSERT INTO traceloom_projection_parameter VALUES
  ('step_execution_context',1,'step_id','TEXT',0,'scheduler_step','traceloom_scheduler_step','step_id','Supplied scheduling decision, not a recovered macro'),
  ('step_device_work',0,'run_id','TEXT',0,'runtime_run','traceloom_scheduler_step','run_id','Recorded run identity'),
  ('step_device_work',1,'step_id','TEXT',0,'scheduler_step','traceloom_scheduler_step','step_id','Recorded scheduling decision'),
- ('event_scheduler_context',0,'event_id','TEXT',0,'event','traceloom_event','event_id','Retained device event identity');
+ ('event_scheduler_context',0,'event_id','TEXT',0,'normalized_event_id','traceloom_event','event_id','Retained device event identity');
 INSERT INTO traceloom_projection_coordinate VALUES
  ('step_execution_context',0,'run_id','runtime_run','Preserved run'),
  ('step_execution_context',1,'step_id','scheduler_step','Preserved step'),
  ('step_device_work',0,'run_id','runtime_run','Preserved run'),
  ('step_device_work',1,'step_id','scheduler_step','Preserved step'),
- ('step_device_work',2,'event_id','event','Exact retained event'),
+ ('step_device_work',2,'event_id','normalized_event_id','Exact retained event'),
  ('step_device_work',3,'runtime_call_id','runtime_call','Provider-supported runtime endpoint'),
  ('event_scheduler_context',0,'run_id','runtime_run','Preserved run'),
  ('event_scheduler_context',1,'step_id','scheduler_step','Supplied scheduling decision'),
- ('event_scheduler_context',2,'event_id','event','Exact retained event');
+ ('event_scheduler_context',2,'event_id','normalized_event_id','Exact retained event');
 )SQL");
 }
 } // namespace
@@ -583,6 +584,7 @@ void register_scheduler_context_catalog(const std::string& path,
   if (inputs.empty()) return;
   Db db(open_sqlite_readwrite(path), sqlite3_close);
   catalog(db.get());
+  materialize_scheduler_query_views(db.get());
 }
 
 std::map<std::string, std::string> scheduler_event_partitions(const std::string& path) {

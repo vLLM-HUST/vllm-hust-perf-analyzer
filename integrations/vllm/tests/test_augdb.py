@@ -98,6 +98,111 @@ class AugDbTests(unittest.TestCase):
                     )
             f.write_text("".join(json.dumps(x) + "\n" for x in rows))
 
+    def test_request_queries_preserve_notification_only_and_missing_terminal(self):
+        def notifications(rows):
+            for row in rows:
+                if row["type"] == "step":
+                    row["finished_request_ids"] = ["outside-capture"]
+            return rows
+        self.rewrite(notifications)
+        self.run_cli()
+        with sqlite3.connect(self.out) as db:
+            db.row_factory = sqlite3.Row
+            recipes = dict(db.execute(
+                "SELECT projection_name,example_sql FROM traceloom_projection_recipe"
+            ))
+            catalog = db.execute(recipes["requests"]).fetchall()
+            self.assertEqual(len(catalog), 2)
+            scheduled = next(r for r in catalog if r["participating_steps"] == 1)
+            self.assertEqual(scheduled["finished_observations"], 0)
+            terminal_only = next(r for r in catalog if r["request_id"] == "outside-capture")
+            self.assertEqual(terminal_only["participating_steps"], 0)
+            self.assertIsNone(terminal_only["first_scheduled_ordinal"])
+            self.assertEqual(terminal_only["finished_observations"], 1)
+            params = {k: scheduled[k] for k in ("run_id", "scheduler_id", "request_id")}
+            steps = db.execute(recipes["request_steps"], params).fetchall()
+            self.assertEqual(len(steps), 1)
+            self.assertEqual(steps[0]["scheduled_tokens"], 4)
+            observations = db.execute(recipes["request_observations"], params).fetchall()
+            self.assertEqual([r["observation_kind"] for r in observations], ["scheduled"])
+            params["scheduler_id"] = "another-producer"
+            self.assertEqual(db.execute(recipes["request_steps"], params).fetchall(), [])
+            shapes = db.execute(recipes["scheduler_step_shapes"],
+                                {"run_id": scheduled["run_id"], "step_shape": None}).fetchall()
+            self.assertEqual(shapes[0]["step_shape"], "single_request_other_tokens")
+            for source, target in [("requests", "request_steps"),
+                                   ("request_steps", "step_device_work"),
+                                   ("step_device_work", "event_audit")]:
+                self.assertGreater(db.execute(
+                    "SELECT count(*) FROM traceloom_v_projection_continuation "
+                    "WHERE source_projection=? AND target_projection=?", (source, target)
+                ).fetchone()[0], 0)
+
+    def test_step_kind_uses_supported_prompt_relative_offsets(self):
+        cases = [(0, 4, "prefill", 4, 0),
+                 (10, 1, "decode", 0, 1),
+                 (8, 4, "mixed", 2, 2),
+                 (None, 1, "unknown", None, None),
+                 (True, 1, "unknown", None, None),
+                 (-1, 1, "unknown", None, None),
+                 (2**64, 1, "unknown", None, None)]
+        for start, tokens, kind, prompt, generation in cases:
+            with self.subTest(start=start, kind=kind):
+                def shape(rows):
+                    for row in rows:
+                        if row["type"] == "step":
+                            row["total_scheduled_tokens"] = tokens
+                            q = row["requests"][0]
+                            q.update(scheduled_tokens=tokens, prompt_tokens=10,
+                                     scheduled_token_start=start,
+                                     scheduled_token_start_basis="scheduler_output_num_computed_tokens")
+                    return rows
+                self.rewrite(shape)
+                self.run_cli()
+                self.assertEqual(self.rows(
+                    "SELECT step_kind,scheduled_prompt_tokens,scheduled_generation_tokens "
+                    "FROM traceloom_v_scheduler_step_shape"), [(kind, prompt, generation)])
+
+    def test_step_kind_mixed_requests_and_missing_evidence(self):
+        def batch(rows):
+            for row in rows:
+                if row["type"] == "step":
+                    first = row["requests"][0]
+                    first.update(scheduled_tokens=1, prompt_tokens=10,
+                                 scheduled_token_start=10,
+                                 scheduled_token_start_basis="scheduler_output_num_computed_tokens")
+                    second = dict(first, request_id="prompt-request", scheduled_token_start=0)
+                    row["requests"] = [first, second]
+                    row["total_scheduled_tokens"] = 2
+            return rows
+        self.rewrite(batch)
+        self.run_cli()
+        self.assertEqual(self.rows("SELECT step_kind FROM traceloom_v_scheduler_step_shape"),
+                         [("mixed",)])
+        def missing(rows):
+            for row in rows:
+                if row["type"] == "step":
+                    del row["requests"][1]["scheduled_token_start"]
+            return rows
+        self.rewrite(missing)
+        self.run_cli()
+        self.assertEqual(self.rows("SELECT step_kind FROM traceloom_v_scheduler_step_shape"),
+                         [("unknown",)])
+
+    def test_request_shared_step_does_not_duplicate_device_evidence(self):
+        def shared(rows):
+            for row in rows:
+                if row["type"] == "step":
+                    row["requests"].append({"request_id": "second", "scheduled_tokens": 2})
+                    row["total_scheduled_tokens"] += 2
+            return rows
+        self.rewrite(shared)
+        self.run_cli()
+        self.assertEqual(self.rows("SELECT count(*) FROM traceloom_v_request_step"), [(2,)])
+        self.assertEqual(self.rows("SELECT count(*) FROM traceloom_v_context_device_work"), [(1,)])
+        self.assertEqual(self.rows("SELECT step_shape FROM traceloom_v_scheduler_step_shape"),
+                         [("multiple_requests",)])
+
     def test_export_import_and_reverse_audit(self):
         original = self.raw.read_bytes()
         baseline = self.root / "baseline.db"
@@ -669,6 +774,10 @@ class AugDbTests(unittest.TestCase):
         self.assertTrue(
             all(e["args"].get("projection_plane") == "device_events" for e in members)
         )
+        self.assertTrue(all(
+            e["args"]["database_index"] == e["args"]["db_idx"]
+            and e["args"]["view_name"] == "native_report_tree" for e in members
+        ))
         identities = [
             (e["args"]["event_id"], e["args"].get("view_name", "native_report_tree"))
             for e in trace["traceEvents"]

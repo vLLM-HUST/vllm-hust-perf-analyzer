@@ -4,11 +4,51 @@
 
 #include <algorithm>
 #include <map>
+#include <iomanip>
+#include <sstream>
 #include <tuple>
 #include <utility>
 #include <vector>
 
 namespace traceloom::compat::perfetto_internal {
+std::string json_quote(const std::string& value) {
+  std::ostringstream out;
+  out << '"';
+  for (unsigned char ch : value) {
+    switch (ch) {
+      case '"':
+        out << "\\\"";
+        break;
+      case '\\':
+        out << "\\\\";
+        break;
+      case '\b':
+        out << "\\b";
+        break;
+      case '\f':
+        out << "\\f";
+        break;
+      case '\n':
+        out << "\\n";
+        break;
+      case '\r':
+        out << "\\r";
+        break;
+      case '\t':
+        out << "\\t";
+        break;
+      default:
+        if (ch < 0x20) {
+          out << "\\u" << std::hex << std::setw(4) << std::setfill('0') << static_cast<int>(ch)
+              << std::dec;
+        } else {
+          out << static_cast<char>(ch);
+        }
+    }
+  }
+  return out.str() + '"';
+}
+
 std::optional<std::string> device_event_display_name(
     const std::string& provider, const std::string& name) {
   if (provider != "ascend") return name;
@@ -74,6 +114,14 @@ void write_common_timeline(RawTraceWriter& writer, std::vector<TimelineSlice> sl
       }
       auto args=slice.args;
       args.pop_back();
+      // Ordinary and replay-derived slices share the same query selectors.
+      // Keep legacy aliases, but never append duplicate JSON keys.
+      if (slice.replay) {
+        args += ",\"database_index\":" + std::to_string(slice.db);
+        args += ",\"view_name\":" + json_quote(slice.view);
+      } else {
+        args += ",\"db_idx\":" + std::to_string(slice.db);
+      }
       args+=",\"projection_plane\":\""+std::string(slice.event ? "device_events" : "structure")+"\",";
       args+="\"display_depth\":"+(slice.event ? std::string("null") : std::to_string(slice.depth));
       args+=",\"replay_derived\":"+std::string(slice.replay ? "true" : "false")+"}";

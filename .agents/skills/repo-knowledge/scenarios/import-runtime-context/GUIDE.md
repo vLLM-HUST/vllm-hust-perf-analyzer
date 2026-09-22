@@ -241,3 +241,26 @@ Earlier sibling attempts preserve the device-0 collision/aborted admission;
 only this completed device-1 run is acceptance. A fresh real eager reanalysis
 also preserves exact HPO, anchors and context rows in
 /root/my-ascend-workspace/runs/traceloom-replay-step-validation/eager.db.
+
+## Joint-analysis request and planned-phase queries (2026-09-22)
+
+`requests -> request_steps -> step_device_work -> event_audit` now has typed
+continuations. Scope request pseudonyms by run and scheduler producer. The
+request catalog includes notification-only identities; `request_observations`
+reports scheduler observations, never exact transition timestamps. In the retained
+two-request graph capture, the first measured request's finished notification
+arrives at the next request's first step and the second has none, even though
+both producers close. Do not equate closed JSONL with lifecycle completeness.
+
+New observer records retain `scheduled_token_start` from identity-aligned worker
+input payloads. `scheduler_steps_by_kind` classifies planned prompt/generation
+ranges, not completed work. Old inputs lack this field and remain `unknown`;
+never infer it from `new/cached`, post-schedule counters or token count alone.
+`step_shape` remains a separate, directly observed count classification.
+
+A direct large replay/context join timed out on the September16 historical AugDB.
+Fresh materialization with current indexes returned the same Rep x27 -> 30 launch/
+step query in about0.12s locally. This is bounded evidence to regenerate derived
+artifacts before rewriting joins; do not mutate the frozen historical DB or
+promise general latency from this one check. Paper inventory SQL lives in
+`traceloom-paper/experiments/joint-analysis-inventory/inspect.py`.

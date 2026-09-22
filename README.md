@@ -260,6 +260,24 @@ For a split `PROF_*` layout, all constituent SQLite files are copied into one
 portable artifact under collision-free names. For a regular profiler DB, its
 raw schema is snapshotted intact.
 
+### Production joint-analysis entry points
+
+Open the single-rank augmented Perfetto timeline for an execution overview, then
+retain exact identities when continuing into SQL. Three useful starting points
+are a request's participating steps, the population of a step kind/structural
+position, and the execution scope affected by a known optimization. These are
+composable investigations, not interchangeable cost populations.
+
+With optional vLLM context, start with `requests -> request_steps` or
+`scheduler_steps_by_kind`, then use `step_device_work` and `event_audit`.
+Profiler-only inputs still support HPO/replay structural routes, without invented
+request identities. See [runtime context](docs/runtime-context.md) for planned
+phase semantics and partial lifecycle coverage, and
+[composable queries](docs/composable-analytical-projections.md) for structural
+populations and concrete replay realizations. Shared step costs are not
+exclusive per-request costs; an optimization investigation needs explicit
+baseline/treatment scope matching rather than label equality.
+
 ### 3. Read The Database Timeline
 
 Each database describes its stable entry points:
@@ -268,10 +286,10 @@ Each database describes its stable entry points:
 sqlite3 /path/to/traceloom/analysis.db \
   'SELECT surface_name, relation_name, purpose FROM traceloom_analysis_surface;'
 sqlite3 -header -column /path/to/traceloom/analysis.db \
-  'SELECT local_node_id, label, depth, occurrence_count, avg_total_us FROM traceloom_v_tree_node ORDER BY display_order;'
+  'SELECT position_id, label, depth, occurrence_count, total_us FROM traceloom_v_position ORDER BY preorder_idx;'
 ```
 
-Start at an outer Repeat node or another structural scope. The database itself
+Select a returned Position, or use the request/step entries above when context exists. The database itself
 describes how that scope can be projected:
 
 ```sql
@@ -291,7 +309,7 @@ compatible next recipe:
 ```sql
 SELECT source_column, target_projection, target_parameter
 FROM traceloom_v_projection_continuation
-WHERE source_projection = 'position_population'
+WHERE source_projection = 'hpo_occurrences'
 ORDER BY target_projection, source_column;
 ```
 
@@ -303,20 +321,21 @@ Bind one scope once in the `sqlite3` shell, then reuse it across recipes:
 
 ```sql
 .parameter init
-.parameter set :node_id 'node-N006'
-.parameter set :occurrence_idx NULL
+.parameter set :position_id 'node-N006'
+.parameter set :occurrence_id NULL
 ```
 
-`NULL` selects the full occurrence population; setting
-`:occurrence_idx` to a number selects one realized execution. The same
-`:node_id` can then remain folded, expand to ordered children or events, enter
-typed host windows, or change cost lens. Host intervals with missing or
-nonmonotonic endpoints remain rows; they do not disappear merely because no
-runtime call distribution can be formed. A bounded device window is also a
-valid query scope, but selecting it does not promote it into a committed
-Position. See the [complete projection UX](docs/composable-analytical-projections.md).
+Use a Position ID actually returned by this artifact; the value above is only
+illustrative. `hpo_occurrences` selects its population, and an exact returned
+`occurrence_id` selects one realization for `hpo_members` or typed host queries.
+Discover `tree_edge_roles` before comparing contextual child populations.
+Replay-body HPO uses its own coordinate domain; concrete timing additionally
+requires a launch identity. Missing host support remains explicit rather than
+becoming empty activity. See the
+[complete projection UX](docs/composable-analytical-projections.md).
 
-Important costs are:
+The legacy node/cost views remain available for existing consumers. Their
+important costs are:
 
 - `total_us`: disjoint wall-clock union; overlapping streams are not counted
   twice;

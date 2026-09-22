@@ -42,7 +42,7 @@ occurrence count, parent, path, and preorder placement, so selection does not
 fall back to a private tree-table join:
 
 ```sql
-SELECT position_id, parent_position_id, preorder_idx, symbol, label,
+SELECT position_id, display_parent_position_id, preorder_idx, symbol, label,
        node_type, repeat_count, occurrence_count,
        round(total_us, 3) AS total_us
 FROM traceloom_v_position
@@ -318,3 +318,22 @@ select a Position
 ```
 
 No stage reruns structural recovery or silently invents a missing coordinate.
+
+## Production investigation entry points
+
+Structure is not the only entrance. When optional scheduler context is present,
+start with `requests -> request_steps -> step_device_work`, or
+`scheduler_steps_by_kind -> step_device_work`. Continue through retained event
+identity to source evidence, or reverse an anomalous event through
+`event_scheduler_context`. See [runtime context](runtime-context.md) for the
+producer-scoped selectors, planned-token classification and missing-data limits.
+Profiler-only artifacts keep their structural routes without pretending to have
+request or scheduler evidence.
+
+Outer HPO and replay-body HPO are separate coordinate domains. Continuations
+must not send a replay template Occurrence to outer `hpo_members`. The replay
+route is `replay_hpo_occurrences -> replay_hpo_members`; the compatibility
+`replay_body_pattern_members` recipe supplies concrete members across launches.
+Keep `launch_id` alongside the template `occurrence_id` when selecting one
+measured replay realization. Equal phase labels are selection predicates, not
+proof of contextual equivalence or a compatible statistical population.

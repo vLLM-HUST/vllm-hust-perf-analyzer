@@ -283,7 +283,7 @@ or AllGather observation only when embedded provider evidence proves a unique
 one-to-one match: same raw source, collective kind, connection ID, database,
 device, normalized stream and exact start/end timestamps. Names or temporal
 containment alone are insufficient. Missing counterparts, mismatches and
-ambiguous pairs remain visible. The raw-provider plane, AugDB events, exact
+ambiguous pairs remain independent analytically; the separate primary-display policy still hides AivKernel. The raw-provider plane, AugDB events, exact
 replay membership and cost tables are unchanged. The surviving collective's
 `display_folded_task_event_id` preserves the reverse lookup; an exactly matching
 single-terminal replay repeat decoration is also omitted. Multi-member
@@ -304,3 +304,16 @@ observation, and `display_phase_semantics` states the interpretation. The
 collective retains `display_phase_position_id` and `display_phase_launch_id`.
 Re-exporting an existing self-contained AugDB is sufficient; no reanalysis or
 raw-data deletion is necessary.
+
+### Common-plane query coordinates
+
+Fresh exports give ordinary and replay-derived slices both `db_idx` and the
+legacy `database_index`, plus `device_id` and `view_name`. These identify the
+same display scope; replay identity remains in launch/domain/member attributes.
+Older exports can lack `database_index` and `view_name` on replay slices: re-export
+with the current binary before applying the complete device/view inventory query
+above. Re-export does not add new analytical relations to an old AugDB.
+
+The distributed rank exporter currently consumes outer published atom occurrences;
+it is not yet an equivalent rank-wise version of the single-rank common-plane
+replay expansion. Use single-rank exports for the detailed recommended view.

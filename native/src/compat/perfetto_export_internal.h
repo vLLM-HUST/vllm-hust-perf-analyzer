@@ -16,6 +16,8 @@ struct sqlite3;
 
 namespace traceloom::compat::perfetto_internal {
 
+std::string json_quote(const std::string& value);
+
 class RawTraceWriter {
  public:
   virtual ~RawTraceWriter() = default;

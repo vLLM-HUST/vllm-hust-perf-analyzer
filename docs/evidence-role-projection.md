@@ -17,7 +17,7 @@ their stable identities live in the installed machine-readable **YAML policy**, 
 | Role or category | Positive admission condition | Identity matching | Cost treatment | Context retained | Provenance retained | Failure behavior |
 | --- | --- | --- | --- | --- | --- | --- |
 | **anchor** | A supported identity-bearing rule matches | yes | retained for attribution | yes | yes | n/a |
-| **auxiliary** | A positively recognized control, movement, wait, or surrounding-work rule matches | no | retained for attribution | yes | yes | missing evidence falls through to a lower rule or fallback |
+| **auxiliary** | A positively recognized control, movement, wait, or surrounding-work rule matches | no | policy-declared attribution or evidence-only retention | yes | yes | missing evidence falls through to a lower rule or fallback |
 | **transparent** | A positively recognized nondiscriminating carrier rule matches | no | retained for attribution under the typed policy | yes | yes | missing evidence falls through to a lower rule or fallback |
 | **unknown anchor** | No supported non-anchor rule admits the observation | yes | retained for attribution | yes | yes | remains explicit and may disrupt a structural match |
 | **protected composite / boundary** | Exact or typed-open provider evidence creates a protected interval | atomic boundary | retained | yes | yes | remains typed open or unsupported; generic discovery cannot cross or fragment it |
@@ -139,3 +139,9 @@ identity**. The original row and normalized event remain the authority for
 what the profiler observed. Structural compression never claims that omitted
 events are physically irrelevant, reconstructs a lossless multi-stream
 schedule, or assigns model/source semantics.
+
+MC2 lifecycle/provider detail uses `retained_as_evidence`: normalized/raw rows
+remain auditable, but no independent structural or auxiliary cost contribution is
+invented. This differs from display-only hiding and from exact replay membership.
+Unknown-first protects the analytical model; the Perfetto primary display has its
+own explicit noise policy and is not the complete raw inventory.

@@ -48,43 +48,6 @@ bool has_object(sqlite3* db, const std::string& name) {
   return sqlite3_step(stmt.get()) == SQLITE_ROW;
 }
 
-std::string json_quote(const std::string& value) {
-  std::ostringstream out;
-  out << '"';
-  for (unsigned char ch : value) {
-    switch (ch) {
-      case '"':
-        out << "\\\"";
-        break;
-      case '\\':
-        out << "\\\\";
-        break;
-      case '\b':
-        out << "\\b";
-        break;
-      case '\f':
-        out << "\\f";
-        break;
-      case '\n':
-        out << "\\n";
-        break;
-      case '\r':
-        out << "\\r";
-        break;
-      case '\t':
-        out << "\\t";
-        break;
-      default:
-        if (ch < 0x20) {
-          out << "\\u" << std::hex << std::setw(4) << std::setfill('0') << static_cast<int>(ch)
-              << std::dec;
-        } else {
-          out << static_cast<char>(ch);
-        }
-    }
-  }
-  return out.str() + '"';
-}
 
 std::string number(double value) {
   std::ostringstream out;

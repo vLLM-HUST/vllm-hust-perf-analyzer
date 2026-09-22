@@ -273,3 +273,10 @@ the same layer but reduced coverage to 5/6. Device intervals overlapped and
 extended beyond the profiler execution marker. Local reproducer and SQL:
 `runs/traceloom-ordering-study/context-bridge/`. This proves query composability,
 not live Ascend coverage, sampling dispatch coverage, or DP-rank synchronization.
+
+## Audit the recommended timeline-to-query UX
+
+Before changing onboarding or unifying outer/replay query navigation, read the
+[bounded recommended-UX audit](recommended-ux-audit.md). It distinguishes working
+HPO/evidence routes from stale public SQL, domain-blind continuations, and the
+remaining concrete replay-realization bridge.

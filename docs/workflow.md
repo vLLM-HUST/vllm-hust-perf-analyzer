@@ -96,12 +96,22 @@ sqlite3 analysis.db 'SELECT * FROM traceloom_analysis_surface;'
 sqlite3 -header -column analysis.db < docs/report-sql/tree-map.sql
 ```
 
-Start with an outer `Repeat xN` and retain its `node_id`. The recipes let the
-same selected scope switch between one realized occurrence and all
-occurrences, remain folded or expand to children/events, enter supported host
-windows, and change measure lens without rebuilding its boundary. See
+Open the exact timeline alongside SQL when an overview helps:
+
+```bash
+traceloom export-perfetto analysis.db --output timeline.perfetto.json.gz
+```
+
+Select a returned Position via `hpo_positions`, then its Occurrences and members;
+use replay HPO for internal graph structure. With optional runtime context,
+`requests -> request_steps` and `scheduler_steps_by_kind` offer additional
+entrances to the same evidence. Choose a statistical unit and cost lens before
+aggregating shared work. See
 [`composable-analytical-projections.md`](composable-analytical-projections.md)
-and the executable [`database-timeline tour`](../examples/db-timeline-tour).
+and [`runtime-context.md`](runtime-context.md). The executable
+[`database-timeline tour`](../examples/db-timeline-tour) remains a legacy
+compatibility demonstration on its fixed repeated-structure fixture, not a
+request-aware serving walkthrough.
 
 Read the cost columns using these rules:
 

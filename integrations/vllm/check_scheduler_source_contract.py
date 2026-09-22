@@ -39,6 +39,17 @@ output_cls = next(
     for n in output.body
     if isinstance(n, ast.ClassDef) and n.name == "SchedulerOutput"
 )
+# Planned-phase classification consumes worker-input offsets, not the mutable
+# scheduler Request counter. Refuse a source boundary that lacks these fields.
+for name, required in {
+    "NewRequestData": {"req_id", "num_computed_tokens"},
+    "CachedRequestData": {"req_ids", "num_computed_tokens"},
+}.items():
+    cls = next(n for n in output.body if isinstance(n, ast.ClassDef) and n.name == name)
+    fields = {n.target.id for n in cls.body
+              if isinstance(n, ast.AnnAssign) and isinstance(n.target, ast.Name)}
+    assert required <= fields, f"missing worker-input offset contract: {name}"
+
 async_source = ast.parse((root / "vllm/v1/core/sched/async_scheduler.py").read_text())
 async_cls = next(
     n

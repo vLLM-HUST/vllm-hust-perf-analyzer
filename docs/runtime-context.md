@@ -310,3 +310,57 @@ Keep the original rank capture layout. Parse the exact raw PROF container with
 `msprof --parse=on --output=/absolute/path/to/PROF_container` if its host SQLite
 mapping has not been generated. The loader admits one sibling container next
 to `ASCEND_PROFILER_OUTPUT`; it never selects the first of several candidates.
+
+## Start from a request or step kind
+
+With imported context, `requests` discovers identities scoped by
+`(run_id, scheduler_id, request_id)`. Bind the returned coordinates to
+`request_steps` or `request_observations`; a returned `(run_id, step_id)` then
+continues to `step_execution_context` and `step_device_work`. The event coordinate
+continues to ordinary raw-row audit. Request steps express participation in shared
+work, **not** exclusive device-cost ownership.
+
+```sql
+SELECT * FROM traceloom_v_request_catalog;
+
+SELECT * FROM traceloom_v_request_step
+WHERE run_id=:run_id AND scheduler_id=:scheduler_id AND request_id=:request_id
+ORDER BY ordinal;
+
+SELECT * FROM traceloom_request_observation
+WHERE run_id=:run_id AND scheduler_id=:scheduler_id AND request_id=:request_id
+ORDER BY ordinal, observation_kind;
+```
+
+The request catalog includes notification-only requests without inventing their
+missing participation. `finished_observed`, `preempted_observed` and
+`resumed_observed` mean a scheduler output carried that notification, not that
+its scheduling timestamp was the actual state transition. Absent notifications
+are not negative lifecycle facts. A closed producer can still contain an open
+or truncated request history. These surfaces do not establish admission, queue
+latency, client TTFT/ITL or resource ownership.
+
+`step_shape` describes request/token counts independently of semantics.
+`scheduler_steps_by_kind` additionally selects `prefill`, `decode`, `mixed`,
+`empty_decision`, or `unknown` according to **planned token ranges**:
+
+- New context producers copy the worker-input token offset from
+  `NewRequestData.num_computed_tokens` or the identity-aligned cached payload.
+  They do not subtract from optimistic post-schedule counters.
+- Prompt-relative offsets split scheduled tokens into prompt and generation
+  work. A step is `mixed` if both occur, including within one request's range.
+- Missing, malformed or ambiguous offsets withhold classification; one unknown
+  participating request keeps the step `unknown`. Old context files remain
+  valid and are not retroactively guessed from `new/cached` or token counts.
+- This classifies scheduled work, not completed tokens, accepted speculative
+  outputs, graph type, or request lifecycle state. The source basis is explicit.
+
+```sql
+SELECT * FROM traceloom_v_scheduler_step_shape
+WHERE run_id=:run_id AND step_kind=:step_kind
+ORDER BY scheduler_id, ordinal;
+```
+
+Use `integrations/vllm/step-device-summary.sql` for linked event-level cost lenses.
+Keep individual step identity before grouping or joining request participation;
+a shared step must not become several independent device-cost samples.

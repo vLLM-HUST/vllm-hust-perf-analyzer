@@ -67,7 +67,7 @@ Bind coordinates explicitly in the SQLite shell:
 
 ```sql
 .parameter init
-.parameter set :position_id 'position-N286'
+.parameter set :position_id 'node-N286'
 .parameter set :occurrence_id NULL
 ```
 

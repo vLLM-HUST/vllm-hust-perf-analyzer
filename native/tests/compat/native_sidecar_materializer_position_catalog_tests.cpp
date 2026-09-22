@@ -169,6 +169,23 @@ void run_position_projection_catalog_tests(const std::string& path) {
               "source_column='occurrence_id'") == 1);
   require(run_scalar_int(
               path,
+              "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
+              "WHERE source_projection='replay_hpo_occurrences' AND "
+              "target_projection IN ('hpo_members','tree_edges',"
+              "'occurrence_host_windows')") == 0);
+  require(run_scalar_int(
+              path,
+              "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
+              "WHERE source_projection='hpo_occurrences' AND "
+              "target_projection='replay_hpo_members'") == 0);
+  require(run_scalar_int(
+              path,
+              "SELECT COUNT(*) FROM traceloom_v_projection_continuation "
+              "WHERE source_projection='replay_hpo_occurrences' AND "
+              "target_projection='replay_body_pattern_members' AND "
+              "source_column='occurrence_id'") == 1);
+  require(run_scalar_int(
+              path,
               "SELECT COUNT(*) FROM traceloom_projection_recipe WHERE "
               "projection_name IN ('hpo_members','replay_hpo_members') AND "
               "example_sql LIKE '%ORDER BY slot_ordinal, member_order%'") ==

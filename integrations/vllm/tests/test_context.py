@@ -66,6 +66,29 @@ class ContextTests(unittest.TestCase):
             for line in f.read_text().splitlines()
         ]
 
+    def test_worker_input_token_offsets_not_optimistic_request_counts(self):
+        output = Output()
+        output.scheduled_new_reqs = [NS(req_id="private-request", num_computed_tokens=8)]
+        context.record_step(scheduler(), output)
+        step = next(r for r in self.records() if r["type"] == "step")
+        request = step["requests"][0]
+        self.assertEqual(request["computed_tokens_after_schedule"], 12)
+        self.assertEqual(request["scheduled_token_start"], 8)
+        self.assertEqual(request["scheduled_token_start_basis"],
+                         "scheduler_output_num_computed_tokens")
+
+    def test_cached_offsets_require_unique_aligned_payload(self):
+        output = Output()
+        output.scheduled_new_reqs = []
+        output.scheduled_cached_reqs = NS(req_ids=["a", "b"], num_computed_tokens=[10, 20])
+        self.assertEqual(context._scheduled_token_starts(output), {"a": 10, "b": 20})
+        output.scheduled_cached_reqs.num_computed_tokens = [10]
+        self.assertEqual(context._scheduled_token_starts(output), {"a": None, "b": None})
+        output.scheduled_cached_reqs = NS(req_ids=["a", "a"], num_computed_tokens=[10, 10])
+        self.assertEqual(context._scheduled_token_starts(output), {"a": None})
+        output.scheduled_cached_reqs = NS(req_ids=["a"], num_computed_tokens=[True])
+        self.assertEqual(context._scheduled_token_starts(output), {"a": None})
+
     def test_identity_transport_and_fanout(self):
         s = scheduler()
         output = Output()
