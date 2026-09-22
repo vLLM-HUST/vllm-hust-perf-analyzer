@@ -193,7 +193,7 @@ exercise old and fused publication, variable preparation, missing tails,
 unseeded suffixes, interrupted searches and graph barriers. Legacy cycle_end
 without begin retains exact contiguous matching.
 
-Important remaining evidence issue: in mixed rank0/rank1 the third candidate's
+Important remaining evidence issue: in mixed rank0 the third candidate's
 member envelope extends beyond its ending landmark. For example rank0
 anchor6485 / event-31138 is COMMUNICATION_OP row584,
 `MatmulAllReduceMc2AicpuKernel_467_127_1`, normalized as AllReduce, spanning
@@ -202,3 +202,27 @@ into the next execution cycle; it is not a reason to move a validated landmark
 or clip raw evidence. The observed label/timing does not prove a physical
 78-ms AllReduce or scheduler waiting. Investigate provider MC2 observation
 identity separately before treating candidate container width as step latency.
+
+
+### Separate provider detail from fused invocation identity
+
+A follow-up audit of mixed rank0 found128 MC2 COMMUNICATION_OP rows whose
+intervals exactly equal the min/max of their linked SQE tasks. Every opId group
+contains tasks in two separate target replays; 64 groups contain60 tasks and64
+contain89. This establishes cross-replay grouping, not which profiler component
+caused it. The original suspicion that mixed rank1 had the same overhang was
+incorrect: its checked envelopes have no overhang.
+
+Those128 envelopes plus9,536 TASK SQEs must not become independent mainline
+operators. Evidence-role policy v3 recognizes only the bounded MC2 numeric
+instance family and known SQE task types, excludes them from anchors and
+auxiliary cost attribution, and retains raw/normalized provenance. This is
+classification, not a fictitious one-to-one parent reconciliation. The existing
+reconciliation ambiguity can remain an honest raw audit result. Unknown SQE
+identities, normal AllReduce, and fused MatmulAllReduce compute stay admitted.
+
+The complementary `a952466` upper Perfetto cleanup was fast-forwarded before
+this change: it normalizes display names and hides generic SQE/AICPU/Aiv drawings,
+without changing SQL structure. Do not confuse that display policy with the
+new canonical exclusion. Compare re-exports made with the SAME new renderer
+when measuring the added effect of the classification policy.

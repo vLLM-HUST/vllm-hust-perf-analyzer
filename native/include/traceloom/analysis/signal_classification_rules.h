@@ -27,6 +27,7 @@ enum class SignalMatchField {
 enum class SignalMatchKind {
   kExact,
   kContains,
+  kAscendMc2Detail,
 };
 
 enum class SignalStructuralParticipation {

@@ -163,11 +163,16 @@ void validate_rules(const std::vector<SignalClassificationRule>& rules) {
           "unsupported signal rule provider_scope at line " +
           std::to_string(rule.source_line) + ": " + rule.provider_scope);
     }
-    if (rule.source_domain != "task") {
+    if (rule.source_domain != "task" && rule.source_domain != "communication_op") {
       throw std::invalid_argument(
           "unsupported signal rule source_domain at line " +
           std::to_string(rule.source_line) + ": " + rule.source_domain);
     }
+    if (rule.match==SignalMatchKind::kAscendMc2Detail &&
+        (rule.provider_scope!="ascend" || rule.field!=SignalMatchField::kOperator ||
+         rule.pattern!="MatmulAllReduceMc2AicpuKernel_" ||
+         (rule.source_domain=="task" && !comma_list_contains(rule.required_fields,"task_type"))))
+      throw std::invalid_argument("ascend_mc2_detail requires ascend operator family and task type evidence");
     if (rule.pattern.empty()) {
       throw std::invalid_argument("empty signal rule pattern at line " +
                                   std::to_string(rule.source_line));
@@ -223,6 +228,23 @@ bool matches(const SignalClassificationRule& rule,
   }
   if (value.empty()) {
     return false;
+  }
+  if (rule.match == SignalMatchKind::kAscendMc2Detail) {
+    // This is a provider-detail family, NOT the fused MatmulAllReduce compute
+    // operator. Require the observed numeric instance suffix and known SQEs.
+    if (value.rfind(pattern,0)!=0) return false;
+    const auto suffix=value.substr(pattern.size());
+    bool digit=false;
+    for (char ch:suffix) {
+      if (ch>='0' && ch<='9') digit=true;
+      else if (ch=='_' && digit) digit=false;
+      else return false;
+    }
+    if (!digit) return false;
+    if (input.source_domain=="communication_op") return true;
+    const auto type=normalize_task_type(input.task_type);
+    return type=="C_CORE_SQE" || type=="NOTIFY_RECORD_SQE" ||
+        type=="NOTIFY_WAIT_SQE" || type=="WRITE_VALUE_SQE" || type=="SDMA_SQE";
   }
   if (rule.match == SignalMatchKind::kExact) {
     return value == pattern;
@@ -325,6 +347,8 @@ const char* signal_match_kind_name(SignalMatchKind match) noexcept {
       return "exact";
     case SignalMatchKind::kContains:
       return "contains";
+    case SignalMatchKind::kAscendMc2Detail:
+      return "ascend_mc2_detail";
   }
   return "unknown";
 }

@@ -51,6 +51,9 @@ struct FlatAnchorBuildStats {
 // Builds the exact normalized policy input used by structural projection.
 // Database materializers reuse this function so audit rows cannot drift from
 // the executable classifier through a second provider-specific reconstruction.
+SignalClassificationInput signal_classification_input_for_communication(
+    const NativeIr& ir, const CommunicationOpRow& communication);
+
 SignalClassificationInput signal_classification_input_for_task(
     const NativeIr& ir,
     const TaskRow& task);

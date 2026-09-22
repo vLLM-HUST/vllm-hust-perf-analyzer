@@ -44,10 +44,28 @@ int main() {
           "traceloom.evidence-role-policy/v1");
   require(defaults.metadata().policy_id ==
           "traceloom.default.accelerator-task-projection");
-  require(defaults.metadata().policy_version == "2");
+  require(defaults.metadata().policy_version == "3");
   require(defaults.metadata().provider_scopes == "ascend,cuda,hygon");
   require(defaults.metadata().manifest_sha256.size() == 64);
 
+  const std::string mc2="MatmulAllReduceMc2AicpuKernel_467_127_1";
+  for (const auto& type:{"C_CORE_SQE","NOTIFY_RECORD_SQE","NOTIFY_WAIT_SQE","WRITE_VALUE_SQE","SDMA_SQE"}) {
+    const auto d=defaults.decide({"task",type,mc2,mc2,true,"ascend"});
+    require(d.rule_id=="ascend.mc2.task.provider-detail");
+    require(d.role==SignalRole::kAuxiliary && d.cost_treatment==SignalCostTreatment::kRetainedAsEvidence);
+  }
+  require(defaults.decide({"communication_op","",mc2,mc2,true,"ascend"}).rule_id==
+      "ascend.mc2.communication_op.provider-detail");
+  for (const auto& name:{"MatmulAllReduce","MatmulAllReduce_506a984e26ea19e14052d4a5eac3f461_260",
+      "MatmulAllReduceMc2AicpuKernel_custom","MatmulAllReduceMc2AicpuKernel_1__2",
+      "MatmulAllReduceMc2AicpuKernel_1_","Future_MatmulAllReduceMc2AicpuKernel_1"})
+    require(defaults.decide({"task","C_CORE_SQE",name,name,true,"ascend"}).rule_id!=
+        "ascend.mc2.task.provider-detail");
+  for (const auto& type:{"KERNEL_MIX_AIC","FUTURE_SQE",""})
+    require(defaults.decide({"task",type,mc2,mc2,true,"ascend"}).rule_id!=
+        "ascend.mc2.task.provider-detail");
+  require(defaults.decide({"task","C_CORE_SQE",mc2,mc2,true,"cuda"}).rule_id!=
+      "ascend.mc2.task.provider-detail");
   std::unordered_set<std::string> rule_ids;
   for (const SignalClassificationRule& rule : defaults.rules()) {
     require(!rule.rule_id.empty());

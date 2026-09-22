@@ -63,6 +63,7 @@ SignalMatchKind parse_match(const std::string& value, std::size_t line) {
   if (value == "exact") {
     return SignalMatchKind::kExact;
   }
+  if (value == "ascend_mc2_detail") return SignalMatchKind::kAscendMc2Detail;
   if (value == "contains") {
     return SignalMatchKind::kContains;
   }

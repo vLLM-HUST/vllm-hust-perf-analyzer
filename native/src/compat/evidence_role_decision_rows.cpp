@@ -367,6 +367,11 @@ std::vector<EvidenceRoleDecisionRow> build_decisions(
             policy_decision.missing_required_fields + ":" +
                 policy_decision.missing_capability_rule_ids);
       }
+    } else if (const auto comm=comm_by_event.find(event.id.value()); comm!=comm_by_event.end() && comm->second.size()==1) {
+      const auto input=signal_classification_input_for_communication(ir,*comm->second.front());
+      row.source_domain="communication_op";
+      row.input_provider_scope=input.provider_scope;
+      apply_policy_decision(row,config.classification_rules.decide(input));
     } else {
       row.input_provider_scope = "any";
       row.policy_structural_participation = "not_applicable";
@@ -447,6 +452,7 @@ std::vector<EvidenceRoleDecisionRow> build_decisions(
                             "explicit_analysis_config_exclusion",
                             "task_type");
     } else if (communication_covered &&
+               (!config.filter_auxiliary_task_anchors || row.policy_structural_participation!="excluded") &&
                (task == nullptr ||
                 config.skip_tasks_covered_by_communication_ops)) {
       apply_system_decision(row, "anchor", "identity",
@@ -489,7 +495,7 @@ std::vector<EvidenceRoleDecisionRow> build_decisions(
                             "system.unfiltered_task_anchor",
                             "analysis_config", "supported",
                             "auxiliary_filter_disabled", "task_event");
-    } else if (task == nullptr) {
+    } else if (task == nullptr && row.policy_structural_participation != "excluded") {
       const bool has_direct_anchor =
           anchors_by_event.find(event.id.value()) != anchors_by_event.end();
       if (has_direct_anchor) {
@@ -615,7 +621,7 @@ std::vector<EvidenceRoleDecisionRow> build_decisions(
       row.reason_code = "identity_event_without_anchor";
       add_issue(row, "identity_event_without_anchor", "orphan", row.event_id);
     } else if (excluded_role && materialize_aux_attribution &&
-               !has_aux_placement) {
+               row.cost_treatment=="retained_for_attribution" && !has_aux_placement) {
       row.support_state = "retained_unplaced";
       row.reason_code = "omitted_event_without_auxiliary_link";
       add_issue(row, "omitted_event_without_auxiliary_link",

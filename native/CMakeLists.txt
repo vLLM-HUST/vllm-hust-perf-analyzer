@@ -1005,6 +1005,10 @@ if(TRACELOOM_NATIVE_BUILD_TESTS)
       COMMAND ${Python3_EXECUTABLE}
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/compat/replay_gap_projection_test.py
         $<TARGET_FILE:traceloom>)
+    add_test(NAME mc2_detail_projection_test
+      COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/compat/mc2_detail_projection_test.py
+        $<TARGET_FILE:traceloom>)
     add_test(NAME qwen_serving_projection_test
       COMMAND ${Python3_EXECUTABLE}
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/compat/qwen_serving_projection_test.py

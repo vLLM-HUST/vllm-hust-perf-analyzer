@@ -322,6 +322,14 @@ SignalClassificationInput signal_classification_input_for_task(
   return make_signal_classification_input(ir, task);
 }
 
+SignalClassificationInput signal_classification_input_for_communication(
+    const NativeIr& ir, const CommunicationOpRow& communication) {
+  const auto name=symbol_text(ir,communication.op_name_symbol_id);
+  const auto type=symbol_text(ir,communication.op_type_symbol_id);
+  return {"communication_op",type,lower_ascii(name+" "+type),name,!name.empty(),
+          provider_scope_from_source_kind(ir.source_refs.row(communication.source_ref_id).source_kind)};
+}
+
 FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
                                         FlatAnchorBuildConfig config) {
   if (!ir.anchors.empty() || !ir.tokens.empty()) {
@@ -578,6 +586,11 @@ FlatAnchorBuildStats build_flat_anchors(NativeIr& ir,
     if (suppressed_events.find(comm.trace_event_id.value()) !=
         suppressed_events.end()) {
       ++stats.suppressed_duplicate_observations;
+      continue;
+    }
+    if (config.filter_auxiliary_task_anchors &&
+        config.classification_rules.decide(signal_classification_input_for_communication(ir,comm))
+            .structural_participation==SignalStructuralParticipation::kExcluded) {
       continue;
     }
     const TraceEventRow& event = ir.trace_events.row(comm.trace_event_id);

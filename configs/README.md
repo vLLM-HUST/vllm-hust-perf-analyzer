@@ -385,3 +385,25 @@ cycles and 396 layer windows across 12 launches (64 per large graph, 2 per small
 graph), with all 10,460 device-event identities and timestamps unchanged.
 Different captures must be checked for marker coverage and partial/no-match
 states before reusing these hints.
+
+
+### MC2 provider-detail denoising
+
+Default evidence-role policy v3 admits `task` and `communication_op` rule domains.
+`ascend_mc2_detail` is a bounded Ascend operator matcher: it requires the
+`MatmulAllReduceMc2AicpuKernel_` prefix with nonempty underscore-separated decimal
+instance components. For TASK observations it additionally requires one of
+`C_CORE_SQE`, `NOTIFY_RECORD_SQE`, `NOTIFY_WAIT_SQE`, `WRITE_VALUE_SQE`, or
+`SDMA_SQE`. Unknown types/names remain eligible; this is not a substring rule for
+all Matmul/AllReduce operations.
+
+These known implementation/lifecycle observations are `auxiliary`, structurally
+`excluded`, and `retained_as_evidence` rather than attributed again. Their original
+normalized events and embedded raw rows remain queryable, with the decision in
+`traceloom_evidence_role_decision`. True fused `MatmulAllReduce` invocations and
+ordinary communication remain separate evidence. No duration threshold, guessed
+parent, timestamp clipping, or synthetic reconciliation is introduced.
+
+This differs from the upper Perfetto display cleanup: re-export can hide names,
+but removing these observations from structure/cost requires reanalysis. The
+classification policy remains configurable through the existing policy overlays.
