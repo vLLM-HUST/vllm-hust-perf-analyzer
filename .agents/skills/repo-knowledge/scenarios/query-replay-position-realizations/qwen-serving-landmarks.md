@@ -226,3 +226,23 @@ this change: it normalizes display names and hides generic SQE/AICPU/Aiv drawing
 without changing SQL structure. Do not confuse that display policy with the
 new canonical exclusion. Compare re-exports made with the SAME new renderer
 when measuring the added effect of the classification policy.
+
+
+Full fusion-final acceptance at `eb3cdbf` (includes `a952466` display cleanup):
+`traceloom-mc2-denoised/` beside the capture contains fresh four-input AugDBs,
+rank-local exports, commands and executable verification. Mixed rank0 excludes
+9,536 TASK SQEs plus128 provider envelopes. With the same renderer on old/new
+AugDBs, its upper event count falls20,410→10,746, matching mixed rank1. Both
+mixed ranks retain256 exact fused MatmulAllReduce members; decode remains9,728
+upper events/rank. All normalized event rows and exact launch/body/cost member
+rows remain equal (launch anchor IDs necessarily renumber). Omitted detail has
+no mainline anchor or auxiliary cost link. Entire raw_provider arrays are equal.
+
+All four still have12 launches,396 layer/attention/MLP and792 residual/norm,
+and five complete candidate cycles. Mixed rank0's61,880.937us third-envelope
+overhang is eliminated without clipping an event; all20 windows now end at the
+validated landmark. This is repaired analysis, not a measured workload speedup.
+The combined91-test preset, including SQL golden, and Release build pass locally;
+the display branch's reported89/90 result on its original machine is historical,
+not a failure reproduced in this environment. The pre-sync uncommitted patch
+also remains in a named Git stash as a recovery copy.
