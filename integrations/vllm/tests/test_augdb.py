@@ -546,6 +546,30 @@ class AugDbTests(unittest.TestCase):
             [(300, 360)],
         )
 
+    def test_queue_bridge_uses_two_sided_marker_first_range_searches(self):
+        self.queued_fixture()
+        with sqlite3.connect(self.raw) as db:
+            # Future calls on the same thread must not become a suffix scan for
+            # every dequeue. One row alone legitimately prefers a table scan.
+            db.executescript("""
+                WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<512)
+                INSERT INTO CANN_API SELECT 10000+i*10,10005+i*10,
+                    1000+i,101,476741369864,102 FROM n;
+            """)
+        self.run_cli()
+        # Exercise the actual construction SELECT, not a separately maintained
+        # lookalike. A correct result on a tiny fixture can hide a quadratic join.
+        source = (ROOT / "native/src/compat/scheduler_context.cpp").read_text()
+        query = source.split("CREATE TABLE traceloom_context_queue_runtime AS\n", 1)[1].split(";", 1)[0]
+        plan = [r[3] for r in self.rows("EXPLAIN QUERY PLAN " + query)]
+        self.assertTrue(any("idx_context_queue_scope" in s and
+                            "enqueue_start_ns>? AND enqueue_start_ns<?" in s
+                            for s in plan), plan)
+        self.assertTrue(any("idx_context_host_scope" in s and
+                            "start_ns>? AND start_ns<?" in s for s in plan), plan)
+        self.assertEqual(self.rows(query),
+                         self.rows("SELECT * FROM traceloom_context_queue_runtime"))
+
     def test_queue_correlation_mismatch_and_duplicates_are_not_guessed(self):
         self.queued_fixture()
         with sqlite3.connect(self.raw) as db:

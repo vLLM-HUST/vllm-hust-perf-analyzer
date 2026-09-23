@@ -270,3 +270,23 @@ now colocates planned kind and observed workload with event-work sum, overlap-sa
 union and envelope at step/device grain. It deduplicates before request joins,
 excludes launch envelopes and retains missing work as NULL. Use this public view
 instead of copying the window-function reducer into each new paper query.
+
+## Keep queue binding marker-first and two-sided (2026-09-23)
+
+The hw3 attention-input matrix (160 scheduler decisions /304 execution records)
+exposed a600s materialization timeout inside `bind_markers`. SQLite reordered
+queue/runtime containment from the global runtime population; an index on start
+alone did not bound the suffix scan. Preserve BOTH `CROSS JOIN` ordering from
+selected markers through queue pairs to runtime calls AND explicit upper/lower
+bounds on indexed enqueue/runtime start timestamps. The endpoint containment,
+source, thread and connection identity predicates remain in place.
+
+On the retained September22 l0-linked32 AugDB, two-sided predicates alone still
+selected an automatic source/dequeue-thread index and hit a15s bounded-query
+limit. Marker-first joins instead used both two-sided range indexes, returned
+all24,631 queue/runtime rows in0.104s, and compared set-equal to the existing
+materialized relation. This is a bounded query observation, not a universal
+speedup claim. The CPU integration test now checks the actual construction
+SELECT's query plan as well as its result. Matrix evidence lives under
+`/root/my-ascend-workspace/runs/traceloom-attention-response/hw3-matrix-v3/`;
+its failed initial materialization is retained separately from any accepted rerun.

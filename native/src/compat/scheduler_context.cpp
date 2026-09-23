@@ -392,14 +392,18 @@ CREATE TABLE traceloom_context_queue_pair AS
  AND a.start_ns<=b.start_ns
  AND (CAST(a.global_tid AS INTEGER)>>32)=(CAST(b.global_tid AS INTEGER)>>32);
 CREATE INDEX idx_context_queue_scope ON traceloom_context_queue_pair(enqueue_tid,enqueue_start_ns);
+-- Keep the selected marker outermost and bound both ends of the indexed start
+-- columns. Reordering from all runtime calls can make this join quadratic.
 CREATE TABLE traceloom_context_queue_runtime AS
  SELECT e.execution_id,c.runtime_call_id,q.source_id,q.enqueue_key,q.dequeue_key,q.connection_id
  FROM traceloom_v_execution_context e JOIN traceloom_context_marker m USING(execution_id)
- JOIN traceloom_context_queue_pair q ON q.source_path=m.source_path
- AND q.enqueue_tid=m.global_tid AND q.enqueue_start_ns>=m.start_ns AND q.enqueue_end_ns<=m.end_ns
- JOIN traceloom_runtime_call c ON c.provider='ascend' AND c.clock_domain='profiler_host'
+ CROSS JOIN traceloom_context_queue_pair q ON q.source_path=m.source_path
+ AND q.enqueue_tid=m.global_tid AND q.enqueue_start_ns>=m.start_ns
+ AND q.enqueue_start_ns<=m.end_ns AND q.enqueue_end_ns<=m.end_ns
+ CROSS JOIN traceloom_runtime_call c ON c.provider='ascend' AND c.clock_domain='profiler_host'
  AND json_extract(c.raw_json,'$.source_path')=q.source_path AND c.global_tid=q.dequeue_tid
- AND c.start_ns>=q.dequeue_start_ns AND c.end_ns<=q.dequeue_end_ns
+ AND c.start_ns>=q.dequeue_start_ns AND c.start_ns<=q.dequeue_end_ns
+ AND c.end_ns<=q.dequeue_end_ns
  WHERE e.support_state='supported_marker';
 INSERT INTO traceloom_context_runtime_candidate
  SELECT DISTINCT execution_id,runtime_call_id,'task_queue_connection'
