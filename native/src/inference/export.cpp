@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -16,6 +17,8 @@
 namespace traceloom::inference::detail {
 void atomic_write(const std::string& path, const std::string& contents) {
   namespace fs = std::filesystem;
+  require(contents.size() <= 32 * 1024 * 1024,
+          "inference projection exceeds 32 MiB output budget");
   const auto parent = fs::path(path).parent_path();
   if (!parent.empty()) fs::create_directories(parent);
   std::string temp;
@@ -126,8 +129,12 @@ void write_html(const Snapshot& snapshot, const std::string& output,
   o << R"HTML(<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>TraceLoom · Inference</title><link rel="icon" href="data:,">)HTML";
   if (live) o << "<meta http-equiv=\"refresh\" content=\"2\">";
   o << R"HTML(<style>
-body{margin:0;background:#111827;color:#e5e7eb;font:15px system-ui,sans-serif}main{max-width:1280px;margin:auto;padding:30px}h1{font-size:28px}h2{font-size:18px;margin-top:28px}p{color:#aebbd0}input{background:#243247;border:1px solid #64748b;color:white;padding:10px;width: min(90%,480px);border-radius:6px}.span{border-bottom:1px solid #334155;padding:12px 0}.top{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.name{font-weight:600}.badge{font-size:12px;padding:3px 7px;border-radius:4px;background:#334155}.error,.cancelled{color:#fda4af}.open,.missing_start{color:#fcd34d}.lane{height:14px;background:#1e293b;margin:8px 0;border-radius:4px}.bar{height:100%;min-width:3px;background:#38bdf8;border-radius:4px}.error .bar{background:#fb7185}.cancelled .bar{background:#fbbf24}.open .bar{background:#a78bfa}summary{cursor:pointer;color:#aebbd0}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}code{font-size:12px}small{color:#94a3b8}.trace{padding:12px;background:#1e293b;margin:8px 0;border-radius:6px}
+body{margin:0;background:#111827;color:#e5e7eb;font:15px system-ui,sans-serif}main{max-width:1280px;margin:auto;padding:30px}h1{font-size:28px}h2{font-size:18px;margin-top:28px}p{color:#aebbd0;overflow-wrap:anywhere}.summary-preview{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}input{background:#243247;border:1px solid #64748b;color:white;padding:10px;width: min(90%,480px);border-radius:6px}.span{border-bottom:1px solid #334155;padding:12px 0}.top{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.name{font-weight:600}.badge{font-size:12px;padding:3px 7px;border-radius:4px;background:#334155}.error,.cancelled{color:#fda4af}.open,.missing_start{color:#fcd34d}.lane{height:14px;background:#1e293b;margin:8px 0;border-radius:4px}.bar{height:100%;min-width:3px;background:#38bdf8;border-radius:4px}.error .bar{background:#fb7185}.cancelled .bar{background:#fbbf24}.open .bar{background:#a78bfa}summary{cursor:pointer;color:#aebbd0}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}code{font-size:12px}small{color:#94a3b8}.trace{padding:12px;background:#1e293b;margin:8px 0;border-radius:6px}
 </style><main><h1>TraceLoom · Observable inference</h1>)HTML";
+  const auto now = std::time(nullptr);
+  o << "<p><small>Snapshot generated (UTC): "
+    << std::put_time(std::gmtime(&now), "%Y-%m-%dT%H:%M:%SZ")
+    << "</small></p>";
   o << "<p>"
     << (live ? "Live snapshots · refresh every 2 seconds" : "Saved snapshot")
     << " · " << snapshot.spans.size() << " observed spans</p>";
@@ -137,6 +144,8 @@ body{margin:0;background:#111827;color:#e5e7eb;font:15px system-ui,sans-serif}ma
        "paths are partial evidence, not a global critical path.</p>";
   o << "<input id=\"filter\" aria-label=\"Filter spans\" placeholder=\"Filter "
        "by name, status, span ID or metadata\">";
+  if (snapshot.spans.empty())
+    o << "<p class=\"empty\">No observations yet. Waiting for complete NDJSON records.</p>";
   for (const auto& [trace, state] : snapshot.trace_states) {
     const auto it = snapshot.dropped.find(trace);
     o << "<div class=\"trace\"><code>" << escape(trace) << "</code> · "
@@ -189,12 +198,15 @@ body{margin:0;background:#111827;color:#e5e7eb;font:15px system-ui,sans-serif}ma
         << "</code></div><div class=\"lane\"><div class=\"bar\" "
            "style=\"margin-left:"
         << left << "%;width:" << width << "%\"></div></div>";
-      if (!s.summary.empty()) o << "<p>" << escape(s.summary) << "</p>";
+      if (!s.summary.empty())
+        o << "<p class=\"summary-preview\" title=\"Public summary (full text in details)\">"
+          << escape(s.summary) << "</p>";
       o << "<details><summary>Metadata and evidence</summary><pre>Parent: "
         << escape(s.parent) << (s.missing_parent ? " (not observed)" : "")
         << "\nDependencies:";
       for (const auto& d : s.dependencies) o << " " << d;
-      o << "\nTerminal status: " << escape(s.terminal_status)
+      o << "\nPublic summary: " << escape(s.summary)
+        << "\nTerminal status: " << escape(s.terminal_status)
         << "\nEvidence refs: " << escape(s.evidence)
         << "\nAttributes: " << escape(s.attributes)
         << "\nWall start ns (display only): " << s.wall
@@ -316,6 +328,7 @@ void export_trace(const std::string& database, const std::string& html,
         "projection paths collide");
   auto db = detail::open(database, true);
   detail::exec(db.get(), "BEGIN");
+  detail::validate_projection(db.get());
   auto snapshot = detail::load(db.get());
   detail::exec(db.get(), "COMMIT");
   if (!html.empty()) detail::write_html(snapshot, html, live);

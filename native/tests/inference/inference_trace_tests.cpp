@@ -139,7 +139,7 @@ int main() {
     auto malicious = event(0, "span_start", "0000000000000001",
                            ",\"name\":\"run\",\"kind\":\"pipeline\","
                            "\"attributes\":{\"prompt\":\"SECRET\"},\"decision_"
-                           "summary\":\"</script><script>alert(1)</script>\"");
+                           "summary\":\"Selected doc & cited evidence.\"");
     write(source, malicious);
     ImportOptions summary;
     summary.include_summaries = true;
@@ -155,6 +155,11 @@ int main() {
     check(read(root / "privacy.db").find("SECRET") == std::string::npos,
           "no raw storage");
     rejects([&] { import_ndjson(source, root / "privacy.db"); });
+    write(source,
+          event(0, "span_start", "0000000000000001",
+                ",\"name\":\"run\",\"kind\":\"pipeline\","
+                "\"decision_summary\":\"<script>alert(1)</script>\""));
+    rejects([&] { import_ndjson(source, root / "script.db", summary); });
     // Bad type, unsupported version, duplicate key, UTF8, negative time,
     // limits.
     for (const auto& bad :

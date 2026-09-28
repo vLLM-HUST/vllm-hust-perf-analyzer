@@ -218,6 +218,7 @@ if(TRACELOOM_NATIVE_ENABLE_SQLITE_ADAPTERS)
   if(SQLite3_FOUND)
     add_library(traceloom_native_inference
       src/inference/schema.cpp
+      src/inference/privacy.cpp
       src/inference/parser.cpp
       src/inference/import.cpp
       src/inference/model.cpp
@@ -238,6 +239,10 @@ if(TRACELOOM_NATIVE_ENABLE_SQLITE_ADAPTERS)
       add_test(NAME inference_trace_tests COMMAND inference_trace_tests)
       find_package(Python3 COMPONENTS Interpreter QUIET)
       if(Python3_Interpreter_FOUND)
+        add_test(NAME inference_acceptance_tests COMMAND ${Python3_EXECUTABLE}
+          ${CMAKE_CURRENT_SOURCE_DIR}/tests/inference/acceptance_tests.py
+          $<TARGET_FILE:traceloom>
+          ${CMAKE_CURRENT_BINARY_DIR})
         add_test(NAME inference_cli_tests COMMAND ${Python3_EXECUTABLE}
           ${CMAKE_CURRENT_SOURCE_DIR}/tests/inference/cli_tests.py
           $<TARGET_FILE:traceloom>

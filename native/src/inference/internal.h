@@ -35,6 +35,8 @@ std::string text(sqlite3_stmt* stmt, int index);
 std::string quote(const std::string& value);
 void initialize(sqlite3* db, bool summaries);
 void check_version(sqlite3* db);
+void validate_projection(sqlite3* db);
+bool public_text(const std::string& value);
 std::string normalize(sqlite3* db, const std::string& line, bool summaries,
                       std::size_t& discarded);
 

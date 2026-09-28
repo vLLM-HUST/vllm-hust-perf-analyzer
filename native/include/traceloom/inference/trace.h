@@ -2,9 +2,16 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <stdexcept>
 #include <string>
 
 namespace traceloom::inference {
+
+// Only transient source replacement/truncation is retryable; malformed
+// complete records and database/content errors remain fatal to the observer.
+struct InputChanged : std::runtime_error {
+  InputChanged() : std::runtime_error("inference source changed or disappeared") {}
+};
 
 struct ImportOptions {
   bool include_summaries = false;
