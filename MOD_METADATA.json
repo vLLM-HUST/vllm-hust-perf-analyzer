@@ -1,0 +1,41 @@
+{
+  "canonical_repository": "https://github.com/vLLM-HUST/vllm-hust-perf-analyzer",
+  "display_name": "TraceLoom",
+  "evidence": {
+    "index": "./traceloom.html#evidence",
+    "latest_result": "./traceloom.html#evidence",
+    "performance_claims": [],
+    "qualification": "unqualified"
+  },
+  "lifecycle": {
+    "activation_contract": "See the extension manifest and README; discovery alone does not enable this MOD.",
+    "default_enabled": false,
+    "rollback_contract": "Disable the MOD and return to the unmodified host path.",
+    "status": "experimental"
+  },
+  "metadata_source": {
+    "commit": "7df1647048ac5f05fcc502ce4bea94f26d0f5362",
+    "repository": "vLLM-HUST/vllm-hust-website"
+  },
+  "mod_id": "traceloom",
+  "repository": "vllm-hust-perf-analyzer",
+  "responsibility": {
+    "advisor_status": "unknown",
+    "advisors": [],
+    "maintainers": [
+      {
+        "github": "CubeLander",
+        "name": "田景远"
+      }
+    ],
+    "organization": "vLLM-HUST"
+  },
+  "schema_version": "vllm-hust-mod-metadata-v1",
+  "scope": {
+    "mechanism": "profiling_analysis",
+    "out_of_scope": [],
+    "supported_workloads": [
+      "Qwen3-0.6B · bounded capture validation"
+    ]
+  }
+}
