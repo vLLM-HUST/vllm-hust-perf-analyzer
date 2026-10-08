@@ -224,3 +224,46 @@ a local regression budget, not a hardware-independent guarantee. Measure with
 include an existing DB or claim that duplicate reimports measure fresh ingestion.
 Producer enqueue/disabled-path budgets above require independent SAGE tests;
 TraceLoom's offline import measurement cannot establish inference overhead.
+
+
+## Acceptance hardening (PR #63)
+
+`schema_minor` is optional and defaults to integer 0. Explicit 0 canonicalizes
+identically to absence. Future minor/major versions are rejected atomically;
+there is no implicit best-effort decoding of new fields. Unknown envelope keys
+reject; unknown attribute keys are discarded before storage. JSON Schema cannot
+alone enforce lexical integer spelling or UTF-8 byte limits; the importer does.
+
+Known-field values and opaque references are checked for recognizable auth,
+secret/token, URI, path/traversal, markup, exception-body and hidden-reasoning
+markers. Unsafe values reject the record; no diagnostic echoes the rejected
+content. Opt-in public summaries must pass the same checks and the 256-byte
+limit. The UI shows a two-line preview with the full accepted summary in details;
+wire summaries over 256 bytes reject rather than silently losing content.
+Existing DB payloads are revalidated on export, so a modified or older artifact
+cannot bypass the current output boundary. This is not a general-purpose prose
+redactor: producers must still whitelist public operation labels and author
+public summaries. Arbitrary mislabeled or encoded secrets cannot be certified
+safe merely by matching an identifier grammar.
+
+On POSIX, the watcher compares device/inode in addition to size/mtime, and
+rechecks the source after import. Replacements with preserved size/mtime are
+therefore read again. Rename/unlink/truncation races are retryable; malformed
+complete records, policy failures and DB errors are fatal to this observer.
+A failed or gracefully stopped watcher removes the HTML auto-refresh marker
+while preserving the last valid DB. No observer call is made from the producer.
+
+Live means repeated file/directory scans (1 second interval), transactional
+imports of complete lines, and atomic projection publication. The active HTML
+refreshes every 2 seconds. Visible update latency is scan wait + import/export
+work + browser refresh wait; background-tab throttling is not bounded. The UI
+shows snapshot generation time. It does not claim a push transport or label a
+one-shot import as live. Tests measure publication latency independently.
+
+Projection budgets are independent of ingestion: <=10,000 spans, <=10,000 point
+observations, <=16 MiB accepted event payload and <=32 MiB per output. Exceeding a
+budget leaves previous output files intact and the queryable DB available.
+The local 10k-event projection acceptance target is <=5 seconds median and
+<=128 MiB peak RSS, measured separately from import. See the reproducible
+`native/tests/inference/{acceptance_tests,joint_acceptance,benchmark_acceptance}.py`
+drivers; actual producer fixtures and generated artifacts remain outside Git.

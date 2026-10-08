@@ -13,6 +13,7 @@ ImportReceipt import_ndjson(const std::string& input,
   using namespace detail;
   require(options.max_events > 0 && options.max_events <= 100000,
           "invalid retained event limit");
+  if (!fs::exists(input)) throw InputChanged();
   require(fs::is_regular_file(input),
           "inference input must be a regular NDJSON file");
   require(fs::weakly_canonical(input) != fs::weakly_canonical(database) &&
@@ -22,7 +23,10 @@ ImportReceipt import_ndjson(const std::string& input,
                         line_limit = 16 * 1024 - 1;
   // Freeze byte length so a continuously appending producer cannot extend a
   // transaction.
-  const auto bytes = fs::file_size(input);
+  std::error_code size_error;
+  const auto bytes = fs::file_size(input, size_error);
+  if (size_error == std::errc::no_such_file_or_directory) throw InputChanged();
+  require(!size_error, "cannot size inference input");
   require(bytes <= file_limit, "inference snapshot exceeds 64 MiB");
   if (!fs::path(database).parent_path().empty())
     fs::create_directories(fs::path(database).parent_path());
@@ -42,12 +46,13 @@ ImportReceipt import_ndjson(const std::string& input,
         prepare(db.get(), R"SQL(SELECT payload FROM traceloom_inference_event
       WHERE trace_id=json_extract(?1,'$.trace_id') AND event_id=json_extract(?1,'$.event_id'))SQL");
     std::ifstream in(input, std::ios::binary);
+    if (!in && !fs::exists(input)) throw InputChanged();
     require(bool(in), "cannot read inference input");
     std::string line;
     std::size_t number = 1;
     for (std::uintmax_t i = 0; i < bytes; ++i) {
       char c;
-      require(bool(in.get(c)), "inference input changed during snapshot read");
+      if (!in.get(c)) throw InputChanged();
       if (c != '\n') {
         require(line.size() < line_limit, "inference line exceeds 16 KiB");
         line += c;

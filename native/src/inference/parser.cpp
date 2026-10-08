@@ -44,7 +44,7 @@ bool utf8(const std::string& s) {
   return true;
 }
 bool label(const std::string& s) {
-  return !s.empty() && s.size() <= 128 &&
+  return !s.empty() && s.size() <= 128 && public_text(s) &&
          std::all_of(s.begin(), s.end(), [](char c) {
            return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
                   (c >= '0' && c <= '9') || c == '_' || c == '.' || c == ':' ||
@@ -151,13 +151,16 @@ std::string normalize(sqlite3* db, const std::string& line, bool summaries,
       "parent_span_id", "producer_id",  "clock_id",     "sequence",
       "event_type",     "wall_time_ns", "monotonic_ns", "name",
       "kind",           "status",       "attributes",   "decision_summary",
-      "evidence_refs",  "links"};
+      "evidence_refs",  "links",        "schema_minor"};
   for (const auto& [k, v] : o) {
     (void)v;
     require(allowed.count(k), "unknown inference envelope field");
   }
   require(integer(o, "schema_version") == "1",
           "unsupported inference wire version");
+  if (o.count("schema_minor"))
+    require(integer(o, "schema_minor") == "0",
+            "unsupported inference wire minor version");
   std::map<std::string, std::string> f;
   for (const auto* k :
        {"schema_version", "sequence", "wall_time_ns", "monotonic_ns"})
@@ -214,11 +217,15 @@ std::string normalize(sqlite3* db, const std::string& line, bool summaries,
         "output_tokens", "retrieved_count", "dropped_events"};
     for (const auto& [k, v] : a) {
       if (labels.count(k)) {
+        require(public_text(v.value), "unsafe metadata value");
         auto checked = v.value;
         if (k == "model") {
-          require(checked.empty() || (checked.front() != '/' &&
-                                      checked.find("//") == std::string::npos),
-                  "invalid model label");
+          require(
+              checked.empty() || (checked.front() != '/' &&
+                                  checked.find("//") == std::string::npos &&
+                                  checked.find("../") == std::string::npos &&
+                                  checked.find("/..") == std::string::npos),
+              "invalid model label");
           std::replace(checked.begin(), checked.end(), '/', '_');
         }
         require(v.type == "text" && label(checked), "invalid metadata label");
@@ -234,7 +241,10 @@ std::string normalize(sqlite3* db, const std::string& line, bool summaries,
   if (o.count("decision_summary")) {
     auto s = string(o, "decision_summary");
     require(s.size() <= 256 && utf8(s), "invalid public summary");
-    if (summaries) f["decision_summary"] = quote(s);
+    if (summaries) {
+      require(public_text(s), "unsafe public summary");
+      f["decision_summary"] = quote(s);
+    }
   }
   f["evidence_refs"] = array(db, o, "evidence_refs", false);
   f["links"] = array(db, o, "links", true);

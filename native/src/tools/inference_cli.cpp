@@ -9,7 +9,13 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <tuple>
 #include <vector>
+#ifndef _WIN32
+#include <sys/stat.h>
+
+#include <cerrno>
+#endif
 
 #include "traceloom/inference/trace.h"
 
@@ -17,6 +23,33 @@ namespace traceloom::tools {
 namespace {
 volatile std::sig_atomic_t stop = 0;
 void interrupt(int) { stop = 1; }
+using Stamp = std::tuple<std::filesystem::file_time_type, std::uintmax_t,
+                         std::uintmax_t, std::uintmax_t>;
+Stamp source_stamp(const std::string& path) {
+  namespace fs = std::filesystem;
+  std::error_code error;
+  const auto modified = fs::last_write_time(path, error);
+  if (error) {
+    if (!fs::exists(path)) throw inference::InputChanged();
+    throw fs::filesystem_error("cannot inspect inference source", error);
+  }
+  const auto size = fs::file_size(path, error);
+  if (error) {
+    if (!fs::exists(path)) throw inference::InputChanged();
+    throw fs::filesystem_error("cannot inspect inference source", error);
+  }
+  std::uintmax_t device = 0, inode = 0;
+#ifndef _WIN32
+  struct stat info {};
+  if (stat(path.c_str(), &info) != 0) {
+    if (errno == ENOENT) throw inference::InputChanged();
+    throw std::runtime_error("cannot identify inference source");
+  }
+  device = info.st_dev;
+  inode = info.st_ino;
+#endif
+  return {modified, size, device, inode};
+}
 void help() {
   std::cout << "Usage: traceloom import-inference EVENTS.ndjson-or-DIRECTORY "
                "[--output "
@@ -98,7 +131,7 @@ int run_inference_cli(int argc, char** argv) {
   const auto old_int = std::signal(SIGINT, interrupt);
   const auto old_term = std::signal(SIGTERM, interrupt);
   bool imported = false;
-  std::map<std::string, std::pair<fs::file_time_type, std::uintmax_t>> observed;
+  std::map<std::string, Stamp> observed;
   try {
     do {
       if (!fs::exists(input) && follow) {
@@ -109,10 +142,17 @@ int run_inference_cli(int argc, char** argv) {
       if (fs::is_directory(input)) {
         std::uintmax_t total = 0;
         for (const auto& entry : fs::directory_iterator(input)) {
-          if (entry.is_symlink() || !entry.is_regular_file() ||
+          std::error_code error;
+          const auto status = entry.symlink_status(error);
+          if (error == std::errc::no_such_file_or_directory) continue;
+          if (error)
+            throw std::runtime_error("cannot inspect inference directory");
+          if (!fs::is_regular_file(status) ||
               entry.path().extension() != ".ndjson")
             continue;
-          const auto size = entry.file_size();
+          const auto size = entry.file_size(error);
+          if (error == std::errc::no_such_file_or_directory) continue;
+          if (error) throw std::runtime_error("cannot size inference segment");
           if (inputs.size() >= 1024 || size > 64 * 1024 * 1024 - total)
             throw std::invalid_argument(
                 "inference directory exceeds file/byte budget");
@@ -126,23 +166,34 @@ int run_inference_cli(int argc, char** argv) {
         for (const auto& output : {db, html, perfetto})
           if (!output.empty() &&
               (fs::weakly_canonical(path) == fs::weakly_canonical(output) ||
-               (fs::exists(output) && fs::equivalent(path, output))))
+               (fs::exists(path) && fs::exists(output) &&
+                fs::equivalent(path, output))))
             throw std::invalid_argument(
                 "inference segment/output paths collide");
       bool changed = false;
       for (const auto& path : inputs) {
-        const auto stamp =
-            std::make_pair(fs::last_write_time(path), fs::file_size(path));
-        if (observed.count(path) && observed.at(path) == stamp) continue;
-        const auto receipt = inference::import_ndjson(path, db, options);
-        std::cerr << "inference snapshot: inserted=" << receipt.inserted
-                  << " duplicates=" << receipt.duplicates
-                  << " discarded_attributes=" << receipt.discarded_attributes
-                  << " pending_tail_bytes=" << receipt.pending_tail_bytes
-                  << "\n";
-        observed[path] = stamp;
-        imported = true;
-        changed = true;
+        try {
+          const auto stamp = source_stamp(path);
+          if (observed.count(path) && observed.at(path) == stamp) continue;
+          const auto receipt = inference::import_ndjson(path, db, options);
+          imported = true;
+          changed = true;
+          std::cerr << "inference snapshot: inserted=" << receipt.inserted
+                    << " duplicates=" << receipt.duplicates
+                    << " discarded_attributes=" << receipt.discarded_attributes
+                    << " pending_tail_bytes=" << receipt.pending_tail_bytes
+                    << "\n";
+          // Never cache a mixed stat snapshot when a writer replaced/appended
+          // the source during import; re-read idempotently on the next scan.
+          if (source_stamp(path) == stamp)
+            observed[path] = stamp;
+          else
+            observed.erase(path);
+        } catch (const inference::InputChanged&) {
+          if (!follow) throw;
+          observed.erase(path);
+          std::cerr << "inference retry: source changed or disappeared\n";
+        }
       }
       // Bound bookkeeping when a producer rotates old segments away.
       for (auto it = observed.begin(); it != observed.end();) {

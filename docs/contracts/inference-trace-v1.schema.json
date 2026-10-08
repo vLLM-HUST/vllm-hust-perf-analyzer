@@ -164,6 +164,10 @@
         }
       },
       "additionalProperties": false
+    },
+    "schema_minor": {
+      "type": "integer",
+      "const": 0
     }
   },
   "required": [
