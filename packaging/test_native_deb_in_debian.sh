@@ -4,7 +4,7 @@ set -eu
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends \
-  ca-certificates cmake g++ libsqlite3-dev make sqlite3
+  ca-certificates cmake g++ libsqlite3-dev libyaml-dev make sqlite3
 
 build_dir=/tmp/traceloom-native-package
 rm -rf "$build_dir"
