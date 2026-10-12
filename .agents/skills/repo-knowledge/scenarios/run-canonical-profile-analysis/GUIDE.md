@@ -42,7 +42,7 @@ full-profile components are actually present.
 ### Bounded official torch-npu input observation (2026-08-20)
 
 TraceLoom lineage rooted at `f0a7a62` analyzed the original, unrenamed
-`ascend_pytorch_profiler_0.db` from a StateHarbor TP8 rank-0 capture directly.
+`ascend_pytorch_profiler_0.db` from a historical TP8 rank-0 capture directly.
 The source SHA-256 was
 `ac2aced218c5db0926116676f5fb4daf45ea5e3de0120c0f0f9d68e4dcfae449`.
 With `--source-kind ascend_sqlite_hot_path --threads 32 --sidecar-only
